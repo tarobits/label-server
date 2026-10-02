@@ -1,0 +1,25 @@
+services:
+  labels:
+    build: .
+    ports:
+      - "${LABEL_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+    environment:
+      LABEL_DATABASE_URL: sqlite:////srv/labels/data/labels.db
+      LABEL_MOCK_TAPE_WIDTH_MM: ${LABEL_MOCK_TAPE_WIDTH_MM:-24}
+      LABEL_NTFY_URL: ${LABEL_NTFY_URL:-}
+      LABEL_NTFY_TOPIC: ${LABEL_NTFY_TOPIC:-}
+      LABEL_NTFY_TOKEN: ${LABEL_NTFY_TOKEN:-}
+      LABEL_PUBLIC_URL: ${LABEL_PUBLIC_URL:-http://localhost:8000}
+    volumes:
+      - label-data:/srv/labels/data
+    restart: unless-stopped
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  label-data:

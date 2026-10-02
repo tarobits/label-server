@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "label-printer-server"
+version = "0.1.0"
+description = "Persistent tape-aware label queue with a mock printer"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.121,<1", "uvicorn[standard]>=0.34,<1",
+  "sqlalchemy>=2.0,<3", "alembic>=1.14,<2",
+  "pydantic-settings>=2.7,<3", "httpx>=0.28,<1",
+  "pillow>=11,<13", "resvg-py>=0.5,<0.6", "qrcode>=8,<9", "fonttools>=4,<5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2", "zxing-cpp>=2.3,<4", "types-qrcode"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["fonts/*.ttf", "fonts/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
