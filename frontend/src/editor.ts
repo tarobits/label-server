@@ -13,6 +13,7 @@ export interface Element {
   width: number
   height: number
   rotation: 0 | 90 | 180 | 270
+  distance_holder?: { element_id: string; axis: 'horizontal' | 'vertical'; gap_mm: number } | null
   content: string
   font: string
   font_size: number
@@ -21,6 +22,10 @@ export interface Element {
   vertical_align?: 'top' | 'center' | 'bottom'
   auto_width?: boolean
   wrap: boolean
+  padding_top?: number
+  padding_right?: number
+  padding_bottom?: number
+  padding_left?: number
   stroke: number
   filled: boolean
   image_asset?: string | null
@@ -38,6 +43,7 @@ export interface TemplateDocument {
   length_mm: number
   auto_length?: boolean
   out_of_bounds?: 'error' | 'clip'
+  print_resolution?: 'printer' | 'normal' | 'high'
   elements: Element[]
   fields: TemplateField[]
 }
@@ -59,6 +65,7 @@ export function newDocument(): TemplateDocument {
     length_mm: 60,
     auto_length: true,
     out_of_bounds: 'clip',
+    print_resolution: 'printer',
     fields: [],
     elements: [],
   }
@@ -80,6 +87,10 @@ export function newElement(kind: Element['kind']): Element {
     vertical_align: 'top',
     auto_width: false,
     wrap: true,
+    padding_top: 0,
+    padding_right: 0,
+    padding_bottom: 0,
+    padding_left: 0,
     stroke: 0.3,
     filled: false,
     image_asset: null,

@@ -8,18 +8,41 @@ const router = useRouter(),
   route = useRoute()
 const { profiles, activeProfile, busy, templates } = w
 const form = reactive({
-  tape_profile: activeProfile.value?.id ?? profiles.value[0]?.id ?? '',
+  tape_profile:
+    typeof route.query.profile === 'string'
+      ? route.query.profile
+      : (activeProfile.value?.id ?? profiles.value[0]?.id ?? ''),
   copies: 1,
   template:
     typeof route.query.template === 'string'
       ? route.query.template
       : (templates.value[0]?.id ?? ''),
 })
+watch(
+  () => [form.template, form.tape_profile],
+  () => {
+    if (route.path === '/new')
+      void router.replace({
+        query: {
+          ...route.query,
+          template: form.template || undefined,
+          profile: form.tape_profile || undefined,
+        },
+      })
+  },
+)
+watch(
+  () => route.query,
+  (query) => {
+    if (typeof query.template === 'string') form.template = query.template
+    if (typeof query.profile === 'string') form.tape_profile = query.profile
+  },
+)
 const data = ref<Record<string, string>>({}),
   preview = ref<Preview | null>(null),
   error = ref(''),
   rendering = ref(false),
-  showPrintPixels = ref(false)
+  showPrintPixels = ref(true)
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
 const template = computed(() => templates.value.find((t) => t.id === form.template))
 const adaptiveText = computed(() => template.value?.id === 'text' && template.value.revision === 2)
@@ -29,8 +52,11 @@ const document = computed(() => {
   if (adaptiveText.value) {
     doc.width_mm = selected.value?.width_mm ?? 24
     if (doc.elements[0]) {
+      const band = w.printers.value[0]?.capabilities.printable_widths_mm?.[String(doc.width_mm)]
+      const side = band ? (doc.width_mm - band) / 2 : Math.min(2, doc.width_mm / 4)
       doc.elements[0].width = doc.length_mm - 4
-      doc.elements[0].height = doc.width_mm - 4
+      doc.elements[0].y = side
+      doc.elements[0].height = doc.width_mm - 2 * side
     }
   }
   return doc
@@ -169,7 +195,10 @@ async function submit() {
           v-if="preview"
           class="raster-preview"
           :src="showPrintPixels ? preview.png : preview.design_png"
-          :style="{ imageRendering: showPrintPixels ? 'pixelated' : 'auto' }"
+          :style="{
+            imageRendering: showPrintPixels ? 'pixelated' : 'auto',
+            aspectRatio: `${preview.length_mm} / ${preview.width_mm}`,
+          }"
           alt="Rendered label preview"
         />
         <p v-else class="help">

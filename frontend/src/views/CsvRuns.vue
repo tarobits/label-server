@@ -20,6 +20,12 @@ interface Run {
   copies: number
   label_length_mm: number
   estimated_mm: number
+  print_plan?: {
+    leader_mm: number
+    feed_per_label_mm: number
+    cut_each: boolean
+    label_lengths_mm: number[]
+  } | null
   rows: {
     source_row: number
     copies: number
@@ -32,6 +38,8 @@ interface Preview {
   png: string
   design_png: string
   warnings: string[]
+  length_mm: number
+  width_mm: number
 }
 const route = useRoute(),
   router = useRouter()
@@ -43,7 +51,30 @@ const csv = ref(''),
       ? route.query.template
       : (w.templates.value[0]?.id ?? ''),
   ),
-  profileId = ref(w.activeProfile.value?.id ?? w.profiles.value[0]?.id ?? '')
+  profileId = ref(
+    typeof route.query.profile === 'string'
+      ? route.query.profile
+      : (w.activeProfile.value?.id ?? w.profiles.value[0]?.id ?? ''),
+  )
+watch([templateId, profileId], () => {
+  if (route.path === '/runs')
+    void router.replace({
+      query: {
+        ...route.query,
+        template: templateId.value || undefined,
+        profile: profileId.value || undefined,
+      },
+    })
+})
+watch(
+  () => route.query,
+  (query) => {
+    if (!route.params.id) {
+      if (typeof query.template === 'string') templateId.value = query.template
+      if (typeof query.profile === 'string') profileId.value = query.profile
+    } else if (run.value) position.value = rowPosition()
+  },
+)
 const headers = ref<string[]>([]),
   rows = ref<Row[]>([]),
   mapping = ref<Record<string, string>>({}),
@@ -56,7 +87,7 @@ const error = ref(''),
   run = ref<Run | null>(null),
   position = ref(0),
   preview = ref<Preview | null>(null),
-  pixels = ref(false)
+  pixels = ref(true)
 const template = computed(() => w.templates.value.find((t) => t.id === templateId.value))
 const selected = computed(() => rows.value.filter((r) => r.selected))
 let previewTicket = 0,
@@ -152,7 +183,7 @@ async function load() {
     runs.value = await api<Run[]>('/runs')
     if (route.params.id) {
       run.value = await api<Run>(`/runs/${route.params.id}`)
-      position.value = 0
+      position.value = rowPosition()
       await loadPreview()
     }
   } catch (e) {
@@ -187,7 +218,14 @@ async function submit() {
     await w.refresh()
   })
 }
-watch(position, loadPreview)
+function rowPosition() {
+  const row = Number(route.query.row ?? 1)
+  return Number.isInteger(row) && row >= 1 && row <= (run.value?.rows.length ?? 0) ? row - 1 : 0
+}
+watch(position, () => {
+  if (run.value) void router.replace({ query: { ...route.query, row: String(position.value + 1) } })
+  void loadPreview()
+})
 watch(() => route.params.id, load)
 onMounted(load)
 </script>
@@ -346,10 +384,33 @@ onMounted(load)
       </p>
       <p>
         {{ run.label_length_mm.toFixed(2) }} mm total label length. Estimated tape use as one batch:
-        {{ run.estimated_mm.toFixed(2) }} mm. This is a mock estimate; other queued labels and
-        separate attempts can change overhead. Physical chain behavior will be verified with the
-        Brother driver.
+        {{ run.estimated_mm.toFixed(2) }} mm. Other queued labels and separate attempts can change
+        overhead. Estimates need calibration against physical tape use.
       </p>
+      <div v-if="run.print_plan" class="inset">
+        <strong>Planned tape sequence</strong>
+        <p>
+          {{ run.print_plan.leader_mm.toFixed(1) }} mm batch overhead ·
+          {{ run.print_plan.feed_per_label_mm.toFixed(1) }} mm feed per label ·
+          {{
+            run.print_plan.cut_each
+              ? 'Cut after each label'
+              : 'Continuous strip, final feed and cut'
+          }}
+        </p>
+        <div class="row wrap">
+          <span
+            v-for="(length, index) in run.print_plan.label_lengths_mm"
+            :key="index"
+            class="badge"
+          >
+            {{ index + 1 }}: {{ length.toFixed(1) }} mm {{ run.print_plan.cut_each ? '✂' : '→' }}
+          </span>
+        </div>
+        <p class="help">
+          Plan saved when this draft was prepared. Current printer settings apply when printing.
+        </p>
+      </div>
       <p v-if="run.submitted_at" class="alert success">
         Run submitted. <RouterLink to="/queue">View print queue</RouterLink>
       </p>
@@ -383,7 +444,10 @@ onMounted(load)
           v-if="preview"
           class="raster-preview"
           :src="pixels ? preview.png : preview.design_png"
-          :style="{ imageRendering: pixels ? 'pixelated' : 'auto' }"
+          :style="{
+            imageRendering: pixels ? 'pixelated' : 'auto',
+            aspectRatio: `${preview.length_mm} / ${preview.width_mm}`,
+          }"
           alt="CSV label preview"
         />
         <p v-else>Loading preview…</p>

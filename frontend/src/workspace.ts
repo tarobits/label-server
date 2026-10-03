@@ -6,12 +6,14 @@ import type {
   FontAsset,
   ImageAsset,
   Notice,
+  Printer,
   Profile,
   Status,
   Template,
 } from './types'
 
 const status = ref<Status | null>(null)
+const printers = ref<Printer[]>([])
 const profiles = ref<Profile[]>([])
 const cartridges = ref<Cartridge[]>([])
 const batches = ref<Batch[]>([])
@@ -34,7 +36,7 @@ async function refresh(): Promise<void> {
   if (inflight) return inflight
   inflight = (async () => {
     try {
-      const [s, p, c, b, n, t, f, i] = await Promise.all([
+      const [s, p, c, b, n, t, f, i, devices] = await Promise.all([
         api<Status>('/status'),
         api<Profile[]>('/tape-profiles'),
         api<Cartridge[]>('/cartridges'),
@@ -43,6 +45,7 @@ async function refresh(): Promise<void> {
         api<Template[]>('/templates'),
         api<FontAsset[]>('/font-assets'),
         api<ImageAsset[]>('/image-assets'),
+        api<Printer[]>('/printers'),
       ])
       updateIfChanged(status, s)
       updateIfChanged(profiles, p)
@@ -52,6 +55,7 @@ async function refresh(): Promise<void> {
       updateIfChanged(templates, t)
       updateIfChanged(fonts, f)
       updateIfChanged(images, i)
+      updateIfChanged(printers, devices)
       loaded.value = true
       connectionError.value = ''
     } catch (error) {
@@ -102,6 +106,7 @@ const canPrint = computed(
     !!activeCartridge.value &&
     activeCount.value > 0 &&
     !!status.value?.connected &&
+    !status.value?.printer_error &&
     status.value.detected_width_mm === activeProfile.value?.width_mm &&
     !status.value.pending_flush,
 )
@@ -115,6 +120,7 @@ const cartridgeName = (id: string) =>
   cartridges.value.find((c) => c.id === id)?.name ?? 'Unknown cartridge'
 export const workspace = {
   status,
+  printers,
   profiles,
   cartridges,
   batches,

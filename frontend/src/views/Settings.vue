@@ -10,6 +10,7 @@ const error = ref(''),
   interrupt = ref(false),
   after = ref(1)
 onMounted(async () => {
+  if (status.value?.backend !== 'mock') return
   try {
     const data = await api<MockSettings>('/printer/mock')
     Object.assign(form, data)
@@ -32,7 +33,7 @@ async function save() {
 </script>
 <template>
   <div class="two-column">
-    <form class="panel form-stack" @submit.prevent="save">
+    <form v-if="status?.backend === 'mock'" class="panel form-stack" @submit.prevent="save">
       <div class="section-heading">
         <h2>Mock printer controls</h2>
         <span class="badge queued">Development mode</span>
@@ -71,8 +72,16 @@ async function save() {
     </form>
     <div class="stack">
       <section class="panel">
-        <h2>Printer status</h2>
+        <h2>{{ status?.printer_name }} status</h2>
+        <p v-if="status?.printer_error" class="alert danger">{{ status.printer_error }}</p>
         <dl>
+          <div v-if="w.printers.value[0]">
+            <dt>Default resolution</dt>
+            <dd>
+              {{ w.printers.value[0].capabilities.dpi_y }} ×
+              {{ w.printers.value[0].capabilities.dpi_x }} dpi (across × along tape)
+            </dd>
+          </div>
           <div>
             <dt>Connection</dt>
             <dd>{{ status?.connected ? 'Connected' : 'Disconnected' }}</dd>

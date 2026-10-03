@@ -90,7 +90,10 @@ const {
       </div>
       <div class="printer-caption">
         <strong>Brother PT-P710BT</strong
-        ><span>Mock printer · {{ status?.detected_width_mm ?? 'Unknown' }} mm detected</span>
+        ><span
+          >{{ status?.printer_name }} · {{ status?.detected_width_mm ?? 'Unknown' }} mm
+          detected</span
+        >
       </div>
       <div class="installed-tape">
         <span

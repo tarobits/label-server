@@ -1,5 +1,15 @@
 import type { TemplateDocument } from './editor'
 export type CopyState = 'queued' | 'printing' | 'printed' | 'needs_review' | 'cancelled' | 'failed'
+export interface Printer {
+  id: string
+  capabilities: {
+    dpi_x: number
+    dpi_y: number
+    resolution_modes?: Record<string, [number, number]> | null
+    printable_margin_mm: number
+    printable_widths_mm?: Record<string, number> | null
+  }
+}
 export interface Profile {
   id: string
   name: string
@@ -32,10 +42,12 @@ export interface Cartridge {
   consumption_uncertain: boolean
 }
 export interface Status {
+  backend: string
+  printer_name: string
+  printer_error: string | null
   automatic_printing_held: boolean
   active_cartridge_id: string | null
   blocker: string | null
-  backend: string
   renderer: string
   connected: boolean
   detected_width_mm: number | null

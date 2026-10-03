@@ -38,7 +38,7 @@ test('create tape and cartridge, queue copies, review an interrupted batch, and 
   await page.getByRole('button', { name: 'Print compatible queue now' }).click()
   await expect(page.getByRole('link', { name: 'Review →', exact: true })).toHaveCount(0)
   await page.getByRole('link', { name: 'Print queue', exact: false }).click()
-  await page.getByLabel('Filter jobs').selectOption('printed')
+  await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
   await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
   await expect(page.getByText('≈ 7.85 m')).toBeVisible()
@@ -142,6 +142,7 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await page.getByLabel('Width (mm)', { exact: true }).fill('34')
   await page.getByLabel('Height (mm)', { exact: true }).fill('20')
   await page.getByLabel('Content', { exact: true }).fill('{{asset}}')
+  await page.getByRole('button', { name: 'Spacing & alignment', exact: true }).click()
   await page
     .getByRole('combobox', { name: 'Vertical text alignment', exact: true })
     .selectOption('center')
@@ -161,6 +162,8 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await expect(page.getByLabel('Template name', { exact: true })).toHaveValue('Asset labels')
   await expect(page.getByRole('button', { name: '2. qr', exact: true })).toBeVisible()
   await expect(page.locator('svg image')).toBeVisible()
+  await expect(page.getByLabel('Show print pixels', { exact: true })).toBeChecked()
+  await page.getByLabel('Show print pixels', { exact: true }).uncheck()
   const smoothPreview = await page.locator('svg image').getAttribute('href')
   await page.getByLabel('Show print pixels', { exact: true }).check()
   await expect(page.locator('svg image')).not.toHaveAttribute('href', smoothPreview!)
@@ -169,6 +172,7 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await page.screenshot({ path: 'test-results/template-editor.png', fullPage: true })
   await page.goto(`/#/new?template=${id}`)
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+
   await page.getByLabel('Asset name', { exact: true }).fill('ASSET-99')
   await expect(page.getByAltText('Rendered label preview')).toBeVisible()
   await page.getByRole('button', { name: 'Add to queue', exact: true }).click()
@@ -215,6 +219,7 @@ test('automatic length and clipping persist while outside objects remain editabl
   await page.getByLabel('Template name', { exact: true }).fill('Automatic layout')
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
   await page.getByLabel('Content', { exact: true }).fill('Short')
+  await page.getByRole('button', { name: 'Typography', exact: true }).click()
   await page.getByLabel('Fit text box width to content', { exact: true }).check()
   await page.getByLabel('Automatic label length', { exact: true }).check()
   await expect(page.getByLabel('Label length (mm)', { exact: true })).toBeDisabled()
@@ -230,6 +235,7 @@ test('automatic length and clipping persist while outside objects remain editabl
   await expect(page.getByLabel('Ignore out-of-bounds objects', { exact: true })).toBeChecked()
   await page.getByRole('button', { name: '2. rectangle', exact: true }).click()
   await page.getByLabel('Y (mm)', { exact: true }).fill('2')
+  await page.getByRole('button', { name: 'Arrange', exact: true }).click()
   await page.getByRole('button', { name: 'Delete element', exact: true }).click()
   await expect(page.locator('.alert.warning')).toHaveCount(0)
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
@@ -248,6 +254,7 @@ test('CSV runs map columns, preview reordered rows, survive reload and submit on
   await page.getByLabel('Run name', { exact: true }).fill('Inventory CSV')
   await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption('text')
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+
   await page
     .getByLabel('CSV content', { exact: true })
     .fill('Title,Note\n"First, item",Office\nSecond,Garage')
@@ -262,7 +269,9 @@ test('CSV runs map columns, preview reordered rows, survive reload and submit on
   await expect(page.getByText('Label 1 of 2 · CSV record 3', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Next label', exact: true }).click()
   await expect(page.getByText('Label 2 of 2 · CSV record 2', { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/row=2/)
   await page.reload()
+  await expect(page.getByText('Label 2 of 2 · CSV record 2', { exact: true })).toBeVisible()
   await expect(page.getByAltText('CSV label preview')).toBeVisible()
   await page.screenshot({ path: 'test-results/csv-run.png', fullPage: true })
   await page.getByRole('button', { name: 'Submit entire run', exact: true }).click()
@@ -302,7 +311,25 @@ test('queue runs expand, select individual rows, and drafts can be deleted', asy
   const run = (await (await page.request.post('/api/runs/prepare', { data: body })).json()).run
   const submitted = await (await page.request.post(`/api/runs/${run.id}/submit`)).json()
   await page.goto('/#/queue')
-  await page.getByLabel('Filter by tape profile').selectOption(profile.id)
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  for (const viewport of [
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator('label[for="queue-filter"]')).toContainText('Job status')
+    await expect(page.locator('label[for="queue-profile-filter"]')).toContainText('Tape profile')
+    const status = (await page.locator('#queue-filter').boundingBox())!
+    const tape = (await page.locator('#queue-profile-filter').boundingBox())!
+    expect(status.y).toBe(tape.y)
+    expect(tape.x).toBeGreaterThan(status.x + status.width)
+    await page.screenshot({
+      path: `test-results/queue-filters-${viewport.width}.png`,
+      fullPage: true,
+    })
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+
   const toggle = page.getByRole('button', { name: 'Toggle Selectable run', exact: true })
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByLabel('Select Select first', { exact: true })).not.toBeVisible()
@@ -392,6 +419,7 @@ test('upload a font, select its face and preserve saved labels when hidden', asy
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Uploaded font template')
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
+  await page.getByRole('button', { name: 'Typography', exact: true }).click()
   await page.getByRole('combobox', { name: 'Font', exact: true }).selectOption(fonts[0].id)
   await expect(page.locator('svg image')).toBeVisible()
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
@@ -402,6 +430,7 @@ test('upload a font, select its face and preserve saved labels when hidden', asy
   await expect(row).toHaveCount(0)
   await page.goto(editorUrl)
   await page.getByRole('button', { name: '1. text', exact: true }).click()
+  await page.getByRole('button', { name: 'Typography', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Font', exact: true })).toHaveValue(fonts[0].id)
   await expect(page.locator('svg image')).toBeVisible()
   await page.screenshot({ path: 'test-results/uploaded-font-editor.png', fullPage: true })
@@ -461,6 +490,7 @@ test('image uploads, tonal controls and saved image elements survive hiding', as
   await page.getByLabel('Height (mm)', { exact: true }).fill('18')
   await expect(page.locator('svg image')).toBeVisible()
   const threshold = await page.locator('svg image').getAttribute('href')
+  await page.getByRole('button', { name: 'Image adjustments', exact: true }).click()
   await page.getByRole('combobox', { name: 'Image conversion', exact: true }).selectOption('dither')
   await expect(page.locator('svg image')).not.toHaveAttribute('href', threshold!)
   await page.getByLabel('Brightness', { exact: true }).fill('1.2')
@@ -477,6 +507,7 @@ test('image uploads, tonal controls and saved image elements survive hiding', as
   await expect(page.getByRole('cell', { name: 'Hidden', exact: true })).toBeVisible()
   await page.goto(url)
   await page.getByRole('button', { name: '1. image', exact: true }).click()
+  await page.getByRole('button', { name: 'Image adjustments', exact: true }).click()
   await expect(page.getByLabel('Brightness', { exact: true })).toHaveValue('1.2')
   await expect(page.getByLabel('Contrast', { exact: true })).toHaveValue('1.1')
   await expect(page.getByRole('combobox', { name: 'Image conversion', exact: true })).toHaveValue(
@@ -520,6 +551,215 @@ test('upload artwork inside the editor and confirm navigation with the themed di
   await page.screenshot({ path: 'test-results/confirmation-dialog.png', animations: 'disabled' })
   await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(page).toHaveURL(/#\/images$/)
+})
+
+test('physical printer status hides mock controls and shows device errors', async ({ page }) => {
+  await page.route('**/api/status', async (route) => {
+    const response = await route.fetch()
+    const status = await response.json()
+    await route.fulfill({
+      json: {
+        ...status,
+        backend: 'brother-pt-p710bt',
+        printer_name: 'Brother PT-P710BT',
+        printer_error: 'Install supported TZe tape',
+      },
+    })
+  })
+  await page.goto('/#/settings')
+  await expect(page.getByRole('heading', { name: 'Mock printer controls' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Brother PT-P710BT status' })).toBeVisible()
+  await expect(page.getByText('Install supported TZe tape')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'USB PRINTER', exact: true })).toBeVisible()
+})
+
+test('built-in text preview fits the configured printable tape width', async ({ page }) => {
+  const profile = await (
+    await page.request.post('/api/tape-profiles', {
+      data: { name: 'Physical preview tape', width_mm: 24 },
+    })
+  ).json()
+  const band = (128 * 25.4) / 180
+  await page.route('**/api/printers', async (route) => {
+    const response = await route.fetch()
+    const printers = await response.json()
+    printers[0].capabilities.printable_widths_mm = { '24': band }
+    await route.fulfill({ json: printers })
+  })
+  await page.goto('/#/new?template=text')
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+
+  const rendered = page.waitForRequest(
+    (request) =>
+      request.url().endsWith('/api/preview') &&
+      request.postDataJSON()?.data?.text === 'Printable band',
+  )
+  await page.getByLabel('Label text').fill('Printable band')
+  const document = (await rendered).postDataJSON().document
+  expect(document.elements[0].y).toBeCloseTo((24 - band) / 2)
+  expect(document.elements[0].height).toBeCloseTo(band)
+  await expect(page.getByRole('button', { name: 'Add to queue' })).toBeEnabled()
+})
+
+test('rectangular print pixels keep the physical label aspect ratio on screen', async ({
+  page,
+}) => {
+  await page.request.post('/api/tape-profiles', {
+    data: { name: 'Resolution preview', width_mm: 24 },
+  })
+  await page.route('**/api/preview', async (route) => {
+    const response = await route.fetch()
+    if (!response.ok()) {
+      await route.fulfill({ response })
+      return
+    }
+    const preview = await response.json()
+    const png =
+      'data:image/svg+xml,' +
+      encodeURIComponent(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${preview.pixel_width * 2}" height="${preview.pixel_height}"><rect width="100%" height="100%" fill="white"/></svg>`,
+      )
+    await route.fulfill({ json: { ...preview, png, design_png: png } })
+  })
+  await page.goto('/#/new?template=text')
+  const preview = page.getByAltText('Rendered label preview')
+  await page.getByLabel('Label text').fill('High resolution')
+  await expect(page.getByLabel('Show print pixels', { exact: true })).toBeChecked()
+  await expect(preview).toBeVisible()
+  for (const pixels of [false, true]) {
+    await page.getByLabel('Show print pixels', { exact: true }).setChecked(pixels)
+    const bounds = await preview.boundingBox()
+    expect(bounds!.width / bounds!.height).toBeCloseTo(60 / 24, 1)
+  }
+})
+
+test('template resolution, text padding, rulers and object bounds work together', async ({
+  page,
+}) => {
+  await page.goto('/#/templates/new')
+  await expect(page.getByLabel('Show print pixels', { exact: true })).toBeChecked()
+  await page.getByLabel('Template name', { exact: true }).fill('Measured high-resolution template')
+  await page.getByLabel('Automatic label length', { exact: true }).uncheck()
+  await page.getByRole('combobox', { name: 'Print resolution', exact: true }).selectOption('high')
+  await page.getByRole('button', { name: 'Add text', exact: true }).click()
+  await page.getByRole('button', { name: 'Spacing & alignment', exact: true }).click()
+  for (const [side, value] of [
+    ['Top', '1'],
+    ['Right', '2'],
+    ['Bottom', '0.7'],
+    ['Left', '3'],
+  ]) {
+    await page.getByLabel(`${side} padding (mm)`, { exact: true }).fill(value)
+  }
+  await page.getByRole('button', { name: 'Save template', exact: true }).click()
+  await expect(page).toHaveURL(/templates\/[^/]+\/edit/)
+  const id = page.url().split('/templates/')[1].split('/')[0]
+  const saved = await (await page.request.get(`/api/templates/${id}`)).json()
+  expect(saved.document.print_resolution).toBe('high')
+  expect(saved.document.elements[0].padding_left).toBe(3)
+  const rendered = await (
+    await page.request.post('/api/preview', { data: { template_id: id } })
+  ).json()
+  expect(rendered.pixel_width).toBe(850)
+  expect(rendered.svg).not.toContain('object-boundary')
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Print resolution', exact: true })).toHaveValue(
+    'high',
+  )
+  await page.getByRole('button', { name: '1. text', exact: true }).click()
+  await page.getByRole('button', { name: 'Spacing & alignment', exact: true }).click()
+  await expect(page.getByLabel('Left padding (mm)', { exact: true })).toHaveValue('3')
+  await expect(page.getByLabel('Bottom padding (mm)', { exact: true })).toHaveValue('0.7')
+  const paddingBoxes = await page.locator('.text-padding input').evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      y: node.getBoundingClientRect().y,
+      width: node.getBoundingClientRect().width,
+    })),
+  )
+  expect(paddingBoxes[0].y).toBe(paddingBoxes[1].y)
+  expect(paddingBoxes[2].y).toBe(paddingBoxes[3].y)
+  expect(paddingBoxes.every((box) => Math.abs(box.width - paddingBoxes[0].width) < 1)).toBeTruthy()
+  const settings = await page
+    .locator('.editor-settings-fields input, .editor-settings-fields select')
+    .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().y))
+  expect(new Set(settings).size).toBe(1)
+
+  const canvas = page.getByRole('img', { name: 'Label design canvas', exact: true })
+  await expect(page.getByRole('img', { name: 'Top ruler (mm)', exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: 'Left ruler (mm)', exact: true })).toBeVisible()
+  await expect(page.locator('.editor-ruler-top .ruler-selection')).toHaveAttribute('width', '240')
+  await page.getByRole('combobox', { name: 'Rotation', exact: true }).selectOption('90')
+  await expect(page.locator('.editor-ruler-top .ruler-selection')).toHaveAttribute('width', '64')
+  await page.getByRole('combobox', { name: 'Rotation', exact: true }).selectOption('0')
+  await canvas.click({ position: { x: 58 * 8, y: 22 * 8 } })
+  await expect(page.locator('.object-boundary')).toHaveAttribute('stroke-dasharray', '4 3')
+  await expect(page.locator('.object-boundary')).toHaveAttribute('stroke', '#64748b')
+  await page.getByLabel('Object boundaries', { exact: true }).uncheck()
+  await expect(page.locator('.object-boundary')).toHaveAttribute('stroke', 'transparent')
+  await page.getByLabel('Object boundaries', { exact: true }).check()
+  for (const zoom of [100, 200]) {
+    await page.getByLabel('Zoom', { exact: true }).evaluate((node, value) => {
+      ;(node as HTMLInputElement).value = String(value)
+      node.dispatchEvent(new Event('input', { bubbles: true }))
+    }, zoom)
+    await expect(canvas).toHaveAttribute('width', String((60 * 8 * zoom) / 100))
+    await page.locator('.editor-canvas-scroll').evaluate((node) => {
+      node.scrollLeft = 50
+    })
+    const box = (await canvas.boundingBox())!
+    const scale = box.width / 60
+    await page.mouse.move(box.x + 10 * scale, box.y + 6 * scale)
+    await expect(page.locator('.canvas-cursor-guides')).toBeVisible()
+    await expect(page.locator('.editor-ruler-top .ruler-cursor')).toHaveAttribute(
+      'x1',
+      String(10 * scale),
+    )
+    await expect(page.locator('.editor-ruler-left .ruler-cursor')).toHaveAttribute(
+      'y1',
+      String(6 * scale),
+    )
+  }
+  for (const label of ['Grid', 'Rulers', 'Cursor guides']) {
+    await expect(page.getByRole('checkbox', { name: label, exact: true })).toHaveCount(0)
+  }
+  await expect(page.locator('.editor-ruler')).toHaveCount(2)
+  await expect(page.locator('rect[fill="url(#editor-grid)"]')).toBeVisible()
+  await page.getByLabel('Zoom', { exact: true }).evaluate((node) => {
+    ;(node as HTMLInputElement).value = '100'
+    node.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await page.locator('.editor-canvas-scroll').evaluate((node) => {
+    node.scrollLeft = 0
+  })
+  await page.getByRole('button', { name: '1. text', exact: true }).click()
+  await expect(page.locator('svg image')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save template', exact: true })).toBeEnabled()
+  const workspace = (await page.locator('.editor-workspace').boundingBox())!
+  const properties = (await page.locator('.editor-properties').boundingBox())!
+  expect(properties.x).toBeGreaterThanOrEqual(workspace.x + workspace.width)
+  expect(properties.y).toBe(workspace.y)
+  await expect(page.getByRole('group', { name: 'Add elements' }).locator('svg')).toHaveCount(5)
+  const heights = await page
+    .locator('.editor-layout input[type=number]:visible, .editor-layout select:visible')
+    .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))
+  expect(heights.every((height) => height === 42)).toBeTruthy()
+  await page.screenshot({ path: 'test-results/editor-rulers-padding.png', fullPage: true })
+  const spacing = page.getByRole('button', { name: 'Spacing & alignment', exact: true })
+  await expect(spacing).toHaveAttribute('aria-expanded', 'false')
+  await spacing.focus()
+  await page.keyboard.press('Enter')
+  await expect(spacing).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByLabel('Left padding (mm)', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Left padding (mm)', { exact: true })).toHaveValue('3')
+  await spacing.click()
+  await expect(page.getByLabel('Left padding (mm)', { exact: true })).toBeHidden()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await spacing.click()
+  await expect(page.getByLabel('Left padding (mm)', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  const sectionId = await spacing.getAttribute('aria-controls')
+  await expect(page.locator(`[id="${sectionId}"]`)).toHaveCSS('opacity', '1')
+  await page.screenshot({ path: 'test-results/editor-mobile-properties.png', fullPage: true })
 })
 
 test('image library previews, renames and confirms permanent deletion', async ({ page }) => {
@@ -572,4 +812,153 @@ test('image library previews, renames and confirms permanent deletion', async ({
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(row).toHaveCount(0)
   expect((await page.request.get(`/api/image-assets/${asset.id}/preview`)).status()).toBe(404)
+})
+
+test('distance holders follow text and selection URLs survive refresh', async ({ page }) => {
+  const profile = await (
+    await page.request.post('/api/tape-profiles', { data: { name: 'URL tape', width_mm: 24 } })
+  ).json()
+  const template = await (
+    await page.request.post('/api/templates', {
+      data: {
+        name: 'ZZ Cable distances',
+        document: {
+          auto_length: true,
+          elements: [
+            {
+              id: 'source',
+              kind: 'text',
+              x: 2,
+              y: 4,
+              width: 20,
+              height: 8,
+              content: 'Source',
+              auto_width: true,
+            },
+            { id: 'divider', kind: 'rectangle', x: 28, y: 3, width: 1, height: 14 },
+            {
+              id: 'destination',
+              kind: 'text',
+              x: 32,
+              y: 4,
+              width: 20,
+              height: 8,
+              content: 'Destination',
+              auto_width: true,
+            },
+          ],
+        },
+      },
+    })
+  ).json()
+  await page.goto(`/#/templates/${template.id}/edit?element=divider`)
+  await expect(page.getByRole('button', { name: '2. rectangle', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.getByRole('button', { name: 'Distance holder', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Follow element', exact: true }).selectOption('source')
+  await page.getByLabel('Gap (mm)', { exact: true }).fill('3')
+  await expect(page.getByLabel('X (mm)', { exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '3. text', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Follow element', exact: true }).selectOption('divider')
+  await page.getByLabel('Gap (mm)', { exact: true }).fill('3')
+  await page.getByRole('button', { name: 'Save template', exact: true }).click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: '3. text', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(page.getByLabel('X (mm)', { exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '1. text', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Longer cable source')
+  await page.getByRole('button', { name: 'Save template', exact: true }).click()
+  const saved = await (await page.request.get(`/api/templates/${template.id}`)).json()
+  const preview = await (
+    await page.request.post('/api/preview', { data: { template_id: template.id } })
+  ).json()
+  const [left, divider, right] = preview.resolved_elements
+  expect(divider.x - left.x - left.width).toBeCloseTo(3)
+  expect(right.x - divider.x - divider.width).toBeCloseTo(3)
+  expect(saved.document.elements[2].distance_holder.element_id).toBe('divider')
+  await page.screenshot({ path: 'test-results/cable-distance-holders.png', fullPage: true })
+  await page.goto('/#/new')
+  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption(template.id)
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Template', exact: true })).toHaveValue(
+    template.id,
+  )
+  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
+    profile.id,
+  )
+  await page.goto('/#/runs')
+  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption(template.id)
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Template', exact: true })).toHaveValue(
+    template.id,
+  )
+  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
+    profile.id,
+  )
+})
+
+test('rotated objects drag and resize with the opposite corner fixed', async ({ page }) => {
+  const template = await (
+    await page.request.post('/api/templates', {
+      data: {
+        name: 'Rotated geometry',
+        document: {
+          length_mm: 90,
+          elements: [{ id: 'box', kind: 'rectangle', x: 30, y: 8, width: 8, height: 4 }],
+        },
+      },
+    })
+  ).json()
+  await page.goto(`/#/templates/${template.id}/edit?element=box`)
+  for (const rotation of [90, 180, 270, 0]) {
+    await page.getByLabel('X (mm)', { exact: true }).fill('30')
+    await page.getByLabel('Y (mm)', { exact: true }).fill('8')
+    await page.getByLabel('Width (mm)', { exact: true }).fill('8')
+    await page.getByLabel('Height (mm)', { exact: true }).fill('4')
+    await page
+      .getByRole('combobox', { name: 'Rotation', exact: true })
+      .selectOption(String(rotation))
+    const handle = page.locator('.editor-canvas circle')
+    await handle.scrollIntoViewIfNeeded()
+    const corner = () =>
+      page.locator('.object-boundary').evaluate((node) => {
+        const rect = node as SVGRectElement
+        const point = new DOMPoint(rect.x.baseVal.value, rect.y.baseVal.value).matrixTransform(
+          rect.getScreenCTM()!,
+        )
+        return { x: point.x, y: point.y }
+      })
+    const fixed = await corner()
+    const box = (await handle.boundingBox())!
+    const angle = (rotation * Math.PI) / 180
+    const dx = 16 * Math.cos(angle) - 8 * Math.sin(angle)
+    const dy = 16 * Math.sin(angle) + 8 * Math.cos(angle)
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy)
+    await page.mouse.up()
+    await expect(page.getByLabel('Width (mm)', { exact: true })).toHaveValue('10')
+    await expect(page.getByLabel('Height (mm)', { exact: true })).toHaveValue('5')
+    const after = await corner()
+    expect(after.x).toBeCloseTo(fixed.x, 1)
+    expect(after.y).toBeCloseTo(fixed.y, 1)
+    const x = Number(await page.getByLabel('X (mm)', { exact: true }).inputValue())
+    const y = Number(await page.getByLabel('Y (mm)', { exact: true }).inputValue())
+    const bounds = (await page.locator('.object-boundary').boundingBox())!
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width / 2 + 16, bounds.y + bounds.height / 2 + 8)
+    await page.mouse.up()
+    await expect(page.getByLabel('X (mm)', { exact: true })).toHaveValue(String(x + 2))
+    await expect(page.getByLabel('Y (mm)', { exact: true })).toHaveValue(String(y + 1))
+  }
 })

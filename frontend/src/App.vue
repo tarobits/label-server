@@ -61,15 +61,19 @@ onUnmounted(() => {
           connectionError
             ? 'Server unavailable'
             : status?.connected
-              ? 'Mock printer connected'
+              ? `${status.printer_name} connected`
               : 'Printer disconnected'
-        }}<small>Brother PT-P710BT · USB planned</small>
+        }}<small>{{
+          status?.backend === 'mock' ? 'Brother PT-P710BT · USB available' : 'USB printer'
+        }}</small>
       </div>
     </aside>
     <div class="main-wrap">
       <div class="topbar">
         <span>YOUR LABEL WORKSPACE</span
-        ><RouterLink to="/settings" class="mock-pill">MOCK MODE</RouterLink>
+        ><RouterLink to="/settings" class="mock-pill">{{
+          status?.backend === 'mock' ? 'MOCK MODE' : 'USB PRINTER'
+        }}</RouterLink>
       </div>
       <main id="main-content" tabindex="-1">
         <header class="page-header">
@@ -114,9 +118,9 @@ onUnmounted(() => {
         </div>
         <RouterView v-if="loaded" />
         <footer class="page-footer">
-          Built for the little things that deserve a label.<span
-            >Mock mode · No physical printing</span
-          >
+          Built for the little things that deserve a label.<span>{{
+            status?.backend === 'mock' ? 'Mock mode · No physical printing' : status?.printer_name
+          }}</span>
         </footer>
       </main>
     </div>

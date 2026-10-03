@@ -152,24 +152,28 @@ async function cancel(job: Job) {
 </script>
 <template>
   <section class="panel">
-    <div class="section-heading">
-      <div class="row wrap">
-        <h2>Labels</h2>
-        <label class="sr-only" for="queue-filter">Filter jobs</label
-        ><select id="queue-filter" v-model="filter">
-          <option value="queued">Queued</option>
-          <option value="needs_review">Needs review</option>
-          <option value="printed">Printed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="">All jobs</option>
-        </select>
-        <label class="sr-only" for="queue-profile-filter">Filter by tape profile</label>
-        <select id="queue-profile-filter" v-model="profileFilter">
-          <option value="">All tape profiles</option>
-          <option v-for="profile in w.profiles.value" :key="profile.id" :value="profile.id">
-            {{ profile.name }} · {{ profile.width_mm }} mm
-          </option>
-        </select>
+    <h2>Labels</h2>
+    <div class="queue-toolbar">
+      <div class="queue-filters">
+        <label for="queue-filter"
+          >Job status
+          <select id="queue-filter" v-model="filter">
+            <option value="queued">Queued</option>
+            <option value="needs_review">Needs review</option>
+            <option value="printed">Printed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="">All jobs</option>
+          </select>
+        </label>
+        <label for="queue-profile-filter"
+          >Tape profile
+          <select id="queue-profile-filter" v-model="profileFilter">
+            <option value="">All tape profiles</option>
+            <option v-for="profile in w.profiles.value" :key="profile.id" :value="profile.id">
+              {{ profile.name }} · {{ profile.width_mm }} mm
+            </option>
+          </select>
+        </label>
       </div>
       <div class="row wrap">
         <button class="primary" :disabled="!canPrintSelection || loading" @click="printSelected">

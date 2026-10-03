@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { confirmAction } from '../confirmation'
+import EditorRuler from '../components/EditorRuler.vue'
+import PropertySection from '../components/PropertySection.vue'
+import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroicons/vue/24/outline'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
@@ -20,20 +23,29 @@ const document = ref<TemplateDocument>(newDocument()),
   revision = ref(0)
 const imageFile = ref<File | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
-const selectedId = ref(''),
+const selectedId = ref(typeof route.query.element === 'string' ? route.query.element : ''),
   zoom = ref(100),
   snap = ref(true),
-  showGrid = ref(true),
-  showPrintPixels = ref(false)
+  showPrintPixels = ref(true),
+  showBounds = ref(true)
+const pointer = ref<{ x: number; y: number } | null>(null)
+const resolutionModes = ref<Record<string, [number, number]>>({})
+const defaultResolution = ref<[number, number]>([180, 180])
+const paddingSides = ['top', 'right', 'bottom', 'left'] as const
 const preview = ref<Preview | null>(null),
   error = ref(''),
   rendering = ref(false),
   ready = ref(false)
-const sampleProfile = ref(''),
+const sampleProfile = ref(typeof route.query.profile === 'string' ? route.query.profile : ''),
   saved = ref(''),
   history = ref<string[]>([]),
   cursor = ref(0),
   margin = ref(1)
+const printableWidths = ref<Record<string, number>>({})
+const verticalMargin = computed(() => {
+  const band = printableWidths.value[String(document.value.width_mm)]
+  return band ? (document.value.width_mm - band) / 2 : margin.value
+})
 const selected = computed(() => document.value.elements.find((e) => e.id === selectedId.value))
 const snapshot = () => JSON.stringify({ name: name.value, document: document.value })
 const dirty = computed(() => ready.value && snapshot() !== saved.value)
@@ -45,10 +57,63 @@ const canvasLength = computed(() =>
 const canvasElements = computed(() =>
   document.value.elements.map((element) => {
     const resolved = preview.value?.resolved_elements.find((e) => e.id === element.id)
-    return element.auto_width && resolved ? { ...element, width: resolved.width } : element
+    return resolved
+      ? {
+          ...element,
+          x: element.distance_holder?.axis === 'horizontal' ? resolved.x : element.x,
+          y: element.distance_holder?.axis === 'vertical' ? resolved.y : element.y,
+          width: element.auto_width ? resolved.width : element.width,
+        }
+      : element
   }),
 )
 const scale = computed(() => (zoom.value / 100) * 8)
+const distanceTargets = computed(() =>
+  document.value.elements.filter((element) => {
+    let candidate: Element | undefined = element
+    const seen = new Set<string>()
+    while (candidate) {
+      if (candidate.id === selectedId.value || seen.has(candidate.id)) return false
+      seen.add(candidate.id)
+      const anchor: string | undefined = candidate.distance_holder?.element_id
+      candidate = anchor ? document.value.elements.find((e) => e.id === anchor) : undefined
+    }
+    return true
+  }),
+)
+function positionedElement(element: Element) {
+  return canvasElements.value.find((e) => e.id === element.id) ?? element
+}
+function positionLocked(axis: 'x' | 'y') {
+  return selected.value?.distance_holder?.axis === (axis === 'x' ? 'horizontal' : 'vertical')
+}
+function setPosition(axis: 'x' | 'y', event: Event) {
+  if (selected.value && !positionLocked(axis))
+    selected.value[axis] = Number((event.target as HTMLInputElement).value)
+}
+function setDistanceTarget(event: Event) {
+  if (!selected.value) return
+  const target = (event.target as HTMLSelectElement).value
+  const current = positionedElement(selected.value)
+  selected.value.x = current.x
+  selected.value.y = current.y
+  selected.value.distance_holder = target
+    ? {
+        element_id: target,
+        axis: selected.value.distance_holder?.axis ?? 'horizontal',
+        gap_mm: selected.value.distance_holder?.gap_mm ?? 2,
+      }
+    : null
+  record()
+}
+const selectedBounds = computed(() => {
+  const e = canvasElements.value.find((item) => item.id === selectedId.value)
+  if (!e) return null
+  const rotated = e.rotation === 90 || e.rotation === 270
+  const width = rotated ? e.height : e.width,
+    height = rotated ? e.width : e.height
+  return { x: e.x + (e.width - width) / 2, y: e.y + (e.height - height) / 2, width, height }
+})
 let timer: ReturnType<typeof setTimeout> | undefined,
   serial = 0,
   stopped = false
@@ -73,14 +138,30 @@ function restore(offset: number) {
 async function load() {
   ready.value = false
   try {
-    const printers = await api<{ capabilities: { printable_margin_mm: number } }[]>('/printers')
+    const printers = await api<
+      {
+        capabilities: {
+          printable_margin_mm: number
+          printable_widths_mm?: Record<string, number>
+          dpi_x: number
+          dpi_y: number
+          resolution_modes?: Record<string, [number, number]>
+        }
+      }[]
+    >('/printers')
     margin.value = printers[0]?.capabilities.printable_margin_mm ?? 1
+    printableWidths.value = printers[0]?.capabilities.printable_widths_mm ?? {}
+    resolutionModes.value = printers[0]?.capabilities.resolution_modes ?? {}
+    defaultResolution.value = [
+      printers[0]?.capabilities.dpi_x ?? 180,
+      printers[0]?.capabilities.dpi_y ?? 180,
+    ]
     if (route.params.id) {
       const template = await api<Template>(`/templates/${route.params.id}`)
       id.value = template.id
       revision.value = template.revision
       name.value = template.name
-      document.value = structuredClone(template.document)
+      document.value = { print_resolution: 'printer', ...structuredClone(template.document) }
     } else {
       id.value = null
       revision.value = 0
@@ -90,6 +171,11 @@ async function load() {
     saved.value = snapshot()
     history.value = [snapshot()]
     cursor.value = 0
+    selectedId.value =
+      typeof route.query.element === 'string' &&
+      document.value.elements.some((e) => e.id === route.query.element)
+        ? route.query.element
+        : ''
     ready.value = true
     await updatePreview()
   } catch (e) {
@@ -131,6 +217,23 @@ watch(
   { deep: true },
 )
 watch(() => route.params.id, load)
+watch([selectedId, sampleProfile], () => {
+  if (ready.value && route.path.startsWith('/templates/'))
+    void router.replace({
+      query: {
+        ...route.query,
+        element: selectedId.value || undefined,
+        profile: sampleProfile.value || undefined,
+      },
+    })
+})
+watch(
+  () => route.query,
+  (query) => {
+    selectedId.value = typeof query.element === 'string' ? query.element : ''
+    sampleProfile.value = typeof query.profile === 'string' ? query.profile : ''
+  },
+)
 function add(kind: Element['kind']) {
   const element = newElement(kind)
   element.width = Math.min(element.width, document.value.length_mm - 4)
@@ -141,6 +244,14 @@ function add(kind: Element['kind']) {
   record()
 }
 function remove() {
+  for (const element of document.value.elements) {
+    if (element.distance_holder?.element_id === selectedId.value) {
+      const current = positionedElement(element)
+      element.x = current.x
+      element.y = current.y
+      element.distance_holder = null
+    }
+  }
   document.value.elements = document.value.elements.filter((e) => e.id !== selectedId.value)
   selectedId.value = ''
   record()
@@ -165,14 +276,17 @@ function order(direction: number) {
 function align(axis: 'left' | 'center' | 'right' | 'middle') {
   if (!selected.value) return
   const e = selected.value
-  if (axis === 'middle') e.y = (document.value.width_mm - e.height) / 2
-  else
+  const drawn = positionedElement(e)
+  const rotatedWidth = e.rotation % 180 ? drawn.height : drawn.width
+  const inset = (drawn.width - rotatedWidth) / 2
+  if (axis === 'middle' && !positionLocked('y')) e.y = (document.value.width_mm - e.height) / 2
+  else if (axis !== 'middle' && !positionLocked('x'))
     e.x =
       axis === 'left'
-        ? margin.value
+        ? margin.value - inset
         : axis === 'right'
-          ? canvasLength.value - margin.value - e.width
-          : (canvasLength.value - e.width) / 2
+          ? canvasLength.value - margin.value - rotatedWidth - inset
+          : (canvasLength.value - drawn.width) / 2
   record()
 }
 function point(event: PointerEvent) {
@@ -186,33 +300,54 @@ function start(event: PointerEvent, element: Element, mode: 'move' | 'size') {
   canvas.value?.setPointerCapture(event.pointerId)
 }
 function move(event: PointerEvent) {
+  const p = point(event)
+  pointer.value =
+    p.x >= 0 && p.x <= canvasLength.value && p.y >= 0 && p.y <= document.value.width_mm ? p : null
   if (!drag || !selected.value) return
-  const p = point(event),
-    dx = p.x - drag.x,
+  const dx = p.x - drag.x,
     dy = p.y - drag.y
   const round = (value: number) =>
     Math.round(value * (snap.value ? 2 : 100)) / (snap.value ? 2 : 100)
   if (drag.mode === 'move') {
-    selected.value.x = Math.max(0, round(drag.element.x + dx))
-    selected.value.y = Math.max(0, round(drag.element.y + dy))
+    if (!positionLocked('x'))
+      selected.value.x = Math.max(
+        drag.element.rotation % 180 ? (drag.element.height - drag.element.width) / 2 : 0,
+        round(drag.element.x + dx),
+      )
+    if (!positionLocked('y'))
+      selected.value.y = Math.max(
+        drag.element.rotation % 180 ? (drag.element.width - drag.element.height) / 2 : 0,
+        round(drag.element.y + dy),
+      )
   } else {
+    const angle = (drag.element.rotation * Math.PI) / 180
+    const cos = Math.round(Math.cos(angle)),
+      sin = Math.round(Math.sin(angle))
+    const localX = cos * dx + sin * dy
+    const localY = -sin * dx + cos * dy
     selected.value.auto_width = false
-    selected.value.width = Math.max(1, round(drag.element.width + dx))
+    selected.value.width = Math.max(1, round(drag.element.width + localX))
     if (selected.value.kind === 'image' && selected.value.preserve_aspect) {
       const ratio = imageRatio(selected.value) ?? drag.element.width / drag.element.height
       // Snap the actively dragged dimension; derive the other without rounding.
-      if (Math.abs(dy / drag.element.height) > Math.abs(dx / drag.element.width)) {
-        selected.value.height = Math.max(1, round(drag.element.height + dy))
+      if (Math.abs(localY / drag.element.height) > Math.abs(localX / drag.element.width)) {
+        selected.value.height = Math.max(1, round(drag.element.height + localY))
         selected.value.width = selected.value.height * ratio
       } else {
         selected.value.height = selected.value.width / ratio
       }
-      return
-    }
-    selected.value.height =
-      selected.value.kind === 'qr'
-        ? selected.value.width
-        : Math.max(1, round(drag.element.height + dy))
+    } else
+      selected.value.height =
+        selected.value.kind === 'qr'
+          ? selected.value.width
+          : Math.max(1, round(drag.element.height + localY))
+    const dw = selected.value.width - drag.element.width
+    const dh = selected.value.height - drag.element.height
+    // Keep the opposite rotated corner fixed while resizing around the moving center.
+    if (!positionLocked('x'))
+      selected.value.x = Math.max(-1000, drag.element.x + ((cos - 1) * dw - sin * dh) / 2)
+    if (!positionLocked('y'))
+      selected.value.y = Math.max(-100, drag.element.y + (sin * dw + (cos - 1) * dh) / 2)
   }
 }
 function finish() {
@@ -239,6 +374,11 @@ function setVerticalAlign(event: Event) {
   if (!selected.value) return
   selected.value.vertical_align = (event.target as HTMLSelectElement).value as
     'top' | 'center' | 'bottom'
+  record()
+}
+function setPadding(side: (typeof paddingSides)[number], event: Event) {
+  if (!selected.value) return
+  selected.value[`padding_${side}`] = Number((event.target as HTMLInputElement).value)
   record()
 }
 function chooseImageFile(event: Event) {
@@ -317,10 +457,12 @@ function key(event: KeyboardEvent) {
   const delta = event.shiftKey ? 1 : 0.5
   if (event.key.startsWith('Arrow')) {
     event.preventDefault()
-    if (event.key === 'ArrowLeft') selected.value.x = Math.max(0, selected.value.x - delta)
-    if (event.key === 'ArrowRight') selected.value.x += delta
-    if (event.key === 'ArrowUp') selected.value.y = Math.max(0, selected.value.y - delta)
-    if (event.key === 'ArrowDown') selected.value.y += delta
+    if (event.key === 'ArrowLeft' && !positionLocked('x'))
+      selected.value.x = Math.max(-1000, selected.value.x - delta)
+    if (event.key === 'ArrowRight' && !positionLocked('x')) selected.value.x += delta
+    if (event.key === 'ArrowUp' && !positionLocked('y'))
+      selected.value.y = Math.max(-100, selected.value.y - delta)
+    if (event.key === 'ArrowDown' && !positionLocked('y')) selected.value.y += delta
     record()
   }
 }
@@ -341,7 +483,7 @@ async function save() {
     saved.value = snapshot()
     revision.value = result.revision
     id.value = result.id
-    await router.replace(`/templates/${result.id}/edit`)
+    await router.replace({ path: `/templates/${result.id}/edit`, query: route.query })
   }
 }
 function removeField(index: number) {
@@ -380,144 +522,228 @@ onUnmounted(() => {
 </script>
 <template>
   <section class="panel editor-toolbar">
-    <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
-    <label
-      >Tape width (mm)<select v-model.number="document.width_mm" @change="record">
-        <option v-for="width in [6, 9, 12, 18, 24]" :key="width">{{ width }}</option>
-      </select></label
-    >
-    <label
-      >Label length (mm)<input
-        :value="document.auto_length ? canvasLength : document.length_mm"
-        @input="setManualLength"
-        :disabled="document.auto_length"
-        type="number"
-        min="10"
-        max="300"
-        @change="record"
-    /></label>
-    <label class="checkbox"
-      ><input v-model="document.auto_length" type="checkbox" @change="record" />Automatic label
-      length</label
-    >
-    <label class="checkbox"
-      ><input
-        :checked="document.out_of_bounds === 'clip'"
-        type="checkbox"
-        @change="setClipping"
-      />Ignore out-of-bounds objects</label
-    >
-    <button :disabled="cursor === 0" @click="restore(-1)">Undo</button
-    ><button :disabled="cursor >= history.length - 1" @click="restore(1)">Redo</button>
-    <button
-      class="primary"
-      :disabled="w.busy.value || !ready || rendering || !!error || !name.trim()"
-      @click="save"
-    >
-      Save template
-    </button>
-    <span class="help">{{
-      dirty ? 'Unsaved changes' : revision ? `Revision ${revision}` : 'New document'
-    }}</span>
+    <div class="editor-settings-fields">
+      <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
+      <label class="resolution-choice"
+        >Print resolution<select v-model="document.print_resolution" @change="record">
+          <option value="printer">
+            Printer default ({{ defaultResolution[1] }} × {{ defaultResolution[0] }} dpi)
+          </option>
+          <option v-for="(dpi, mode) in resolutionModes" :key="mode" :value="mode">
+            {{ mode === 'high' ? 'High' : 'Normal' }} · {{ dpi[1] }} × {{ dpi[0] }} dpi
+          </option>
+        </select></label
+      >
+      <label
+        >Tape width (mm)<select v-model.number="document.width_mm" @change="record">
+          <option v-for="width in [6, 9, 12, 18, 24]" :key="width">{{ width }}</option>
+        </select></label
+      >
+      <label
+        >Label length (mm)<input
+          :value="document.auto_length ? canvasLength : document.length_mm"
+          @input="setManualLength"
+          :disabled="document.auto_length"
+          type="number"
+          min="10"
+          max="300"
+          @change="record"
+      /></label>
+    </div>
+    <div class="editor-settings-footer">
+      <div class="editor-settings-toggles">
+        <label class="checkbox"
+          ><input v-model="document.auto_length" type="checkbox" @change="record" /><span
+            >Automatic label length</span
+          ></label
+        >
+        <label class="checkbox"
+          ><input
+            :checked="document.out_of_bounds === 'clip'"
+            type="checkbox"
+            @change="setClipping"
+          /><span>Ignore out-of-bounds objects</span></label
+        >
+      </div>
+      <div class="editor-settings-actions">
+        <button :disabled="cursor === 0" @click="restore(-1)">Undo</button
+        ><button :disabled="cursor >= history.length - 1" @click="restore(1)">Redo</button>
+        <button
+          class="primary"
+          :disabled="w.busy.value || !ready || rendering || !!error || !name.trim()"
+          @click="save"
+        >
+          Save template
+        </button>
+        <span class="help">{{
+          dirty ? 'Unsaved changes' : revision ? `Revision ${revision}` : 'New document'
+        }}</span>
+      </div>
+    </div>
   </section>
   <div class="editor-layout">
     <section class="panel editor-workspace">
-      <div class="row wrap">
-        <button @click="add('image')">Add image</button
-        ><button @click="add('text')">Add text</button
-        ><button @click="add('qr')">Add QR code</button
-        ><button @click="add('rectangle')">Add rectangle</button
-        ><button @click="add('line')">Add line</button>
+      <div class="editor-tools">
+        <div class="editor-add-buttons" role="group" aria-label="Add elements">
+          <button aria-label="Add image" title="Add image" @click="add('image')">
+            <PhotoIcon />Image
+          </button>
+          <button aria-label="Add text" title="Add text" @click="add('text')">
+            <LanguageIcon />Text
+          </button>
+          <button aria-label="Add QR code" title="Add QR code" @click="add('qr')">
+            <QrCodeIcon />QR code
+          </button>
+          <button aria-label="Add rectangle" title="Add rectangle" @click="add('rectangle')">
+            <StopIcon />Rectangle
+          </button>
+          <button aria-label="Add line" title="Add line" @click="add('line')">
+            <MinusIcon />Line
+          </button>
+        </div>
       </div>
-      <div class="editor-options row wrap">
+      <div class="editor-options">
         <label class="checkbox"
           ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
         >
-        <label>Zoom<input v-model.number="zoom" type="range" min="50" max="250" step="10" /></label
-        ><label class="checkbox"><input v-model="showGrid" type="checkbox" />Grid</label
-        ><label class="checkbox"><input v-model="snap" type="checkbox" />Snap 0.5 mm</label
-        ><label
-          >Preview tape<select v-model="sampleProfile">
+        <label class="checkbox"><input v-model="snap" type="checkbox" />Snap 0.5 mm</label>
+        <label class="checkbox"
+          ><input v-model="showBounds" type="checkbox" />Object boundaries</label
+        >
+        <label class="editor-zoom"
+          >Zoom
+          <input
+            aria-label="Zoom"
+            v-model.number="zoom"
+            type="range"
+            min="50"
+            max="250"
+            step="10"
+          />
+          <output>{{ zoom }}%</output>
+        </label>
+        <label class="editor-preview-tape"
+          >Preview tape
+          <select v-model="sampleProfile">
             <option value="">Black on white</option>
             <option v-for="p in w.profiles.value" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select></label
-        >
+          </select>
+        </label>
       </div>
       <div class="editor-canvas-scroll">
-        <svg
-          ref="canvas"
-          class="editor-canvas"
-          tabindex="0"
-          role="img"
-          aria-label="Label design canvas"
-          :width="canvasLength * scale"
-          :height="document.width_mm * scale"
-          :viewBox="`0 0 ${canvasLength} ${document.width_mm}`"
-          @pointermove="move"
-          @pointerup="finish"
-          @pointercancel="finish"
-          @keydown="key"
-        >
-          <defs>
-            <pattern id="editor-grid" width="1" height="1" patternUnits="userSpaceOnUse">
-              <path d="M1 0H0V1" fill="none" stroke="#818cf8" stroke-width="0.03" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="white" @pointerdown="selectedId = ''" />
-          <image
-            v-if="preview"
-            :href="showPrintPixels ? preview.png : preview.design_png"
-            width="100%"
-            height="100%"
-            style="pointer-events: none"
-            :style="{ imageRendering: showPrintPixels ? 'pixelated' : 'auto' }"
+        <div class="editor-board">
+          <div class="ruler-corner">mm</div>
+          <EditorRuler
+            :length="canvasLength"
+            :scale="scale"
+            :position="pointer?.x ?? null"
+            :selection="
+              selectedBounds
+                ? { start: selectedBounds.x, end: selectedBounds.x + selectedBounds.width }
+                : null
+            "
           />
-          <rect
-            v-if="showGrid"
-            width="100%"
-            height="100%"
-            fill="url(#editor-grid)"
-            style="pointer-events: none"
+          <EditorRuler
+            vertical
+            :length="document.width_mm"
+            :scale="scale"
+            :position="pointer?.y ?? null"
+            :selection="
+              selectedBounds
+                ? { start: selectedBounds.y, end: selectedBounds.y + selectedBounds.height }
+                : null
+            "
           />
-          <rect
-            :x="margin"
-            :y="margin"
-            :width="canvasLength - margin * 2"
-            :height="document.width_mm - margin * 2"
-            fill="none"
-            stroke="#ef4444"
-            stroke-width="0.1"
-            stroke-dasharray="0.5 0.5"
-            style="pointer-events: none"
-          />
-          <g
-            v-for="element in canvasElements"
-            :key="element.id"
-            :transform="`rotate(${element.rotation},${element.x + element.width / 2},${element.y + element.height / 2})`"
+          <svg
+            ref="canvas"
+            class="editor-canvas"
+            tabindex="0"
+            role="img"
+            aria-label="Label design canvas"
+            :width="canvasLength * scale"
+            :height="document.width_mm * scale"
+            :viewBox="`0 0 ${canvasLength} ${document.width_mm}`"
+            @pointermove="move"
+            @pointerup="finish"
+            @pointercancel="finish"
+            @pointerleave="pointer = null"
+            @keydown="key"
           >
+            <defs>
+              <pattern id="editor-grid" width="1" height="1" patternUnits="userSpaceOnUse">
+                <path d="M1 0H0V1" fill="none" stroke="#818cf8" stroke-width="0.03" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="white" @pointerdown="selectedId = ''" />
+            <image
+              v-if="preview"
+              :href="showPrintPixels ? preview.png : preview.design_png"
+              width="100%"
+              height="100%"
+              preserveAspectRatio="none"
+              style="pointer-events: none"
+              :style="{ imageRendering: showPrintPixels ? 'pixelated' : 'auto' }"
+            />
             <rect
-              :x="element.x"
-              :y="element.y"
-              :width="element.width"
-              :height="element.height"
-              :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
-              :stroke="selectedId === element.id ? '#6366f1' : 'transparent'"
-              stroke-width="0.2"
-              @pointerdown.stop="start($event, element, 'move')"
+              width="100%"
+              height="100%"
+              fill="url(#editor-grid)"
+              style="pointer-events: none"
             />
-            <circle
-              v-if="selectedId === element.id && element.rotation === 0"
-              :cx="element.x + element.width"
-              :cy="element.y + element.height"
-              r="0.6"
-              fill="#6366f1"
-              @pointerdown.stop="start($event, element, 'size')"
+            <rect
+              :x="margin"
+              :y="verticalMargin"
+              :width="canvasLength - margin * 2"
+              :height="document.width_mm - verticalMargin * 2"
+              fill="none"
+              stroke="#ef4444"
+              stroke-width="0.1"
+              stroke-dasharray="0.5 0.5"
+              style="pointer-events: none"
             />
-          </g>
-        </svg>
+            <g
+              v-for="element in canvasElements"
+              :key="element.id"
+              :transform="`rotate(${element.rotation},${element.x + element.width / 2},${element.y + element.height / 2})`"
+            >
+              <rect
+                :x="element.x"
+                :y="element.y"
+                :width="element.width"
+                :height="element.height"
+                :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
+                class="object-boundary"
+                :stroke="
+                  selectedId === element.id ? '#6366f1' : showBounds ? '#64748b' : 'transparent'
+                "
+                :stroke-width="selectedId === element.id ? 1.5 : 0.75"
+                :stroke-dasharray="selectedId === element.id ? undefined : '4 3'"
+                vector-effect="non-scaling-stroke"
+                @pointerdown.stop="start($event, element, 'move')"
+              />
+              <circle
+                v-if="selectedId === element.id"
+                :cx="element.x + element.width"
+                :cy="element.y + element.height"
+                r="0.6"
+                fill="#6366f1"
+                :style="{ cursor: element.rotation % 180 ? 'nesw-resize' : 'nwse-resize' }"
+                @pointerdown.stop="start($event, element, 'size')"
+              />
+            </g>
+            <g v-if="pointer" class="canvas-cursor-guides" pointer-events="none">
+              <line :x1="pointer.x" :x2="pointer.x" y1="0" :y2="document.width_mm" />
+              <line x1="0" :x2="canvasLength" :y1="pointer.y" :y2="pointer.y" />
+            </g>
+          </svg>
+        </div>
       </div>
+      <p v-if="pointer" class="help cursor-position">
+        Cursor: {{ pointer.x.toFixed(2) }} × {{ pointer.y.toFixed(2) }} mm
+      </p>
       <p class="help">
-        {{ canvasLength }} × {{ document.width_mm }} mm · {{ margin }} mm printable-area guides ·
+        {{ canvasLength }} × {{ document.width_mm }} mm · {{ margin }} mm end /
+        {{ verticalMargin.toFixed(2) }} mm side guides ·
         {{
           rendering
             ? 'Rendering…'
@@ -546,99 +772,134 @@ onUnmounted(() => {
         </button>
       </div>
     </section>
-    <section class="panel form-stack">
-      <h2>Element properties</h2>
+    <section class="panel editor-properties" aria-labelledby="element-properties-heading">
+      <h2 id="element-properties-heading">Element properties</h2>
       <p v-if="!selected" class="help">Add or select an element to edit it.</p>
-      <template v-else>
-        <div class="field-row">
+      <div v-else class="editor-property-sections">
+        <PropertySection title="Position &amp; size" initially-open>
+          <div class="field-row">
+            <label
+              >X (mm)<input
+                :value="positionLocked('x') ? positionedElement(selected).x : selected.x"
+                :disabled="positionLocked('x')"
+                @input="setPosition('x', $event)"
+                type="number"
+                min="-1000"
+                step="0.5"
+                @change="record" /></label
+            ><label
+              >Y (mm)<input
+                :value="positionLocked('y') ? positionedElement(selected).y : selected.y"
+                :disabled="positionLocked('y')"
+                @input="setPosition('y', $event)"
+                type="number"
+                min="-100"
+                step="0.5"
+                @change="record"
+            /></label>
+          </div>
+          <div class="field-row">
+            <label
+              >Width (mm)<input
+                :value="selected.width"
+                :disabled="selected.kind === 'text' && selected.auto_width"
+                type="number"
+                min="1"
+                step="0.5"
+                @input="resize('width', $event)"
+                @change="record" /></label
+            ><label
+              >Height (mm)<input
+                :value="selected.height"
+                :disabled="selected.kind === 'qr'"
+                type="number"
+                min="1"
+                step="0.5"
+                @input="resize('height', $event)"
+                @change="record"
+            /></label>
+          </div>
           <label
-            >X (mm)<input
-              v-model.number="selected.x"
-              type="number"
-              min="0"
-              step="0.5"
-              @change="record" /></label
-          ><label
-            >Y (mm)<input
-              v-model.number="selected.y"
-              type="number"
-              min="0"
-              step="0.5"
-              @change="record"
-          /></label>
-        </div>
-        <div class="field-row">
-          <label
-            >Width (mm)<input
-              :value="selected.width"
-              :disabled="selected.kind === 'text' && selected.auto_width"
-              type="number"
-              min="1"
-              step="0.5"
-              @input="resize('width', $event)"
-              @change="record" /></label
-          ><label
-            >Height (mm)<input
-              :value="selected.height"
-              :disabled="selected.kind === 'qr'"
-              type="number"
-              min="1"
-              step="0.5"
-              @input="resize('height', $event)"
-              @change="record"
-          /></label>
-        </div>
-        <label
-          >Rotation<select v-model.number="selected.rotation" @change="record">
-            <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
-          </select></label
-        >
-        <label v-if="selected.kind === 'text' || selected.kind === 'qr'"
-          >Content<textarea
-            aria-label="Content"
-            v-model="selected.content"
-            maxlength="2000"
-            rows="3"
-            @change="record"
-          ></textarea
-          ><span class="help"
-            >Bind variables using double braces, for example <code v-pre>{{ name }}</code
-            >.</span
-          ></label
-        >
-        <template v-if="selected.kind === 'image'">
-          <label
-            >Image<select v-model="selected.image_asset" @change="fitImageBox">
-              <option :value="null" disabled>Select an uploaded image</option>
-              <option
-                v-for="asset in w.images.value.filter(
-                  (a) => !a.archived || a.id === selected?.image_asset,
-                )"
-                :key="asset.id"
-                :value="asset.id"
-              >
-                {{ asset.name }}{{ asset.archived ? ' (hidden)' : '' }}
-              </option>
+            >Rotation<select v-model.number="selected.rotation" @change="record">
+              <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
             </select></label
           >
-          <label
-            >Upload image file<input
-              ref="imageInput"
-              type="file"
-              accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
-              :disabled="w.busy.value"
-              @change="chooseImageFile"
-          /></label>
-          <button class="secondary" :disabled="!imageFile || w.busy.value" @click="uploadImage">
-            Upload and use image
-          </button>
-          <label class="checkbox"
-            ><input
-              type="checkbox"
-              v-model="selected.preserve_aspect"
-              @change="setPreserveAspect"
-            />Preserve aspect ratio</label
+        </PropertySection>
+        <PropertySection
+          v-if="['text', 'qr', 'image'].includes(selected.kind)"
+          title="Content"
+          initially-open
+        >
+          <label v-if="selected.kind === 'text' || selected.kind === 'qr'"
+            >Content<textarea
+              aria-label="Content"
+              v-model="selected.content"
+              maxlength="2000"
+              rows="3"
+              @change="record"
+            ></textarea
+            ><span class="help"
+              >Bind variables using double braces, for example <code v-pre>{{ name }}</code
+              >.</span
+            ></label
           >
+          <template v-if="selected.kind === 'image'">
+            <label
+              >Image<select v-model="selected.image_asset" @change="fitImageBox">
+                <option :value="null" disabled>Select an uploaded image</option>
+                <option
+                  v-for="asset in w.images.value.filter(
+                    (a) => !a.archived || a.id === selected?.image_asset,
+                  )"
+                  :key="asset.id"
+                  :value="asset.id"
+                >
+                  {{ asset.name }}{{ asset.archived ? ' (hidden)' : '' }}
+                </option>
+              </select></label
+            >
+            <label
+              >Upload image file<input
+                ref="imageInput"
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
+                :disabled="w.busy.value"
+                @change="chooseImageFile"
+            /></label>
+            <button class="secondary" :disabled="!imageFile || w.busy.value" @click="uploadImage">
+              Upload and use image
+            </button>
+            <label class="checkbox"
+              ><input
+                type="checkbox"
+                v-model="selected.preserve_aspect"
+                @change="setPreserveAspect"
+              />Preserve aspect ratio</label
+            >
+          </template>
+          <template v-if="selected.kind === 'qr'">
+            <label class="checkbox">
+              <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
+              Scale up to bounding box
+            </label>
+            <template v-if="selected.qr_fill_box">
+              <label
+                >QR margin (mm)<input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  :value="selected.qr_margin_mm ?? ''"
+                  placeholder="Auto (4 modules)"
+                  @change="setQrMargin"
+              /></label>
+              <p class="help">
+                Margin on each side, inside the box. Use 0 to fill to the edges, or leave blank for
+                the automatic clear border. Leave clear space around the code for scanning.
+              </p>
+            </template>
+          </template>
+        </PropertySection>
+        <PropertySection v-if="selected.kind === 'image'" title="Image adjustments">
           <label
             >Brightness<input
               type="number"
@@ -676,63 +937,83 @@ onUnmounted(() => {
             Brightness and contrast: 1 keeps the original. Dithering represents shading with ink
             dots. The preview uses your tape colors.
           </p>
-        </template>
-        <template v-if="selected.kind === 'qr'">
-          <label class="checkbox">
-            <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
-            Scale up to bounding box
-          </label>
-          <template v-if="selected.qr_fill_box">
-            <label
-              >QR margin (mm)<input
-                type="number"
-                min="0"
-                step="0.1"
-                :value="selected.qr_margin_mm ?? ''"
-                placeholder="Auto (4 modules)"
-                @change="setQrMargin"
-            /></label>
-            <p class="help">
-              Margin on each side, inside the box. Use 0 to fill to the edges, or leave blank for
-              the automatic clear border. Leave clear space around the code for scanning.
+        </PropertySection>
+        <PropertySection v-if="selected.kind === 'text'" title="Typography">
+          <template v-if="selected.kind === 'text'"
+            ><label class="checkbox"
+              ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text box
+              width to content</label
+            >
+            <p class="help" v-if="selected.auto_width">
+              Fits each value without wrapping. Combine with automatic label length for
+              variable-length labels.
             </p>
-          </template>
-        </template>
-        <template v-if="selected.kind === 'text'"
-          ><label class="checkbox"
-            ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text box
-            width to content</label
-          >
-          <p class="help" v-if="selected.auto_width">
-            Fits each value without wrapping. Combine with automatic label length for
-            variable-length labels.
-          </p>
-          <label
-            >Font<select v-model="selected.font" @change="record">
-              <option>Noto Sans</option>
-              <option
-                v-for="font in w.fonts.value.filter((f) => !f.archived || f.id === selected?.font)"
-                :key="font.id"
-                :value="font.id"
+            <label
+              >Font<select v-model="selected.font" @change="record">
+                <option>Noto Sans</option>
+                <option
+                  v-for="font in w.fonts.value.filter(
+                    (f) => !f.archived || f.id === selected?.font,
+                  )"
+                  :key="font.id"
+                  :value="font.id"
+                >
+                  {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
+                </option>
+              </select></label
+            ><label
+              >Font size (mm)<input
+                v-model.number="selected.font_size"
+                type="number"
+                min="1"
+                max="24"
+                step="0.1"
+                @change="record"
+            /></label>
+            <p class="help">Font size is the maximum. Text shrinks automatically to fit its box.</p>
+            <div class="row">
+              <label class="checkbox"
+                ><input
+                  v-model="selected.bold"
+                  :disabled="selected.font !== 'Noto Sans'"
+                  type="checkbox"
+                  @change="record"
+                />Bold</label
+              ><label class="checkbox"
+                ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap text</label
               >
-                {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
-              </option>
-            </select></label
-          ><label
-            >Font size (mm)<input
-              v-model.number="selected.font_size"
-              type="number"
-              min="1"
-              max="24"
-              step="0.1"
-              @change="record"
-          /></label>
-          <p class="help">Font size is the maximum. Text shrinks automatically to fit its box.</p>
+            </div></template
+          >
+          <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
+            Uploaded fonts use the chosen face’s own weight. Upload a bold face to use bold text.
+          </p>
+        </PropertySection>
+        <PropertySection v-if="selected.kind === 'text'" title="Spacing &amp; alignment">
+          <fieldset class="text-padding">
+            <legend>Text padding (mm)</legend>
+            <div
+              class="field-row"
+              v-for="pair in [paddingSides.slice(0, 2), paddingSides.slice(2)]"
+              :key="pair[0]"
+            >
+              <label v-for="side in pair" :key="side"
+                >{{ side[0].toUpperCase() + side.slice(1) }}
+                <input
+                  :aria-label="`${side[0].toUpperCase() + side.slice(1)} padding (mm)`"
+                  :value="selected[`padding_${side}`] ?? 0"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  @input="setPadding(side, $event)"
+                />
+              </label>
+            </div>
+          </fieldset>
           <label
-            >Text alignment<select v-model="selected.align" @change="record">
-              <option>left</option>
-              <option>center</option>
-              <option>right</option>
+            >Horizontal text alignment<select v-model="selected.align" @change="record">
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
             </select></label
           >
           <label
@@ -745,49 +1026,77 @@ onUnmounted(() => {
               <option value="bottom">Bottom</option>
             </select></label
           >
-          <div class="row">
-            <label class="checkbox"
-              ><input
-                v-model="selected.bold"
-                :disabled="selected.font !== 'Noto Sans'"
-                type="checkbox"
-                @change="record"
-              />Bold</label
-            ><label class="checkbox"
-              ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap text</label
+        </PropertySection>
+        <PropertySection
+          v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
+          title="Appearance"
+          initially-open
+        >
+          <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
+            ><label
+              >Stroke (mm)<input
+                v-model.number="selected.stroke"
+                type="number"
+                min="0.1"
+                max="3"
+                step="0.1"
+                @change="record" /></label
+            ><label v-if="selected.kind === 'rectangle'" class="checkbox"
+              ><input v-model="selected.filled" type="checkbox" @change="record" />Filled
+              rectangle</label
+            ></template
+          >
+        </PropertySection>
+        <PropertySection title="Distance holder">
+          <label
+            >Follow element
+            <select :value="selected.distance_holder?.element_id ?? ''" @change="setDistanceTarget">
+              <option value="">None (free position)</option>
+              <option v-for="element in distanceTargets" :key="element.id" :value="element.id">
+                {{ document.elements.indexOf(element) + 1 }}. {{ element.kind
+                }}{{ element.content ? ` · ${element.content.slice(0, 40)}` : '' }}
+              </option>
+            </select>
+          </label>
+          <template v-if="selected.distance_holder">
+            <label
+              >Placement<select v-model="selected.distance_holder.axis" @change="record">
+                <option value="horizontal">Right of element</option>
+                <option value="vertical">Below element</option>
+              </select></label
             >
-          </div></template
-        >
-        <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
-          Uploaded fonts use the chosen face’s own weight. Upload a bold face to use bold text.
-        </p>
-        <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
-          ><label
-            >Stroke (mm)<input
-              v-model.number="selected.stroke"
-              type="number"
-              min="0.1"
-              max="3"
-              step="0.1"
-              @change="record" /></label
-          ><label v-if="selected.kind === 'rectangle'" class="checkbox"
-            ><input v-model="selected.filled" type="checkbox" @change="record" />Filled
-            rectangle</label
-          ></template
-        >
-        <div class="row wrap">
-          <button class="small" @click="align('left')">Align left</button
-          ><button class="small" @click="align('center')">Center horizontally</button
-          ><button class="small" @click="align('right')">Align right</button
-          ><button class="small" @click="align('middle')">Center vertically</button>
-        </div>
-        <div class="row wrap">
-          <button class="small" @click="order(-1)">Send backward</button
-          ><button class="small" @click="order(1)">Bring forward</button
-          ><button class="small" @click="duplicate">Duplicate element</button
-          ><button class="small danger-text" @click="remove">Delete element</button>
-        </div>
-      </template>
+            <label
+              >Gap (mm)<input
+                v-model.number="selected.distance_holder.gap_mm"
+                type="number"
+                min="0"
+                max="300"
+                step="0.5"
+                @change="record"
+            /></label>
+          </template>
+          <p class="help">
+            Keep a fixed gap between element edges, including rotation and padding. Use “Fit text
+            box width to content” for variable text. For a cable tag, make the divider follow the
+            first text, then make the second text follow the divider with the same gap. Removing the
+            followed element releases the distance holder.
+          </p>
+        </PropertySection>
+        <PropertySection title="Arrange">
+          <div class="row wrap">
+            <button class="small" @click="align('left')">Align left</button
+            ><button class="small" @click="align('center')">Center horizontally</button
+            ><button class="small" @click="align('right')">Align right</button
+            ><button class="small" @click="align('middle')">Center vertically</button>
+          </div>
+          <div class="row wrap">
+            <button class="small" @click="order(-1)">Send backward</button
+            ><button class="small" @click="order(1)">Bring forward</button
+            ><button class="small" @click="duplicate">Duplicate element</button
+            ><button class="small danger-text" @click="remove">Delete element</button>
+          </div>
+        </PropertySection>
+      </div>
     </section>
   </div>
   <section class="panel">
