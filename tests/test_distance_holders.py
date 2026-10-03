@@ -1,5 +1,9 @@
+import base64
+import io
+
 import pytest
 from conftest import profile
+from PIL import Image
 from pydantic import ValidationError
 
 from app.render import RenderSpec, element_bounds, render_document
@@ -160,3 +164,10 @@ def test_csv_freezes_distances_for_each_record_before_later_template_edits(clien
         assert_gaps(frozen)
         assert frozen.length_mm == previews[i]["length_mm"]
         assert client.get(f"/api/runs/{run['id']}/rows/{i}/preview").json() == previews[i]
+        history = client.get(f"/api/jobs/{job['id']}/preview")
+        assert history.status_code == 200
+        expected = Image.open(io.BytesIO(base64.b64decode(previews[i]["png"].split(",")[1])))
+        assert (
+            Image.open(io.BytesIO(history.content)).convert("L").tobytes()
+            == expected.convert("L").tobytes()
+        )

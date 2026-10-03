@@ -962,3 +962,93 @@ test('rotated objects drag and resize with the opposite corner fixed', async ({ 
     await expect(page.getByLabel('Y (mm)', { exact: true })).toHaveValue(String(y + 1))
   }
 })
+
+test('printed batch history shows saved pixels and an enlarged preview', async ({ page }) => {
+  const profile = await (
+    await page.request.post('/api/tape-profiles', {
+      data: { name: 'History preview tape', width_mm: 24, auto_print_threshold: 1 },
+    })
+  ).json()
+  const cartridge = await (
+    await page.request.post('/api/cartridges', {
+      data: { profile_id: profile.id, name: 'History preview cassette', nominal_length_mm: 8000 },
+    })
+  ).json()
+  await page.request.put('/api/printer/active-tape', { data: { cartridge_id: cartridge.id } })
+  await page.request.put('/api/printer/automatic-printing', { data: { held: false } })
+  const document = {
+    print_resolution: 'high',
+    width_mm: 24,
+    length_mm: 60,
+    elements: [
+      {
+        id: 'title',
+        kind: 'text',
+        x: 2,
+        y: 4,
+        width: 56,
+        height: 16,
+        font_size: 6,
+        content: 'History preview',
+      },
+    ],
+  }
+  const template = await (
+    await page.request.post('/api/templates', {
+      data: { name: 'History template', document },
+    })
+  ).json()
+  const job = await (
+    await page.request.post('/api/jobs', {
+      data: { template: template.id, tape_profile: profile.id, data: {}, copies: 2 },
+    })
+  ).json()
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status)
+    .toBe('printed')
+  document.elements[0]!.content = 'Changed after printing'
+  await page.request.put(`/api/templates/${template.id}`, {
+    data: { name: 'Changed template', document, expected_revision: 1 },
+  })
+  await page.goto('/#/activity')
+  await page
+    .locator('.list-row')
+    .filter({ hasText: 'History preview cassette' })
+    .getByRole('link', { name: 'Details →' })
+    .click()
+  const thumbnails = page.locator('.history-thumbnail img')
+  await expect(thumbnails).toHaveCount(2)
+  await expect
+    .poll(() => thumbnails.first().evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(850)
+  const box = (await thumbnails.first().boundingBox())!
+  expect(box.width / box.height).toBeCloseTo(60 / 24, 1)
+  await page
+    .getByRole('button', { name: 'Enlarge label preview: Label', exact: true })
+    .first()
+    .click()
+  const dialog = page.getByRole('dialog', { name: 'Label preview', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect
+    .poll(() => dialog.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(850)
+  await page.screenshot({ path: 'test-results/history-label-preview.png', fullPage: true })
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Enlarge label preview: Label', exact: true }).first(),
+  ).toBeFocused()
+  await page.route(`**/api/jobs/${job.id}/preview`, (route) => route.fulfill({ status: 404 }))
+  await page.reload()
+  await expect(page.getByText('Preview unavailable.', { exact: false })).toHaveCount(2)
+  await page.unroute(`**/api/jobs/${job.id}/preview`)
+  await page.getByRole('button', { name: 'Retry preview' }).first().click()
+  await expect
+    .poll(() =>
+      page
+        .locator('.history-thumbnail img')
+        .first()
+        .evaluate((img: HTMLImageElement) => img.naturalWidth),
+    )
+    .toBe(850)
+})

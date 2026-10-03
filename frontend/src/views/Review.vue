@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api'
 import type { BatchDetail } from '../types'
 import { workspace as w, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
+import JobPreview from '../components/JobPreview.vue'
 const route = useRoute(),
   batch = ref<BatchDetail | null>(null),
   error = ref('')
@@ -95,7 +96,15 @@ async function resolve() {
           </thead>
           <tbody>
             <tr v-for="item in batch.items" :key="item.copy_id">
-              <td class="review-text">{{ item.text }}</td>
+              <td class="review-text">
+                <JobPreview
+                  :job-id="item.job_id"
+                  :text="item.text"
+                  :width-mm="item.width_mm"
+                  :length-mm="item.length_mm"
+                />
+                <span>{{ item.text }}</span>
+              </td>
               <td>{{ item.copy_number }}</td>
               <td><Badge :state="item.outcome" /></td>
               <td v-if="batch.state === 'needs_review'">

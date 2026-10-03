@@ -62,6 +62,12 @@ def test_image_preview_matches_frozen_high_resolution_print_with_physical_band(c
             images=client.app.state.images,
         )
     expected = Image.open(io.BytesIO(base64.b64decode(preview["png"].split(",")[1])))
+    history = client.get(f"/api/jobs/{job['id']}/preview")
+    assert history.status_code == 200
+    assert (
+        Image.open(io.BytesIO(history.content)).convert("L").tobytes()
+        == expected.convert("L").tobytes()
+    )
     assert frozen.raster == ImageOps.invert(expected.convert("L")).convert("1").tobytes()
     assert (frozen.dpi_x, frozen.dpi_y) == (360, 180)
     client.put("/api/printer/automatic-printing", json={"held": True})

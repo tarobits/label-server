@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import io
 import json
 import re
 import time
@@ -7,7 +8,8 @@ from collections.abc import Iterator
 from dataclasses import asdict
 from typing import Any, TypeVar
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from PIL import Image, ImageOps
 from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
@@ -35,7 +37,7 @@ from app.models import (
 from app.notifications import schedule_reminders
 from app.printer.mock import MockPrinterBackend
 from app.queue import compatible_copies, require_idle, resolve_batch
-from app.render import RenderSpec, render_document
+from app.render import RenderSpec, render_document, render_job
 from app.schemas import (
     ActiveTapeInput,
     AutomaticPrintingInput,
@@ -675,6 +677,32 @@ def job(identifier: str, session: Session = Depends(db, scope="function")) -> di
     return job_record(session, get(session, PrintJob, identifier))
 
 
+@router.get("/jobs/{identifier}/preview")
+def job_preview(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> Response:
+    item = get(session, PrintJob, identifier)
+    access_context(request).require(
+        Action.READ, Resource("job", item.id, item.owner_id, item.destination_id)
+    )
+    label = session.scalar(select(LabelCopy).where(LabelCopy.job_id == identifier).limit(1))
+    if label is None:
+        raise HTTPException(404, "Label copy not found")
+    try:
+        rendered = render_job(item, label, request.app.state.fonts, request.app.state.images)
+    except (ValueError, OSError) as error:
+        raise HTTPException(422, "Saved label preview is unavailable") from error
+    # Use the same packed ink raster as printing, including legacy fixture jobs.
+    ink = Image.frombytes("1", (rendered.pixel_width, rendered.pixel_height), rendered.raster)
+    output = io.BytesIO()
+    ImageOps.invert(ink.convert("L")).save(output, format="PNG")
+    return Response(
+        output.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.delete("/jobs/{identifier}")
 def cancel_job(identifier: str, session: Session = Depends(db, scope="function")) -> dict[str, Any]:
     item = get(session, PrintJob, identifier)
@@ -772,7 +800,9 @@ def batch_detail(
                 **record(item),
                 "job_id": job.id,
                 "copy_number": label.ordinal + 1,
-                "text": job.payload.get("text", job.template_id),
+                "text": job.payload.get("text") or " · ".join(job.payload.values()) or "Label",
+                "width_mm": job.width_mm,
+                "length_mm": job.length_mm,
             }
         )
     return {

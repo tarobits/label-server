@@ -90,6 +90,8 @@ export interface BatchDetail extends Batch {
     job_id: string
     copy_number: number
     text: string
+    width_mm: number
+    length_mm: number
   }[]
 }
 export interface Notice {
