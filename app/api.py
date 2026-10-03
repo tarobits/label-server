@@ -1,4 +1,7 @@
 import copy
+import hashlib
+import json
+import re
 import time
 from collections.abc import Iterator
 from dataclasses import asdict
@@ -11,12 +14,14 @@ from sqlalchemy.orm import Session
 from app.access import AccessContext, Action, Resource, access_context
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
+from app.image_jobs import image_document
 from app.models import (
     Base,
     Batch,
     BatchItem,
     Cartridge,
     FlushRequest,
+    JobSubmission,
     LabelCopy,
     LabelTemplate,
     Notification,
@@ -36,6 +41,7 @@ from app.schemas import (
     AutomaticPrintingInput,
     CartridgeInput,
     CopySelectionInput,
+    ImageJobInput,
     JobInput,
     MockPrinterInput,
     ProfileInput,
@@ -466,6 +472,10 @@ def build_job(
 def create_job(
     body: JobInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
+    fingerprint = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True).encode()).hexdigest()
+    existing = submitted_job(request, session, fingerprint)
+    if existing is not None:
+        return existing
     profile = get(session, TapeProfile, body.tape_profile)
     template = get(session, LabelTemplate, body.template)
     if template.archived:
@@ -479,13 +489,109 @@ def create_job(
         request.app.state.images,
         context=access_context(request),
     )
+    return save_submission(request, session, job, fingerprint)
+
+
+def submitted_job(request: Request, session: Session, fingerprint: str) -> dict[str, Any] | None:
+    key = request.headers.get("Idempotency-Key")
+    owner = access_context(request).actor.id
+    if key is not None:
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", key):
+            raise HTTPException(
+                422,
+                "Idempotency-Key must be 1–128 letters, digits, dots, colons, underscores or hyphens",
+            )
+        receipt = session.get(JobSubmission, (owner, key))
+        if receipt:
+            if receipt.request_hash != fingerprint:
+                raise HTTPException(409, "Idempotency-Key already used with different inputs")
+            return job_record(session, get(session, PrintJob, receipt.job_id))
+    return None
+
+
+def save_submission(
+    request: Request, session: Session, job: PrintJob, fingerprint: str
+) -> dict[str, Any]:
     job.owner_id = access_context(request).actor.id
     job.destination_id = access_context(request).destination_id
     session.add(job)
     session.flush()
-    session.add_all([LabelCopy(job_id=job.id, ordinal=i) for i in range(body.copies)])
+    key = request.headers.get("Idempotency-Key")
+    if key is not None:
+        session.add(
+            JobSubmission(
+                owner_id=job.owner_id, request_key=key, request_hash=fingerprint, job_id=job.id
+            )
+        )
+    session.add_all([LabelCopy(job_id=job.id, ordinal=i) for i in range(job.copies)])
     session.flush()
     return job_record(session, job)
+
+
+def image_job_document(
+    body: ImageJobInput, request: Request, session: Session
+) -> tuple[TapeProfile, TemplateDocument]:
+    profile = get(session, TapeProfile, body.tape_profile)
+    try:
+        asset = request.app.state.images.metadata(body.image_asset)
+        access_context(request).require(
+            Action.READ, Resource("image_asset", body.image_asset, asset["owner_id"])
+        )
+        document = image_document(
+            body,
+            profile.width_mm,
+            rendering_spec(request, body.model_dump()),
+            request.app.state.images,
+        )
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    return profile, document
+
+
+@router.post("/image-jobs/preview")
+def preview_image_job(
+    body: ImageJobInput, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    profile, document = image_job_document(body, request, session)
+    return preview(
+        PreviewInput(
+            document=document, foreground=profile.foreground, background=profile.background
+        ),
+        request,
+        session,
+    )
+
+
+@router.post("/image-jobs", status_code=201)
+def create_image_job(
+    body: ImageJobInput, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    # Share the key namespace with template submissions, but never their fingerprints.
+    fingerprint = hashlib.sha256(
+        json.dumps({"image_job": body.model_dump()}, sort_keys=True).encode()
+    ).hexdigest()
+    existing = submitted_job(request, session, fingerprint)
+    if existing is not None:
+        return existing
+    profile, document = image_job_document(body, request, session)
+    # A frozen document needs no editable library template (nor a template per upload).
+    template = LabelTemplate(
+        id="image",
+        name="Image label",
+        revision=1,
+        document=document.model_dump(),
+        owner_id=access_context(request).actor.id,
+    )
+    job = build_job(
+        JobInput(template="image", tape_profile=profile.id, copies=body.copies, data={}),
+        profile,
+        template,
+        rendering_spec(request, document),
+        request.app.state.fonts,
+        request.app.state.images,
+        context=access_context(request),
+    )
+    return save_submission(request, session, job, fingerprint)
 
 
 @router.get("/jobs")

@@ -179,3 +179,13 @@ class PrintRun(Base):
     manifest: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[float] = mapped_column(default=time.time)
     submitted_at: Mapped[float | None]
+
+
+class JobSubmission(Base):
+    """Retry receipt: a caller key belongs to one actor and one frozen job."""
+
+    __tablename__ = "job_submissions"
+    owner_id: Mapped[str] = mapped_column(String, primary_key=True)
+    request_key: Mapped[str] = mapped_column(String, primary_key=True)
+    request_hash: Mapped[str]
+    job_id: Mapped[str] = mapped_column(ForeignKey("print_jobs.id"))

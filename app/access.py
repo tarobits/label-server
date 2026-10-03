@@ -61,8 +61,17 @@ def access_context(request: Request) -> AccessContext:
 def authorize_request(request: Request) -> None:
     context = access_context(request)
     path = request.scope["route"].path
-    action = Action.READ if request.method in ("GET", "HEAD") else Action.WRITE
-    if path == "/api/jobs" and request.method == "POST" or path.endswith("/submit"):
+    action = (
+        Action.READ
+        if request.method in ("GET", "HEAD")
+        or path in ("/api/preview", "/api/image-jobs/preview", "/api/csv/inspect")
+        else Action.WRITE
+    )
+    if (
+        path in ("/api/jobs", "/api/image-jobs")
+        and request.method == "POST"
+        or path.endswith("/submit")
+    ):
         action = Action.SUBMIT
     elif path == "/api/queue/print":
         action = Action.PRINT

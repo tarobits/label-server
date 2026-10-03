@@ -46,6 +46,16 @@ class JobInput(Input):
     data: dict[str, str] = Field(max_length=20)
 
 
+class ImageJobInput(Input):
+    image_asset: str = Field(pattern=r"^[a-f0-9]{64}$")
+    tape_profile: str
+    copies: int = Field(default=1, ge=1, le=1000)
+    length_mm: float | None = Field(default=None, ge=10, le=300)
+    print_resolution: Literal["printer", "normal", "high"] = "printer"
+    image_mode: Literal["threshold", "dither"] = "threshold"
+    image_threshold: int = Field(default=128, ge=1, le=255)
+
+
 class ReminderInput(Input):
     action: Literal["silence", "snooze", "resume"]
     until: float | None = None
