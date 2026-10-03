@@ -18,14 +18,22 @@ class TemplateField(Input):
     sample: str = Field(default="", max_length=2000)
 
 
+class DistanceHolder(Input):
+    element_id: str = Field(min_length=1, max_length=80)
+    axis: Literal["horizontal", "vertical"] = "horizontal"
+    gap_mm: float = Field(default=2, ge=0, le=300)
+
+
 class Element(Input):
     id: str = Field(min_length=1, max_length=80)
     kind: Literal["text", "qr", "rectangle", "line", "image"]
-    x: float = Field(ge=0, le=1000)
-    y: float = Field(ge=0, le=100)
+    # The unrotated origin may be negative while the rotated bounds are inside the label.
+    x: float = Field(ge=-1000, le=1000)
+    y: float = Field(ge=-100, le=100)
     width: float = Field(gt=0, le=1000)
     height: float = Field(gt=0, le=100)
     rotation: Literal[0, 90, 180, 270] = 0
+    distance_holder: DistanceHolder | None = None
     content: str = Field(default="", max_length=2000)
     font: str = Field(default="Noto Sans", pattern=r"^(Noto Sans|[a-f0-9]{64})$")
     font_size: float = Field(default=3, ge=1, le=24)
@@ -34,6 +42,10 @@ class Element(Input):
     vertical_align: Literal["top", "center", "bottom"] = "top"
     auto_width: bool = False
     wrap: bool = True
+    padding_top: float = Field(default=0, ge=0, le=100)
+    padding_right: float = Field(default=0, ge=0, le=1000)
+    padding_bottom: float = Field(default=0, ge=0, le=100)
+    padding_left: float = Field(default=0, ge=0, le=1000)
     stroke: float = Field(default=0.3, ge=0.1, le=3)
     filled: bool = False
     image_asset: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -72,6 +84,26 @@ class TemplateDocument(Input):
                 element.width, element.height
             ):
                 raise ValueError("Stroke exceeds element dimensions")
+        elements = {element.id: element for element in self.elements}
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def visit(identifier: str) -> None:
+            if identifier in visiting:
+                raise ValueError("Distance holders must not form a circular dependency")
+            if identifier in visited:
+                return
+            visiting.add(identifier)
+            holder = elements[identifier].distance_holder
+            if holder:
+                if holder.element_id not in elements:
+                    raise ValueError("Distance holder references a missing element")
+                visit(holder.element_id)
+            visiting.remove(identifier)
+            visited.add(identifier)
+
+        for identifier in elements:
+            visit(identifier)
         return self
 
 

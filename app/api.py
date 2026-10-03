@@ -442,7 +442,7 @@ def build_job(
     try:
         parsed = TemplateDocument.model_validate(document)
         output = render_document(parsed, body.data, spec, fonts=fonts, images=images)
-        if parsed.auto_length or any(e.auto_width for e in parsed.elements):
+        if parsed.auto_length or any(e.auto_width or e.distance_holder for e in parsed.elements):
             document = output.document.model_dump()
     except ValueError as error:
         raise HTTPException(422, str(error)) from error

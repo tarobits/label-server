@@ -109,26 +109,30 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
     paragraphs = text.replace("\t", "    ").splitlines() or [""]
     ascent, descent = font.getmetrics()
     base_line_height = (ascent + descent) / 100
+    inner_width = element.width - element.padding_left - element.padding_right
+    inner_height = element.height - element.padding_top - element.padding_bottom
+    if inner_width <= 0 or inner_height <= 0:
+        raise ValueError(f"Element {element.id}: text padding leaves no space for text")
 
     def layout(scale: float) -> list[str] | None:
         lines: list[str] = []
         for paragraph in paragraphs:
             if not element.wrap:
-                if font.getlength(paragraph) * scale / 100 > element.width:
+                if font.getlength(paragraph) * scale / 100 > inner_width:
                     return None
                 lines.append(paragraph)
                 continue
             line = ""
             for char in paragraph:
-                if font.getlength(line + char) * scale / 100 > element.width:
-                    if not line or font.getlength(char) * scale / 100 > element.width:
+                if font.getlength(line + char) * scale / 100 > inner_width:
+                    if not line or font.getlength(char) * scale / 100 > inner_width:
                         return None
                     lines.append(line)
                     line = char
                 else:
                     line += char
             lines.append(line)
-        return lines if len(lines) * base_line_height * scale <= element.height else None
+        return lines if len(lines) * base_line_height * scale <= inner_height else None
 
     scale = 1.0
     lines = layout(scale)
@@ -137,9 +141,9 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
         # a minimum font-size rejection. The chosen size remains the upper bound.
         low = 0.0
         widest = max((font.getlength(c) / 100 for c in text if c not in "\n\r\t"), default=0)
-        high = min(1.0, element.height / (len(paragraphs) * base_line_height))
+        high = min(1.0, inner_height / (len(paragraphs) * base_line_height))
         if widest:
-            high = min(high, element.width / widest)
+            high = min(high, inner_width / widest)
         for _ in range(32):
             middle = (low + high) / 2
             if layout(middle) is None:
@@ -151,15 +155,23 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
         assert lines is not None
     line_height = base_line_height * scale
     anchor = {"left": "start", "center": "middle", "right": "end"}[element.align]
-    x = {"left": 0, "center": element.width / 2, "right": element.width}[element.align]
-    remaining = max(0, element.height - len(lines) * line_height)
+    x = {"left": 0, "center": inner_width / 2, "right": inner_width}[element.align]
+    remaining = max(0, inner_height - len(lines) * line_height)
     y_offset = {"top": 0, "center": remaining / 2, "bottom": remaining}[element.vertical_align]
     parts = []
     for index, line in enumerate(lines):
         parts.append(
             f'<text x="{x}" y="{y_offset + ascent * scale / 100 + index * line_height}" font-family="{family}" font-size="{element.font_size * scale}" font-weight="{700 if element.bold and path is None else 400}" text-anchor="{anchor}" xml:space="preserve">{escape(line)}</text>'
         )
-    return "".join(parts)
+    body = "".join(parts)
+    if any(
+        (element.padding_left, element.padding_right, element.padding_top, element.padding_bottom)
+    ):
+        return (
+            f'<svg x="{element.padding_left}" y="{element.padding_top}" '
+            f'width="{inner_width}" height="{inner_height}" overflow="hidden">{body}</svg>'
+        )
+    return body
 
 
 def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
@@ -222,10 +234,38 @@ def resolve_layout(
             font = font_for(element.font_size, element.bold, font_path(element, fonts))
             lines = content.replace("\t", "    ").splitlines() or [""]
             # Round outward so floating point measurement never forces an extra wrap.
-            element.width = max(0.1, math.ceil(max(font.getlength(line) for line in lines)) / 100)
+            element.width = (
+                max(0.1, math.ceil(max(font.getlength(line) for line in lines)) / 100)
+                + element.padding_left
+                + element.padding_right
+            )
             if element.width > 1000:
                 raise ValueError("Automatically sized text exceeds the maximum element width")
             element.auto_width = False
+    elements = {element.id: element for element in resolved.elements}
+    positioned: set[str] = set()
+
+    def position(element: Element) -> None:
+        if element.id in positioned:
+            return
+        holder = element.distance_holder
+        if holder:
+            anchor = elements[holder.element_id]
+            position(anchor)
+            left, top, _, _ = element_bounds(element)
+            _, _, right, bottom = element_bounds(anchor)
+            if holder.axis == "horizontal":
+                element.x += right + holder.gap_mm - left
+            else:
+                element.y += bottom + holder.gap_mm - top
+            if not -1000 <= element.x <= 1000 or not -100 <= element.y <= 100:
+                raise ValueError("Distance holder places an element beyond supported coordinates")
+            # Freeze the resolved geometry, not a relation that could move an old job later.
+            element.distance_holder = None
+        positioned.add(element.id)
+
+    for element in resolved.elements:
+        position(element)
     if resolved.auto_length:
         if spec.media_kind != "continuous":
             raise ValueError("Automatic label length requires continuous media")
