@@ -47,6 +47,8 @@ class PrinterCapabilities:
     fixed_label_sizes_mm: tuple[tuple[float, float], ...] = ()
     supports_cut: bool = False
     supports_consecutive: bool = False
+    printable_widths_mm: dict[str, float] | None = None
+    resolution_modes: dict[str, tuple[int, int]] | None = None
 
 
 @dataclass(frozen=True)
@@ -59,7 +61,7 @@ class PrinterDefinition:
 
 
 class ByteTransport(Protocol):
-    """Implemented by a future USB or network transport; no queue/domain state."""
+    """Implemented by USB or future network transports; no queue/domain state."""
 
     def open(self) -> None: ...
     def write(self, data: bytes) -> None: ...

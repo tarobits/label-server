@@ -20,8 +20,8 @@ from app.image_assets import ImageStore
 from app.models import PrinterState
 from app.notifications import NtfySender, RoutedNotificationSender, deliver_pending
 from app.printer.base import PrinterBackend
-from app.printer.mock import MockPrinterBackend
-from app.printer.registry import MediaKind, PrinterCapabilities, PrinterDefinition, PrinterRegistry
+from app.printer.factory import configured_printer
+from app.printer.registry import PrinterRegistry
 from app.queue import QueueWorker
 from app.render import FONT_DIR
 from app.templates import seed_templates
@@ -43,20 +43,10 @@ def create_app(
         / "fonts"
     )
     images = ImageStore(fonts.root.parent / "images")
-    worker = QueueWorker(
-        factory, backend or MockPrinterBackend(settings.mock_tape_width_mm), fonts, images
-    )
+    definition, configured_backend = configured_printer(settings)
+    worker = QueueWorker(factory, backend or configured_backend, fonts, images)
     registry = PrinterRegistry()
-    registry.register(
-        PrinterDefinition(
-            "main",
-            "Label printer",
-            "mock",
-            None,
-            PrinterCapabilities(MediaKind.CONTINUOUS, 180, 180, (4, 6, 9, 12, 18, 24), 1),
-        ),
-        worker.backend,
-    )
+    registry.register(definition, worker.backend)
     stop, wake = Event(), Event()
 
     def run_queue() -> None:

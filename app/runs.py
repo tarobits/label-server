@@ -5,7 +5,7 @@ import hashlib
 import io
 import json
 import time
-from dataclasses import replace
+from dataclasses import asdict, replace
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -99,6 +99,7 @@ def run_record(run: PrintRun) -> dict[str, Any]:
         "template_revision": run.manifest["template_revision"],
         "copies": sum(row["copies"] for row in run.manifest["rows"]),
         "estimated_mm": run.manifest["estimated_mm"],
+        "print_plan": run.manifest.get("print_plan"),
         "label_length_mm": sum(row["copies"] * row["length_mm"] for row in run.manifest["rows"]),
     }
 
@@ -146,10 +147,10 @@ def prepare_run(
                 ),
                 profile,
                 template,
-                rendering_spec(request),
+                rendering_spec(request, template.document),
                 request.app.state.fonts,
                 request.app.state.images,
-                access_context(request),
+                context=access_context(request),
             )
             entries.append(
                 {
@@ -186,6 +187,7 @@ def prepare_run(
         manifest={
             "rows": entries,
             "estimated_mm": estimate,
+            "print_plan": asdict(request.app.state.worker.backend.plan_batch(labels)),
             "template_name": template.name,
             "template_revision": template.revision,
             "foreground": profile.foreground,

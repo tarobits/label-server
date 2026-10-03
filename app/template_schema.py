@@ -52,6 +52,7 @@ class TemplateDocument(Input):
     length_mm: float = Field(default=60, ge=10, le=300)
     auto_length: bool = False
     out_of_bounds: Literal["error", "clip"] = "error"
+    print_resolution: Literal["printer", "normal", "high"] = "printer"
     elements: list[Element] = Field(default_factory=list, max_length=50)
     fields: list[TemplateField] = Field(default_factory=list, max_length=20)
 

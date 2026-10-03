@@ -148,11 +148,19 @@ def converted_image(
     contrast: float,
     mode: str,
     threshold: int,
+    rectangular_pixels: bool = False,
 ) -> str:
     from pathlib import Path
 
     data = Path(path).read_bytes()
     if data.startswith(b"<"):
+        if rectangular_pixels:
+            # The physical image aspect is unchanged; device pixels are rectangular.
+            root = ET.fromstring(data)
+            root.set("width", str(width))
+            root.set("height", str(height))
+            root.set("preserveAspectRatio", "none")
+            data = ET.tostring(root)
         data = resvg_py.svg_to_bytes(
             svg_string=data.decode(), width=width, height=height, skip_system_fonts=True
         )
@@ -174,7 +182,9 @@ def converted_image(
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
-def image_svg(element: Element, store: ImageStore | None, dpi: int) -> str:
+def image_svg(
+    element: Element, store: ImageStore | None, dpi: int, dpi_y: int | None = None
+) -> str:
     if store is None or not element.image_asset:
         raise ValueError("Select an uploaded image for this element")
     path = store.path(element.image_asset)
@@ -183,7 +193,10 @@ def image_svg(element: Element, store: ImageStore | None, dpi: int) -> str:
     if element.preserve_aspect:
         scale = min(width / metadata["width"], height / metadata["height"])
         width, height = metadata["width"] * scale, metadata["height"] * scale
-    pixels = max(1, round(width * dpi / 25.4)), max(1, round(height * dpi / 25.4))
+    dpi_y = dpi_y or dpi
+    if element.rotation in (90, 270):
+        dpi, dpi_y = dpi_y, dpi
+    pixels = max(1, round(width * dpi / 25.4)), max(1, round(height * dpi_y / 25.4))
     if pixels[0] * pixels[1] > 2_000_000:
         raise ValueError("Image output exceeds 2 megapixels")
     encoded = converted_image(
@@ -193,9 +206,13 @@ def image_svg(element: Element, store: ImageStore | None, dpi: int) -> str:
         element.contrast,
         element.image_mode,
         element.image_threshold,
+        rectangular_pixels=dpi != dpi_y,
     )
+    # resvg supports SVG 1.1 optimizeSpeed for nearest-neighbor sampling.
+    # CSS pixelated falls back to smoothing here, erasing isolated dither dots
+    # when the final label raster is thresholded to monochrome.
     return (
         f'<image x="{(element.width - width) / 2}" y="{(element.height - height) / 2}" '
-        f'width="{width}" height="{height}" preserveAspectRatio="none" image-rendering="pixelated" '
+        f'width="{width}" height="{height}" preserveAspectRatio="none" image-rendering="optimizeSpeed" '
         f'href="data:image/png;base64,{encoded}"/>'
     )

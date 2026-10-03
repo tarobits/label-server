@@ -18,7 +18,9 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     config = Config("alembic.ini")
     config.attributes["database_url"] = url
     command.upgrade(config, "head")
-    application = create_app(Settings(database_url=url), MockPrinterBackend(), start_worker=False)
+    application = create_app(
+        Settings(printer_backend="mock", database_url=url), MockPrinterBackend(), start_worker=False
+    )
     with TestClient(application) as client:
         yield client
 

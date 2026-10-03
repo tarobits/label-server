@@ -48,7 +48,7 @@ def test_background_worker_wakes_and_migrations_roundtrip(tmp_path: Path) -> Non
     command.upgrade(config, "head")
     command.check(config)
     backend = MockPrinterBackend()
-    settings = Settings(database_url=url, worker_interval_seconds=0.02)
+    settings = Settings(printer_backend="mock", database_url=url, worker_interval_seconds=0.02)
     with TestClient(create_app(settings, backend)) as client:
         tape = profile(client, threshold=2)
         install(client, tape["id"])

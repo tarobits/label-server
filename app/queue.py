@@ -218,6 +218,9 @@ class QueueWorker:
             if not status.connected:
                 record_blocker(session, state, "Printer disconnected")
                 return None
+            if status.error:
+                record_blocker(session, state, status.error)
+                return None
             if status.tape_width_mm != profile.width_mm:
                 record_blocker(
                     session,

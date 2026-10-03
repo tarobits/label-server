@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,6 +10,13 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/labels.db"
     worker_interval_seconds: float = Field(default=2, gt=0)
+    printer_backend: Literal["mock", "brother-pt-p710bt"] = "mock"
+    printer_usb_serial: str | None = None
+    printer_timeout_seconds: float = Field(default=120, ge=5, le=600)
+    printer_feed_mm: float = Field(default=2, ge=2, le=127)
+    printer_leader_mm: float = Field(default=24.5, ge=0, le=200)
+    printer_cut_each: bool = True
+    printer_resolution: Literal["normal", "high"] = "normal"
     mock_tape_width_mm: int = Field(default=24, gt=0)
     ntfy_url: str = ""
     ntfy_topic: str = ""

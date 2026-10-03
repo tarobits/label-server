@@ -39,6 +39,53 @@ def upload(client: TestClient, data: bytes = SVG) -> str:
     return str(response.json()["id"])
 
 
+@pytest.mark.parametrize("x,y", [(2, 2), (70, 5), (2.07, 3.13)])
+def test_dither_density_survives_placement_in_print_raster(client, x, y):
+    identifier = upload(
+        client,
+        b'<svg viewBox="0 0 90 40"><rect width="30" height="40" fill="#444444"/>'
+        b'<rect x="30" width="30" height="40" fill="#888888"/>'
+        b'<rect x="60" width="30" height="40" fill="#cccccc"/></svg>',
+    )
+    doc = document(identifier, image_mode="dither", x=x, y=y, height=40 / 3)
+    doc["length_mm"] = 102
+    response = client.post("/api/preview", json={"document": doc})
+    assert response.status_code == 200, response.text
+    raster = pixels(response.json())
+    for index, gray in enumerate((0x44, 0x88, 0xCC)):
+        # Sample within each block, excluding boundary/rounding effects.
+        box = tuple(
+            round(mm * 180 / 25.4) for mm in (x + index * 10 + 1, y + 1, x + index * 10 + 9, y + 12)
+        )
+        sample = raster.crop(box)
+        ink_fraction = sample.histogram()[0] / (sample.width * sample.height)
+        assert ink_fraction == pytest.approx(1 - gray / 255, abs=0.04)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_high_resolution_svg_uses_rectangular_pixels_without_letterboxing(client, rotation):
+    from app.render import RenderSpec, render_document
+    from app.template_schema import TemplateDocument
+
+    identifier = upload(client, b'<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="16"/></svg>')
+    doc = TemplateDocument.model_validate(
+        document(
+            identifier,
+            width=12,
+            height=12,
+            x=4,
+            y=4,
+            rotation=rotation,
+        )
+    )
+    output = render_document(doc, {}, RenderSpec(dpi_x=360), images=client.app.state.images)
+    bounds = ImageOps.invert(output.image.convert("L")).getbbox()
+    assert bounds is not None
+    # Circle diameter = 80% of a 12 mm box on both physical axes.
+    assert bounds[2] - bounds[0] == pytest.approx(9.6 * 360 / 25.4, abs=2)
+    assert bounds[3] - bounds[1] == pytest.approx(9.6 * 180 / 25.4, abs=2)
+
+
 def test_images_freeze_in_jobs_and_runs_and_match_print_pixels(client: TestClient) -> None:
     identifier = upload(client)
     assert upload(client) == identifier

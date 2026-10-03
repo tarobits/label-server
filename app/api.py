@@ -104,7 +104,9 @@ def status(request: Request, session: Session = Depends(db, scope="function")) -
     hardware = request.app.state.worker.latest_status
     return {
         **record(state),
-        "backend": "mock",
+        "backend": request.app.state.registry.definition("main").driver,
+        "printer_name": request.app.state.registry.definition("main").name,
+        "printer_error": hardware.error,
         "renderer": "svg",
         "connected": hardware.connected,
         "detected_width_mm": hardware.tape_width_mm,
@@ -244,12 +246,29 @@ def active_tape(
     return record(state)
 
 
-def rendering_spec(request: Request) -> RenderSpec:
+def rendering_spec(
+    request: Request, document: TemplateDocument | dict[str, Any] | None = None
+) -> RenderSpec:
     capabilities = request.app.state.registry.definition("main").capabilities
+    mode = (
+        document.print_resolution
+        if isinstance(document, TemplateDocument)
+        else (document or {}).get("print_resolution", "printer")
+    )
+    dpi_x, dpi_y = capabilities.dpi_x, capabilities.dpi_y
+    if mode != "printer":
+        supported = capabilities.resolution_modes or {}
+        if mode not in supported:
+            raise HTTPException(
+                422, "The selected printer does not support this template resolution"
+            )
+        dpi_x, dpi_y = supported[mode]
     return RenderSpec(
-        dpi=capabilities.dpi_x,
+        dpi=dpi_y,
+        dpi_x=dpi_x,
         margin_mm=capabilities.printable_margin_mm,
         media_kind=capabilities.media_kind.value,
+        printable_widths_mm=capabilities.printable_widths_mm,
     )
 
 
@@ -290,7 +309,7 @@ def validate_layout(document: TemplateDocument, request: Request) -> None:
         render_document(
             document,
             {},
-            rendering_spec(request),
+            rendering_spec(request, document),
             samples=True,
             fonts=request.app.state.fonts,
             images=request.app.state.images,
@@ -375,7 +394,7 @@ def preview(
         output = render_document(
             document,
             body.data,
-            rendering_spec(request),
+            rendering_spec(request, document),
             body.use_samples,
             fonts=request.app.state.fonts,
             images=request.app.state.images,
@@ -402,10 +421,10 @@ def build_job(
     spec: RenderSpec,
     fonts: FontStore | None = None,
     images: ImageStore | None = None,
-    context: AccessContext | None = None,
+    *,
+    context: AccessContext,
 ) -> PrintJob:
-    if context:
-        context.require(Action.READ, Resource("template", template.id, template.owner_id))
+    context.require(Action.READ, Resource("template", template.id, template.owner_id))
     document = copy.deepcopy(template.document)
     # Built-in text retains the original API's per-job tape and length options.
     if template.id == "text" and template.revision == 2:
@@ -414,7 +433,10 @@ def build_job(
             document["length_mm"] = body.length_mm
         if document["elements"]:
             document["elements"][0]["width"] = document["length_mm"] - 4
-            document["elements"][0]["height"] = profile.width_mm - 4
+            band = (spec.printable_widths_mm or {}).get(str(profile.width_mm))
+            side = (profile.width_mm - band) / 2 if band else min(2, profile.width_mm / 4)
+            document["elements"][0]["y"] = side
+            document["elements"][0]["height"] = profile.width_mm - 2 * side
     if document["width_mm"] != profile.width_mm:
         raise HTTPException(422, "Template and tape widths do not match")
     try:
@@ -452,10 +474,10 @@ def create_job(
         body,
         profile,
         template,
-        rendering_spec(request),
+        rendering_spec(request, template.document),
         request.app.state.fonts,
         request.app.state.images,
-        access_context(request),
+        context=access_context(request),
     )
     job.owner_id = access_context(request).actor.id
     job.destination_id = access_context(request).destination_id

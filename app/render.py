@@ -27,7 +27,14 @@ FONT_DIR = Path(__file__).parent / "fonts"
 class RenderSpec:
     dpi: int = 180
     margin_mm: float = 1
+    printable_widths_mm: dict[str, float] | None = None
     media_kind: Literal["continuous", "fixed_label"] = "continuous"
+    # Legacy snapshots use dpi for both axes. X follows label length; Y follows tape width.
+    dpi_x: int | None = None
+
+    @property
+    def horizontal_dpi(self) -> int:
+        return self.dpi_x or self.dpi
 
 
 @dataclass
@@ -170,12 +177,13 @@ def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
     # Reserve either the requested physical margin or the automatic quiet zone.
     margin = (element.qr_margin_mm or 0) if explicit_margin else 0
     available = element.width - 2 * margin
-    module_pixels = math.floor(available * spec.dpi / 25.4 / len(matrix))
+    qr_dpi = min(spec.horizontal_dpi, spec.dpi)
+    module_pixels = math.floor(available * qr_dpi / 25.4 / len(matrix))
     if module_pixels < 2:
         raise ValueError(
             "QR code is too small: enlarge it or shorten its content (minimum 2 pixels per module)"
         )
-    module = module_pixels * 25.4 / spec.dpi
+    module = module_pixels * 25.4 / qr_dpi
     if element.qr_fill_box:
         # Enlarge into the available area. Never bypass the minimum
         # module size above; old documents retain integer-pixel sizing by default.
@@ -237,6 +245,8 @@ def render_document(
     fonts: FontStore | None = None,
     images: ImageStore | None = None,
 ) -> RenderOutput:
+    band = (spec.printable_widths_mm or {}).get(str(document.width_mm))
+    vertical_margin = (document.width_mm - band) / 2 if band else spec.margin_mm
     values = resolve_values(document, data, samples)
     document = resolve_layout(document, values, spec, fonts)
     font_files = [str(FONT_DIR / "NotoSans.ttf"), str(FONT_DIR / "NotoSans-Bold.ttf")]
@@ -250,10 +260,11 @@ def render_document(
             }
         )
     )
-    px_width = round(document.length_mm * spec.dpi / 25.4)
+    px_width = round(document.length_mm * spec.horizontal_dpi / 25.4)
     px_height = round(document.width_mm * spec.dpi / 25.4)
+    aspect = ' preserveAspectRatio="none"' if spec.horizontal_dpi != spec.dpi else ""
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{px_width}" height="{px_height}" viewBox="0 0 {document.length_mm} {document.width_mm}"><rect width="100%" height="100%" fill="white"/>'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{px_width}" height="{px_height}" viewBox="0 0 {document.length_mm} {document.width_mm}"{aspect}><rect width="100%" height="100%" fill="white"/>'
     ]
     qr_boxes: list[tuple[float, float, float, float, str]] = []
     boxes: list[tuple[float, float, float, float, str]] = []
@@ -261,18 +272,18 @@ def render_document(
     clipping = document.out_of_bounds == "clip"
     if clipping:
         parts.append(
-            f'<defs><clipPath id="printable"><rect x="{spec.margin_mm}" y="{spec.margin_mm}" '
+            f'<defs><clipPath id="printable"><rect x="{spec.margin_mm}" y="{vertical_margin}" '
             f'width="{document.length_mm - 2 * spec.margin_mm}" '
-            f'height="{document.width_mm - 2 * spec.margin_mm}"/></clipPath></defs>'
+            f'height="{document.width_mm - 2 * vertical_margin}"/></clipPath></defs>'
             '<g clip-path="url(#printable)">'
         )
     for element in document.elements:
         x, y, right, bottom = element_bounds(element)
         outside = (
             x < spec.margin_mm - 0.001
-            or y < spec.margin_mm - 0.001
+            or y < vertical_margin - 0.001
             or right > document.length_mm - spec.margin_mm + 0.001
-            or bottom > document.width_mm - spec.margin_mm + 0.001
+            or bottom > document.width_mm - vertical_margin + 0.001
         )
         if outside:
             if not clipping:
@@ -281,9 +292,9 @@ def render_document(
                 )
             omitted = (
                 right <= spec.margin_mm
-                or bottom <= spec.margin_mm
+                or bottom <= vertical_margin
                 or x >= document.length_mm - spec.margin_mm
-                or y >= document.width_mm - spec.margin_mm
+                or y >= document.width_mm - vertical_margin
             )
             warnings.append(
                 f"Element {element.id} is {'omitted' if omitted else 'clipped'} at the printable area."
@@ -299,7 +310,7 @@ def render_document(
             qr_boxes.append(box)
             body = qr_svg(element, content, spec)
         elif element.kind == "image":
-            body = image_svg(element, images, spec.dpi)
+            body = image_svg(element, images, spec.horizontal_dpi, spec.dpi)
         elif element.kind == "rectangle":
             inset = element.stroke / 2
             body = f'<rect x="{inset}" y="{inset}" width="{element.width - element.stroke}" height="{element.height - element.stroke}" stroke="black" stroke-width="{element.stroke}" fill="{"black" if element.filled else "none"}"/>'
@@ -353,4 +364,13 @@ def render_job(
     )
     # Public raster contract: a set bit means ink; Pillow uses a set bit for white.
     ink = ImageOps.invert(output.image.convert("L")).convert("1")
-    return RenderedLabel(copy.id, job.width_mm, job.length_mm, ink.width, ink.height, ink.tobytes())
+    return RenderedLabel(
+        copy.id,
+        job.width_mm,
+        job.length_mm,
+        ink.width,
+        ink.height,
+        ink.tobytes(),
+        dpi_x=spec.horizontal_dpi,
+        dpi_y=spec.dpi,
+    )

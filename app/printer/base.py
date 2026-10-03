@@ -6,6 +6,7 @@ from typing import Protocol, Sequence
 class PrinterStatus:
     connected: bool
     tape_width_mm: int | None
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class RenderedLabel:
     pixel_width: int
     pixel_height: int
     raster: bytes
+    dpi_x: int = 180
+    dpi_y: int = 180
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,18 @@ class PrintInterrupted(Exception):
         self.confirmed_labels = confirmed_labels
 
 
+@dataclass(frozen=True)
+class BatchPlan:
+    estimated_mm: float
+    leader_mm: float
+    feed_per_label_mm: float
+    cut_each: bool
+    label_lengths_mm: tuple[float, ...]
+    calibrated: bool = False
+
+
 class PrinterBackend(Protocol):
+    def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan: ...
     def get_status(self) -> PrinterStatus: ...
     def estimate_consumption(self, labels: Sequence[RenderedLabel]) -> float: ...
     def print_batch(self, labels: Sequence[RenderedLabel]) -> PrintResult: ...

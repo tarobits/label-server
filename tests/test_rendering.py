@@ -12,6 +12,66 @@ from app.models import LabelCopy, PrintJob
 from app.render import render_job
 
 
+def test_high_resolution_renders_native_geometry_and_keeps_legacy_snapshots():
+    from app.render import RenderSpec, render_document
+    from app.template_schema import TemplateDocument
+
+    doc = TemplateDocument.model_validate(
+        {
+            "elements": [
+                {
+                    "id": "box",
+                    "kind": "rectangle",
+                    "x": 2,
+                    "y": 4,
+                    "width": 10,
+                    "height": 10,
+                    "filled": True,
+                    "stroke": 0.2,
+                },
+            ]
+        }
+    )
+    standard = render_document(doc, {}, RenderSpec())
+    high = render_document(doc, {}, RenderSpec(dpi=180, dpi_x=360))
+    assert standard.image.size == (425, 170)
+    assert high.image.size == (850, 170)
+    bounds = ImageOps.invert(high.image.convert("L")).getbbox()
+    assert bounds is not None
+    assert bounds[2] - bounds[0] == pytest.approx(10 * 360 / 25.4, abs=1)
+    assert bounds[3] - bounds[1] == pytest.approx(10 * 180 / 25.4, abs=1)
+    assert bounds[0] == pytest.approx(2 * 360 / 25.4, abs=1)
+
+    doc.elements[0] = doc.elements[0].model_copy(
+        update={
+            "kind": "text",
+            "content": "Small curves",
+            "width": 40,
+            "font_size": 2,
+        }
+    )
+    normal_text = render_document(doc, {}, RenderSpec()).image
+    high_text = render_document(doc, {}, RenderSpec(dpi_x=360)).image
+    assert (
+        high_text.tobytes()
+        != normal_text.resize(high_text.size, Image.Resampling.NEAREST).tobytes()
+    )
+    assert normal_text.tobytes() == render_document(doc, {}, RenderSpec(dpi_x=180)).image.tobytes()
+
+
+def test_high_resolution_qr_is_square_in_physical_units_and_decodes():
+    from app.render import RenderSpec, render_document
+    from app.template_schema import TemplateDocument
+
+    doc = TemplateDocument.model_validate(asset_document())
+    data = {"name": "Resolution", "url": "https://example.org/42"}
+    image = render_document(doc, data, RenderSpec(dpi_x=360)).image
+    # Display rectangular device pixels at their physical aspect ratio.
+    physical = image.resize((image.width, image.height * 2), Image.Resampling.NEAREST)
+    result = zxingcpp.read_barcode(physical)
+    assert result and result.text == data["url"]
+
+
 def asset_document() -> dict[str, Any]:
     return {
         "version": 1,
