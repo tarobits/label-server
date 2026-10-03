@@ -521,3 +521,55 @@ test('upload artwork inside the editor and confirm navigation with the themed di
   await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(page).toHaveURL(/#\/images$/)
 })
+
+test('image library previews, renames and confirms permanent deletion', async ({ page }) => {
+  await page.goto('/#/images')
+  await page.getByLabel('Image file').setInputFiles({
+    name: 'library-preview.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from(
+      '<svg viewBox="0 0 120 60"><circle cx="30" cy="30" r="25" fill="#6366f1"/><path d="M65 5H115V55H65Z" fill="#22c55e"/></svg>',
+    ),
+  })
+  await page.getByRole('button', { name: 'Upload image', exact: true }).click()
+  let row = page.locator('tr').filter({
+    has: page.getByRole('button', { name: 'Preview library-preview.svg', exact: true }),
+  })
+  await expect(row).toBeVisible()
+  await expect
+    .poll(() => row.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0)
+  await row.getByRole('button', { name: 'Preview library-preview.svg', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'library-preview.svg', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect
+    .poll(() => dialog.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0)
+  await page.screenshot({ path: 'test-results/image-library-preview.png', fullPage: true })
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await row.getByRole('button', { name: 'Rename', exact: true }).click()
+  await expect(row.getByRole('textbox', { name: 'Image name', exact: true })).toBeFocused()
+  await row.getByRole('textbox', { name: 'Image name', exact: true }).fill('Changed but cancelled')
+  await row.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(row).toContainText('library-preview.svg')
+  await row.getByRole('button', { name: 'Rename', exact: true }).click()
+  await row
+    .getByRole('textbox', { name: 'Image name', exact: true })
+    .fill('Renamed library artwork')
+  await row.getByRole('button', { name: 'Save name', exact: true }).click()
+  row = page.locator('tr').filter({ hasText: 'Renamed library artwork' })
+  await expect(row.getByRole('button', { name: 'Rename', exact: true })).toBeEnabled()
+  await page.reload()
+  await expect(row).toBeVisible()
+  await page.screenshot({ path: 'test-results/image-library-management.png', fullPage: true })
+  const assets = await (await page.request.get('/api/image-assets')).json()
+  const asset = assets.find((item: { name: string }) => item.name === 'Renamed library artwork')
+  await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect(row).toHaveCount(0)
+  expect((await page.request.get(`/api/image-assets/${asset.id}/preview`)).status()).toBe(404)
+})

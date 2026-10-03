@@ -8,7 +8,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 import resvg_py
 from PIL import Image, ImageEnhance, ImageOps
@@ -87,6 +87,44 @@ def sanitize_svg(data: bytes) -> tuple[bytes, int, int]:
 
 class ImageStore(AssetStore):
     suffix = "image"
+
+    def rename(self, identifier: str, name: str) -> dict[str, Any]:
+        metadata = self.metadata(identifier)
+        metadata["name"] = name
+        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        return metadata
+
+    def preview(self, identifier: str, size: Literal["thumbnail", "large"]) -> bytes:
+        metadata = self.metadata(identifier)
+        cached = self.root / f"{identifier}.{size}.png"
+        if cached.is_file():
+            return cached.read_bytes()
+        bounds = (240, 180) if size == "thumbnail" else (960, 720)
+        data = self.path(identifier).read_bytes()
+        if metadata["kind"] == "svg":
+            scale = min(bounds[0] / metadata["width"], bounds[1] / metadata["height"])
+            data = resvg_py.svg_to_bytes(
+                svg_string=data.decode(),
+                width=max(1, round(metadata["width"] * scale)),
+                height=max(1, round(metadata["height"] * scale)),
+                skip_system_fonts=True,
+            )
+        with Image.open(io.BytesIO(data)) as source:
+            image = source.convert("RGBA")
+            image.thumbnail(bounds, Image.Resampling.LANCZOS)
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+        result = output.getvalue()
+        self._write(cached, result)
+        return result
+
+    def delete(self, identifier: str) -> None:
+        # Callers must first check persisted references while holding the worker lock.
+        self.metadata(identifier)
+        # Remove the listing first; interruption can leave unused files, never a broken listing.
+        (self.root / f"{identifier}.json").unlink()
+        for suffix in ("source", "image", "thumbnail.png", "large.png"):
+            (self.root / f"{identifier}.{suffix}").unlink(missing_ok=True)
 
     def add(self, data: bytes, name: str = "Uploaded image") -> dict[str, Any]:
         if not data or len(data) > MAX_IMAGE_BYTES:
