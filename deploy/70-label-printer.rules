@@ -1,0 +1,2 @@
+# Create group labelprinter first; install on the host controlling the USB device.
+SUBSYSTEM=="usb", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20af", GROUP="labelprinter", MODE="0660"

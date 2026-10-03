@@ -1,0 +1,21 @@
+[Unit]
+Description=Label printer server
+After=network.target
+
+[Service]
+User=labels
+Group=labels
+SupplementaryGroups=labelprinter
+WorkingDirectory=/opt/labels
+EnvironmentFile=/opt/labels/.env
+ExecStart=/opt/labels/.venv/bin/uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=650
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/labels/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

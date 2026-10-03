@@ -9,6 +9,8 @@ FROM python:3.14-slim
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /srv/labels
+RUN apt-get update && apt-get install -y --no-install-recommends libusb-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml requirements.lock ./
 COPY app ./app
 RUN pip install --no-cache-dir -c requirements.lock . \

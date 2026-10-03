@@ -1,0 +1,9 @@
+# Explicit opt-in: docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d --build
+services:
+  labels:
+    environment:
+      LABEL_PRINTER_BACKEND: brother-pt-p710bt
+    devices:
+      - "${LABEL_USB_DEVICE:?Set LABEL_USB_DEVICE to the printer USB device node}:${LABEL_USB_DEVICE}:rwm"
+    group_add:
+      - "${LABEL_USB_GID:?Set LABEL_USB_GID to the group owning the USB device}"
