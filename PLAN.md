@@ -52,8 +52,8 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
   geometry through capabilities, and keep driver commands separate from USB/IP
   transport. Wi-Fi and Ethernet use network endpoints; Wi-Fi provisioning and
   discovery are future integrations. Shipping printer drivers and real network
-  printing are not part of this implementation. The active mock remains the only
-  operational destination until per-printer scheduling and drivers are enabled.
+  printing are not part of this implementation. A single active destination can use the mock or Brother USB driver; independent
+  multi-printer scheduling remains future work.
 - **Required physical implementation:** the Brother PT-P710BT remains in scope,
   including its USB backend, status/width detection and verified batch/cut/feed
   behavior in stages 4–5. Only additional printer models (including shipping
@@ -66,8 +66,9 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
   scheduling follows the architectural foundation; it must isolate queues, locks,
   review blocks, holds, cartridge assignments and notification links per printer.
 - **Physical print quality:** labels should have clean text, curves, QR modules
-  and images without avoidable pixelation. No actual print has been inspected
-  yet, so print quality remains unverified. Browser preview smoothing does not
+  and images without avoidable pixelation. Initial hardware tests passed QR
+  scanning and the 10 mm scale check; the user reported excellent high-resolution
+  quality on 2026-10-02. Broader calibration remains open. Browser preview smoothing does not
   improve the raster sent to the printer. Determine the PT-P710BT's supported
   resolution and quality modes in its adapter, render at the selected device
   resolution, and avoid unnecessary intermediate downscaling or upscaling of
@@ -136,7 +137,10 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
 7. **Integrations:** document REST workflows and add idempotency keys before
    integration retries can create duplicate jobs. Verify HomeBox extension points
    before implementing its specific integration; retain direct REST support for
-   Home Assistant, Shortcuts and other services.
+   Home Assistant, Shortcuts and other services. Provide image upload, preview and
+   frozen image-job submission, plus a standalone HomeBox print-command bridge.
+   Reuse generic printable geometry, resolution and queue policies. Verify the
+   bridge in the user's HomeBox deployment separately from API/client tests.
 
 8. **Multi-user administration and request approval — low priority, approval
    required:** implement the final phase specified below only after explicit user
@@ -248,7 +252,16 @@ brightness/contrast, color mapping and each supported tonal mode.
 
 ## Preparatory architecture for the later multi-user phase
 
-Add these boundaries incrementally during the earlier implementation stages:
+Preparatory boundaries are now implemented for local-owner mode: centralized
+request policy checks, explicit actor context for job preparation, stable owner /
+personal-template-scope / destination references, and notification recipient
+routing ahead of the delivery adapter. Migration `c52d171ca013` backfills existing
+records without changing frozen documents, run manifests or copy history. Legacy
+asset metadata resolves to the local owner without rewriting image/font bytes.
+The current worker only reserves the `main` destination. Accounts, tenant-filtered
+queries, membership checks and independent per-printer queues are not enabled.
+
+The boundaries to extend in the gated phase are:
 
 - Pass an actor context through application services and centralize authorization
   behind a policy interface. Initially use the existing local-owner behavior;
@@ -328,8 +341,8 @@ PT-P710BT behavior. Physical behavior needs hardware acceptance testing.
 
 Stages 1 and 2 are implemented. The backend integration suite covers the acceptance checks above,
 including real Alembic migrations, application restart and worker ownership.
-The API is usable through FastAPI's `/docs`. A mock-only Docker/Compose scaffold
-is also present; Compose configuration was validated, but the image has not been
+The API is usable through FastAPI's `/docs`. Docker/Compose defaults to mock mode
+and includes an opt-in USB override; Compose configuration was validated, but the image has not been
 built or run because no Docker daemon was available in the development session.
 The Vue workflow includes a responsive dashboard, submission, filtered queue,
 profile/cartridge management, reminder controls, consumption corrections,
@@ -388,9 +401,60 @@ Floyd–Steinberg dithering. SVGs are rasterized at the element's device resolut
 preview and print share the converted image and tape color mapping. Tests cover
 rejected active SVG content, tonal controls, transparent artwork, frozen runs and
 queued raster equality. Native grayscale remains unverified and is not offered.
+The image library includes cached PNG thumbnails and enlarged previews, inline
+renaming without changing content identity, and confirmed permanent deletion of
+unused assets. Deletion checks current templates, historical revisions, job
+snapshots and CSV manifests under the application lock; referenced artwork remains
+available and can be hidden from new selections.
 
-Next: lightweight multi-user architectural boundaries, then stage 4's required Brother PT-P710BT
-USB adapter and grayscale verification. Physical chain printing and consumption
-acceptance remain in stage 5. Shipping-label and other printer drivers remain
+Preparatory identity, policy and recipient-routing boundaries are implemented.
+Stages 4–7 software is implemented: opt-in PT-P710BT USB transport and buffered
+raster commands, status/width checks, conservative interruption handling, ordered
+multi-page/final-feed commands, selectable individual cuts or strip output, feed
+and leader calibration settings, saved CSV cut/feed plans, USB deployment files,
+and durable single-job idempotency keys with a retrying REST client. The HomeBox
+PNG print-command bridge now uploads immutable images, optionally saves pixel
+previews and submits frozen image jobs without adding library templates. Image
+jobs reuse queue policies and durable idempotency receipts, fit printable geometry
+without distortion, and retain selected resolution. Tests cover concurrent retries,
+restart, a lost response after commit, access checks and preview/print equality.
+Installation and verification in a running HomeBox deployment remain pending.
+Normal 180 dpi monochrome and opt-in 180 × 360 dpi are
+implemented, with native rendering, resolution-aware feed and saved per-job
+resolution. The user reported excellent high-resolution output on 2026-10-02;
+native grayscale remains deferred. On the same date the user confirmed successful
+normal-resolution batch completion, QR scanning and an exactly 10 mm test line.
+
+Template resolution selection, independent text padding on all four sides, mm
+rulers with selected-object spans and cursor guides, and toggleable dashed object
+boundaries are implemented. Pixel previews are the default across editor, label
+submission and CSV runs. Existing documents retain zero padding and printer-default
+resolution; already frozen jobs/drafts retain their captured resolution.
+Editor properties use animated, keyboard-accessible expandable categories in the
+sidebar (stacked on narrow screens). Add buttons use Heroicons; grid, rulers and
+cursor guides remain on. Single-line inputs and selects share consistent sizing
+across the UI, and disclosure animations respect reduced-motion preferences.
+
+Distance holders are implemented as validated, acyclic relationships between
+objects, with a configurable horizontal or vertical gap measured between rotated
+bounds. Text fitting resolves first, then linked positions, then automatic label
+length; CSV rows and jobs freeze the resulting geometry. The editor exposes target,
+direction and gap controls, protects the linked coordinate, and detaches followers
+when their anchor is removed. Rotation-aware dragging and corner resizing work at
+all four orientations while preserving the opposite corner during resizing.
+Template/profile selections, the selected editor element and preview tape, and
+saved CSV preview rows persist in URLs for refresh and direct links.
+
+Batch history and interruption review include per-copy label thumbnails with an
+accessible enlarged preview. The read-only job preview endpoint uses the same
+frozen raster inputs as printing, preserving CSV values, image assets and print
+resolution after later template edits. Previews show physical proportions in black
+and white; outcome badges remain authoritative for whether a copy was printed.
+
+Physical USB behavior, print quality, cuts and consumption calibration still await
+user verification using docs/HARDWARE_VERIFICATION.md. Container image execution
+also remains unverified here because no Docker daemon was running. These are
+acceptance gaps, not completed hardware checks. Backend and browser tests cover
+the software paths and Compose syntax is checked. Shipping-label and other printer drivers remain
 deferred; Wi-Fi/network support is architectural. Phase 8 is low priority and
 requires explicit approval before implementation.

@@ -1,13 +1,22 @@
 # Label Printer Server
 
+The Brother PT-P710BT USB backend is now available alongside mock mode. Software
+protocol tests pass; physical print quality, cut/feed calibration and USB deployment
+still require verification on your installation. Normal 180 dpi output and opt-in
+180 × 360 dpi (`LABEL_PRINTER_RESOLUTION=high`) are supported; the first physical
+high-resolution comparison received positive user verification. Existing jobs keep their saved resolution;
+shading uses monochrome dithering, not an undocumented native grayscale mode.
+
+- [Deployment and recovery](docs/DEPLOYMENT.md)
+- [Physical verification checklist and draft generator](docs/HARDWARE_VERIFICATION.md)
+- [Retry-safe REST integrations](docs/INTEGRATIONS.md)
+
 Persistent, tape-aware label printing for a Brother PT-P710BT. The agreed design
 and staged implementation are in [PLAN.md](PLAN.md).
 
-**Current stage: Vue visual editor, real SVG/QR rendering, and a persistent queue
-with a mock physical printer.** New jobs render real text, QR codes and shapes.
-Old fixture jobs keep their original checkerboard output. The Brother PT-P710BT
-USB implementation remains required in the next hardware stages. Additional
-printer models and Wi-Fi/Ethernet drivers currently have architecture only.
+**Current stage: usable editor, persistent queue, mock and opt-in Brother USB
+backends, deployment and REST integration support.** Physical verification is
+still pending. Additional printer models and Wi-Fi/Ethernet drivers have architecture only.
 
 The mock's tape overhead, resolution and printable margins are development
 fixtures, not verified PT-P710BT measurements.
@@ -37,7 +46,9 @@ Migrations are explicit; the application does not silently create the schema.
 When upgrading an existing checkout, stop the backend, reinstall dependencies with
 `.venv/bin/python -m pip install -c requirements.lock -e '.[dev]'`, run
 `.venv/bin/alembic upgrade head`, rebuild with `npm run build --prefix frontend`,
-and restart. The editor/hold migration preserves existing queued jobs.
+and restart. Migrations preserve existing queued jobs. The ownership/destination
+migration backfills templates, jobs, CSV runs and notifications with the local
+owner and default destination; frozen labels and run manifests are unchanged.
 
 For frontend development, leave the backend running on port 8000 and run
 `npm run dev --prefix frontend` in a second terminal. Open the URL Vite prints;
@@ -51,8 +62,8 @@ default; `LABEL_FRONTEND_DIST` can override that directory.
 2. Register a physical cassette under **Cartridges**, then install it in the app.
    Each cassette keeps its own length estimate across swaps.
 3. Use **Templates** to design a label visually, then **New label** to fill its
-   variable fields and submit copies. Its smooth preview uses the same layout as printing; **Show print pixels**
-   switches to the actual 1-bit raster.
+   variable fields and submit copies. Previews show the actual 1-bit raster by default;
+   disable **Show print pixels** for a smooth view of the same layout.
 4. Watch the **Overview** or **Print queue**. Compatible copies print at their
    threshold, or use **Print compatible queue now** to flush them manually.
    **Hold automatic printing** lets you collect a larger batch. This switch
@@ -104,14 +115,47 @@ Another pending manual request for that cartridge returns `409`.
 Open **Templates → Create template**. Set tape width/label length, then add text,
 QR codes, rectangles or lines. Select elements on the canvas or through its layer
 buttons. Drag to position, resize using the corner handle, or enter exact millimetre
-values. Numeric sizing works for rotated elements; rotation is in 90° steps.
+values. Dragging and corner resizing work at every rotation and keep the opposite
+corner fixed when resizing; rotation is in 90° steps.
 Alignment, layer order, duplication, deletion, grid/snapping and undo/redo are
 available. Navigation warns about unsaved changes.
+
+**Print resolution** saves Printer default, Normal or High with the template;
+the available modes come from printer capabilities. The chosen resolution is
+captured in each new job or CSV draft. Text elements have independent top, right,
+bottom and left padding in mm. Wrapping, auto-fitting and alignment use the inset
+area; automatic text width includes horizontal padding.
+
+Element properties remain beside the canvas on larger screens and are grouped
+into expandable categories with animated disclosure arrows. Position and content
+start open; typography, spacing/alignment and arrangement can be expanded as needed.
+The Add toolbar uses Heroicons, and single-line inputs and selects share a consistent height.
+
+The grid, rulers and cursor guides are always enabled. Top and left rulers use mm,
+track zoom and highlight the selected object's extent.
+Cursor guides mark the pointer on the canvas and rulers. Toggle **Object boundaries**
+to show thin dashed outlines around unselected elements. Rulers, guides and outlines
+are editor aids and do not print. **Show print pixels** is enabled by default in the
+editor, New label and CSV runs; turn it off for the smooth design preview.
 
 Variable fields define names, labels, required flags, defaults and sample values.
 Use `{{name}}` in text/QR content. The editor uses samples; submission uses actual
 values or defaults. This is literal substitution, not executable Jinja. No raw SVG,
 external URLs, scripts or server paths are accepted as rendering resources.
+
+Use **Distance holder** to place an object a fixed gap to the right of, or below,
+another object. For a cable tag, enable automatic text width on both text
+objects, make the divider follow the first text, and make the second text follow
+the divider with the same gap. Gaps are measured between object boxes, including
+padding and rotation. Each CSV row resolves text widths and distances before
+calculating automatic label length; saved jobs and drafts freeze those positions.
+Circular links are rejected. Removing an anchor detaches its direct followers at
+their current positions.
+
+URLs retain template and tape-profile selections on the print and CSV import
+pages, the selected editor element and preview tape, and the preview row of a
+saved CSV run. Refreshing restores those selections; save edits or prepare a CSV
+draft to retain the content itself.
 
 Saving creates a revision; concurrent edits require reloading instead of silently
 overwriting a newer version. Duplicating creates a separate template. Archiving
@@ -140,6 +184,12 @@ animation, entities and declarations are rejected (a standard UTF-8 XML header
 is allowed). SVG markup is limited to 200 KB, 1000 elements and dimensions up to
 8192. Unsupported SVGs can instead be exported as PNG.
 
+The library shows thumbnail previews; click one for a larger view of the original
+artwork. **Rename** updates its display name without changing its content ID or
+saved labels. **Delete** permanently removes unused artwork after confirmation.
+Images referenced by any saved template, historical template revision, job or CSV
+run cannot be deleted; use **Hide** to remove them from new selections instead.
+
 Use **Add image** in the editor and choose an uploaded asset, or upload and use a
 new image directly in the properties panel without leaving the editor. Images can be moved,
 resized and rotated; aspect ratio is preserved by default. With preservation on,
@@ -157,14 +207,17 @@ gain detail by enlargement.
 Original uploads and normalized assets live in `data/assets/images` (beside the
 database if relocated). Include the entire `data/assets` directory in backups.
 Hiding/restoring images leaves saved templates, jobs and CSV runs intact. Uploading
-new content creates a separate asset. No database migration is needed.
+new content creates a separate asset. The asset feature itself requires no additional database migration.
 The API is `GET/POST /api/image-assets` (raw bytes, optional `?name=...`),
 `DELETE /api/image-assets/{id}` to hide and
-`POST /api/image-assets/{id}/restore`.
+`POST /api/image-assets/{id}/restore`. Use `PUT /api/image-assets/{id}` with
+`{"name":"New name"}` to rename, `GET /api/image-assets/{id}/preview` for a PNG
+thumbnail (`?size=large` for an enlarged view), and
+`DELETE /api/image-assets/{id}/permanent` for unreferenced assets (409 if in use).
 
-The editor defaults to an antialiased design preview rendered from the same SVG
-at four times the device raster dimensions. **Show print pixels** switches to the
-exact 1-bit output. Both use the same backend fonts and layout; the smooth view
+The editor defaults to the exact 1-bit output. Disabling **Show print pixels** shows
+an antialiased design preview rendered from the same SVG at four times the device
+raster dimensions. Both use the same backend fonts and layout; the smooth view
 does not represent a measured improvement in physical print quality. Unsupported glyphs, missing variables and out-of-bounds elements and undersized QR modules are rejected. Overlapping QR
 bounding boxes produce an advisory warning; layouts can still be saved and queued. QR modules use integer device pixels with a four-module quiet zone by default.
 The per-QR **Scale up to bounding box** option enlarges the code and its quiet
@@ -207,6 +260,14 @@ In **Print queue**, select queued items and choose **Remove selected** to remove
 them across tape profiles, or **Print selected** to print items for the installed
 tape. Each row also has a **Remove** action. Removal marks queued copies cancelled
 while retaining history; printing and uncertain copies require batch review.
+Open **Activity → Details** (or **Review batch**) to see a thumbnail of each label;
+click it to enlarge the saved print pixels. Previews use each job's frozen layout,
+values and resolution, including CSV rows and image jobs, so later template edits
+do not change the history. They are shown in black and white with the label's
+physical proportions. The outcome badge distinguishes confirmed prints from
+uncertain or cancelled copies. `GET /api/jobs/{id}/preview` returns the saved job's
+rendered PNG without submitting or printing anything.
+
 `POST /api/queue/remove` accepts `{"copy_ids":["COPY_ID"]}` and validates the
 complete selection before changing any copies. An item selects all its remaining queued copies. The server
 validates the complete selection and freezes those copy IDs in queue order.
@@ -251,8 +312,8 @@ Interrupted runs use the existing per-copy review and retry workflow.
 
 Tape estimates assume one batch through the active adapter; current mock feed
 values are fixtures. Other queued labels or separate attempts can alter overhead.
-Actual Brother chain printing, cut/feed diagrams and calibrated consumption
-remain hardware-stage work.
+Drafts show their saved planned cuts/feed. Actual Brother chain behavior and
+consumption still require physical verification and calibration.
 
 API: `POST /api/csv/parse`; `POST /api/runs/prepare` (mapping, ordered records,
 copy counts, expected template revision and a client request key); `GET /api/runs`
@@ -274,6 +335,8 @@ editor. Tape swatches and samples use the physical tape profile's colors.
 
 - `app/models.py`: profiles, physical cartridges, immutable job snapshots,
   individual copies, batch attempts, flush requests and notification outbox.
+- `app/access.py` / `app/identity.py`: local actor and central policy boundary;
+  stable owner/destination references. This is preparation, not authentication.
 - `app/api.py` / `app/schemas.py`: validated HTTP inputs and API operations.
 - `app/queue.py`: exact-profile compatibility, batch reservation, print outcomes
   and review. No Brother protocol bytes, feed rules or raster encoding here.
@@ -412,8 +475,9 @@ warning for httpx; this does not affect test results or application requests.
 
 ## Container scaffold
 
-The multi-stage container builds Vue and serves it with the same mock-only
-backend; no USB passthrough is configured.
+The multi-stage container builds Vue and serves it with mock mode by default.
+Use the explicit USB override in [deployment instructions](docs/DEPLOYMENT.md)
+to enable the Brother backend.
 
 ```sh
 docker compose up --build -d
@@ -425,6 +489,41 @@ ntfy settings via `.env`. There is no authentication in this stage; keep access
 on your trusted LAN. Stop the service before taking a filesystem backup of the
 data volume (including SQLite WAL files), or use SQLite's online backup API.
 
-The required Brother USB backend, verified chain printing and LXC device
-passthrough instructions follow in their planned milestones. Docker configuration
-validates, but a running Docker daemon is still needed to build/test the image.
+USB and LXC setup instructions are in the deployment guide. Compose configuration
+validates; Docker image build/runtime remains unverified without a running daemon.
+
+## Local ownership and future access controls
+
+All API routes pass through the policy boundary in `app/access.py`. Current
+requests always act as `local-owner`; request headers cannot choose an identity.
+Job preparation receives an explicit actor context, and CSV submission checks the
+run's saved destination before creating jobs. The only active destination remains
+`main`; other destinations cannot be reserved by its worker. Ownership metadata
+is separate from immutable template revisions and asset contents.
+
+`RoutedNotificationSender` selects a delivery adapter by durable recipient ID
+before ntfy publishing. Unknown recipients remain undelivered for retry, rather
+than falling back to somebody else's topic. Current routing retains the existing
+ntfy configuration for the local owner.
+
+These are extension points, not a multi-user security feature. Authentication,
+filtered resource queries, role/group permissions, registration and a separate
+approval-request queue remain in phase 8 and require explicit approval. The
+current prepared-job builder does not persist jobs; a future approval service can
+store its frozen inputs separately and create executable jobs only upon approval.
+Pending requests must never become ordinary queued copies or affect thresholds.
+
+Existing installations must stop the service, run `.venv/bin/alembic upgrade head`,
+and restart for the ownership/destination migration. Back up the database and
+`data/assets` together before upgrading.
+
+Single-job integrations can now send `Idempotency-Key` to `POST /api/jobs`. Apply
+migration `d804a91c3044` with `.venv/bin/alembic upgrade head` before restarting.
+Keys with changed input return 409; retries return the original frozen job.
+Image integrations can upload to `/api/image-assets`, preview through
+`/api/image-jobs/preview` and queue through `/api/image-jobs` with the same key
+rules. The standalone `scripts/submit_image.py` includes a HomeBox print-command
+mode and an HTML pixel preview that queues nothing. See the
+[integration guide](docs/INTEGRATIONS.md) for commands and deployment requirements.
+For USB, install the updated dependencies and system libusb, then explicitly select
+`LABEL_PRINTER_BACKEND=brother-pt-p710bt`. Mock mode remains the default.

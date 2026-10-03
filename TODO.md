@@ -19,14 +19,14 @@ to each field value. Resolved dimensions are frozen when queued. Tape width is f
 - Implement chain printing (with csv to populate fields) (Like the database printing in the p touch editor)
 
 CSV authoring implemented: import, field mapping, selected/reordered records, copy
-counts, durable frozen drafts and atomic, retry-safe submission. Physical Brother
-chain printing remains pending stages 4–5.
+counts, durable frozen drafts and atomic, retry-safe submission. Brother USB multi-page and final-feed commands are implemented; physical
+chain/cut behavior and consumption calibration await the verification checklist.
 
 - Implement print previews for the chain printing as well
 
 Implemented: per-record smooth/raster previews and an ordered run overview with
-dimensions, copies and adapter-based tape estimate. Hardware cut/feed visualization
-awaits verification of the Brother adapter.
+dimensions, copies and adapter-based tape estimate. Drafts also retain a planned feed/cut sequence. Physical behavior still needs
+verification with the Brother adapter.
 
 - Make fonts addable through the web UI
 
@@ -56,3 +56,7 @@ is available now as explicitly monochrome output, not native grayscale.
 - For the multi printer support make the admin able to assign access to each individual printer for each user/group.
 
 - All user/group/role and permissions todos are low priority. They should be appended to the end of the implementation plan into a different phase which requires approval before proceeding with implementation. Although implement the vague archetectural structure so the future implementation does not require a full rewrite.
+
+Preparatory architecture implemented: local actor/policy boundary, durable ownership
+and printer references, and notification recipient routing. Account, group, role,
+permission and approval features remain gated by explicit phase 8 approval.
