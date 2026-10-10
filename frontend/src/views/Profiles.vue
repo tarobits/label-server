@@ -93,7 +93,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
           placeholder="Black on Yellow 24 mm" /></label
       ><label
         >Tape width<select v-model.number="form.width_mm">
-          <option v-for="width in [4, 6, 9, 12, 18, 24]" :key="width" :value="width">
+          <option v-for="width in [3.5, 6, 9, 12, 18, 24]" :key="width" :value="width">
             {{ width }} mm
           </option>
         </select></label

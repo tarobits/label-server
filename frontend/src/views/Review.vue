@@ -6,6 +6,8 @@ import type { BatchDetail } from '../types'
 import { workspace as w, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
 import JobPreview from '../components/JobPreview.vue'
+import PrintAttribution from '../components/PrintAttribution.vue'
+import BatchTrigger from '../components/BatchTrigger.vue'
 const route = useRoute(),
   batch = ref<BatchDetail | null>(null),
   error = ref('')
@@ -74,10 +76,14 @@ async function resolve() {
     <div class="section-heading">
       <div>
         <h2>{{ w.cartridgeName(batch.cartridge_id) }}</h2>
-        <p>{{ date(batch.created_at) }} · Estimated {{ metres(batch.estimated_mm) }}</p>
+        <p>
+          {{ w.destinationName(batch.printer_id) }} · {{ date(batch.created_at) }} · Estimated
+          {{ metres(batch.estimated_mm) }}
+        </p>
       </div>
       <Badge :state="batch.state" />
     </div>
+    <BatchTrigger :trigger="batch.trigger" />
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
     <form @submit.prevent="resolve">
       <p v-if="batch.state === 'needs_review'" class="help">
@@ -89,6 +95,7 @@ async function resolve() {
           <thead>
             <tr>
               <th>Label</th>
+              <th>People</th>
               <th>Copy</th>
               <th>Outcome</th>
               <th v-if="batch.state === 'needs_review'">Your decision</th>
@@ -98,12 +105,16 @@ async function resolve() {
             <tr v-for="item in batch.items" :key="item.copy_id">
               <td class="review-text">
                 <JobPreview
+                  :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
                   :job-id="item.job_id"
                   :text="item.text"
                   :width-mm="item.width_mm"
                   :length-mm="item.length_mm"
                 />
                 <span>{{ item.text }}</span>
+              </td>
+              <td class="review-attribution">
+                <PrintAttribution :attribution="item.attribution" />
               </td>
               <td>{{ item.copy_number }}</td>
               <td><Badge :state="item.outcome" /></td>
@@ -154,3 +165,10 @@ async function resolve() {
   </section>
   <div v-else-if="!error" class="panel empty">Loading batch…</div>
 </template>
+
+<style scoped>
+.review-attribution {
+  min-width: 220px;
+  vertical-align: top;
+}
+</style>

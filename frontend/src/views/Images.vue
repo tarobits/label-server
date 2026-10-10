@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { api } from '../api'
+import { auth } from '../auth'
 import { confirmAction } from '../confirmation'
 import { workspace as w } from '../workspace'
 import type { ImageAsset } from '../types'
@@ -87,7 +88,7 @@ async function visibility(asset: ImageAsset) {
 }
 </script>
 <template>
-  <section class="panel form-stack">
+  <section v-if="auth.can('assets.write')" class="panel form-stack">
     <h2>Upload an image</h2>
     <p class="help">
       PNG, JPEG, WebP, BMP, still GIF or simple SVG, up to 5 MB. Bitmaps are limited to 16
@@ -180,7 +181,14 @@ async function visibility(asset: ImageAsset) {
             <td>{{ asset.width }} × {{ asset.height }}</td>
             <td>{{ asset.archived ? 'Hidden' : 'Available' }}</td>
             <td>
-              <div class="image-library-actions">
+              <div
+                v-if="
+                  auth.can('assets.write') &&
+                  (asset.can_edit ??
+                    (auth.user.value?.is_admin || asset.owner_id === auth.user.value?.id))
+                "
+                class="image-library-actions"
+              >
                 <button
                   class="small secondary"
                   :disabled="w.busy.value || editing === asset.id"

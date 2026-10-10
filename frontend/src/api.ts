@@ -1,17 +1,46 @@
-export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+let csrfToken: string | null = null
+let unauthorized: (() => void) | undefined
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public detail?: unknown,
+  ) {
+    super(message)
+  }
+}
+export function configureSession(token: string | null, onUnauthorized?: () => void) {
+  csrfToken = token
+  if (onUnauthorized) unauthorized = onUnauthorized
+}
+export async function api<T>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  const requestToken = csrfToken
   const response = await fetch(`/api${path}`, {
     method,
-    headers:
-      body === undefined
+    credentials: 'same-origin',
+    headers: {
+      ...(!['GET', 'HEAD', 'OPTIONS'].includes(method) && csrfToken
+        ? { 'X-CSRF-Token': csrfToken }
+        : {}),
+      ...(body === undefined
         ? {}
         : {
             'Content-Type': body instanceof Blob ? 'application/octet-stream' : 'application/json',
-          },
+          }),
+      ...headers,
+    },
     body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
   })
   const result = await response.json().catch(() => null)
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/auth/') && requestToken === csrfToken)
+      unauthorized?.()
     const detail = result?.detail
     const message =
       typeof detail === 'string'
@@ -23,8 +52,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
                   `${issue.loc.slice(1).join('.')}: ${issue.msg}`,
               )
               .join('; ')
-          : `Request failed (${response.status})`
-    throw new Error(message)
+          : typeof detail?.message === 'string'
+            ? detail.message
+            : `Request failed (${response.status})`
+    throw new ApiError(message, response.status, detail)
   }
   return result as T
 }

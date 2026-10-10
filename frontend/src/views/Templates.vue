@@ -2,6 +2,7 @@
 import { confirmAction } from '../confirmation'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import { auth } from '../auth'
 import type { Template } from '../types'
 import { workspace as w } from '../workspace'
 const router = useRouter()
@@ -12,6 +13,8 @@ async function duplicate(template: Template) {
       result = await api<Template>('/templates', 'POST', {
         name: `${template.name} copy`,
         document: template.document,
+        destination_id: w.selectedPrinter.value || undefined,
+        scope: 'personal',
       })
     }, 'Template duplicated.')
   )
@@ -42,15 +45,32 @@ async function archive(template: Template) {
         {{ template.document.elements.length }} elements
       </p>
       <p class="help">Fields: {{ template.fields.join(', ') || 'No variable fields' }}</p>
+      <p class="help">
+        {{
+          template.scope === 'personal'
+            ? 'Personal template'
+            : template.scope === 'group'
+              ? 'Shared with a user group'
+              : 'Global template'
+        }}
+      </p>
       <div class="row wrap">
-        <RouterLink class="button primary" :to="`/templates/${template.id}/edit`"
+        <RouterLink
+          v-if="
+            template.can_edit ??
+            (auth.user.value?.is_admin || template.owner_id === auth.user.value?.id)
+          "
+          class="button primary"
+          :to="`/templates/${template.id}/edit`"
           >Edit visually</RouterLink
         ><RouterLink
+          v-if="auth.any('request')"
           class="button secondary"
           :to="{ path: '/new', query: { template: template.id } }"
           >Use template</RouterLink
         >
         <RouterLink
+          v-if="auth.any('request')"
           class="button secondary"
           :to="{ path: '/runs', query: { template: template.id } }"
           >Use with CSV</RouterLink
@@ -60,6 +80,10 @@ async function archive(template: Template) {
         <button :disabled="w.busy.value" class="text-button" @click="duplicate(template)">
           Duplicate template</button
         ><button
+          v-if="
+            template.can_delete ??
+            (auth.user.value?.is_admin || template.owner_id === auth.user.value?.id)
+          "
           :disabled="w.busy.value"
           class="text-button danger-text"
           @click="archive(template)"

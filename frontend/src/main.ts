@@ -8,17 +8,52 @@ import Profiles from './views/Profiles.vue'
 import Cartridges from './views/Cartridges.vue'
 import Activity from './views/Activity.vue'
 import Review from './views/Review.vue'
-import Settings from './views/Settings.vue'
 import Fonts from './views/Fonts.vue'
 import Images from './views/Images.vue'
+import Printers from './views/Printers.vue'
 import CsvRuns from './views/CsvRuns.vue'
 import Templates from './views/Templates.vue'
 import TemplateEditor from './views/TemplateEditor.vue'
+import Administration from './views/Administration.vue'
+import Requests from './views/Requests.vue'
+import AccessHolds from './views/AccessHolds.vue'
 import './style.css'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    {
+      path: '/access-holds',
+      component: AccessHolds,
+      meta: {
+        title: 'Paused labels',
+        subtitle: 'Review queued work after an account or permission change.',
+      },
+    },
+    {
+      path: '/admin',
+      component: Administration,
+      meta: {
+        title: 'Administration',
+        subtitle: 'People, permissions, and access to your printers.',
+      },
+    },
+    {
+      path: '/requests/:id?',
+      component: Requests,
+      meta: {
+        title: 'Print requests',
+        subtitle: 'Review labels before they enter the print queue.',
+      },
+    },
+    {
+      path: '/printers',
+      component: Printers,
+      meta: {
+        title: 'Printers & groups',
+        subtitle: 'Route labels to the printer with the right tape.',
+      },
+    },
     {
       path: '/images',
       component: Images,
@@ -53,7 +88,7 @@ const router = createRouter({
     {
       path: '/',
       component: Dashboard,
-      meta: { title: 'Overview', subtitle: 'A little order, one label at a time.' },
+      meta: { title: 'Overview', subtitle: 'Your printers, tapes and queued labels in one place.' },
     },
     {
       path: '/queue',
@@ -95,11 +130,7 @@ const router = createRouter({
     },
     {
       path: '/settings',
-      component: Settings,
-      meta: {
-        title: 'Printer & settings',
-        subtitle: 'Connection status and mock-printer controls.',
-      },
+      redirect: (to) => ({ path: '/printers', query: to.query }),
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

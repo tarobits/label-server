@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api } from '../api'
+import { auth } from '../auth'
 import { workspace as w } from '../workspace'
 import type { FontAsset } from '../types'
 const file = ref<File | null>(null),
@@ -38,7 +39,7 @@ async function visibility(font: FontAsset) {
 }
 </script>
 <template>
-  <section class="panel form-stack">
+  <section v-if="auth.can('assets.write')" class="panel form-stack">
     <h2>Upload a font</h2>
     <p class="help">
       Static TTF and OTF files, up to 5 MB. Upload regular, bold and italic faces separately.
@@ -87,7 +88,16 @@ async function visibility(font: FontAsset) {
             <td>{{ (font.size_bytes / 1024).toFixed(0) }} KB</td>
             <td>{{ font.archived ? 'Hidden' : 'Available' }}</td>
             <td>
-              <button class="text-button" :disabled="w.busy.value" @click="visibility(font)">
+              <button
+                v-if="
+                  auth.can('assets.write') &&
+                  (font.can_edit ??
+                    (auth.user.value?.is_admin || font.owner_id === auth.user.value?.id))
+                "
+                class="text-button"
+                :disabled="w.busy.value"
+                @click="visibility(font)"
+              >
                 {{ font.archived ? 'Restore' : 'Hide' }}
               </button>
             </td>

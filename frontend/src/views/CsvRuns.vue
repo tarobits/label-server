@@ -2,7 +2,8 @@
 import { confirmAction } from '../confirmation'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
+import { api, ApiError, errorMessage } from '../api'
+import { auth } from '../auth'
 import { workspace as w, date } from '../workspace'
 interface Row {
   source_row: number
@@ -11,6 +12,7 @@ interface Row {
   copies: number
 }
 interface Run {
+  destination_id: string
   id: string
   name: string
   submitted_at: number | null
@@ -43,6 +45,9 @@ interface Preview {
 }
 const route = useRoute(),
   router = useRouter()
+const destinationId = ref(
+  typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter.value,
+)
 const csv = ref(''),
   delimiter = ref(','),
   name = ref('CSV labels'),
@@ -56,11 +61,12 @@ const csv = ref(''),
       ? route.query.profile
       : (w.activeProfile.value?.id ?? w.profiles.value[0]?.id ?? ''),
   )
-watch([templateId, profileId], () => {
+watch([templateId, profileId, destinationId], () => {
   if (route.path === '/runs')
     void router.replace({
       query: {
         ...route.query,
+        destination: destinationId.value,
         template: templateId.value || undefined,
         profile: profileId.value || undefined,
       },
@@ -70,6 +76,7 @@ watch(
   () => route.query,
   (query) => {
     if (!route.params.id) {
+      if (typeof query.destination === 'string') destinationId.value = query.destination
       if (typeof query.template === 'string') templateId.value = query.template
       if (typeof query.profile === 'string') profileId.value = query.profile
     } else if (run.value) position.value = rowPosition()
@@ -89,6 +96,9 @@ const error = ref(''),
   preview = ref<Preview | null>(null),
   pixels = ref(true)
 const template = computed(() => w.templates.value.find((t) => t.id === templateId.value))
+const destination = computed(() =>
+  w.destinations.value.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
+)
 const selected = computed(() => rows.value.filter((r) => r.selected))
 let previewTicket = 0,
   keyBody = '',
@@ -151,6 +161,7 @@ async function prepare() {
     if (!template.value) throw new Error('Choose a template.')
     rowErrors.value = []
     const body = {
+      destination_id: destinationId.value,
       name: name.value,
       template: templateId.value,
       expected_revision: template.value.revision,
@@ -213,7 +224,38 @@ async function submit() {
   if (!run.value) return
   const id = run.value.id
   await perform(async () => {
-    const result = await api<{ run: Run }>(`/runs/${id}/submit`, 'POST')
+    if (!auth.atLeast(run.value!.destination_id, 'print')) {
+      await api('/requests', 'POST', { kind: 'run', run_id: id })
+      await router.push('/requests')
+      return
+    }
+    let result: { run: Run }
+    try {
+      result = await api<{ run: Run }>(`/runs/${id}/submit`, 'POST')
+    } catch (failure) {
+      const detail = failure instanceof ApiError ? failure.detail : null
+      if (
+        !(failure instanceof ApiError) ||
+        failure.status !== 409 ||
+        !detail ||
+        typeof detail !== 'object' ||
+        !('code' in detail) ||
+        detail.code !== 'owner_access_discrepancy' ||
+        !('override_allowed' in detail) ||
+        detail.override_allowed !== true ||
+        !auth.user.value?.is_admin
+      )
+        throw failure
+      if (
+        !(await confirmAction(
+          `${failure.message}\nOverride and print this run with your administrator authorization?`,
+        ))
+      )
+        return
+      result = await api<{ run: Run }>(`/runs/${id}/submit`, 'POST', {
+        authorization_override: true,
+      })
+    }
     run.value = result.run
     await w.refresh()
   })
@@ -232,8 +274,29 @@ onMounted(load)
 <template>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <template v-if="!route.params.id">
-    <fieldset :disabled="busy" class="panel form-stack csv-form">
+    <p v-if="!w.destinations.value.length" class="panel help">
+      Your saved runs remain available. A role with destination access is needed to prepare or
+      submit new labels.
+    </p>
+    <fieldset v-if="w.destinations.value.length" :disabled="busy" class="panel form-stack csv-form">
       <h2>Import CSV</h2>
+      <label
+        >Print destination<select v-model="destinationId">
+          <option
+            v-for="destination in w.destinations.value"
+            :key="destination.id"
+            :value="destination.id"
+            :disabled="destination.available === false"
+          >
+            {{ destination.name }}{{ destination.kind === 'group' ? ' (Group)' : ''
+            }}{{ destination.available === false ? ' — Unavailable' : '' }}
+          </option>
+        </select></label
+      >
+      <p v-if="destination?.available === false" class="help">
+        This destination has no configured printer available. Update its printers before preparing
+        labels.
+      </p>
       <div class="field-row">
         <label>Run name<input v-model="name" maxlength="100" /></label>
         <label
@@ -349,7 +412,11 @@ onMounted(load)
         <p v-for="issue in rowErrors" :key="issue.source_row" class="alert danger" role="alert">
           Record {{ issue.source_row }}: {{ issue.message }}
         </p>
-        <button class="primary" :disabled="!selected.length" @click="prepare">
+        <button
+          class="primary"
+          :disabled="!selected.length || destination?.available === false"
+          @click="prepare"
+        >
           Validate and preview run
         </button>
         <p class="help">This saves a draft for review. Nothing is queued or printed yet.</p>
@@ -419,7 +486,25 @@ onMounted(load)
           Submitting adds every row together. Normal tape thresholds and automatic-print hold apply;
           an eligible run may print immediately after submission.
         </p>
-        <button class="primary" :disabled="busy" @click="submit">Submit entire run</button>
+        <p v-if="!auth.atLeast(run.destination_id, 'print')" class="help">
+          The entire run will wait for approval before entering the queue.
+        </p>
+        <p v-if="destination?.available === false" class="help">
+          This destination has no configured printer available. Your saved draft remains available.
+        </p>
+        <button
+          class="primary"
+          :disabled="
+            busy || destination?.available === false || !auth.atLeast(run.destination_id, 'request')
+          "
+          @click="submit"
+        >
+          {{
+            auth.atLeast(run.destination_id, 'print')
+              ? 'Submit entire run'
+              : 'Request printing for run'
+          }}
+        </button>
         <button class="text-button danger-text" :disabled="busy" @click="deleteDraft(run)">
           Delete draft
         </button></template

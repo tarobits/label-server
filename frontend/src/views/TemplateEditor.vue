@@ -6,6 +6,7 @@ import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroi
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
+import { auth } from '../auth'
 import { workspace as w } from '../workspace'
 import {
   newDocument,
@@ -21,6 +22,18 @@ const document = ref<TemplateDocument>(newDocument()),
   name = ref('Untitled label'),
   id = ref<string | null>(null),
   revision = ref(0)
+const scope = ref<'personal' | 'group' | 'global'>('personal'),
+  groupId = ref<string | null>(null)
+const userGroups = ref<{ id: string; name: string }[]>([])
+const availableGroups = computed(() =>
+  userGroups.value.filter(
+    (group) =>
+      auth.user.value?.is_admin ||
+      group.id === groupId.value ||
+      auth.user.value?.group_memberships?.[group.id]?.can_create,
+  ),
+)
+const editable = ref(true)
 const imageFile = ref<File | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
 const selectedId = ref(typeof route.query.element === 'string' ? route.query.element : ''),
@@ -41,13 +54,20 @@ const sampleProfile = ref(typeof route.query.profile === 'string' ? route.query.
   history = ref<string[]>([]),
   cursor = ref(0),
   margin = ref(1)
+const supportedWidths = ref([3.5, 6, 9, 12, 18, 24])
 const printableWidths = ref<Record<string, number>>({})
 const verticalMargin = computed(() => {
   const band = printableWidths.value[String(document.value.width_mm)]
   return band ? (document.value.width_mm - band) / 2 : margin.value
 })
 const selected = computed(() => document.value.elements.find((e) => e.id === selectedId.value))
-const snapshot = () => JSON.stringify({ name: name.value, document: document.value })
+const snapshot = () =>
+  JSON.stringify({
+    name: name.value,
+    document: document.value,
+    scope: scope.value,
+    group_id: groupId.value,
+  })
 const dirty = computed(() => ready.value && snapshot() !== saved.value)
 const canvasLength = computed(() =>
   document.value.auto_length
@@ -114,6 +134,16 @@ const selectedBounds = computed(() => {
     height = rotated ? e.width : e.height
   return { x: e.x + (e.width - width) / 2, y: e.y + (e.height - height) / 2, width, height }
 })
+watch(w.selectedPrinter, () => {
+  const capabilities = w.destinationPrinter(w.selectedPrinter.value)?.capabilities
+  if (!capabilities) return
+  if (!capabilities) return
+  supportedWidths.value = capabilities.supported_widths_mm
+  margin.value = capabilities.printable_margin_mm
+  printableWidths.value = capabilities.printable_widths_mm ?? {}
+  resolutionModes.value = capabilities.resolution_modes ?? {}
+  defaultResolution.value = [capabilities.dpi_x, capabilities.dpi_y]
+})
 let timer: ReturnType<typeof setTimeout> | undefined,
   serial = 0,
   stopped = false
@@ -131,41 +161,47 @@ function restore(offset: number) {
   const position = cursor.value + offset
   if (position < 0 || position >= history.value.length) return
   cursor.value = position
-  const value = JSON.parse(history.value[position]) as { name: string; document: TemplateDocument }
+  const value = JSON.parse(history.value[position]) as {
+    name: string
+    document: TemplateDocument
+    scope: 'personal' | 'group' | 'global'
+    group_id: string | null
+  }
   name.value = value.name
   document.value = value.document
+  scope.value = value.scope
+  groupId.value = value.group_id
 }
 async function load() {
   ready.value = false
   try {
-    const printers = await api<
-      {
-        capabilities: {
-          printable_margin_mm: number
-          printable_widths_mm?: Record<string, number>
-          dpi_x: number
-          dpi_y: number
-          resolution_modes?: Record<string, [number, number]>
-        }
-      }[]
-    >('/printers')
-    margin.value = printers[0]?.capabilities.printable_margin_mm ?? 1
-    printableWidths.value = printers[0]?.capabilities.printable_widths_mm ?? {}
-    resolutionModes.value = printers[0]?.capabilities.resolution_modes ?? {}
-    defaultResolution.value = [
-      printers[0]?.capabilities.dpi_x ?? 180,
-      printers[0]?.capabilities.dpi_y ?? 180,
-    ]
+    userGroups.value = await api<{ id: string; name: string }[]>('/user-groups')
+    const capabilities = w.destinationPrinter(w.selectedPrinter.value)?.capabilities
+    supportedWidths.value = capabilities?.supported_widths_mm ?? [3.5, 6, 9, 12, 18, 24]
+    margin.value = capabilities?.printable_margin_mm ?? 1
+    printableWidths.value = capabilities?.printable_widths_mm ?? {}
+    resolutionModes.value = capabilities?.resolution_modes ?? {}
+    defaultResolution.value = [capabilities?.dpi_x ?? 180, capabilities?.dpi_y ?? 180]
     if (route.params.id) {
       const template = await api<Template>(`/templates/${route.params.id}`)
       id.value = template.id
       revision.value = template.revision
       name.value = template.name
+      scope.value = template.scope ?? 'global'
+      groupId.value = template.group_id ?? null
+      if (groupId.value && !userGroups.value.some((g) => g.id === groupId.value))
+        userGroups.value.push({ id: groupId.value, name: 'Current template group' })
+      editable.value =
+        template.can_edit ??
+        (!!auth.user.value?.is_admin || template.owner_id === auth.user.value?.id)
       document.value = { print_resolution: 'printer', ...structuredClone(template.document) }
     } else {
       id.value = null
       revision.value = 0
       name.value = 'Untitled label'
+      scope.value = 'personal'
+      groupId.value = null
+      editable.value = true
       document.value = newDocument()
     }
     saved.value = snapshot()
@@ -188,6 +224,7 @@ async function updatePreview() {
   try {
     const profile = w.profiles.value.find((p) => p.id === sampleProfile.value)
     const result = await api<Preview>('/preview', 'POST', {
+      destination_id: w.selectedPrinter.value || undefined,
       document: document.value,
       use_samples: true,
       foreground: profile?.foreground ?? '#000000',
@@ -207,7 +244,7 @@ async function updatePreview() {
   }
 }
 watch(
-  [document, name, sampleProfile],
+  [document, name, sampleProfile, w.selectedPrinter],
   () => {
     serial++
     clearTimeout(timer)
@@ -236,8 +273,10 @@ watch(
 )
 function add(kind: Element['kind']) {
   const element = newElement(kind)
-  element.width = Math.min(element.width, document.value.length_mm - 4)
-  element.height = Math.min(element.height, document.value.width_mm - 4)
+  element.x = margin.value
+  element.y = verticalMargin.value
+  element.width = Math.min(element.width, document.value.length_mm - 2 * margin.value)
+  element.height = Math.min(element.height, document.value.width_mm - 2 * verticalMargin.value)
   if (kind === 'qr') element.width = element.height
   document.value.elements.push(element)
   selectedId.value = element.id
@@ -467,6 +506,7 @@ function key(event: KeyboardEvent) {
   }
 }
 async function save() {
+  if (!editable.value || (scope.value === 'group' && !groupId.value)) return
   let result: Template | undefined
   const ok = await w.action(async () => {
     result = await api<Template>(
@@ -474,6 +514,9 @@ async function save() {
       id.value ? 'PUT' : 'POST',
       {
         name: name.value,
+        scope: scope.value,
+        group_id: scope.value === 'group' ? groupId.value : null,
+        destination_id: w.selectedPrinter.value || undefined,
         document: document.value,
         expected_revision: id.value ? revision.value : null,
       },
@@ -521,6 +564,10 @@ onUnmounted(() => {
 })
 </script>
 <template>
+  <div v-if="!editable" class="alert warning">
+    This shared template is read-only. Duplicate it in the template library to create your own
+    version.
+  </div>
   <section class="panel editor-toolbar">
     <div class="editor-settings-fields">
       <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
@@ -536,7 +583,7 @@ onUnmounted(() => {
       >
       <label
         >Tape width (mm)<select v-model.number="document.width_mm" @change="record">
-          <option v-for="width in [6, 9, 12, 18, 24]" :key="width">{{ width }}</option>
+          <option v-for="width in supportedWidths" :key="width">{{ width }}</option>
         </select></label
       >
       <label
@@ -549,6 +596,29 @@ onUnmounted(() => {
           max="300"
           @change="record"
       /></label>
+    </div>
+    <div class="template-sharing field-row">
+      <label
+        >Template visibility<select v-model="scope" :disabled="!editable" @change="record">
+          <option value="personal">Personal</option>
+          <option v-if="availableGroups.length" value="group">User group</option>
+          <option
+            v-if="auth.user.value?.is_admin || scope === 'global'"
+            value="global"
+            :disabled="!auth.user.value?.is_admin"
+          >
+            Global
+          </option>
+        </select></label
+      >
+      <label v-if="scope === 'group'"
+        >User group<select v-model="groupId" :disabled="!editable" required @change="record">
+          <option :value="null" disabled>Choose a group</option>
+          <option v-for="group in availableGroups" :key="group.id" :value="group.id">
+            {{ group.name }}
+          </option>
+        </select></label
+      >
     </div>
     <div class="editor-settings-footer">
       <div class="editor-settings-toggles">
@@ -570,7 +640,15 @@ onUnmounted(() => {
         ><button :disabled="cursor >= history.length - 1" @click="restore(1)">Redo</button>
         <button
           class="primary"
-          :disabled="w.busy.value || !ready || rendering || !!error || !name.trim()"
+          :disabled="
+            w.busy.value ||
+            !ready ||
+            rendering ||
+            !!error ||
+            !name.trim() ||
+            !editable ||
+            (scope === 'group' && !groupId)
+          "
           @click="save"
         >
           Save template
@@ -858,7 +936,7 @@ onUnmounted(() => {
                 </option>
               </select></label
             >
-            <label
+            <label v-if="auth.can('assets.write')"
               >Upload image file<input
                 ref="imageInput"
                 type="file"
@@ -866,7 +944,12 @@ onUnmounted(() => {
                 :disabled="w.busy.value"
                 @change="chooseImageFile"
             /></label>
-            <button class="secondary" :disabled="!imageFile || w.busy.value" @click="uploadImage">
+            <button
+              v-if="auth.can('assets.write')"
+              class="secondary"
+              :disabled="!imageFile || w.busy.value"
+              @click="uploadImage"
+            >
               Upload and use image
             </button>
             <label class="checkbox"
@@ -1123,3 +1206,8 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
+<style scoped>
+.template-sharing {
+  max-width: 600px;
+}
+</style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { api } from '../api'
+import { auth } from '../auth'
 import { workspace as w, metres } from '../workspace'
 import type { Cartridge } from '../types'
 const { profiles, cartridges, activeCartridge, locked, busy } = w
@@ -32,7 +33,10 @@ async function save() {
 }
 async function install(id: string | null) {
   await w.action(
-    () => api('/printer/active-tape', 'PUT', { cartridge_id: id }),
+    () =>
+      api(`/printer/active-tape?printer_id=${encodeURIComponent(w.selectedPrinter.value)}`, 'PUT', {
+        cartridge_id: id,
+      }),
     id
       ? 'Installed cartridge updated. Eligible queued labels may now print.'
       : 'No cartridge selected.',
@@ -54,7 +58,9 @@ async function correct(id: string) {
 </script>
 <template>
   <div class="section-heading">
-    <p class="muted">Select the cassette physically installed in the printer.</p>
+    <p class="muted">
+      Select the cassette physically installed in {{ w.status.value?.printer_name }}.
+    </p>
     <button class="secondary" :disabled="!profiles.length" @click="showForm = !showForm">
       Register cartridge
     </button>
@@ -153,13 +159,23 @@ async function correct(id: string) {
       </form>
       <div class="card-actions">
         <button
-          v-if="activeCartridge?.id !== cartridge.id"
+          v-if="
+            activeCartridge?.id !== cartridge.id &&
+            w.printers.value.some((p) => p.id === w.selectedPrinter.value) &&
+            auth.atLeast(w.selectedPrinter.value, 'full')
+          "
           class="secondary"
           :disabled="busy || locked"
           @click="install(cartridge.id)"
         >
           Install cartridge</button
-        ><button v-else :disabled="busy || locked" @click="install(null)">
+        ><button
+          v-else-if="
+            activeCartridge?.id === cartridge.id && auth.atLeast(w.selectedPrinter.value, 'full')
+          "
+          :disabled="busy || locked"
+          @click="install(null)"
+        >
           Remove from printer</button
         ><button class="text-button" :disabled="busy || locked" @click="startCorrection(cartridge)">
           Correct estimate

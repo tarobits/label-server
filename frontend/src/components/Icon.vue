@@ -1,6 +1,9 @@
 <script setup lang="ts">
 defineProps<{ name: string }>()
 const paths: Record<string, string> = {
+  users:
+    'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75',
+  requests: 'M9 3H5v18h14V3h-4 M9 2h6v4H9z M8 12l2 2 5-5 M8 18h8',
   overview: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   queue: 'M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01',
   csv: 'M3 3h18v18H3z M3 9h18 M3 15h18 M9 9v12 M15 9v12',

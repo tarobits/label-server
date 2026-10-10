@@ -2,12 +2,15 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
+import { auth } from '../auth'
 import { workspace as w } from '../workspace'
 import type { Preview } from '../editor'
 const router = useRouter(),
   route = useRoute()
 const { profiles, activeProfile, busy, templates } = w
 const form = reactive({
+  destination_id:
+    typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter.value,
   tape_profile:
     typeof route.query.profile === 'string'
       ? route.query.profile
@@ -19,12 +22,13 @@ const form = reactive({
       : (templates.value[0]?.id ?? ''),
 })
 watch(
-  () => [form.template, form.tape_profile],
+  () => [form.template, form.tape_profile, form.destination_id],
   () => {
     if (route.path === '/new')
       void router.replace({
         query: {
           ...route.query,
+          destination: form.destination_id,
           template: form.template || undefined,
           profile: form.tape_profile || undefined,
         },
@@ -34,6 +38,7 @@ watch(
 watch(
   () => route.query,
   (query) => {
+    if (typeof query.destination === 'string') form.destination_id = query.destination
     if (typeof query.template === 'string') form.template = query.template
     if (typeof query.profile === 'string') form.tape_profile = query.profile
   },
@@ -44,6 +49,36 @@ const data = ref<Record<string, string>>({}),
   rendering = ref(false),
   showPrintPixels = ref(true)
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
+const destination = computed(() => w.destinations.value.find((d) => d.id === form.destination_id))
+const matchingPrinters = computed(() =>
+  w.printerStatuses.value.filter(
+    (s) =>
+      destination.value?.printer_ids.includes(s.printer_id) &&
+      w.cartridges.value.some(
+        (c) => c.id === s.active_cartridge_id && c.profile_id === form.tape_profile,
+      ),
+  ),
+)
+const routingHint = computed(() => {
+  if (destination.value?.available === false)
+    return 'This destination has no configured printer available. Update its printers before submitting labels.'
+  if (!auth.atLeast(form.destination_id, 'print'))
+    return 'Your label will be sent for approval. It enters the print queue only after an approver accepts it.'
+  if (destination.value?.automatic_printing_held)
+    return 'Automatic printing is held. These copies will wait for a manual flush or resume.'
+  if (
+    destination.value?.kind === 'group' &&
+    destination.value.printer_ids.some(
+      (id) => !w.printerStatuses.value.some((state) => state.printer_id === id),
+    )
+  )
+    return 'This group routes queued labels to an available member with matching tape. Printing starts when the queue is ready.'
+  if (!matchingPrinters.value.length)
+    return 'This label will wait until its tape is installed at the selected destination.'
+  if (matchingPrinters.value.every((s) => s.automatic_printing_held))
+    return 'The matching printers are held. These copies will wait for a manual flush or resume.'
+  return 'This tape is installed at the selected destination. Eligible copies can print once a matching printer is ready and the queue threshold is reached.'
+})
 const template = computed(() => templates.value.find((t) => t.id === form.template))
 const adaptiveText = computed(() => template.value?.id === 'text' && template.value.revision === 2)
 const document = computed(() => {
@@ -52,8 +87,15 @@ const document = computed(() => {
   if (adaptiveText.value) {
     doc.width_mm = selected.value?.width_mm ?? 24
     if (doc.elements[0]) {
-      const band = w.printers.value[0]?.capabilities.printable_widths_mm?.[String(doc.width_mm)]
-      const side = band ? (doc.width_mm - band) / 2 : Math.min(2, doc.width_mm / 4)
+      const band = w.destinationPrinter(form.destination_id)?.capabilities?.printable_widths_mm?.[
+        String(doc.width_mm)
+      ]
+      const side = band
+        ? (doc.width_mm - band) / 2
+        : Math.max(
+            w.destinationPrinter(form.destination_id)?.capabilities?.printable_margin_mm ?? 1,
+            Math.min(2, doc.width_mm / 4),
+          )
       doc.elements[0].width = doc.length_mm - 4
       doc.elements[0].y = side
       doc.elements[0].height = doc.width_mm - 2 * side
@@ -75,12 +117,19 @@ watch(
 )
 async function render() {
   const ticket = ++serial
+  if (destination.value?.available === false) {
+    preview.value = null
+    error.value = ''
+    rendering.value = false
+    return
+  }
   if (!document.value) return
   rendering.value = true
   try {
     if (document.value.width_mm !== selected.value?.width_mm)
       throw new Error('Template and tape widths do not match.')
     const result = await api<Preview>('/preview', 'POST', {
+      destination_id: form.destination_id,
       document: document.value,
       data: data.value,
       foreground: selected.value?.foreground ?? '#000000',
@@ -100,7 +149,7 @@ async function render() {
   }
 }
 watch(
-  [document, data, selected],
+  [document, data, selected, destination],
   () => {
     serial++
     clearTimeout(timer)
@@ -114,27 +163,50 @@ onUnmounted(() => {
   serial++
   clearTimeout(timer)
 })
+let submissionBody = '',
+  submissionKey = ''
 async function submit() {
+  const body = {
+    destination_id: form.destination_id,
+    template: form.template,
+    tape_profile: form.tape_profile,
+    copies: form.copies,
+    data: data.value,
+  }
+  const signature = JSON.stringify(body)
+  if (signature !== submissionBody) {
+    submissionBody = signature
+    submissionKey = crypto.randomUUID()
+  }
   if (
     await w.action(
       () =>
-        api('/jobs', 'POST', {
-          template: form.template,
-          tape_profile: form.tape_profile,
-          copies: form.copies,
-          data: data.value,
-        }),
-      `${form.copies} copies added to the queue.`,
+        api(
+          auth.atLeast(form.destination_id, 'print') ? '/jobs' : '/requests',
+          'POST',
+          auth.atLeast(form.destination_id, 'print') ? body : { kind: 'job', input: body },
+          { 'Idempotency-Key': submissionKey },
+        ),
+      auth.atLeast(form.destination_id, 'print')
+        ? `${form.copies} copies added to the queue.`
+        : 'Label sent for approval. Nothing has been queued yet.',
     )
-  )
-    await router.push('/queue')
+  ) {
+    submissionBody = ''
+    submissionKey = ''
+    if (route.path === '/new')
+      await router.push(auth.atLeast(form.destination_id, 'print') ? '/queue' : '/requests')
+  }
 }
 </script>
 <template>
   <div v-if="!profiles.length" class="panel empty">
     <h2>First, choose your tape.</h2>
     <p>Add a tape profile before submitting a label.</p>
-    <RouterLink class="button primary" to="/profiles">Create tape profile</RouterLink>
+    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
+      >Create tape profile</RouterLink
+    >
+    <p v-else class="help">Ask an administrator to create a tape profile.</p>
   </div>
   <div v-else-if="!templates.length" class="panel empty">
     <h2>Create your first template.</h2>
@@ -143,6 +215,19 @@ async function submit() {
   <div v-else class="two-column">
     <form class="panel form-stack" @submit.prevent="submit">
       <h2>Label details</h2>
+      <label
+        >Print destination<select v-model="form.destination_id">
+          <option
+            v-for="destination in w.destinations.value"
+            :key="destination.id"
+            :value="destination.id"
+            :disabled="destination.available === false"
+          >
+            {{ destination.name }}{{ destination.kind === 'group' ? ' (Group)' : ''
+            }}{{ destination.available === false ? ' — Unavailable' : '' }}
+          </option>
+        </select></label
+      >
       <label
         >Template<select v-model="form.template">
           <option v-for="item in templates" :key="item.id" :value="item.id">
@@ -169,17 +254,20 @@ async function submit() {
           >Copies<input v-model.number="form.copies" type="number" min="1" max="1000" required
         /></label>
       </div>
-      <p class="help">
-        {{
-          w.status.value?.automatic_printing_held
-            ? 'Automatic printing is held. These copies will wait for a manual flush or resume.'
-            : selected?.id === activeProfile?.id
-              ? 'This tape is installed. An eligible batch can print automatically.'
-              : 'This label will wait until its tape is installed.'
-        }}
-      </p>
-      <button class="primary" :disabled="busy || rendering || !!error || !preview" type="submit">
-        Add to queue
+      <p class="help">{{ routingHint }}</p>
+      <button
+        class="primary"
+        :disabled="
+          busy ||
+          rendering ||
+          !!error ||
+          !preview ||
+          destination?.available === false ||
+          !auth.atLeast(form.destination_id, 'request')
+        "
+        type="submit"
+      >
+        {{ auth.atLeast(form.destination_id, 'print') ? 'Add to queue' : 'Request printing' }}
       </button>
     </form>
     <section class="panel preview-panel">

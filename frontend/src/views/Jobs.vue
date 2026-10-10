@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { auth } from '../auth'
 import { confirmAction } from '../confirmation'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import type { Job } from '../types'
 import { workspace as w, date } from '../workspace'
@@ -11,11 +13,16 @@ interface QueueGroup {
   name: string | null
   jobs: Job[]
 }
+const route = useRoute(),
+  router = useRouter()
 const groups = ref<QueueGroup[]>([]),
   selectedIds = ref<string[]>([]),
   expanded = ref<string[]>([]),
   filter = ref('queued'),
   profileFilter = ref(''),
+  destinationFilter = ref(
+    typeof route.query.destination === 'string' ? route.query.destination : '',
+  ),
   page = ref(0),
   error = ref(''),
   loading = ref(false)
@@ -29,7 +36,7 @@ async function load(background = false) {
   if (!background) loading.value = true
   try {
     const data = await api<QueueGroup[]>(
-      `/queue/groups?limit=25&offset=${page.value * 25}${filter.value ? `&copy_state=${filter.value}` : ''}${profileFilter.value ? `&profile_id=${encodeURIComponent(profileFilter.value)}` : ''}`,
+      `/queue/groups?limit=25&offset=${page.value * 25}${filter.value ? `&copy_state=${filter.value}` : ''}${profileFilter.value ? `&profile_id=${encodeURIComponent(profileFilter.value)}` : ''}${destinationFilter.value ? `&destination_id=${encodeURIComponent(destinationFilter.value)}` : ''}`,
     )
     if (ticket === generation) {
       const response = JSON.stringify(data)
@@ -53,21 +60,25 @@ async function poll() {
   await load(hasLoaded)
   if (!stopped) timer = setTimeout(poll, 2500)
 }
-watch([filter, profileFilter], () => {
+watch([filter, profileFilter, destinationFilter], () => {
   selectedIds.value = []
   if (page.value !== 0) page.value = 0
   else void load()
 })
+watch(destinationFilter, (destination) => {
+  if (route.path === '/queue')
+    void router.replace({ query: { ...route.query, destination: destination || undefined } })
+})
+watch(
+  () => route.query.destination,
+  (destination) => {
+    destinationFilter.value = typeof destination === 'string' ? destination : ''
+  },
+)
 watch(page, () => {
   selectedIds.value = []
   void load()
 })
-watch(
-  () => w.activeProfile.value?.id,
-  () => {
-    selectedIds.value = []
-  },
-)
 onMounted(poll)
 onUnmounted(() => {
   stopped = true
@@ -75,24 +86,68 @@ onUnmounted(() => {
   clearTimeout(timer)
 })
 const jobs = computed(() => groups.value.flatMap((group) => group.jobs))
+const canCancel = (job: Job) =>
+  job.can_cancel ??
+  (job.owner_id === auth.user.value?.id || auth.atLeast(job.destination_id, 'moderator'))
+const canPrintJob = (job: Job) =>
+  job.access_hold?.status !== 'held' &&
+  !job.labels.some((copy) => copy.state === 'printing' || copy.state === 'needs_review') &&
+  (job.can_print ??
+    (auth.atLeast(job.destination_id, 'moderator') ||
+      (job.owner_id === auth.user.value?.id && auth.atLeast(job.destination_id, 'print'))))
+const selectedJobs = computed(() =>
+  jobs.value.filter((job) => job.labels.some((copy) => selectedIds.value.includes(copy.id))),
+)
 function selectable(items: Job[]) {
   return items
-    .filter(
-      (job) =>
-        !job.labels.some((copy) => copy.state === 'printing' || copy.state === 'needs_review'),
-    )
+    .filter(canCancel)
     .flatMap((job) => job.labels.filter((copy) => copy.state === 'queued').map((copy) => copy.id))
 }
-const canPrintSelection = computed(() => {
-  const compatible = new Set(
-    selectable(jobs.value.filter((job) => job.profile_id === w.activeProfile.value?.id)),
+const selectedDestination = computed(() => {
+  const ids = new Set(
+    jobs.value
+      .filter((job) => job.labels.some((copy) => selectedIds.value.includes(copy.id)))
+      .map((job) => job.destination_id),
   )
-  return (
-    w.canPrint.value &&
-    selectedIds.value.length > 0 &&
-    selectedIds.value.every((id) => compatible.has(id))
-  )
+  return ids.size === 1 ? [...ids][0] : undefined
 })
+const canPrintSelection = computed(
+  () =>
+    !w.busy.value &&
+    selectedIds.value.length > 0 &&
+    !!selectedDestination.value &&
+    selectedJobs.value.every(canPrintJob),
+)
+function routing(job: Job) {
+  if (job.access_hold?.status === 'held')
+    return `${w.destinationName(job.destination_id)} · Paused: ${job.access_hold.reason}`
+  const destination = w.destinations.value.find((d) => d.id === job.destination_id)
+  if (!destination) return job.destination_id
+  if (job.assigned_printer_id)
+    return `${destination.name} → ${destination.member_names?.[job.assigned_printer_id] ?? w.destinationName(job.assigned_printer_id)}`
+  if (destination.kind === 'printer' || job.status !== 'queued') return destination.name
+  if (destination.automatic_printing_held) return `${destination.name} · Held`
+  if (
+    destination.printer_ids.some(
+      (id) => !w.printerStatuses.value.some((state) => state.printer_id === id),
+    )
+  )
+    return `${destination.name} · Routed through this group`
+  const ready = destination.printer_ids.find((id) => {
+    const state = w.printerStatuses.value.find((s) => s.printer_id === id)
+    return (
+      state?.connected &&
+      !state.printer_error &&
+      !state.automatic_printing_held &&
+      !state.printing &&
+      !state.needs_review.length &&
+      state.detected_width_mm === job.width_mm &&
+      w.cartridges.value.find((c) => c.id === state.active_cartridge_id)?.profile_id ===
+        job.profile_id
+    )
+  })
+  return `${destination.name} · ${ready ? 'Next eligible: ' + w.destinationName(ready) : 'Waiting for a matching printer'}`
+}
 async function removeSelected() {
   const ids = [...selectedIds.value]
   if (
@@ -135,8 +190,8 @@ async function printSelected() {
   if (!ids.length) return
   if (
     await w.action(
-      () => api('/queue/print', 'POST', { copy_ids: ids }),
-      'Selected copies reserved. Automatic printing is held so the rest stays queued.',
+      () => api(`/destinations/${selectedDestination.value}/print`, 'POST', { copy_ids: ids }),
+      'Selected copies reserved for printing.',
     )
   ) {
     selectedIds.value = []
@@ -174,9 +229,22 @@ async function cancel(job: Job) {
             </option>
           </select>
         </label>
+        <label class="queue-destination-filter"
+          >Destination<select v-model="destinationFilter">
+            <option value="">All destinations</option>
+            <option v-for="target in w.destinations.value" :key="target.id" :value="target.id">
+              {{ target.name }}
+            </option>
+          </select></label
+        >
       </div>
       <div class="row wrap">
-        <button class="primary" :disabled="!canPrintSelection || loading" @click="printSelected">
+        <button
+          v-if="auth.any('print')"
+          class="primary"
+          :disabled="!canPrintSelection || loading"
+          @click="printSelected"
+        >
           Print selected ({{ selectedIds.length }})
         </button>
         <button
@@ -186,12 +254,9 @@ async function cancel(job: Job) {
         >
           Remove selected ({{ selectedIds.length }})
         </button>
-        <button class="secondary" :disabled="!w.canPrint.value" @click="w.printNow">
-          Print compatible queue now
-        </button>
       </div>
     </div>
-    <p class="help">
+    <p v-if="auth.any('moderator')" class="help">
       Select queued items to print or remove. Printing requires the installed tape. Printing a
       selection holds automatic printing so unselected items stay queued. Each item selects its
       remaining queued copies.
@@ -309,7 +374,8 @@ async function cancel(job: Job) {
                   <div class="queue-cell">
                     <div class="queue-cell-content">
                       <strong class="truncate">{{ job.payload.text || job.template_id }}</strong
-                      ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small>
+                      ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
+                      ><small>{{ routing(job) }}</small>
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
                         >CSV record {{ job.source_row }}</RouterLink
                       >
@@ -342,13 +408,18 @@ async function cancel(job: Job) {
                   <div class="queue-cell">
                     <div class="queue-cell-content">
                       <button
-                        v-if="job.status === 'queued'"
+                        v-if="job.labels.some((copy) => copy.state === 'queued') && canCancel(job)"
                         class="text-button danger-text"
                         :disabled="w.busy.value"
                         @click="cancel(job)"
                       >
                         Remove</button
-                      ><RouterLink v-else-if="job.status === 'needs_review'" to="/activity"
+                      ><RouterLink
+                        v-else-if="
+                          job.status === 'needs_review' &&
+                          w.printers.value.some((p) => auth.atLeast(p.id, 'moderator'))
+                        "
+                        to="/activity"
                         >Review batch →</RouterLink
                       >
                     </div>
@@ -372,3 +443,9 @@ async function cancel(job: Job) {
     </div>
   </section>
 </template>
+
+<style scoped>
+.queue-destination-filter {
+  grid-column: 1 / -1;
+}
+</style>

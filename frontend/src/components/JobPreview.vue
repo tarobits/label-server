@@ -5,6 +5,7 @@ const props = defineProps<{
   text: string
   widthMm: number
   lengthMm: number
+  previewUrl?: string
 }>()
 const failed = ref(false),
   opened = ref(false),
@@ -12,7 +13,7 @@ const failed = ref(false),
   dialog = ref<HTMLDialogElement | null>(null)
 const source = computed(
   () =>
-    `/api/jobs/${encodeURIComponent(props.jobId)}/preview${retry.value ? `?retry=${retry.value}` : ''}`,
+    `${props.previewUrl ?? `/api/jobs/${encodeURIComponent(props.jobId)}/preview`}${retry.value ? `?retry=${retry.value}` : ''}`,
 )
 const geometry = computed(() => ({ '--label-ratio': props.lengthMm / props.widthMm }))
 function reload() {
