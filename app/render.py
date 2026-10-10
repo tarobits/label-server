@@ -31,6 +31,9 @@ class RenderSpec:
     media_kind: Literal["continuous", "fixed_label"] = "continuous"
     # Legacy snapshots use dpi for both axes. X follows label length; Y follows tape width.
     dpi_x: int | None = None
+    # Versioned so existing snapshots retain their exact raster geometry.
+    stretch_canvas: bool = False
+    supported_widths_mm: tuple[float, ...] | None = None
 
     @property
     def horizontal_dpi(self) -> int:
@@ -285,7 +288,9 @@ def render_document(
     fonts: FontStore | None = None,
     images: ImageStore | None = None,
 ) -> RenderOutput:
-    band = (spec.printable_widths_mm or {}).get(str(document.width_mm))
+    if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
+        raise ValueError("The selected printer does not support this physical tape width")
+    band = (spec.printable_widths_mm or {}).get(f"{document.width_mm:g}")
     vertical_margin = (document.width_mm - band) / 2 if band else spec.margin_mm
     values = resolve_values(document, data, samples)
     document = resolve_layout(document, values, spec, fonts)
@@ -302,7 +307,11 @@ def render_document(
     )
     px_width = round(document.length_mm * spec.horizontal_dpi / 25.4)
     px_height = round(document.width_mm * spec.dpi / 25.4)
-    aspect = ' preserveAspectRatio="none"' if spec.horizontal_dpi != spec.dpi else ""
+    aspect = (
+        ' preserveAspectRatio="none"'
+        if spec.stretch_canvas or spec.horizontal_dpi != spec.dpi
+        else ""
+    )
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{px_width}" height="{px_height}" viewBox="0 0 {document.length_mm} {document.width_mm}"{aspect}><rect width="100%" height="100%" fill="white"/>'
     ]
@@ -413,4 +422,5 @@ def render_job(
         ink.tobytes(),
         dpi_x=spec.horizontal_dpi,
         dpi_y=spec.dpi,
+        canvas_width_mm=output.document.width_mm,
     )

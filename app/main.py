@@ -1,28 +1,29 @@
 import fcntl
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from threading import Event, Thread
-from typing import AsyncIterator
+from threading import Thread
+from typing import Any, AsyncIterator
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
 
-from app.access import LocalOwnerPolicy, authorize_request
+from app.access import authorize_request
 from app.api import router
+from app.auth import AuthRateLimiter, initialize_auth
 from app.config import Settings
 from app.db import make_engine, session_factory
+from app.fleet import PrinterFleet
 from app.font_assets import FontStore
 from app.identity import LOCAL_OWNER_ID
 from app.image_assets import ImageStore
-from app.models import PrinterState
 from app.notifications import NtfySender, RoutedNotificationSender, deliver_pending
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
-from app.printer.registry import PrinterRegistry
-from app.queue import QueueWorker
+from app.printer.registry import PrinterDefinition, PrinterRegistry
 from app.render import FONT_DIR
 from app.templates import seed_templates
 
@@ -31,8 +32,11 @@ logger = logging.getLogger(__name__)
 
 def create_app(
     settings: Settings | None = None,
-    backend: PrinterBackend | None = None,
+    backends: dict[str, PrinterBackend] | None = None,
     start_worker: bool = True,
+    backend_factory: Callable[
+        [str, dict[str, Any]], tuple[PrinterDefinition, PrinterBackend]
+    ] = configured_printer,
 ) -> FastAPI:
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
@@ -43,31 +47,22 @@ def create_app(
         / "fonts"
     )
     images = ImageStore(fonts.root.parent / "images")
-    definition, configured_backend = configured_printer(settings)
-    worker = QueueWorker(factory, backend or configured_backend, fonts, images)
     registry = PrinterRegistry()
-    registry.register(definition, worker.backend)
-    stop, wake = Event(), Event()
-
-    def run_queue() -> None:
-        while not stop.is_set():
-            wake.clear()
-            try:
-                worker.tick()
-            except Exception:
-                logger.exception("Queue tick failed; durable state will be retried")
-                try:
-                    worker.recover()
-                except Exception:
-                    logger.exception("Could not reconcile interrupted print attempts")
-            wake.wait(settings.worker_interval_seconds)
+    fleet = PrinterFleet(factory, settings, fonts, images, registry, backends, backend_factory)
+    stop, wake = fleet.stop, fleet.wake
 
     def run_notifications() -> None:
         import time
 
-        sender = RoutedNotificationSender({LOCAL_OWNER_ID: NtfySender(settings)})
+        sender = RoutedNotificationSender(
+            {LOCAL_OWNER_ID: NtfySender(settings), "administrators": NtfySender(settings)}
+        )
         while not stop.is_set():
             try:
+                from app.request_notifications import schedule_request_digest
+
+                with fleet.lock, factory.begin() as session:
+                    schedule_request_digest(session, time.time())
                 deliver_pending(factory, sender, time.time())
             except Exception:
                 logger.exception("Notification tick failed")
@@ -88,12 +83,19 @@ def create_app(
                     "Another server owns this database; run exactly one process"
                 ) from error
             with factory.begin() as session:
-                if session.get(PrinterState, 1) is None:
-                    session.add(PrinterState(id=1))
                 seed_templates(session)
-            worker.recover()
+            initialize_auth(factory, Path(db_path).resolve().parent)
+            fleet.enforce_job_access = app.state.access_policy is None
+            if fleet.enforce_job_access:
+                from app.job_access import reconcile_access_holds
+
+                with factory.begin() as session:
+                    reconcile_access_holds(session)
+            fleet.sync()
+            for device in fleet.workers.values():
+                device.recover()
             if start_worker:
-                threads.append(Thread(target=run_queue, name="printer-worker", daemon=True))
+                fleet.start()
                 if settings.ntfy_url:
                     threads.append(
                         Thread(target=run_notifications, name="notification-worker", daemon=True)
@@ -102,31 +104,56 @@ def create_app(
                     thread.start()
             yield
         finally:
-            stop.set()
-            wake.set()
+            fleet.close()
             for thread in threads:
                 thread.join()
             engine.dispose()
             lock_file.close()
 
     app = FastAPI(title="Label Printer Server", version="0.1.0", lifespan=lifespan)
-    app.state.access_policy = LocalOwnerPolicy()
+    app.state.access_policy = None
+    app.state.auth_limiter = AuthRateLimiter()
     app.state.fonts = fonts
     app.state.images = images
     app.state.registry = registry
     app.state.settings = settings
     app.state.factory = factory
-    app.state.worker = worker
+    app.state.fleet = fleet
     app.state.engine = engine
     app.state.wake = wake
+    from app.admin_api import router as admin_router
+    from app.auth_api import router as auth_router
+    from app.fleet_api import router as fleet_router
     from app.font_api import router as font_router
     from app.image_api import router as image_router
+    from app.job_access_api import router as access_holds_router
+    from app.request_api import router as requests_router
     from app.runs import router as runs_router
 
+    app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(router, dependencies=[Depends(authorize_request)])
+    app.include_router(fleet_router, dependencies=[Depends(authorize_request)])
     app.include_router(runs_router, dependencies=[Depends(authorize_request)])
     app.include_router(font_router, dependencies=[Depends(authorize_request)])
     app.include_router(image_router, dependencies=[Depends(authorize_request)])
+    app.include_router(requests_router, dependencies=[Depends(authorize_request)])
+    app.include_router(access_holds_router, dependencies=[Depends(authorize_request)])
+
+    @app.middleware("http")
+    async def private_api_responses(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+    @app.get("/api/health")
+    def health() -> dict[str, bool]:
+        return {"healthy": True}
+
     app.mount("/fonts", StaticFiles(directory=FONT_DIR), name="fonts")
     if (settings.frontend_dist / "assets").is_dir():
         app.mount(
@@ -140,7 +167,7 @@ def create_app(
             return FileResponse(index, headers={"Cache-Control": "no-cache"})
         return JSONResponse(
             {
-                "stage": "Backend foundation; mock printer and renderer",
+                "stage": "Configure printers through the web UI",
                 "api_docs": "/docs",
                 "frontend": "Run npm install and npm run build in frontend/, or use the Vite dev server",
             }

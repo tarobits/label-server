@@ -83,6 +83,12 @@ class PrinterRegistry:
         if backend is not None:
             self._backends[definition.id] = backend
 
+    def replace(self, definition: PrinterDefinition, backend: PrinterBackend) -> None:
+        if definition.id not in self._definitions:
+            raise ValueError("Printer is not registered")
+        self._definitions[definition.id] = definition
+        self._backends[definition.id] = backend
+
     def definitions(self) -> tuple[PrinterDefinition, ...]:
         return tuple(self._definitions.values())
 

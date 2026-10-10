@@ -60,7 +60,7 @@ class Element(Input):
 
 class TemplateDocument(Input):
     version: Literal[1] = 1
-    width_mm: Literal[4, 6, 9, 12, 18, 24] = 24
+    width_mm: float = Field(default=24, gt=0, le=100)
     length_mm: float = Field(default=60, ge=10, le=300)
     auto_length: bool = False
     out_of_bounds: Literal["error", "clip"] = "error"
@@ -108,12 +108,16 @@ class TemplateDocument(Input):
 
 
 class TemplateInput(Input):
+    scope: Literal["personal", "group", "global"] = "personal"
+    group_id: str | None = None
+    destination_id: str | None = None
     name: str = Field(min_length=1, max_length=100)
     document: TemplateDocument
     expected_revision: int | None = Field(default=None, ge=1)
 
 
 class PreviewInput(Input):
+    destination_id: str | None = None
     document: TemplateDocument | None = None
     template_id: str | None = None
     data: dict[str, str] = Field(default_factory=dict)

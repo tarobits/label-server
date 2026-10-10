@@ -4,16 +4,18 @@ import time
 from typing import Protocol
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
-from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
+from app.destinations import installed_profile
+from app.identity import LOCAL_OWNER_ID
+from app.job_access_models import JobAccessHold
 from app.models import (
-    Cartridge,
     LabelCopy,
     Notification,
-    PrinterState,
+    PrinterDevice,
+    PrinterGroup,
     PrintJob,
     State,
     TapeProfile,
@@ -45,7 +47,7 @@ def enqueue(
     )
 
 
-def queued_count(session: Session, profile: TapeProfile) -> int:
+def queued_count(session: Session, profile: TapeProfile, destination_id: str | None = None) -> int:
     return (
         session.scalar(
             select(func.count())
@@ -53,25 +55,59 @@ def queued_count(session: Session, profile: TapeProfile) -> int:
             .join(PrintJob)
             .where(
                 PrintJob.profile_id == profile.id,
-                PrintJob.destination_id == DEFAULT_PRINTER_ID,
+                true() if destination_id is None else PrintJob.destination_id == destination_id,
                 PrintJob.width_mm == profile.width_mm,
                 LabelCopy.state == State.QUEUED,
+                ~select(JobAccessHold.job_id)
+                .where(JobAccessHold.job_id == PrintJob.id, JobAccessHold.status != "released")
+                .exists(),
             )
         )
         or 0
     )
 
 
-def waiting_condition(session: Session, profile: TapeProfile) -> bool:
-    state = session.get(PrinterState, 1)
-    cartridge = (
-        session.get(Cartridge, state.active_cartridge_id)
-        if state and state.active_cartridge_id
-        else None
+def threshold_destinations(session: Session, profile: TapeProfile) -> list[tuple[str, str, int]]:
+    result = []
+    destinations = session.scalars(
+        select(PrintJob.destination_id).where(PrintJob.profile_id == profile.id).distinct()
     )
-    return (cartridge is None or cartridge.profile_id != profile.id) and queued_count(
-        session, profile
-    ) >= profile.auto_print_threshold
+    for identifier in destinations:
+        count = queued_count(session, profile, identifier)
+        if count < profile.auto_print_threshold:
+            continue
+        destination = session.get(PrinterGroup, identifier) or session.get(
+            PrinterDevice, identifier
+        )
+        if (
+            destination is None
+            or isinstance(destination, PrinterDevice)
+            and destination.config.get("retired")
+        ):
+            continue
+        result.append((identifier, destination.name, count))
+    return result
+
+
+def waiting_destinations(session: Session, profile: TapeProfile) -> list[tuple[str, str, int]]:
+    result = []
+    for identifier, name, count in threshold_destinations(session, profile):
+        group = session.get(PrinterGroup, identifier)
+        identifiers = group.printer_ids if group else [identifier]
+        operational = [
+            pid
+            for pid in identifiers
+            if (device := session.get(PrinterDevice, pid)) and not device.config.get("retired")
+        ]
+        if operational and not any(
+            installed_profile(session, pid) == profile.id for pid in operational
+        ):
+            result.append((identifier, name, count))
+    return result
+
+
+def waiting_condition(session: Session, profile: TapeProfile) -> bool:
+    return bool(waiting_destinations(session, profile))
 
 
 def reminder_valid(session: Session, notification: Notification, now: float) -> bool:
@@ -90,7 +126,7 @@ def reminder_valid(session: Session, notification: Notification, now: float) -> 
 
 def schedule_reminders(session: Session, now: float) -> None:
     for profile in session.scalars(select(TapeProfile)):
-        if queued_count(session, profile) < profile.auto_print_threshold:
+        if not threshold_destinations(session, profile):
             if profile.reminder_active:
                 profile.reminder_episode += 1
             profile.reminder_active = False
@@ -123,8 +159,12 @@ def schedule_reminders(session: Session, now: float) -> None:
         enqueue(
             session,
             "Tape swap needed",
-            f"{queued_count(session, profile)} queued copies are waiting for {profile.name}.",
-            "/",
+            f"{profile.name} is needed: "
+            + "; ".join(
+                f"{count} queued copies at {name}"
+                for _, name, count in waiting_destinations(session, profile)
+            ),
+            "/#/printers",
             profile,
             now,
         )
@@ -189,6 +229,34 @@ def deliver_pending(factory: sessionmaker[Session], sender: NotificationSender, 
         with factory.begin() as session:
             notification = session.get(Notification, identifier)
             assert notification is not None
+            if notification.recipient_id == "administrators":
+                from app.auth import active_administrators
+                from app.models import AuthSettings
+
+                settings = session.get(AuthSettings, 1)
+                active_admin = active_administrators(session)
+                from app.request_models import PrintRequest
+
+                pending_count = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(PrintRequest)
+                        .where(PrintRequest.status == "pending")
+                    )
+                    or 0
+                )
+                if (
+                    not settings
+                    or not settings.approval_notifications_enabled
+                    or not active_admin
+                    or not pending_count
+                ):
+                    notification.cancelled = True
+                    continue
+                notification.message = (
+                    f"{pending_count} print request(s) await administrator review."
+                )
+                session.flush()
             if not reminder_valid(session, notification, now):
                 # Snoozed reminders can be recreated when the snooze expires.
                 notification.cancelled = True

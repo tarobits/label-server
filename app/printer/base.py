@@ -5,7 +5,7 @@ from typing import Protocol, Sequence
 @dataclass(frozen=True)
 class PrinterStatus:
     connected: bool
-    tape_width_mm: int | None
+    tape_width_mm: float | None
     error: str | None = None
 
 
@@ -14,13 +14,15 @@ class RenderedLabel:
     """A protocol-independent, packed 1-bit image (MSB first, row padded)."""
 
     copy_id: str
-    tape_width_mm: int
+    tape_width_mm: float
     length_mm: float
     pixel_width: int
     pixel_height: int
     raster: bytes
     dpi_x: int = 180
     dpi_y: int = 180
+    # A saved canvas may have different dimensions from its physical media.
+    canvas_width_mm: float | None = None
 
 
 @dataclass(frozen=True)

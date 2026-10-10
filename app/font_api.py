@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
-from app.api import db
+from app.access import Action, Resource, access_context
+from app.asset_access import library_asset_visible, require_asset
 from app.font_assets import MAX_FONT_BYTES
+from app.http import db
 
 router = APIRouter(prefix="/api/font-assets")
 
@@ -16,7 +18,11 @@ router = APIRouter(prefix="/api/font-assets")
 def list_fonts(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
-    return list(request.app.state.fonts.list())
+    return [
+        asset
+        for asset in request.app.state.fonts.list()
+        if library_asset_visible(request, "font_asset", asset)
+    ]
 
 
 @router.post("", status_code=201)
@@ -31,9 +37,11 @@ async def upload_font(request: Request) -> dict[str, Any]:
     data = b"".join(chunks)
 
     def store() -> dict[str, Any]:
-        with request.app.state.worker.lock:
+        with request.app.state.fleet.lock:
+            context = access_context(request)
+            context.require(Action.WRITE, Resource("font_asset", owner_id=context.actor.id))
             try:
-                return dict(request.app.state.fonts.add(data))
+                return dict(request.app.state.fonts.add(data, owner_id=context.actor.id))
             except ValueError as error:
                 raise HTTPException(422, str(error)) from error
 
@@ -44,17 +52,20 @@ async def upload_font(request: Request) -> dict[str, Any]:
 def hide_font(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    return change_visibility(identifier, True, request)
+    return change_visibility(identifier, True, request, session)
 
 
 @router.post("/{identifier}/restore")
 def restore_font(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    return change_visibility(identifier, False, request)
+    return change_visibility(identifier, False, request, session)
 
 
-def change_visibility(identifier: str, archived: bool, request: Request) -> dict[str, Any]:
+def change_visibility(
+    identifier: str, archived: bool, request: Request, session: Session
+) -> dict[str, Any]:
+    require_asset(request, session, "font_asset", identifier, Action.WRITE)
     try:
         return dict(request.app.state.fonts.set_archived(identifier, archived))
     except ValueError as error:

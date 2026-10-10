@@ -25,7 +25,9 @@ from app.printer.registry import ByteTransport, MediaKind, PrinterCapabilities
 
 VENDOR_ID = 0x04F9
 PRODUCT_ID = 0x20AF
-PRINT_PINS = {4: 24, 6: 32, 9: 50, 12: 70, 18: 112, 24: 128}
+PRINT_PINS = {3.5: 24, 6: 32, 9: 50, 12: 70, 18: 112, 24: 128}
+WIDTH_CODES = {3.5: 4, 6: 6, 9: 9, 12: 12, 18: 18, 24: 24}
+WIDTH_MM = {code: width for width, code in WIDTH_CODES.items()}
 DPI = 180
 
 
@@ -60,7 +62,7 @@ class StatusPacket:
             return "Printer powered off"
         if self.kind == 2:
             return "Printer reported an error"
-        if self.media not in (1, 3) or self.width not in PRINT_PINS:
+        if self.media not in (1, 3) or self.width not in WIDTH_MM:
             return "Install supported TZe tape"
         return None
 
@@ -87,7 +89,7 @@ def encode_raster(label: RenderedLabel) -> bytes:
         )
     expected = (
         round(label.length_mm * label.dpi_x / 25.4),
-        round(label.tape_width_mm * DPI / 25.4),
+        round((label.canvas_width_mm or label.tape_width_mm) * DPI / 25.4),
     )
     minimum, maximum = (60, 14172) if label.dpi_x == 360 else (31, 7086)
     if (
@@ -189,7 +191,7 @@ class BrotherPTP710BT:
             problem = status.problem or (
                 "Printer is busy" if status.phase or status.phase_number else None
             )
-            return PrinterStatus(True, status.width or None, problem)
+            return PrinterStatus(True, WIDTH_MM.get(status.width), problem)
         except Exception as error:
             return PrinterStatus(False, None, str(error))
         finally:
@@ -248,7 +250,7 @@ class BrotherPTP710BT:
                 status.problem
                 or status.phase
                 or status.phase_number
-                or status.width != labels[0].tape_width_mm
+                or WIDTH_MM.get(status.width) != labels[0].tape_width_mm
             ):
                 raise PrintNotStarted(status.problem or "Printer busy or tape width does not match")
             self.transport.write(b"\x00" * 100 + b"\x1b@\x1bia\x01\x1bi!\x00")

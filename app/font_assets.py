@@ -17,12 +17,12 @@ MAX_FONT_BYTES = 5_000_000
 class FontStore(AssetStore):
     suffix = "font"
 
-    def add(self, data: bytes) -> dict[str, Any]:
+    def add(self, data: bytes, *, owner_id: str = LOCAL_OWNER_ID) -> dict[str, Any]:
         if not data or len(data) > MAX_FONT_BYTES:
             raise ValueError("Upload a font of at most 5 MB")
         if data[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
             raise ValueError("Upload a static TTF or OTF font (not a collection or web font)")
-        identifier = hashlib.sha256(data).hexdigest()
+        identifier = hashlib.sha256(owner_id.encode() + b"\0" + data).hexdigest()
         if (self.root / f"{identifier}.json").exists():
             return self.metadata(identifier)
         alias = f"LabelFont_{identifier[:48]}"
@@ -81,7 +81,7 @@ class FontStore(AssetStore):
             raise ValueError("Font could not be read; upload a valid static TTF or OTF") from error
         metadata = {
             "id": identifier,
-            "owner_id": LOCAL_OWNER_ID,
+            "owner_id": owner_id,
             "family": family,
             "style": style,
             "render_family": alias,

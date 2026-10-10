@@ -9,7 +9,7 @@ class Input(BaseModel):
 
 class ProfileInput(Input):
     name: str = Field(min_length=1, max_length=100)
-    width_mm: Literal[4, 6, 9, 12, 18, 24]
+    width_mm: float = Field(gt=0, le=100)
     foreground: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
     background: str = Field(default="#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
     auto_print_threshold: int = Field(default=10, ge=1, le=10000)
@@ -39,14 +39,16 @@ class ActiveTapeInput(Input):
 
 
 class JobInput(Input):
+    destination_id: str | None = None
     template: str = Field(default="text", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     tape_profile: str
     copies: int = Field(default=1, ge=1, le=1000)
-    length_mm: float | None = Field(default=None, ge=10, le=1000)
+    length_mm: float | None = Field(default=None, ge=10, le=300)
     data: dict[str, str] = Field(max_length=20)
 
 
 class ImageJobInput(Input):
+    destination_id: str | None = None
     image_asset: str = Field(pattern=r"^[a-f0-9]{64}$")
     tape_profile: str
     copies: int = Field(default=1, ge=1, le=1000)
@@ -75,15 +77,25 @@ class ReviewInput(Input):
     )
 
 
-class MockPrinterInput(Input):
-    connected: bool
-    tape_width_mm: int | None = Field(default=24, ge=1, le=100)
-    fail_after: int | None = Field(default=None, ge=0, le=1000)
-
-
 class AutomaticPrintingInput(Input):
     held: bool
 
 
 class CopySelectionInput(Input):
     copy_ids: list[str] = Field(min_length=1, max_length=10000)
+
+
+class PrinterInput(Input):
+    name: str = Field(min_length=1, max_length=100)
+    driver: str = Field(default="brother-pt-p710bt", min_length=1, max_length=100)
+    usb_serial: str | None = Field(default=None, min_length=1, max_length=128)
+    resolution: Literal["normal", "high"] = "normal"
+    feed_mm: float = Field(default=2, ge=2, le=127)
+    leader_mm: float = Field(default=24.5, ge=0, le=200)
+    cut_each: bool = True
+    timeout_seconds: float = Field(default=120, ge=5, le=600)
+
+
+class PrinterGroupInput(Input):
+    name: str = Field(min_length=1, max_length=100)
+    printer_ids: list[str] = Field(min_length=1, max_length=32)

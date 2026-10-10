@@ -19,6 +19,71 @@ class Base(DeclarativeBase):
     pass
 
 
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    username: Mapped[str] = mapped_column(String, unique=True)
+    password_hash: Mapped[str]
+    disabled: Mapped[bool] = mapped_column(default=False)
+    role_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[float] = mapped_column(default=time.time)
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    permissions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    protected: Mapped[bool] = mapped_column(default=False, server_default="0")
+
+
+class UserGroup(Base):
+    __tablename__ = "user_groups"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    members: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, server_default="[]")
+
+
+class AccessChangeConfirmation(Base):
+    __tablename__ = "access_change_confirmations"
+    token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    request_hash: Mapped[str]
+    state_hash: Mapped[str]
+    expires_at: Mapped[float]
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    csrf_token: Mapped[str]
+    created_at: Mapped[float] = mapped_column(default=time.time)
+    expires_at: Mapped[float]
+
+
+class RegistrationCode(Base):
+    __tablename__ = "registration_codes"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    token_hash: Mapped[str] = mapped_column(String, unique=True)
+    name: Mapped[str]
+    role_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    group_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[float] = mapped_column(default=time.time)
+    expires_at: Mapped[float]
+    redeemed_at: Mapped[float | None]
+    redeemed_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    revoked: Mapped[bool] = mapped_column(default=False)
+
+
+class AuthSettings(Base):
+    __tablename__ = "auth_settings"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    registration_code_required: Mapped[bool] = mapped_column(default=True)
+    approval_notification_debounce_seconds: Mapped[int] = mapped_column(default=60)
+    approval_notifications_enabled: Mapped[bool] = mapped_column(default=True)
+
+
 class State(str, enum.Enum):
     QUEUED = "queued"
     PRINTING = "printing"
@@ -32,7 +97,7 @@ class TapeProfile(Base):
     __tablename__ = "tape_profiles"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     name: Mapped[str]
-    width_mm: Mapped[int]
+    width_mm: Mapped[float]
     foreground: Mapped[str] = mapped_column(default="#000000")
     background: Mapped[str] = mapped_column(default="#ffffff")
     auto_print_threshold: Mapped[int] = mapped_column(default=10)
@@ -55,9 +120,28 @@ class Cartridge(Base):
     consumption_uncertain: Mapped[bool] = mapped_column(default=False)
 
 
+class PrinterDevice(Base):
+    __tablename__ = "printers"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str]
+    driver: Mapped[str]
+    config: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class PrinterGroup(Base):
+    __tablename__ = "printer_groups"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str]
+    printer_ids: Mapped[list[str]] = mapped_column(JSON)
+    automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")
+
+
 class PrinterState(Base):
     __tablename__ = "printer_state"
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    printer_id: Mapped[str] = mapped_column(
+        String, unique=True, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+    )
     active_cartridge_id: Mapped[str | None] = mapped_column(ForeignKey("cartridges.id"))
     blocker: Mapped[str | None]
     automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")
@@ -65,6 +149,7 @@ class PrinterState(Base):
 
 class LabelTemplate(Base):
     __tablename__ = "label_templates"
+    group_id: Mapped[str | None] = mapped_column(String)
     scope: Mapped[str] = mapped_column(String, default="personal", server_default="personal")
     owner_id: Mapped[str] = mapped_column(
         String, default=LOCAL_OWNER_ID, server_default=LOCAL_OWNER_ID
@@ -86,6 +171,10 @@ class TemplateRevision(Base):
 
 class PrintJob(Base):
     __tablename__ = "print_jobs"
+    attribution: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    authorization_basis: Mapped[str] = mapped_column(
+        String, default="print", server_default="print"
+    )
     destination_id: Mapped[str] = mapped_column(
         String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )
@@ -100,7 +189,7 @@ class PrintJob(Base):
     source_row: Mapped[int | None]
     template_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
     payload: Mapped[dict[str, str]] = mapped_column(JSON)
-    width_mm: Mapped[int]
+    width_mm: Mapped[float]
     length_mm: Mapped[float]
     copies: Mapped[int]
     created_at: Mapped[float] = mapped_column(default=time.time)
@@ -116,6 +205,10 @@ class LabelCopy(Base):
 
 class Batch(Base):
     __tablename__ = "batches"
+    trigger: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    printer_id: Mapped[str] = mapped_column(
+        String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+    )
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     cartridge_id: Mapped[str] = mapped_column(ForeignKey("cartridges.id"))
     state: Mapped[State] = mapped_column(default=State.PRINTING)
@@ -129,6 +222,7 @@ class Batch(Base):
 
 class BatchItem(Base):
     __tablename__ = "batch_items"
+    attribution: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     batch_id: Mapped[str] = mapped_column(ForeignKey("batches.id"), primary_key=True)
     copy_id: Mapped[str] = mapped_column(ForeignKey("label_copies.id"), primary_key=True)
     position: Mapped[int]
@@ -137,6 +231,13 @@ class BatchItem(Base):
 
 class FlushRequest(Base):
     __tablename__ = "flush_requests"
+    started_by: Mapped[dict[str, str] | None] = mapped_column(JSON)
+    printer_id: Mapped[str] = mapped_column(
+        String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+    )
+    destination_id: Mapped[str] = mapped_column(
+        String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+    )
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     cartridge_id: Mapped[str] = mapped_column(ForeignKey("cartridges.id"))
     copy_ids: Mapped[list[str]] = mapped_column(JSON)
@@ -165,6 +266,7 @@ class Notification(Base):
 
 class PrintRun(Base):
     __tablename__ = "print_runs"
+    assigned_printer_id: Mapped[str | None] = mapped_column(String)
     destination_id: Mapped[str] = mapped_column(
         String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )

@@ -126,10 +126,14 @@ class ImageStore(AssetStore):
         for suffix in ("source", "image", "thumbnail.png", "large.png"):
             (self.root / f"{identifier}.{suffix}").unlink(missing_ok=True)
 
-    def add(self, data: bytes, name: str = "Uploaded image") -> dict[str, Any]:
+    def add(
+        self, data: bytes, name: str = "Uploaded image", *, owner_id: str = LOCAL_OWNER_ID
+    ) -> dict[str, Any]:
         if not data or len(data) > MAX_IMAGE_BYTES:
             raise ValueError("Upload an image of at most 5 MB")
-        identifier = hashlib.sha256(data).hexdigest()
+        # Identical uploads by different accounts must not disclose metadata or
+        # acquire control of another account's library entry. Existing IDs stay valid.
+        identifier = hashlib.sha256(owner_id.encode() + b"\0" + data).hexdigest()
         if (self.root / f"{identifier}.json").exists():
             return self.metadata(identifier)
         try:
@@ -163,7 +167,7 @@ class ImageStore(AssetStore):
             raise ValueError("Image could not be decoded") from error
         metadata = {
             "id": identifier,
-            "owner_id": LOCAL_OWNER_ID,
+            "owner_id": owner_id,
             "name": name[:120] or "Uploaded image",
             "kind": kind,
             "width": width,

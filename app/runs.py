@@ -1,24 +1,28 @@
 """CSV authoring and durable frozen runs; no printer-specific protocol knowledge."""
 
 import csv
-import hashlib
 import io
-import json
 import time
 from dataclasses import asdict, replace
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
-from app.api import build_job, db, get, job_record, rendering_spec
-from app.models import LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile
+from app.authorization import rendering_destination, require_record
+from app.destinations import members
+from app.http import db, get, job_record
+from app.job_access import principal_access_reason
+from app.models import LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
+from app.preparation import rendering
+from app.print_audit import delegated_attribution, direct_attribution
 from app.printer.base import RenderedLabel
 from app.render import RenderSpec, render_document, render_job
 from app.schemas import Input, JobInput
+from app.submissions import build_job, input_fingerprint, rendering_spec
 from app.template_schema import TemplateDocument
 
 router = APIRouter(prefix="/api")
@@ -35,6 +39,7 @@ class RunRow(Input):
 
 
 class RunInput(CsvInput):
+    destination_id: str | None = None
     request_key: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=100)
     template: str
@@ -43,6 +48,10 @@ class RunInput(CsvInput):
     length_mm: float | None = Field(default=None, ge=10, le=300)
     mapping: dict[str, str] = Field(max_length=20)
     rows: list[RunRow] = Field(min_length=1, max_length=250)
+
+
+class SubmitRunInput(Input):
+    authorization_override: bool = False
 
 
 def parse_csv(body: CsvInput) -> dict[str, Any]:
@@ -89,6 +98,7 @@ def run_record(run: PrintRun) -> dict[str, Any]:
         "profile_id": run.profile_id,
         "owner_id": run.owner_id,
         "destination_id": run.destination_id,
+        "assigned_printer_id": run.assigned_printer_id,
         "created_at": run.created_at,
         "submitted_at": run.submitted_at,
         "rows": [
@@ -108,9 +118,29 @@ def run_record(run: PrintRun) -> dict[str, Any]:
 def prepare_run(
     body: RunInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    fingerprint = hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True).encode()).hexdigest()
-    existing = session.scalar(select(PrintRun).where(PrintRun.request_key == body.request_key))
+    owner = access_context(request).actor.id
+    # Keep legacy local-owner receipts, namespace new account keys without changing
+    # clients' retry keys or exposing collisions between unrelated users.
+    from app.identity import LOCAL_OWNER_ID
+
+    stored_key = (
+        body.request_key
+        if owner == LOCAL_OWNER_ID
+        else input_fingerprint({"owner": owner, "key": body.request_key})
+    )
+    existing = session.scalar(
+        select(PrintRun).where(PrintRun.request_key == stored_key, PrintRun.owner_id == owner)
+    )
+    body.destination_id = (
+        (body.destination_id or existing.destination_id)
+        if existing
+        else rendering_destination(request, session, body.destination_id)
+    )
+    assert body.destination_id is not None
+    access_context(request).require_destination(body.destination_id)
+    fingerprint = input_fingerprint(body.model_dump())
     if existing:
+        require_record(request, existing)
         if existing.request_hash != fingerprint:
             raise HTTPException(409, "Request key already used for different run inputs")
         return {"valid": True, "run": run_record(existing), "errors": []}
@@ -129,65 +159,89 @@ def prepare_run(
     source = {row["source_row"]: row["values"] for row in parsed["rows"]}
     errors: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
-    for selected in body.rows:
-        if selected.source_row not in source:
-            raise HTTPException(422, "Selected CSV record does not exist")
-        data = {
-            field: source[selected.source_row][parsed["headers"].index(column)]
-            for field, column in body.mapping.items()
-        }
-        try:
-            job = build_job(
-                JobInput(
-                    template=template.id,
-                    tape_profile=profile.id,
-                    data=data,
-                    copies=selected.copies,
-                    length_mm=body.length_mm,
-                ),
-                profile,
-                template,
-                rendering_spec(request, template.document),
+    spec = rendering_spec(request, template.document, body.destination_id)
+    configured_member = next(
+        (
+            identifier
+            for identifier in members(session, body.destination_id)
+            if identifier in request.app.state.fleet.workers
+        ),
+        None,
+    )
+    if configured_member is None:
+        raise HTTPException(409, "No configured printer is available at this destination")
+    backend = request.app.state.registry.backend(configured_member)
+    with rendering(request, session, destination_id=body.destination_id):
+        for selected in body.rows:
+            if selected.source_row not in source:
+                raise HTTPException(422, "Selected CSV record does not exist")
+            data = {
+                field: source[selected.source_row][parsed["headers"].index(column)]
+                for field, column in body.mapping.items()
+            }
+            try:
+                job = build_job(
+                    JobInput(
+                        template=template.id,
+                        destination_id=body.destination_id,
+                        tape_profile=profile.id,
+                        data=data,
+                        copies=selected.copies,
+                        length_mm=body.length_mm,
+                    ),
+                    profile,
+                    template,
+                    spec,
+                    request.app.state.fonts,
+                    request.app.state.images,
+                    context=access_context(request),
+                )
+                entries.append(
+                    {
+                        "source_row": selected.source_row,
+                        "copies": job.copies,
+                        "length_mm": job.length_mm,
+                        "width_mm": job.width_mm,
+                        "template_id": job.template_id,
+                        "template_snapshot": job.template_snapshot,
+                        "payload": job.payload,
+                    }
+                )
+            except HTTPException as error:
+                errors.append({"source_row": selected.source_row, "message": str(error.detail)})
+        if errors:
+            return {"valid": False, "errors": errors, "run": None}
+        labels: list[RenderedLabel] = []
+        for index, entry in enumerate(entries):
+            label = render_job(
+                PrintJob(**entry),
+                LabelCopy(id=str(index)),
                 request.app.state.fonts,
                 request.app.state.images,
-                context=access_context(request),
             )
-            entries.append(
-                {
-                    "source_row": selected.source_row,
-                    "copies": job.copies,
-                    "length_mm": job.length_mm,
-                    "width_mm": job.width_mm,
-                    "template_id": job.template_id,
-                    "template_snapshot": job.template_snapshot,
-                    "payload": job.payload,
-                }
+            labels.extend(
+                replace(label, copy_id=f"{index}:{copy}") for copy in range(entry["copies"])
             )
-        except HTTPException as error:
-            errors.append({"source_row": selected.source_row, "message": str(error.detail)})
-    if errors:
-        return {"valid": False, "errors": errors, "run": None}
-    labels: list[RenderedLabel] = []
-    for index, entry in enumerate(entries):
-        label = render_job(
-            PrintJob(**entry),
-            LabelCopy(id=str(index)),
-            request.app.state.fonts,
-            request.app.state.images,
-        )
-        labels.extend(replace(label, copy_id=f"{index}:{copy}") for copy in range(entry["copies"]))
-    estimate = request.app.state.worker.backend.estimate_consumption(labels)
+
+        estimate = backend.estimate_consumption(labels)
+    existing = session.scalar(
+        select(PrintRun).where(PrintRun.request_key == stored_key, PrintRun.owner_id == owner)
+    )
+    if existing:
+        if existing.request_hash != fingerprint:
+            raise HTTPException(409, "Request key already used for different run inputs")
+        return {"valid": True, "run": run_record(existing), "errors": []}
     run = PrintRun(
         owner_id=access_context(request).actor.id,
-        destination_id=access_context(request).destination_id,
+        destination_id=body.destination_id,
         name=body.name,
-        request_key=body.request_key,
+        request_key=stored_key,
         request_hash=fingerprint,
         profile_id=profile.id,
         manifest={
             "rows": entries,
             "estimated_mm": estimate,
-            "print_plan": asdict(request.app.state.worker.backend.plan_batch(labels)),
+            "print_plan": asdict(backend.plan_batch(labels)),
             "template_name": template.name,
             "template_revision": template.revision,
             "foreground": profile.foreground,
@@ -200,10 +254,31 @@ def prepare_run(
 
 
 @router.get("/runs")
-def list_runs(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
+def list_runs(
+    request: Request, session: Session = Depends(db, scope="function")
+) -> list[dict[str, Any]]:
+    context = access_context(request)
+    query = select(PrintRun).order_by(PrintRun.created_at.desc())
+    if not context.actor.is_admin:
+        from app.authorization import visible_destinations
+
+        query = query.where(
+            or_(
+                PrintRun.owner_id == context.actor.id,
+                and_(
+                    PrintRun.submitted_at.is_not(None),
+                    PrintRun.destination_id.in_(
+                        visible_destinations(request, session, "moderator")
+                    ),
+                ),
+            )
+        )
     return [
         run_record(run)
-        for run in session.scalars(select(PrintRun).order_by(PrintRun.created_at.desc()).limit(100))
+        for run in session.scalars(query.limit(100))
+        if context.policy.allows(
+            context.actor, Action.READ, Resource("run", run.id, run.owner_id, run.destination_id)
+        )
     ]
 
 
@@ -245,17 +320,60 @@ def preview_run_row(
 
 @router.post("/runs/{identifier}/submit")
 def submit_run(
-    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+    identifier: str,
+    request: Request,
+    body: SubmitRunInput | None = None,
+    session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     run = get(session, PrintRun, identifier)
+    context = access_context(request)
+    override_requested = body is not None and body.authorization_override
+    if override_requested and not context.actor.is_admin:
+        raise HTTPException(403, "Only administrators may override the author's print access")
+    context.require_destination(run.destination_id, "print")
+    if run.owner_id != context.actor.id:
+        context.require_destination(run.destination_id, "moderator")
     access_context(request).require(
         Action.SUBMIT, Resource("run", run.id, run.owner_id, run.destination_id)
     )
+    from app.request_models import PrintRequest
+
+    if session.scalar(select(PrintRequest.id).where(PrintRequest.run_id == run.id)):
+        raise HTTPException(409, "This run belongs to an approval request")
+    members(session, run.destination_id)
     if run.submitted_at is None:
         profile = get(session, TapeProfile, run.profile_id)
         if any(row["width_mm"] != profile.width_mm for row in run.manifest["rows"]):
             raise HTTPException(409, "Tape width changed; prepare a new run")
+        author = session.get(User, run.owner_id)
+        delegated = run.owner_id != context.actor.id
+        discrepancy = (
+            principal_access_reason(
+                session, run.owner_id, run.destination_id, "print", principal="original author"
+            )
+            if delegated
+            else None
+        )
+        if discrepancy and not override_requested:
+            name = author.username if author else run.owner_id
+            raise HTTPException(
+                409,
+                {
+                    "code": "owner_access_discrepancy",
+                    "message": (
+                        f"{name}: {discrepancy}. Confirm an administrator override to print "
+                        "using your authorization while retaining the original author's ownership."
+                    ),
+                    "override_allowed": context.actor.is_admin,
+                },
+            )
+        override = discrepancy is not None and override_requested
         stamp = time.time()
+        attribution = (
+            delegated_attribution(author, context.actor, stamp, override=override)
+            if delegated
+            else direct_attribution(context.actor, stamp)
+        )
         for position, row in enumerate(run.manifest["rows"]):
             job = PrintJob(
                 **row,
@@ -265,6 +383,8 @@ def submit_run(
                 run_id=run.id,
                 run_position=position,
                 created_at=stamp,
+                authorization_basis="override" if override else "print",
+                attribution=attribution,
             )
             session.add(job)
             session.flush()
@@ -289,5 +409,13 @@ def delete_draft(
     run = get(session, PrintRun, identifier)
     if run.submitted_at is not None:
         raise HTTPException(409, "Submitted runs cannot be deleted; cancel queued copies instead")
+    from app.request_models import PrintRequest
+
+    if session.scalar(
+        select(PrintRequest.id).where(
+            PrintRequest.run_id == run.id, PrintRequest.status == "pending"
+        )
+    ):
+        raise HTTPException(409, "This draft has a pending approval request")
     session.delete(run)
     return {"deleted": True}

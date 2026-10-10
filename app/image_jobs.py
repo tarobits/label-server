@@ -9,12 +9,14 @@ from app.template_schema import TemplateDocument
 
 
 def image_document(
-    body: ImageJobInput, tape_width: int, spec: RenderSpec, images: ImageStore
+    body: ImageJobInput, tape_width: float, spec: RenderSpec, images: ImageStore
 ) -> TemplateDocument:
     if spec.media_kind != "continuous":
         raise ValueError("Image submissions currently require continuous media")
     asset = images.metadata(body.image_asset)
-    height = (spec.printable_widths_mm or {}).get(str(tape_width), tape_width - 2 * spec.margin_mm)
+    height = (spec.printable_widths_mm or {}).get(
+        f"{tape_width:g}", tape_width - 2 * spec.margin_mm
+    )
     ratio = asset["width"] / asset["height"]
     length = body.length_mm
     if length is None:

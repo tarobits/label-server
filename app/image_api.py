@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.access import Action, Resource, access_context
-from app.api import db
+from app.asset_access import library_asset_visible, require_asset
+from app.http import db
 from app.image_assets import MAX_IMAGE_BYTES
 from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision
+from app.request_models import PrintRequest
 from app.schemas import Input
 
 router = APIRouter(prefix="/api/image-assets")
@@ -30,13 +32,10 @@ class ImageNameInput(Input):
         return value.strip()
 
 
-def image_metadata(identifier: str, request: Request, action: Action) -> dict[str, Any]:
-    try:
-        asset = dict(request.app.state.images.metadata(identifier))
-    except ValueError as error:
-        raise HTTPException(404, str(error)) from error
-    access_context(request).require(action, Resource("image_asset", identifier, asset["owner_id"]))
-    return asset
+def image_metadata(
+    identifier: str, request: Request, action: Action, session: Session
+) -> dict[str, Any]:
+    return require_asset(request, session, "image_asset", identifier, action)
 
 
 @router.get("/{identifier}/preview")
@@ -46,11 +45,11 @@ def preview_image(
     size: Literal["thumbnail", "large"] = "thumbnail",
     session: Session = Depends(db, scope="function"),
 ) -> Response:
-    image_metadata(identifier, request, Action.READ)
+    image_metadata(identifier, request, Action.READ, session)
     return Response(
         request.app.state.images.preview(identifier, size),
         media_type="image/png",
-        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 
@@ -61,7 +60,7 @@ def rename_image(
     request: Request,
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
-    image_metadata(identifier, request, Action.WRITE)
+    image_metadata(identifier, request, Action.WRITE, session)
     return dict(request.app.state.images.rename(identifier, body.name))
 
 
@@ -79,22 +78,21 @@ def references_image(value: Any, identifier: str) -> bool:
 def delete_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
-    image_metadata(identifier, request, Action.WRITE)
-    # The db dependency serializes this check and deletion with submission, saves and rendering.
-    columns: tuple[InstrumentedAttribute[dict[str, Any]], ...] = (
+    image_metadata(identifier, request, Action.WRITE, session)
+    # The db dependency serializes this check and deletion with submission and saves; preparations recheck asset existence before commit.
+    columns: tuple[InstrumentedAttribute[Any], ...] = (
         LabelTemplate.document,
         TemplateRevision.document,
         PrintJob.template_snapshot,
         PrintRun.manifest,
+        PrintRequest.labels,
     )
     for column in columns:
-        documents: Iterable[dict[str, Any]] = session.scalars(
-            select(column).execution_options(yield_per=100)
-        )
+        documents: Iterable[Any] = session.scalars(select(column).execution_options(yield_per=100))
         if any(references_image(value, identifier) for value in documents):
             raise HTTPException(
                 409,
-                "Image is used by a saved template, template revision, job or CSV run. "
+                "Image is used by a saved template, template revision, job, CSV run or print request. "
                 "Hide it instead to preserve existing labels.",
             )
     request.app.state.images.delete(identifier)
@@ -105,7 +103,11 @@ def delete_image(
 def list_images(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
-    return list(request.app.state.images.list())
+    return [
+        asset
+        for asset in request.app.state.images.list()
+        if library_asset_visible(request, "image_asset", asset)
+    ]
 
 
 @router.post("", status_code=201)
@@ -120,11 +122,15 @@ async def upload_image(request: Request) -> dict[str, Any]:
     data = b"".join(chunks)
 
     def store() -> dict[str, Any]:
-        with request.app.state.worker.lock:
+        with request.app.state.fleet.lock:
+            context = access_context(request)
+            context.require(Action.WRITE, Resource("image_asset", owner_id=context.actor.id))
             try:
                 return dict(
                     request.app.state.images.add(
-                        data, request.query_params.get("name", "Uploaded image")
+                        data,
+                        request.query_params.get("name", "Uploaded image"),
+                        owner_id=context.actor.id,
                     )
                 )
             except ValueError as error:
@@ -137,17 +143,20 @@ async def upload_image(request: Request) -> dict[str, Any]:
 def hide_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    return change_visibility(identifier, True, request)
+    return change_visibility(identifier, True, request, session)
 
 
 @router.post("/{identifier}/restore")
 def restore_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    return change_visibility(identifier, False, request)
+    return change_visibility(identifier, False, request, session)
 
 
-def change_visibility(identifier: str, archived: bool, request: Request) -> dict[str, Any]:
+def change_visibility(
+    identifier: str, archived: bool, request: Request, session: Session
+) -> dict[str, Any]:
+    image_metadata(identifier, request, Action.WRITE, session)
     try:
         return dict(request.app.state.images.set_archived(identifier, archived))
     except ValueError as error:

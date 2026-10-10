@@ -32,7 +32,9 @@ def seed_templates(session: Session) -> None:
             ],
         }
     ).model_dump()
-    session.add(LabelTemplate(id="text", name="Simple text", revision=2, document=document))
+    session.add(
+        LabelTemplate(id="text", name="Simple text", scope="global", revision=2, document=document)
+    )
     session.flush()
     session.add(
         TemplateRevision(template_id="text", name="Simple text", revision=2, document=document)
@@ -44,6 +46,7 @@ def template_record(template: LabelTemplate) -> dict[str, Any]:
         "id": template.id,
         "owner_id": template.owner_id,
         "scope": template.scope,
+        "group_id": template.group_id,
         "name": template.name,
         "revision": template.revision,
         "document": template.document,
