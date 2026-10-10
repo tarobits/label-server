@@ -1,4 +1,4 @@
-"""Device/driver/transport separation for future multi-printer orchestration.
+"""Printer definitions, capabilities, connections, and transport contracts.
 
 A Wi-Fi printer is a network endpoint, not a different label format. Registration
 alone must never open a connection or imply that a device has a working driver.

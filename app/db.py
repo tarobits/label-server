@@ -15,7 +15,6 @@ def make_engine(url: str) -> Engine:
 
     @event.listens_for(engine, "connect")
     def configure_sqlite(connection: object, _: object) -> None:
-        # SQLAlchemy's DBAPI connection type is driver-specific.
         cursor = connection.cursor()  # type: ignore[attr-defined]
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")

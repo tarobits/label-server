@@ -196,7 +196,6 @@ class NtfySender:
         headers = {}
         if self.settings.ntfy_token.get_secret_value():
             headers["Authorization"] = f"Bearer {self.settings.ntfy_token.get_secret_value()}"
-        # JSON publishing safely supports Unicode titles and profile names.
         response = httpx.post(
             self.settings.ntfy_url.rstrip("/"),
             headers=headers,

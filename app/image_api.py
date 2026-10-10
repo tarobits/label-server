@@ -79,7 +79,7 @@ def delete_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
     image_metadata(identifier, request, Action.WRITE, session)
-    # The db dependency serializes this check and deletion with submission and saves; preparations recheck asset existence before commit.
+    # Hold the mutation lock across reference checks and deletion.
     columns: tuple[InstrumentedAttribute[Any], ...] = (
         LabelTemplate.document,
         TemplateRevision.document,

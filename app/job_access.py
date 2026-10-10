@@ -74,9 +74,7 @@ def reconcile_access_holds(session: Session, now: float | None = None) -> int:
         existing = session.get(JobAccessHold, job.id)
         if existing is not None:
             if existing.status == "cancelled":
-                # A physical review can later requeue a previously uncertain copy.
-                # It still needs an administrator decision, and must not disappear
-                # behind an old cancellation that only affected queued copies.
+                # Review can requeue uncertain copies after an earlier access-hold cancellation.
                 existing.status = "held"
                 existing.reason = "Copies were requeued after an access-hold cancellation"
                 existing.held_at = stamp
@@ -102,9 +100,7 @@ def reconcile_access_holds(session: Session, now: float | None = None) -> int:
             )
         )
         if queued and all(not job_eligible(session, job) for job in queued):
-            # A revoked manual intent must not block unrelated automatic jobs or
-            # resume silently after release. Released copies return to normal
-            # queue processing and may receive a new explicit manual selection.
+            # Release the revoked flush so it cannot block other work or resume after release.
             pending.completed = True
     session.flush()
     return created

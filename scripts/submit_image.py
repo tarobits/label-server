@@ -97,7 +97,6 @@ def main(argv=None):
     if not data or len(data) > MAX_IMAGE_BYTES:
         parser.error("Image must be nonempty and at most 5 MB")
     key = homebox_key(args.file, data) if args.homebox else args.key
-    # Uploads are content-addressed, so retrying this first step creates no duplicates.
     asset = request(
         args.server,
         "/image-assets?" + urllib.parse.urlencode({"name": args.file.name}),

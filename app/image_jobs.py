@@ -26,7 +26,6 @@ def image_document(
     width = length - 2 * spec.margin_mm
     if min(width, height) <= 0:
         raise ValueError("No printable area available for this image")
-    # Fit without cropping, stretching, or changing orientation. Center on both axes.
     image_width = min(width, height * ratio)
     image_height = image_width / ratio
     return TemplateDocument.model_validate(

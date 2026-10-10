@@ -164,7 +164,6 @@ class QueueWorker:
                 return
             batch_id = prepared.id
             labels: tuple[RenderedLabel, ...] = ()
-            # The PRINTING intent is committed BEFORE the first possible hardware write.
             try:
                 # Saved jobs protect their assets, and PRINTING prevents cancellation or
                 # configuration changes while this immutable snapshot is rendered.

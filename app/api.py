@@ -556,7 +556,6 @@ def create_image_job(
         return existing
     profile, document = image_job_document(body, request, session)
     with rendering(request, session, body.model_dump(), destination_id=body.destination_id):
-        # A frozen document needs no editable library template (nor a template per upload).
         template = LabelTemplate(
             id="image",
             name="Image label",

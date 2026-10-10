@@ -1,4 +1,4 @@
-"""Stable references for the current local owner and single active destination."""
+"""Legacy owner and default-printer IDs retained for migration compatibility."""
 
 LOCAL_OWNER_ID = "local-owner"
 DEFAULT_PRINTER_ID = "main"

@@ -41,7 +41,6 @@ def validate_device(body: PrinterInput, session: Session, identifier: str | None
             )
         )
     )
-    # A single USB printer can use discovery. Multiple printers need explicit identities.
     if others and (not body.usb_serial or any(not d.config.get("usb_serial") for d in others)):
         raise HTTPException(
             422,
