@@ -6,32 +6,44 @@ import time
 import urllib.error
 import urllib.request
 
+try:
+    from scripts.api_session import open_authenticated
+except ModuleNotFoundError:
+    from api_session import open_authenticated
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://localhost:8000")
     parser.add_argument("--profile", required=True)
+    parser.add_argument("--destination", help="Printer or printer-group ID")
     parser.add_argument("--template", default="text")
     parser.add_argument("--key", required=True, help="Stable identifier of the originating event")
     parser.add_argument("--data", required=True, help="JSON object of template field values")
     parser.add_argument("--copies", type=int, default=1)
+    parser.add_argument(
+        "--request-approval", action="store_true", help="Submit for administrator approval"
+    )
     args = parser.parse_args()
     body = json.dumps(
         {
             "tape_profile": args.profile,
+            "destination_id": args.destination,
             "template": args.template,
             "copies": args.copies,
             "data": json.loads(args.data),
         }
     ).encode()
     request = urllib.request.Request(
-        args.server.rstrip("/") + "/api/jobs",
-        data=body,
+        args.server.rstrip("/") + ("/api/requests" if args.request_approval else "/api/jobs"),
+        data=json.dumps({"kind": "job", "input": json.loads(body)}).encode()
+        if args.request_approval
+        else body,
         headers={"Content-Type": "application/json", "Idempotency-Key": args.key},
     )
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with open_authenticated(request, timeout=30) as response:
                 print(response.read().decode())
                 return
         except urllib.error.HTTPError as error:

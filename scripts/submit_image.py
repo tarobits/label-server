@@ -15,6 +15,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+try:
+    from scripts.api_session import open_authenticated
+except ModuleNotFoundError:
+    from api_session import open_authenticated
+
 MAX_IMAGE_BYTES = 5_000_000
 
 
@@ -29,7 +34,7 @@ def request(server, path, data, *, key=None, raw=False):
     )
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(message, timeout=30) as response:
+            with open_authenticated(message, timeout=30) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             if error.code < 500 or attempt == 2:
@@ -58,12 +63,16 @@ def main(argv=None):
     parser.add_argument("file", type=Path)
     parser.add_argument("--server", default="http://localhost:8000")
     parser.add_argument("--profile", required=True)
+    parser.add_argument("--destination", help="Printer or printer-group ID")
     keys = parser.add_mutually_exclusive_group()
     keys.add_argument("--key", help="Stable originating event ID; use a new key for a reprint")
     keys.add_argument(
         "--homebox", action="store_true", help="Derive key from HomeBox's temporary file"
     )
     parser.add_argument("--copies", type=int, default=1)
+    parser.add_argument(
+        "--request-approval", action="store_true", help="Submit for administrator approval"
+    )
     parser.add_argument("--length", type=float, help="Fit within this length in mm (10–300)")
     parser.add_argument("--resolution", choices=("printer", "normal", "high"), default="printer")
     parser.add_argument("--mode", choices=("threshold", "dither"), default="threshold")
@@ -98,6 +107,7 @@ def main(argv=None):
     body = {
         "image_asset": asset["id"],
         "tape_profile": args.profile,
+        "destination_id": args.destination,
         "copies": args.copies,
         "length_mm": args.length,
         "print_resolution": args.resolution,
@@ -121,7 +131,9 @@ def main(argv=None):
         )
         print(f"Preview saved to {args.preview}; no job queued")
     else:
-        print(json.dumps(request(args.server, "/image-jobs", body, key=key)))
+        path = "/requests" if args.request_approval else "/image-jobs"
+        payload = {"kind": "image", "input": body} if args.request_approval else body
+        print(json.dumps(request(args.server, path, payload, key=key)))
 
 
 if __name__ == "__main__":

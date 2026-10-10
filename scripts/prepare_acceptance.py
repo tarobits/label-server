@@ -5,10 +5,15 @@ import json
 import urllib.request
 import uuid
 
+try:
+    from scripts.api_session import open_authenticated
+except ModuleNotFoundError:
+    from api_session import open_authenticated
+
 
 def request(server, path, body, raw=False):
     data = body if raw else json.dumps(body).encode()
-    with urllib.request.urlopen(
+    with open_authenticated(
         urllib.request.Request(
             server.rstrip("/") + "/api" + path,
             data=data,
@@ -23,6 +28,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://localhost:8000")
     parser.add_argument("--profile", required=True, help="A 24 mm tape profile ID")
+    parser.add_argument(
+        "--destination", help="Printer or group ID (required when several printers exist)"
+    )
     args = parser.parse_args()
     image = request(
         args.server,
@@ -79,6 +87,7 @@ def main():
         args.server,
         "/templates",
         {
+            "destination_id": args.destination,
             "name": "Physical quality acceptance",
             "document": {
                 "width_mm": 24,
@@ -92,6 +101,7 @@ def main():
         args.server,
         "/runs/prepare",
         {
+            "destination_id": args.destination,
             "request_key": str(uuid.uuid4()),
             "name": "Physical verification: three ordered labels",
             "template": template["id"],
