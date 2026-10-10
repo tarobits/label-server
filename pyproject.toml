@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "label-printer-server"
 version = "0.1.0"
-description = "Persistent tape-aware label queue with a mock printer"
+description = "Persistent tape-aware label queue with Brother USB printers and groups"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.121,<1", "uvicorn[standard]>=0.34,<1",
