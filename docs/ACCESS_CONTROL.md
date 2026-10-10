@@ -1,8 +1,7 @@
-# Access control: agreed design
+# Access control
 
-Implemented against the decisions confirmed on 2026-10-04. This specification
-supersedes the earlier permission matrix. Integration tests, browser tests and
-independent reviews cover the agreed model; verification results are below.
+Roles control application and printer access. Template ownership and group
+membership control template sharing. These rules are implemented.
 
 ## Roles and user groups
 
@@ -24,12 +23,9 @@ distribution groups and user groups. Its users can view every template, includin
 templates in groups they have not joined. Only administrators may publish global
 templates.
 
-Administrator authorization must not depend on enumerated resource grants or
-group membership. Newly created resources are automatically covered, and an
-administrator must never receive a permission-denied result caused by a missing
-grant. Ordinary validation, missing-resource errors and physical printer state
-still apply. The role is protected from deletion or loss of its universal access;
-at least one active administrator must remain.
+The role cannot be deleted or stripped of its universal access. At least one
+enabled administrator must remain. Validation and physical printer state still
+apply to administrator actions.
 
 ## Template ownership and group membership
 
@@ -101,9 +97,9 @@ already being printed remains subject to the existing physical-outcome and
 interrupted-batch review rules.
 
 Administrator request notifications use the configured ntfy topic, restricted to
-administrators. Summaries use a configurable, fixed debounce window beginning
-with the first request, survive restarts, and cannot be postponed indefinitely by
-continuous arrivals. Notification retries never approve or print jobs.
+administrators. Summaries collect requests during a configurable, fixed interval starting
+with the first request. The interval survives restarts; later arrivals do not
+extend it. Notification retries never approve or print jobs.
 
 ## Printing attribution and delegated drafts
 
@@ -128,43 +124,13 @@ Overview lists all accessible physical printers and distribution groups, keeping
 automatic holds local to their cards. Groups with unavailable members remain
 visible with their queues; new work needs at least one configured member.
 
-## Implementation boundaries and acceptance
+## Implementation boundaries
 
-Keep permission decisions in the application/service layer. Printer protocol
-details remain in adapters, with no printer-specific concerns in queue/domain
-logic. Authenticate and authorize every API operation, filter resource lists, and
+Keep permission decisions in application services and printer protocols in
+adapters. Authenticate and authorize API operations, filter resource lists, and
 recheck authorization after rendering outside the mutation lock.
 
-Completed implementation stages:
-
-1. Role permission objects, direct user-role assignments, protected Administrator,
-   and per-member template-group settings; remove role inheritance from groups.
-2. Scope-aware authorization for templates, printers and distribution groups,
-   including owner editing/deletion and cancellation rights.
-3. Administrator previews and confirmation of effective access changes.
-4. Scoped moderation, physical-printer batch review, durable queued-job holds and
-   administrator release/cancel decisions with dashboard notices.
-5. UI, migrations and integration documentation, followed by adversarial tests,
-   browser tests and independent code review.
-
-Acceptance must cover all five printer levels; role combinations; group access
-without direct printer access; adding printers to groups; physical-only batch
-review; independent template membership settings; administrator access to future
-resources and non-member templates; confirmation of access changes; revocation
-holds; ownership rights after revocation; and retry-safe approvals/notifications.
-
-Verification on 2026-10-04: 269 backend tests and 28 Chromium browser tests passed,
-including migration upgrades/round trips, permission bypass attempts, scoped CSV
-preparation, interrupted-batch review and access-change holds. Ruff, mypy, frontend
-formatting and the production frontend build passed. Both Compose configurations
-validated. Independent backend and UI reviews were completed and their findings
-addressed; desktop and mobile access-control screens were visually inspected.
-Verification used isolated databases and test printer adapters. The live database
-and physical printers were not changed by this integration.
-
-Follow-up verification on 2026-10-09: 283 backend tests and 34 Chromium browser
-tests passed, including explicit delegated overrides, authorizer revocation,
-per-attempt attribution and unavailable-group handling. Static checks, frontend
-build/formatting and Compose validation passed. Independent review found no
-remaining blockers. Tests ran against the current checkout with isolated data and
-printer adapters.
+Automated checks cover role combinations, scoped access, template ownership,
+physical-printer review, confirmed access changes, revoked-access holds,
+delegated drafts, and retry-safe approvals. See [README.md](../README.md#development)
+for check commands.

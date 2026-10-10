@@ -3,10 +3,12 @@
 ## Debian service in an LXC or host
 
 Install Python 3.12+, Node 22.12+ for building the UI, `libusb-1.0-0` and `usbutils`.
-Clone/copy the project to `/opt/labels`, create a `labels` service user, and create
-a `labelprinter` group. Install dependencies, build the frontend and migrate:
+Clone or copy the project to `/opt/labels`, create a `labels` service user, and create
+a `labelprinter` group. From the project directory, install dependencies, configure the server,
+build the frontend, and migrate:
 
 ```sh
+cp .env.example .env
 python3 -m venv .venv
 .venv/bin/pip install -c requirements.lock .
 npm ci --prefix frontend
@@ -14,7 +16,7 @@ npm run build --prefix frontend
 .venv/bin/alembic upgrade head
 ```
 
-Copy `.env.example` to `.env` for server and notification configuration. Add the
+Edit `.env` for server and notification configuration. Add the
 printer under **Printers & groups** in the web UI. USB serial is optional for one
 Brother device and required on every device when several are used. Locate USB
 devices with `lsusb -d 04f9:20af`; inspect `lsusb -v` for `iSerial`, which may differ
@@ -69,8 +71,8 @@ The image runs as UID 10001 and includes libusb. With Docker inside LXC, both
 layers need that device mapped and accessible. Recreate the service after USB
 node renumbering. The image applies migrations before starting one Uvicorn worker.
 Stop the old container before an upgrade; do not run a second service on the same
-database/device. No Docker build was executed in the development session because
-the Docker daemon was unavailable; Compose configuration was validated.
+database and printer. Compose configuration has been checked; image build and
+runtime remain unverified.
 
 ## Settings and exposure
 
@@ -81,8 +83,7 @@ the same form. Finish queued work and saved drafts before changing these setting
 
 Choose **180 × 360 dpi** for higher resolution along the tape, or **180 × 180 dpi**
 for normal output. Templates can override the device default. Saved jobs and CSV
-drafts retain their original rendering settings. The first high-resolution physical
-comparison was reported successful by the user. Configuration changes apply
+drafts retain their original rendering settings. Configuration changes apply
 without a server restart.
 
 The initial administrator uses the one-time `auth-setup-token` file beside the
@@ -104,12 +105,6 @@ Compose, `journalctl -u labels.service` for systemd, or the native server's term
 Restarts reuse and log the pending token; after the first administrator is created,
 startup no longer logs a setup token.
 
-For an existing installation, stop the service and run
-`.venv/bin/alembic upgrade head` before restarting with the rebuilt frontend.
-Migration `e84a91c607d2` adds saved print attribution. Existing history remains
-available; requester, approver or batch-starter details without reliable historical
-evidence are shown as Not recorded.
-
 Use HTTPS through your reverse proxy for access beyond localhost. Forward the
 original scheme/host only from a trusted proxy; the browser origin must match
 the public server origin. Session cookies become Secure on HTTPS. Configure
@@ -123,7 +118,7 @@ credentials stay in the environment; failed notifications use the durable outbox
 The anonymous `/api/health` healthcheck proves the server responds, not that the
 printer is connected. Workspace and printer APIs require sign-in.
 
-## Backup, restore, upgrades
+## Backup, restore, and upgrades
 
 Stop the service and copy the entire data directory/volume, including database,
 WAL/SHM files if present, and `assets/fonts` and `assets/images`. Preserve `.env`
@@ -136,7 +131,6 @@ Back up before upgrading, stop, install dependencies, migrate and rebuild the UI
 then restart. Treat printing interrupted by any shutdown as requiring review.
 Never delete a review record or reissue a job with a new retry key merely to clear
 an uncertain physical result. Reconcile copies and tape consumption in the UI.
-
 
 ## Multiple USB printers
 
@@ -182,7 +176,6 @@ migration with the service stopped, then rebuild the frontend. Invalid imported
 printer settings remain visible on the printer card and can be repaired using
 **Configure**.
 
-Physical printer testing of the current implementation was validated by the user
-on 2026-10-04 after the review fixes. See the [hardware verification record](HARDWARE_VERIFICATION.md).
-The confirmation did not specify a Docker/LXC environment or provide new
-consumption calibration measurements.
+For reported hardware results and calibration checks, see
+[hardware verification](HARDWARE_VERIFICATION.md). Docker/LXC runtime and measured
+consumption calibration remain unverified.

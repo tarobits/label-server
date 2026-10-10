@@ -2,7 +2,7 @@
 
 Operational multi-printer support includes independent Brother PT-P710BT
 USB printers and explicit printer-group destinations. Other printer models and
-Wi-Fi/Ethernet transport implementations remain architecture-only. Accounts,
+Wi-Fi/Ethernet drivers are not implemented. Accounts,
 directly assigned roles, scoped moderation and revocation holds are integrated at
 application boundaries; see [the access-control specification](ACCESS_CONTROL.md).
 
@@ -15,8 +15,7 @@ rendered-label printing and consumption planning. USB commands and Brother statu
 packets stay inside adapters; queue and routing code contains no protocol bytes.
 
 `NetworkConnection` still describes Wi-Fi/Ethernet endpoints and explicit
-protocols for future drivers. A network descriptor does not imply a working
-transport, discovery, or Wi-Fi provisioning implementation.
+protocols for future drivers. Network transport, discovery, and Wi-Fi provisioning are not implemented.
 
 ## Persistent destinations
 
@@ -113,17 +112,11 @@ retired destinations do not block unrelated mutations or reroute historical work
 - `POST /api/destinations/{id}/print`: print matching work, optionally selecting
   `copy_ids` belonging to that destination.
 - Existing status, cartridge assignment, automatic holds and
-  physical flush endpoints accept `printer_id`; omission is valid only with one configured device.
+  physical flush endpoints accept `printer_id`; omit it only with one configured device.
 - Label, image and CSV submissions and previews accept `destination_id`.
   Queued previews and CSV manifests retain their original rendering settings.
 - Existing idempotency receipts for the default destination remain valid.
   Reusing a key with another destination is a conflict, not a second print.
-
-Migration and tests cover existing single-printer data, group matching, reservation
-races, simultaneous printing, independent review, CSV pinning, holds, missing-tape
-reminders and restart persistence. The user validated physical printer testing
-on 2026-10-04 after the review fixes. The confirmation did not specify simultaneous
-two-device USB coverage; mock tests provide separate software regression coverage.
 
 Physical widths are floating-point millimetres throughout the domain and generic
 raster contract. Wire width codes belong only to printer adapters. A frozen
@@ -136,3 +129,10 @@ that at least one member has a configured worker; it does not imply that a print
 is connected or has the requested tape installed. Capabilities, rendering, CSV
 preparation and approval use the first configured member. If none exists, group
 capabilities are null and new print intent returns a clear conflict.
+
+## Verification
+
+Automated tests cover migration, group matching, concurrent reservations, independent
+printing and review, CSV pinning, holds, reminders, and restart persistence.
+Physical PT-P710BT testing was reported successful on 2026-10-04; simultaneous
+two-device USB testing remains open. See [hardware verification](HARDWARE_VERIFICATION.md).

@@ -1,8 +1,10 @@
 # REST integrations
 
-Use the same API for Home Assistant, Shortcuts, scripts and inventory systems.
-Create an account and assign it a role containing permission objects for the
-printers or distribution groups it needs. Print, Moderator or Full permits direct
+Use the API from Home Assistant, Shortcuts, scripts, or inventory systems.
+
+## Authentication and access
+
+Create an account with a role granting access to the required printers or groups. Print, Moderator or Full permits direct
 queue submission; Request only requires approval. A distribution-group permission
 does not grant direct access to its printers. Image upload also requires the
 `assets.write` application permission in a directly assigned role.
@@ -26,8 +28,14 @@ administrator confirmation before retrying `POST /api/runs/{id}/submit` with
 automatically retry this response: the override uses the administrator's print
 authorization and records it in the immutable print-attempt attribution.
 
+## Template labels
+
 Find profile and template IDs via `GET /api/tape-profiles` and `GET /api/templates`.
 Preview first with `POST /api/preview` using a template ID and field data.
+Pass `destination_id` when several printers are configured. Both bundled clients
+accept `--destination PRINTER_OR_GROUP_ID`; omission selects the sole configured
+printer. Retries with an omitted destination retain the original destination,
+even if more printers are later added. Changing it with the same key returns 409.
 
 ```sh
 .venv/bin/python scripts/submit_label.py \
@@ -35,15 +43,19 @@ Preview first with `POST /api/preview` using a template ID and field data.
   --key inventory:event-123 --data '{"text":"Storage / Box 12"}'
 ```
 
-This submits to the durable queue; thresholds/hold determine printing. The client
-retries transient transport/server failures with the same key. `Idempotency-Key`
-on `POST /api/jobs` is scoped to the server-resolved actor, persists across restarts,
+This adds a job to the queue. Tape thresholds and automatic-print holds determine
+when it prints.
+
+### Retries
+
+The client retries transient transport/server failures with the same key. `Idempotency-Key`
+on `POST /api/jobs` is stored per authenticated user, persists across restarts,
 and returns the original job even if its template was later changed or archived.
 Changed input with the same key returns 409. Use one key per originating event;
 an intentional reprint requires a new key. Without a key each call creates a job.
 Do not expire keys while an integration may still retry. Label removal retains
 job history and therefore its receipt. CSV preparation uses its existing
-`request_key`; submission of a frozen run is independently idempotent.
+`request_key`; submitting the same saved run again cannot duplicate its jobs.
 
 In Home Assistant, use an HTTP POST/rest_command to `/api/jobs`, JSON content type,
 the authenticated cookie and CSRF token, an `Idempotency-Key` header derived from the originating event, and body fields
@@ -56,9 +68,10 @@ label if you want threshold-based batching and reduced feed waste.
 ## Image labels
 
 The standalone `scripts/submit_image.py` client uploads artwork and submits a
-frozen image label without creating a template in the library. It needs only
-Python 3, access to the image file and connectivity to this server. PNG, JPEG,
-WebP, BMP, still GIF and the server's constrained SVG subset are accepted, up to
+saved image label without creating a library template. It needs Python 3,
+`api_session.py` alongside it, API credentials, access to the image file, and
+connectivity to this server. PNG, JPEG, WebP, BMP, still GIF, and the server's
+constrained SVG subset are accepted, up to
 5 MB. Uploaded assets remain in the image library and must be included in backups.
 
 Preview first; this uploads the asset but creates no queue items:
@@ -108,8 +121,9 @@ rendered PNG filename. The [HomeBox print implementation](https://github.com/sys
 creates a fresh temporary filename per invocation and removes it after the command
 returns. It also supplies label attributes, but no durable submission-event ID.
 
-Place `submit_image.py` in HomeBox's execution environment, install Python 3 there,
-and configure this command (replace the server URL and profile ID):
+Place `submit_image.py` and `api_session.py` in HomeBox's execution environment,
+install Python 3, and set `LABEL_API_USERNAME` and `LABEL_API_PASSWORD` there.
+Configure this command with your server URL and profile ID:
 
 ```text
 HBOX_LABEL_MAKER_PRINT_COMMAND=python3 /opt/labels/submit_image.py --server http://labels:8000 --profile PROFILE_ID --resolution high --homebox {{.FileName}}
@@ -127,16 +141,16 @@ even with identical artwork. An upstream retry that regenerates a PNG is also a
 new invocation; this hook cannot distinguish it from an intentional reprint.
 Integrations with a durable event ID should use `--key` instead.
 
-The bridge has API and simulated-network tests, including a lost response after
-commit. It has not been tested against a running HomeBox deployment or installed
-into yours. To verify configuration without queuing, temporarily add
+The bridge has automated retry tests but has not been verified in a live HomeBox
+deployment. To verify configuration without queuing, temporarily add
 `--preview /tmp/label-preview.html` to the command and inspect that file. A
 successful submission means queued, not physically printed. For structured
 editable labels, map item fields to a saved template through `/api/jobs`.
 
-Retries using the same idempotency key and omitted destination keep the original
-resolved destination, even after more printers are added. Explicitly changing the
-destination with the same key returns 409. Label lengths are 10–300 mm across job,
-image and CSV inputs; tape widths are physical millimetres (3.5, not a wire code).
-A pending manual flush can be cancelled with `DELETE /api/queue/flush/{id}` without
-cancelling its jobs. Automatic holds remain until explicitly resumed.
+## Limits and queue controls
+
+Label lengths are 10–300 mm across job, image, and CSV inputs. Tape widths are
+physical millimetres, including 3.5 mm.
+
+Cancel a pending manual flush with `DELETE /api/queue/flush/{id}` to release its
+reservation without cancelling jobs. Automatic-print holds remain until resumed.

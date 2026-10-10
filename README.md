@@ -1,28 +1,19 @@
 # Label Printer Server
 
-The Brother PT-P710BT USB backend is configured entirely in the web UI. Software
-protocol tests pass, and the user validated physical printer testing on
-2026-10-04 after the review fixes. See the [hardware record](docs/HARDWARE_VERIFICATION.md)
-for reported results and calibration guidance. Normal 180 dpi output and opt-in
-180 × 360 dpi (selected in printer or template settings) are supported; the first physical
-high-resolution comparison received positive user verification. Existing jobs keep their saved resolution;
-shading uses monochrome dithering, not an undocumented native grayscale mode.
+A self-hosted label editor and persistent print queue for Brother PT-P710BT USB
+printers. Design reusable templates, fill in variable fields, import CSV runs,
+and batch labels by tape profile. Accounts and roles control printer access and
+approval requests.
 
-- [Deployment and recovery](docs/DEPLOYMENT.md)
-- [Physical verification checklist and draft generator](docs/HARDWARE_VERIFICATION.md)
-- [Retry-safe REST integrations](docs/INTEGRATIONS.md)
-
-Persistent, tape-aware label printing for a Brother PT-P710BT. The agreed design
-and staged implementation are in [PLAN.md](PLAN.md).
-
-**Current stage: usable editor, persistent queue, Brother USB printers and groups,
-deployment and REST integration support.** Physical printer testing was validated
-by the user on 2026-10-04. Additional printer models and Wi-Fi/Ethernet drivers have architecture only.
+Supports normal 180 × 180 dpi and high 180 × 360 dpi output, multiple USB printers,
+and printer groups. Shading uses monochrome dithering. Other printer models,
+Wi-Fi/Ethernet printing, and native grayscale are not implemented.
 
 ## Run locally
 
-Requires Python 3.12+ and Node.js 22.12+ on Linux or macOS. Developed and tested
-with Python 3.14 and Node.js 22.18. Node is only needed to build/develop the UI.
+Requires Python 3.12+, Node.js 22.12+, and system libusb for USB printing on Linux
+or macOS. Node.js is needed only to build or develop the UI. See
+[deployment](docs/DEPLOYMENT.md) for USB permissions and service setup.
 
 ```sh
 python3 -m venv .venv
@@ -34,439 +25,181 @@ npm run build --prefix frontend
 .venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-Open <http://localhost:8000> for the Vue UI, or <http://localhost:8000/docs> for the
-interactive API. The UI uses hash routes, so review links and browser refreshes
-work without interfering with API 404 responses. Use **one process**;
-do not set `--workers` above one. A process lock rejects another server using the
-same database. SQLite is file-backed, uses WAL, and enforces foreign keys.
-Migrations are explicit; the application does not silently create the schema.
+Open <http://localhost:8000>. On first launch, use the setup token from the server
+logs or `data/auth-setup-token` to create an administrator account. The token file
+is removed after setup. New installations have no printers configured.
 
-When upgrading an existing checkout, stop the backend, reinstall dependencies with
-`.venv/bin/python -m pip install -c requirements.lock -e '.[dev]'`, run
-`.venv/bin/alembic upgrade head`, rebuild with `npm run build --prefix frontend`,
-and restart. Migrations preserve existing queued jobs. The ownership/destination
-migration backfills templates, jobs, CSV runs and notifications with the local
-owner and default destination; frozen labels and run manifests are unchanged.
+Run **one server process per database**. Do not use multiple Uvicorn workers.
+Migrations must be applied explicitly before starting the local server.
 
-For frontend development, leave the backend running on port 8000 and run
-`npm run dev --prefix frontend` in a second terminal. Open the URL Vite prints;
-it proxies `/api` to FastAPI. The built UI is served from `frontend/dist` by
-default; `LABEL_FRONTEND_DIST` can override that directory.
+For frontend development, keep the backend on port 8000 and run
+`npm run dev --prefix frontend` in another terminal. Open the URL Vite prints;
+it proxies `/api` to the backend. Production serves `frontend/dist` by default;
+`LABEL_FRONTEND_DIST` overrides that path.
 
-## Use the interface
+## Print your first label
 
-Start by adding your printer under **Printers & groups**.
+1. Add your printer under **Printers & groups**. USB serial is optional for one
+   device; multiple devices require a distinct serial on each registration.
+2. Create a **Tape profile** with the tape width, ink and background colors, and
+   automatic-print threshold.
+3. Register the physical cassette under **Cartridges** and assign it to the
+   printer. Each cartridge keeps its remaining-length estimate across swaps.
+4. Create a layout under **Templates**, then open **New label**, choose the tape
+   profile and **Print destination**, fill in the fields, and submit copies.
+5. Check **Overview** or **Print queue**. Compatible copies print when their
+   profile threshold is reached. Use a manual print action to print them sooner.
 
-1. Create a **Tape profile** with its colors, width, batch threshold and optional
-   waiting reminders.
-2. Register a physical cassette under **Cartridges**, then install it in the app.
-   Each cassette keeps its own length estimate across swaps.
-3. Use **Templates** to design a label visually, then **New label** to fill its
-   variable fields and submit copies. Previews show the actual 1-bit raster by default;
-   disable **Show print pixels** for a smooth view of the same layout.
-4. Watch the **Overview** or **Print queue**. Compatible copies print at their
-   threshold, or use **Print compatible queue now** to flush them manually.
-   **Hold automatic printing** lets you collect a larger batch. This switch
-   survives restarts, does not interrupt an existing batch, and still permits
-   manual flushes. Resuming can immediately start an eligible batch.
-5. Use **Printers & groups** to configure connections, resolution, feed and cuts,
-   assign installed cartridges and inspect device status.
-6. Open an interrupted batch from the pause banner or **Activity**, choose the
-   outcome of every uncertain copy, enter total tape consumed, and resume.
+Compatibility requires the exact tape profile, a ready printer, and the correct
+detected tape width. The printer detects width; you select the cartridge to
+identify its colors. Different profiles do not share a threshold.
 
-The UI polls every 2.5 seconds. Forms keep their edits during refreshes, failures
-are shown without discarding input, and printing decisions stay in the backend.
-The queue can be filtered by tape profile together with copy status, before
-pagination. Status filters operate on individual copy states, so a partly printed job can
-appear in more than one filter. Lists use pagination for jobs and the most recent
-100 batches/notifications. The settings page reports ntfy configuration; server
-URLs/tokens remain environment settings and are not editable in the browser.
+**Hold automatic printing** lets you accumulate a larger batch. It survives
+restarts, permits manual printing, and does not interrupt a batch already started.
+Resuming can immediately start a batch that has reached its threshold.
 
-You can also use `/docs` to try this flow (copy returned IDs into subsequent requests):
+## Templates and previews
 
-1. `POST /api/tape-profiles`:
-   ```json
-   {"name":"Black on Yellow 24 mm","width_mm":24,"foreground":"#000000","background":"#ffff00","auto_print_threshold":10,"waiting_notification_enabled":true,"waiting_notification_interval_seconds":86400}
-   ```
-2. `POST /api/cartridges`:
-   ```json
-   {"profile_id":"PROFILE_ID","name":"Yellow cassette 1","nominal_length_mm":8000}
-   ```
-3. `PUT /api/printer/active-tape`:
-   ```json
-   {"cartridge_id":"CARTRIDGE_ID"}
-   ```
-4. `POST /api/jobs`:
-   ```json
-   {"template":"text","tape_profile":"PROFILE_ID","copies":9,"length_mm":40,"data":{"text":"Example label"}}
-   ```
-5. Inspect `/api/status`: the nine copies wait. Submit one more copy to trigger
-   an automatic batch, or `POST /api/queue/print` to flush the nine now.
-6. Inspect `/api/batches`, `/api/jobs` and `/api/cartridges` for results.
+The visual editor supports text, QR codes, images, rectangles, and lines. Drag,
+resize, rotate in 90° steps, or enter dimensions in millimetres. Alignment,
+layer ordering, duplication, snapping, and undo/redo are available.
 
-Profile `PUT` replaces its editable settings, including the threshold. Manual
-flush returns `202` with a persistent request; it does not wait for printing.
-Its membership is frozen when accepted and tied to the selected cartridge.
-Another pending manual request for that cartridge returns `409`.
+- Define variable fields with names, labels, defaults, and sample values. Use
+  `{{name}}` in text or QR content. Samples are used in the editor; submitted
+  values or defaults are used for printing.
+- **Print resolution** chooses the printer default, Normal, or High. New jobs and
+  CSV drafts save that choice; changing it later does not affect them.
+- Text supports wrapping, alignment, padding on all four sides, and horizontal
+  character and vertical line spacing in mm. Zero adds no extra spacing. Text and
+  spacing shrink together to fit the box. Accents and joined characters stay
+  together; right-to-left runs retain native shaping and character spacing.
+- **Fit text box width to content** adapts width to each value. **Distance holder**
+  keeps a fixed gap to another object's bounds. Text widths resolve first, then
+  linked positions, then automatic label length. Circular links are rejected.
+- **Automatic label length** fits content and margins within 10–300 mm; tape width
+  stays fixed. **Ignore out-of-bounds objects** clips partial objects and omits
+  fully outside objects while keeping them editable. New templates enable both;
+  existing templates retain their saved settings.
+- **Show print pixels** displays the exact 1-bit raster and is enabled by default.
+  Turn it off for a smooth design preview. Tape colors change the preview colors,
+  not the ink pattern. Rulers, cursor guides, and object outlines do not print.
 
-## Printers and groups
+Saving creates a template revision. Concurrent edits require a reload. Archiving
+hides a template from new submissions; existing jobs and saved drafts retain
+their layout, values, assets, dimensions, and resolution.
 
-Open **Printers & groups → Add printer** to register your first Brother PT-P710BT.
-New installations start with no devices. Every printer uses the same **Configure**
-form for its name, USB serial, default resolution, feed, leader estimate, cuts and
-timeout. Changes apply without restarting; finish pending work before changing
-print settings. Names can be edited independently. Serial is optional with one
-Brother device; multiple devices require distinct serials on every registration.
-There is no environment-controlled primary printer and no mock printer mode.
+Labels support up to 50 elements and 20 variable fields. Invalid layouts, missing
+required values, unsupported glyphs, and QR modules smaller than two device pixels
+are rejected. QR codes have a four-module quiet zone by default. **Scale up to
+bounding box** fills the box and allows an explicit **QR margin (mm)**; a blank
+margin keeps the automatic quiet zone.
 
-Choose the group under **Print destination** on New label or CSV runs. Labels
-route to the first ready member with the exact tape profile installed. Different
-colors can print concurrently; missing tapes stay queued. CSV runs stay on one
-printer to preserve order and chain printing. Groups require matching printable
-geometry and resolution capabilities, including the default resolution.
+### Fonts and images
 
-Group thresholds count queued copies per tape profile. Use **Print group
-queue** for a manual batch, or filter the Print queue by destination and print
-selected copies. Missing-tape reminders consider all group members and retain the
-profile's interval, silence and snooze settings. The adapter checks tape width;
-color identity uses the installed cartridge you select. Interrupted copies always
-require review before retrying, even if another matching printer is available.
+Noto Sans regular and bold are bundled under the SIL Open Font License. The
+**Fonts** page accepts static TTF/OTF files up to 5 MB and 20,000 glyphs. Upload
+bold and italic faces separately. Variable fonts, color/bitmap fonts, web fonts,
+and collections are unsupported.
 
-Overview shows every printer and distribution group you can access, with separate
-queues, installed tapes and automatic-print holds. Holds appear on the relevant
-destination card. The sidebar's **Design destination** selector controls authoring
-geometry; cartridge assignment is managed per printer. Job and CSV destinations are
-chosen separately. A group remains visible if a member has a configuration error;
-new submissions need at least one configured member. API submissions accept
-`destination_id`; both integration scripts
-accept `--destination PRINTER_OR_GROUP_ID`. Omitting it selects the sole configured printer; with several printers,
-pass a destination explicitly. See [printer architecture](docs/PRINTER_ARCHITECTURE.md).
+The **Images** page accepts PNG, JPEG, WebP, BMP, still GIF, and constrained SVG
+files up to 5 MB. Bitmaps are limited to 16 megapixels and 8192 pixels per side.
+SVG supports paths, basic shapes, and groups; convert text to paths. Scripts,
+external resources, styles, embedded images, filters, and animation are rejected.
+SVG limits are 200 KB, 1000 elements, and dimensions up to 8192. Export unsupported
+SVGs as PNG.
 
-Before starting this version, stop the server, run `.venv/bin/alembic upgrade head`
-and restart it. The migration imports an existing physical printer's configuration once and
-preserves its ID, jobs, batches, cartridge and hold. It becomes an ordinary
-editable registration; later environment changes cannot override it. Old
-simulated printer registrations are retired without deleting their history.
-Run the upgrade with the old environment still available, then remove obsolete
-printer environment entries. New installations create no printer automatically.
+Use **Add image** in the editor or upload directly in its properties panel. Aspect
+ratio is preserved by default. Brightness and contrast use 1 for unchanged
+artwork. Threshold conversion suits logos; dithering provides tonal shading.
+Transparent areas preserve content behind them.
 
-## Visual editor and rendering
+Hiding assets removes them from new selections while keeping saved labels usable.
+Images can be renamed without changing their ID. Permanent deletion is allowed
+only when no template, revision, job, or CSV run references the image. Back up
+`data/assets` together with the database.
 
-Open **Templates → Create template**. Set tape width/label length, then add text,
-QR codes, rectangles or lines. Select elements on the canvas or through its layer
-buttons. Drag to position, resize using the corner handle, or enter exact millimetre
-values. Dragging and corner resizing work at every rotation and keep the opposite
-corner fixed when resizing; rotation is in 90° steps.
-Alignment, layer order, duplication, deletion, grid/snapping and undo/redo are
-available. Navigation warns about unsaved changes.
+## Queue, printer groups, and recovery
 
-**Print resolution** saves Printer default, Normal or High with the template;
-the available modes come from printer capabilities. The chosen resolution is
-captured in each new job or CSV draft. Text elements have independent top, right,
-bottom and left padding in mm. Wrapping, auto-fitting and alignment use the inset
-area; automatic text width includes horizontal padding.
+Queue thresholds count copies per destination and tape profile. A manual print
+request freezes its selected copies when accepted; newly submitted copies wait
+for another batch. Removing queue items cancels queued copies and retains history.
+Printing and uncertain copies require batch review.
 
-Element properties remain beside the canvas on larger screens and are grouped
-into expandable categories with animated disclosure arrows. Position and content
-start open; typography, spacing/alignment and arrangement can be expanded as needed.
-The Add toolbar uses Heroicons, and single-line inputs and selects share a consistent height.
+**Print selected** prints only the selected compatible copies. Moderator selections
+also hold automatic printing for that destination so other copies stay queued;
+resume from its Overview card when ready. Print-level users can select their own
+copies without holding other users' work. A pending manual flush prevents cartridge
+reassignment; **Cancel pending flush** releases it without cancelling the jobs.
 
-The grid, rulers and cursor guides are always enabled. Top and left rulers use mm,
-track zoom and highlight the selected object's extent.
-Cursor guides mark the pointer on the canvas and rulers. Toggle **Object boundaries**
-to show thin dashed outlines around unselected elements. Rulers, guides and outlines
-are editor aids and do not print. **Show print pixels** is enabled by default in the
-editor, New label and CSV runs; turn it off for the smooth design preview.
+A printer group routes work to its first ready member with the exact profile
+installed. Members must have matching printable geometry and resolution
+capabilities, including default resolution. Missing tapes leave work queued.
+CSV runs stay on their first assigned printer to preserve order. Choose the
+submission destination separately from the sidebar's **Design destination**,
+which sets editor geometry. See [printer architecture](docs/PRINTER_ARCHITECTURE.md).
 
-Variable fields define names, labels, required flags, defaults and sample values.
-Use `{{name}}` in text/QR content. The editor uses samples; submission uses actual
-values or defaults. This is literal substitution, not executable Jinja. No raw SVG,
-external URLs, scripts or server paths are accepted as rendering resources.
+If printing is interrupted, that printer pauses for review. Open the pause banner
+or **Activity**, inspect every uncertain copy, mark it **printed**, **queued**, or
+**cancelled**, and enter the **total tape consumed by the attempt**, including
+confirmed labels and waste. Confirmed copies cannot be changed. In-flight batches
+also require review after a server restart; uncertain copies are never retried
+automatically. Other printers can continue.
 
-Use **Distance holder** to place an object a fixed gap to the right of, or below,
-another object. For a cable tag, enable automatic text width on both text
-objects, make the divider follow the first text, and make the second text follow
-the divider with the same gap. Gaps are measured between object boxes, including
-padding and rotation. Each CSV row resolves text widths and distances before
-calculating automatic label length; saved jobs and drafts freeze those positions.
-Circular links are rejected. Removing an anchor detaches its direct followers at
-their current positions.
-
-URLs retain template and tape-profile selections on the print and CSV import
-pages, the selected editor element and preview tape, and the preview row of a
-saved CSV run. Refreshing restores those selections; save edits or prepare a CSV
-draft to retain the content itself.
-
-Saving creates a revision; concurrent edits require reloading instead of silently
-overwriting a newer version. Duplicating creates a separate template. Archiving
-removes it from new submissions while preserving its history and queued jobs.
-The API also exposes `GET /api/templates/{id}/revisions`. Queued jobs retain their
-own document and rendering settings when the template changes.
-
-Noto Sans regular/bold is bundled under the SIL Open Font License in `app/fonts`.
-The **Fonts** page accepts static TTF/OTF files up to 5 MB and 20,000 glyphs.
-Select uploaded faces in the editor’s Font control; upload bold/italic faces
-separately. Variable, color/bitmap, web fonts and collections are not supported.
-Uploads have immutable content IDs shared by preview, CSV runs and printing.
-Hide/Restore changes picker visibility without deleting files needed by saved
-templates or queued jobs. Duplicate uploads reuse the existing entry.
-Font assets live in `assets/fonts` beside the SQLite database (normally
-`data/assets/fonts`); back up that directory together with the database. No new
-database migration is needed for fonts. The API provides `GET/POST /api/font-assets`
-(POST takes raw font bytes), `DELETE /api/font-assets/{id}` to hide, and
-`POST /api/font-assets/{id}/restore`.
-
-The **Images** page accepts PNG, JPEG, WebP, BMP, still GIF and constrained SVG
-uploads up to 5 MB. Bitmaps are limited to 16 megapixels and 8192 pixels per side.
-SVG accepts paths, basic shapes and groups with presentation attributes; text
-must be converted to paths. Styles, references, embedded images, scripts, filters,
-animation, entities and declarations are rejected (a standard UTF-8 XML header
-is allowed). SVG markup is limited to 200 KB, 1000 elements and dimensions up to
-8192. Unsupported SVGs can instead be exported as PNG.
-
-The library shows thumbnail previews; click one for a larger view of the original
-artwork. **Rename** updates its display name without changing its content ID or
-saved labels. **Delete** permanently removes unused artwork after confirmation.
-Images referenced by any saved template, historical template revision, job or CSV
-run cannot be deleted; use **Hide** to remove them from new selections instead.
-
-Use **Add image** in the editor and choose an uploaded asset, or upload and use a
-new image directly in the properties panel without leaving the editor. Images can be moved,
-resized and rotated; aspect ratio is preserved by default. With preservation on,
-width, height and corner dragging resize proportionally. Selecting artwork fits
-the box to its proportions within the current dimensions. New templates enable
-automatic label length and clipping of out-of-bounds objects by default; existing
-templates retain their saved settings. Brightness and contrast
-use 1 for unchanged artwork. Choose threshold conversion for logos or dithered
-shading for tonal artwork. These are both 1-bit output; native Brother grayscale
-still needs hardware verification. The selected tape colors apply to the same
-ink pattern used for printing. Transparent areas preserve content behind them.
-SVGs rasterize at the label's device resolution; low-resolution bitmaps cannot
-gain detail by enlargement.
-
-Original uploads and normalized assets live in `data/assets/images` (beside the
-database if relocated). Include the entire `data/assets` directory in backups.
-Hiding/restoring images leaves saved templates, jobs and CSV runs intact. Uploading
-new content creates a separate asset. The asset feature itself requires no additional database migration.
-The API is `GET/POST /api/image-assets` (raw bytes, optional `?name=...`),
-`DELETE /api/image-assets/{id}` to hide and
-`POST /api/image-assets/{id}/restore`. Use `PUT /api/image-assets/{id}` with
-`{"name":"New name"}` to rename, `GET /api/image-assets/{id}/preview` for a PNG
-thumbnail (`?size=large` for an enlarged view), and
-`DELETE /api/image-assets/{id}/permanent` for unreferenced assets (409 if in use).
-
-The editor defaults to the exact 1-bit output. Disabling **Show print pixels** shows
-an antialiased design preview rendered from the same SVG at four times the device
-raster dimensions. Both use the same backend fonts and layout; the smooth view
-does not represent a measured improvement in physical print quality. Unsupported glyphs, missing variables and out-of-bounds elements and undersized QR modules are rejected. Overlapping QR
-bounding boxes produce an advisory warning; layouts can still be saved and queued. QR modules use integer device pixels with a four-module quiet zone by default.
-The per-QR **Scale up to bounding box** option enlarges the code and its quiet
-zone to fill the box across QR versions, allowing fractional module sizes before
-rasterization. When enabled, **QR margin (mm)** sets the inset on each side:
-0 fills to the edges; a blank value retains the automatic four-module border.
-New elements start with a 1 mm margin. Text supports top, center and bottom
-vertical alignment of the entire wrapped text block. The chosen font size is a
-maximum: text automatically shrinks to the largest size that fits its box, with
-wrapping and explicit newlines respected. Text that already fits keeps its size. It never relaxes the minimum of two device pixels per module.
-Colored previews do not change ink placement. Lengths are currently limited to
-300 mm, with 50 elements and 20 variable fields per document.
-
-The editor now offers **Automatic label length** (10–300 mm, continuous media).
-It fits the element boxes plus the printable margin, preserving tape width and
-positions. Enable **Fit text box width to content** on a text element to adapt its
-width to each field value; explicit newlines remain, and its height stays fixed.
-Combine the options for labels whose lengths vary with their submitted text.
-Turning automatic sizing off restores the saved manual dimensions.
-
-**Ignore out-of-bounds objects** clips partial objects at the printable guides and
-omits fully outside objects from the output. Warnings identify affected elements;
-their source geometry stays editable through the layer list. Automatic sizing
-runs before clipping. Required fields and printer/length limits still validate. Existing templates keep strict bounds and manual dimensions.
-Resolved dimensions are shown in previews and frozen into queued jobs.
-
-`POST /api/preview` accepts a template ID or an unsaved structured document,
-input data, optional sample mode and tape colors. It returns the exact raster as `png`, a higher-resolution antialiased
-`design_png`, SVG and device pixel sizes. `POST /api/jobs` validates the same layout before queueing it. The original
-built-in text template (unmodified revision 2) retains an explicit legacy API
-length/width option; omitted lengths use the saved template length. The label and
-CSV submission pages always use template sizing. Edited and custom
-layouts use their saved dimensions. The test printer captures genuine raster
-bytes but does not send anything to hardware.
-
-Renderer reference: [resvg-py API](https://resvg-py.readthedocs.io/en/latest/api.html).
-Bundled font source: [Google Fonts Noto Sans](https://github.com/google/fonts/tree/main/ofl/notosans).
-
-In **Print queue**, select queued items and choose **Remove selected** to remove
-them across tape profiles, or **Print selected** to print items for the installed
-tape. Each row also has a **Remove** action. Removal marks queued copies cancelled
-while retaining history; printing and uncertain copies require batch review.
-Open **Activity → Details** (or **Review batch**) to see a thumbnail of each label;
-click it to enlarge the saved print pixels. Previews use each job's frozen layout,
-values and resolution, including CSV rows and image jobs, so later template edits
-do not change the history. They are shown in black and white with the label's
-physical proportions. The outcome badge distinguishes confirmed prints from
-uncertain or cancelled copies. `GET /api/jobs/{id}/preview` returns the saved job's
-rendered PNG without submitting or printing anything.
-
-Activity also shows **Requested by**, **Approved by** and the manual batch starter
-separately. Direct Print-or-higher submissions have the same requester and
-approver; automatic starts are identified as automatic. Access-hold releases show
-the releasing administrator. Each print attempt preserves these names and
-decisions even after account changes or retries. Historical events without
-reliable attribution display **Not recorded**.
-
-For an administrator-submitted CSV draft, Requested by displays the original
-author with the administrator in parentheses. If the author lacks Print access
-or their account is disabled, the administrator sees the discrepancy and must
-explicitly confirm an override before any jobs are created. The draft and jobs
-retain their original owner, and the history records the administrator's override.
-
-`POST /api/queue/remove` accepts `{"copy_ids":["COPY_ID"]}` and validates the
-complete selection before changing any copies. An item selects all its remaining queued copies. The server
-validates the complete selection and freezes those copy IDs in queue order.
-Moderator-selected printing also holds automatic printing for that destination,
-so unselected labels stay queued; resume it from the destination's Overview card
-when ready. Print-level users can select their own copies without holding other
-users' work. Existing review, installed-tape and pending-flush safeguards still
-apply. Overview offers **Print direct queue** and **Print group queue** for a full
-compatible flush of the corresponding destination.
-
-CSV runs appear as expandable queue rows. Select a run as a whole or expand it
-to select individual items. Filtering applies before grouping and pagination;
-runs are not split across pages. Selection clears when changing page, filters or
-installed tape, and polling removes copies that are no longer eligible.
-`POST /api/queue/print` accepts optional `{"copy_ids":["COPY_ID"]}` for selected
-printing; omit the body for the original full flush. `GET /api/queue/groups`
-provides the grouped queue with status/profile filtering.
+**Activity** shows saved label previews, outcomes, requester, approver, and manual
+batch starter. Each attempt preserves its attribution after retries or account
+changes. Older events without reliable attribution show **Not recorded**.
+Cartridge lengths are estimates, not sensor measurements; calibrate feed and
+leader settings and correct remaining length when the printer is idle with no
+batch awaiting review.
 
 ## CSV runs
 
-Open **CSV runs** (or **Use with CSV** on a template). Upload a UTF-8 file or
-paste CSV, select comma/semicolon/tab separation, then **Read CSV**. Map columns
-to template fields; unmapped fields use their defaults. Select records, change
-copy counts and move records up/down to set print order. Quoted delimiters and
-multiline values are supported. Imports are limited to 1 MB, 250 data records,
-40 columns, 2000 characters per cell and 1000 copies per run.
+Open **CSV runs** or **Use with CSV** on a template. Upload or paste UTF-8 CSV,
+choose comma, semicolon, or tab separation, then **Read CSV**. Map columns to
+fields, select records, set copies, and arrange print order. Quoted delimiters
+and multiline values are supported.
 
-**Validate and preview run** reports errors by CSV record and saves a draft only
-when every selected record is valid. Record numbers count logical CSV records
-(including the header), not physical lines inside quoted multiline cells. The
-saved run freezes field values, resolved dimensions, template revision, rendering
-settings and tape-preview colors. Browse each rendered label and the ordered run
-overview before submitting; drafts remain available under Recent runs after a
-restart. Template edits or archival cannot change a saved draft's contents.
-Use **Delete draft** in Recent runs or the draft detail view to remove an
-unsubmitted draft. Submitted runs remain in history; cancel their queued items
-from the queue instead. `DELETE /api/runs/{id}` enforces this distinction.
+**Validate and preview run** saves a draft only if every selected record is valid.
+The draft freezes the template, values, dimensions, assets, and rendering settings.
+Review individual labels and the ordered run before choosing **Submit entire run**.
+Submission creates all jobs atomically; retrying the same run cannot duplicate
+jobs. Preparing a draft does not print. Normal thresholds and holds apply after
+submission.
 
-**Submit entire run** adds all jobs/copies atomically. Retries of the same run
-cannot create duplicate jobs. Normal thresholds and the automatic-print hold
-apply after submission; preparing a draft never prints. A changed tape width
-requires a new draft. Queue entries link back to their run and source record.
-Interrupted runs use the existing per-copy review and retry workflow.
+Imports are limited to 1 MB, 250 data records, 40 columns, 2000 characters per cell,
+and 1000 copies per run. Reported record numbers include the header and count
+logical CSV records, including multiline cells. Unsubmitted drafts can be deleted;
+submitted runs remain in history, with queued copies cancellable from the queue.
 
-Tape estimates assume one batch through the active adapter; test adapter feed
-values are fixtures. Other queued labels or separate attempts can alter overhead.
-Drafts show their saved planned cuts/feed. Physical printer testing was validated
-by the user; consumption remains an estimate until measured calibration values
-are recorded for the installed tape and settings.
+## Accounts and requests
 
-API: `POST /api/csv/parse`; `POST /api/runs/prepare` (mapping, ordered records,
-copy counts, expected template revision and a client request key); `GET /api/runs`
-(latest 100); `GET /api/runs/{id}`; `GET /api/runs/{id}/rows/{position}/preview`
-(zero-based position); `POST /api/runs/{id}/submit`. Reusing a preparation key with
-different input returns 409. Invalid rows return `valid: false` and per-record
-errors without saving a partial run. See `/docs` for request schemas.
+Manage users, roles, template groups, and registration codes under
+**Administration**. Registration requires a code by default. Roles are assigned
+directly to users; the highest applicable permission wins.
 
-Existing installations: stop the service and run `.venv/bin/alembic upgrade head`
-before restarting. The run migration preserves existing jobs and copies.
+| Destination access | Allowed actions |
+| --- | --- |
+| Request only | Submit labels for approval. |
+| Print | Submit directly and start own queued jobs. |
+| Moderator | Also manage scoped queues and approve or reject requests. |
+| Full | Also configure the granted printer or distribution group. |
 
-## Architecture and behavior
+Group permissions apply through that group and grant no direct printer access.
+Interrupted-batch review requires Moderator or Full directly on the physical
+printer. Template groups share templates and never assign roles. Owners can edit
+or delete their own templates and cancel their own queued jobs after losing
+printer access. Only administrators publish global templates.
 
-The UI follows [COLOR_SCHEME.md](COLOR_SCHEME.md) and
-[FIGMA_COLOR_SCHEME.md](FIGMA_COLOR_SCHEME.md): charcoal surfaces, indigo actions,
-cool gray text, and semantic red/green states. Shared CSS tokens in
-`frontend/src/style.css` define the palette for all screens and the visual
-editor. Tape swatches and samples use the physical tape profile's colors.
+Pending requests do not count toward thresholds. Disabling a user or revoking the
+access needed for queued work pauses those jobs for an administrator to release
+or cancel. Restoring access alone does not resume them. Submitting another user's
+CSV draft as an administrator requires an explicit override if the author's
+access is insufficient. See [access control](docs/ACCESS_CONTROL.md) for details.
 
-- `app/models.py`: profiles, physical cartridges, immutable job snapshots,
-  individual copies, batch attempts, flush requests and notification outbox.
-- `app/access.py`, `app/auth.py`, `app/admin_api.py`: authenticated sessions,
-  directly assigned roles, template memberships and confirmed access changes.
-- `app/request_api.py`: frozen approval requests, transactional decisions and
-  durable administrator notification summaries.
-- `app/api.py` / `app/schemas.py`: validated HTTP inputs and API operations.
-- `app/http.py`, `app/submissions.py`, `app/reservations.py`: transaction handling,
-  shared job construction/idempotency and manual reservation rules.
-- `app/preparation.py`: rendering outside the mutation lock, followed by input
-  and asset revalidation before saving.
-- `app/fleet.py` / `app/destinations.py`: independent workers, persistent device/group
-  destinations and transactional member selection.
-- `app/queue.py`: exact-profile compatibility, batch reservation, print outcomes
-  and review. No Brother protocol bytes, feed rules or raster encoding here.
-- `app/printer/base.py`: protocol-independent status, images, consumption estimate
-  and batch result contract. Simulated hardware lives only in `tests/`.
-- `app/render.py`: validated documents → generated SVG → resvg PNG → 1-bit raster;
-  colored previews are derived from that exact raster.
-- `app/template_schema.py` / `app/templates.py`: bounded documents and versioned
-  template persistence; queued jobs snapshot documents and rendering settings.
-- `app/printer/registry.py`: device, capabilities and transport definitions. See
-  [printer architecture](docs/PRINTER_ARCHITECTURE.md) for current and future scope.
-- `app/notifications.py`: durable outbox, reminder episodes and ntfy adapter.
-- `app/main.py`: app lifecycle and separate printer/notification worker threads.
-- `migrations/`: versioned Alembic schema; tests apply real migrations.
-- `frontend/src/views/`: Vue screens for the queue, tape inventory, review and
-  printer configuration; `workspace.ts` handles shared polling and API actions.
-- `frontend/tests/`: Chromium workflows against an isolated temporary backend.
+## Notifications and integrations
 
-Copies count toward each destination/profile threshold. Printing requires the exact active
-profile, a connected printer and matching known tape width. Color metadata is
-never taken from the printer. Job inputs, template revision and required width
-are captured at submission. Used profile widths cannot be edited; create another
-profile instead. Jobs are cancelled, not physically deleted; history is retained.
-
-The worker commits a frozen `printing` attempt before calling the adapter. API
-requests may enqueue new jobs during printing; those copies wait for another
-batch. Each printer has its own physical-session lock, while short database locks protect
-reservation and mutations. Read endpoints and previews do not take that lock.
-Rendering uses immutable inputs outside the lock; changed inputs produce a 409
-conflict before saving. The worker reserves copies before rendering and writes
-its estimate before hardware I/O. Status endpoints read cached hardware state.
-
-The adapter can guarantee that no printing started (`PrintNotStarted`), report a
-confirmed prefix plus an uncertain remainder (`PrintInterrupted`), or confirm
-the whole batch. Any other exception after calling `print_batch` is uncertain.
-A no-start failure returns copies to the queue for retry. An uncertain outcome
-blocks that printer until review. Other printers can continue. On restart, committed in-flight attempts enter
-review instead of automatically printing again.
-
-`GET /api/batches/{id}` lists copy IDs and outcomes. Resolve a review with:
-
-```http
-POST /api/batches/BATCH_ID/review
-Content-Type: application/json
-
-{"decisions":{"UNCERTAIN_COPY_ID":"queued","OTHER_UNCERTAIN_COPY_ID":"cancelled"},"consumed_mm":85}
-```
-
-Every uncertain copy needs one decision: `printed`, `queued` or `cancelled`.
-Already confirmed copies cannot be changed. `consumed_mm` is the **total** tape
-used by this attempt, including confirmed labels and waste; it may itself be your
-estimate. Review is applied once transactionally. Requeued copies follow the
-usual threshold/manual-flush rules. A resolved batch with mixed outcomes retains
-`failed` at batch level; copy outcomes are the detailed record.
-
-Each cartridge retains its estimate through swaps. The printer adapter accounts
-for label lengths, feed and estimated leader waste. Shortage is recorded
-as a warning and does not block. Uncertain batches leave the estimate unchanged
-and mark it uncertain until reviewed. Use
-`PUT /api/cartridges/{id}/remaining` with `{"remaining_mm":3200}` to correct an
-estimate when no batch is printing or awaiting review.
-
-## ntfy and waiting reminders
-
-Notifications are stored even when ntfy is disabled, and are visible at
-`GET /api/notifications`. Set these environment values to enable publishing:
+Notifications are stored in the app even when ntfy is disabled. To enable delivery,
+set these values in `.env`:
 
 ```dotenv
 LABEL_NTFY_URL=https://ntfy.example.com
@@ -475,41 +208,54 @@ LABEL_NTFY_TOKEN=
 LABEL_PUBLIC_URL=http://label-server.local:8000
 ```
 
-URL is the ntfy **server base URL**, without the topic. Subscribe to that topic
-in your ntfy client. The token is optional. Delivery runs independently of the
-print worker with a 10-second HTTP timeout and exponential retry delay from
-30 seconds up to one hour. Delivery is at least once: a crash after ntfy accepts
-a message but before the database records success can duplicate a notification,
-never a physical print. Enabling ntfy also delivers still-valid pending alerts.
+`LABEL_NTFY_URL` is the server base URL without the topic; the token is optional.
+Use a topic restricted to administrators because it also carries request summaries.
+Delivery retries independently of printing. A notification may be delivered more
+than once after a crash; this does not duplicate a print.
 
-Review and printing blockers produce alerts. Waiting reminders are opt-in per
-profile, start when its queued copies meet its threshold while that profile is
-not installed, and repeat at its configured interval (default 24 hours). The
-message contains a profile name and copy count, not label content. Repeated
-identical blockers are deduplicated until the blocker clears.
+Waiting reminders are optional per tape profile. They begin when a destination
+reaches its threshold without the required tape installed and repeat at the
+configured interval, defaulting to 24 hours. Snooze and silence survive restarts.
+Silence lasts until the waiting episode ends; disable the profile's reminders to
+turn them off persistently.
 
-`PUT /api/tape-profiles/{id}/reminder` accepts:
+Interactive API schemas are at <http://localhost:8000/docs>. API clients sign in,
+retain the session cookie, and send `X-CSRF-Token` on mutations. Use
+`Idempotency-Key` for retry-safe job submissions: the same key and input return
+the original job; changed input returns HTTP 409. Intentional reprints need a new
+key. See [REST integrations](docs/INTEGRATIONS.md) for bundled clients and HomeBox.
 
-```json
-{"action":"silence"}
-```
-```json
-{"action":"snooze","until":1791000000}
-```
-```json
-{"action":"resume"}
+## Deployment and upgrades
+
+```sh
+docker compose up --build -d
 ```
 
-`until` is a future UTC Unix timestamp. Silence lasts for the current waiting
-episode; falling below threshold resets it. Installing the profile suppresses
-reminders without resetting silence. Set `waiting_notification_enabled=false`
-to disable them persistently. Stale pending reminders are checked again before
-delivery. Timing and controls survive restart.
+Compose binds to localhost and stores data in a named volume. Map USB devices as
+described in [deployment and recovery](docs/DEPLOYMENT.md), then register printers
+in the UI. Use HTTPS for remote access.
 
-New notifications link to the Vue dashboard, settings or batch review screen.
-Previously stored notifications keep their original API links.
+Before upgrading, back up the complete data directory, including assets. Stop the
+server, reinstall dependencies, run `.venv/bin/alembic upgrade head`, rebuild the
+frontend, and restart. For older environment-configured printers, keep the old
+`.env` available during migration so their settings can be imported once.
 
-## Verify
+Physical PT-P710BT testing was reported successful on 2026-10-04. Detailed
+measurements and remaining hardware checks are in the
+[verification record](docs/HARDWARE_VERIFICATION.md). Docker runtime, simultaneous
+two-device USB printing, and a live HomeBox deployment have not been verified.
+
+## Development
+
+This project was designed and directed by Tarobits, with implementation assistance from OpenAI Codex.
+AI-generated code has been developed under human direction and remains subject to review and validation.
+
+The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite; the frontend uses Vue 3,
+TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
+domain code use the generic backend contract. [PLAN.md](PLAN.md) describes the
+implementation constraints and [TODO.md](TODO.md) lists remaining work.
+
+Run backend and frontend checks with the development dependencies installed:
 
 ```sh
 .venv/bin/pytest -q
@@ -520,9 +266,7 @@ npm run build --prefix frontend
 npm run format:check --prefix frontend
 ```
 
-Each browser test uses its own temporary database and server, simulated hardware
-I/O, and no ntfy connection. The test adapter retains production capabilities,
-configuration validation, consumption planning and raster encoding checks:
+Build the frontend before running browser tests:
 
 ```sh
 cd frontend
@@ -530,123 +274,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Build the frontend first. Each test starts a backend on an available localhost
-port and seeds its own prerequisites. The suite checks the complete registration → interrupted batch → review →
-manual flush workflow, reminder controls, editable forms during polling, API
-errors and the mobile layout. Screenshots are written to `frontend/test-results`.
+Tests use isolated databases and simulated printer hardware, without contacting
+real printers or ntfy. Browser screenshots are written to `frontend/test-results`.
 
-Tests cover thresholds, copies, profile separation, frozen manual flushes,
-connection/width gates, serialization, partial failures, review, consumption,
-restart recovery, process ownership, notification retries, ntfy request shape,
-snooze/silence and schema upgrades/downgrades. Tests do not contact a real ntfy
-server or printer. The pinned Starlette version emits a test-client deprecation
-warning for httpx; this does not affect test results or application requests.
-
-## Container scaffold
-
-The multi-stage container builds Vue and starts with no printers configured.
-Map USB devices using [deployment instructions](docs/DEPLOYMENT.md), then
-register printers in the web UI.
-
-```sh
-docker compose up --build -d
-```
-
-Compose binds to localhost by default and uses a named volume for the database.
-Set `LABEL_BIND_ADDRESS` to an appropriate LAN address when exposing it. Pass
-ntfy settings via `.env`. Complete administrator setup on first launch and use
-HTTPS for remote access. Stop the service before taking a filesystem backup of the
-data volume (including SQLite WAL files), or use SQLite's online backup API.
-
-USB and LXC setup instructions are in the deployment guide. Compose configuration
-validates; Docker image build/runtime remains unverified without a running daemon.
-
-## Accounts and approval requests
-
-The complete permission model is recorded in
-[the access-control specification](docs/ACCESS_CONTROL.md).
-
-On first launch, enter the one-time token from the startup logs or `data/auth-setup-token` in the setup
-screen and create the administrator account. The file is readable only by the
-service owner and is removed after setup. This account inherits existing local
-templates, labels and assets. Other accounts never inherit that workspace.
-
-**Administration** manages users, roles, template groups and registration codes.
-Registration requires a code by default; administrators can enable open registration.
-Assign roles directly to users. Each role can contain application permissions and
-No access / Request only / Print / Moderator / Full permissions for individual
-printers or distribution groups. The highest applicable access wins. Role and
-membership changes show affected users' effective access before and after, and
-require confirmation before being applied.
-
-Distribution-group permissions allow printing only through that group; they grant
-no direct access to its printers. Full on a group allows editing that group, while
-adding a printer requires Full directly on the printer. Physical printer
-configuration requires direct Full access. The protected Administrator role covers
-every existing and future resource, including templates in groups its users have
-not joined. At least one enabled administrator must remain.
-
-Templates can be personal, shared with a user group, or global. Only administrators
-publish global templates. Each template-group membership independently allows
-creating templates, editing others' templates and deleting others' templates.
-Groups never assign roles. Owners can always edit/delete their own templates and
-cancel their own queued jobs, including after losing printer access.
-
-**Requests** shows frozen previews for a scoped Moderator, Full user or
-Administrator to approve or reject. Request only users need approval; Print and
-higher can submit directly. Interrupted-batch review requires Moderator or Full
-directly on the physical printer. Pending
-requests never affect printing thresholds. Repeating an approval cannot duplicate
-jobs. The configurable ntfy summary window survives restarts and begins with the
-first arrival, so continuous submissions cannot postpone it indefinitely. Restrict
-the configured ntfy topic to administrators; it also carries operational notices.
-
-Disabling a user or removing the access required for queued work pauses affected
-jobs. The administrator dashboard lists these holds with explicit release/cancel
-decisions. Restoring access alone does not resume held work. Already printing
-copies remain governed by physical outcome and interrupted-batch review.
-
-Authenticated API clients retain the session cookie and send `X-CSRF-Token` on
-mutations. Bundled scripts support credentials via `LABEL_API_USERNAME` and
-`LABEL_API_PASSWORD`; add `--request-approval` to submit_label.py or submit_image.py
-for accounts without direct printing. See [integration instructions](docs/INTEGRATIONS.md).
-
-Existing installations must stop the service, run `.venv/bin/alembic upgrade head`,
-rebuild the frontend with `npm run build --prefix frontend`, and restart for the
-access-control migrations. Back up the database and `data/assets` together before
-upgrading. Queued labels paused before initial administrator setup remain on the
-dashboard for an explicit release or cancellation.
-Earlier experimental group-inherited roles are flattened into direct assignments;
-legacy printer grants migrate conservatively to Request only or Print. Review
-roles explicitly before granting the new Moderator and Full abilities.
-
-Single-job integrations can now send `Idempotency-Key` to `POST /api/jobs`. Apply
-migration `d804a91c3044` with `.venv/bin/alembic upgrade head` before restarting.
-Keys with changed input return 409; retries return the original frozen job.
-Image integrations can upload to `/api/image-assets`, preview through
-`/api/image-jobs/preview` and queue through `/api/image-jobs` with the same key
-rules. The standalone `scripts/submit_image.py` includes a HomeBox print-command
-mode and an HTML pixel preview that queues nothing. See the
-[integration guide](docs/INTEGRATIONS.md) for commands and deployment requirements.
-For USB, install the dependencies and system libusb, then add the printer under
-**Printers & groups**.
-
-## Review fixes and width migration
-
-Media widths are physical millimetres, including **3.5 mm** tape. Brother's width
-code is translated only by the adapter. Migration `081e742dc91f` converts existing
-4 mm profile/job/run media references to 3.5 mm. Frozen documents and rasters stay
-unchanged; editable templates receive a new revision. Saved canvases can retain
-legacy dimensions independently of the physical media. New submissions use
-explicit canvas fitting to avoid dark borders from rounded pixel dimensions.
-
-The label form reuses an idempotency key when retrying a failed submission. API
-retries with an omitted destination retain the destination from their receipt,
-including after another printer is registered. Job, image and CSV lengths share
-the 10–300 mm bound.
-
-A pending flush prevents cartridge reassignment. Finish it or use **Cancel pending
-flush** on the printer card (`DELETE /api/queue/flush/{id}`); cancellation leaves
-copies queued and preserves holds. Cancelling all selected copies also releases
-the reservation. Printer cards retain invalid configurations with an error and
-allow repair through **Configure**.
+Made with ♥ by Tarobits
