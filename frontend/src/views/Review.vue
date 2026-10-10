@@ -87,8 +87,8 @@ async function resolve() {
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
     <form @submit.prevent="resolve">
       <p v-if="batch.state === 'needs_review'" class="help">
-        Inspect the labels that came out. Confirmed copies are locked. Choose an outcome for every
-        uncertain copy, then account for the tape consumed by the entire attempt.
+        Inspect the output and choose an outcome for each uncertain copy. Confirmed copies are
+        locked.
       </p>
       <div class="table-scroll">
         <table>
@@ -146,8 +146,8 @@ async function resolve() {
             placeholder="Include printed copies and waste"
         /></label>
         <p class="help">
-          Enter your best estimate, including confirmed labels, partial labels, and feed waste. This
-          amount is deducted once from the cartridge. It is not the remaining length.
+          Include confirmed labels, partial labels, and feed waste. This total is deducted once from
+          the cartridge.
         </p>
         <button
           class="primary"

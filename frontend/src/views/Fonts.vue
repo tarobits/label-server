@@ -15,12 +15,7 @@ async function upload() {
     w.actionError.value = 'Upload a font of at most 5 MB.'
     return
   }
-  if (
-    await w.action(
-      () => api<FontAsset>('/font-assets', 'POST', file.value),
-      'Font added to the library. Hidden fonts can be restored below.',
-    )
-  ) {
+  if (await w.action(() => api<FontAsset>('/font-assets', 'POST', file.value), 'Font uploaded.')) {
     file.value = null
     if (input.value) input.value.value = ''
   }
@@ -43,7 +38,7 @@ async function visibility(font: FontAsset) {
     <h2>Upload a font</h2>
     <p class="help">
       Static TTF and OTF files, up to 5 MB. Upload regular, bold and italic faces separately.
-      Variable fonts, font collections and color fonts are not supported yet.
+      Variable fonts, font collections and color fonts are not supported.
     </p>
     <label
       >Font file<input
@@ -58,8 +53,7 @@ async function visibility(font: FontAsset) {
   <section class="panel">
     <h2>Font library</h2>
     <p class="help">
-      Noto Sans regular and bold are bundled. Uploads are immutable: new files create separate
-      entries. Hiding a font removes it from new selections while keeping saved labels printable.
+      Noto Sans regular and bold are bundled. Hidden fonts remain available to saved labels.
     </p>
     <div class="table-scroll">
       <table>

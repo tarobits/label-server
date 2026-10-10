@@ -433,7 +433,6 @@ async function cancel(job: Job) {
     </div>
     <div v-if="!jobs.length && !loading" class="empty">
       <h3>No {{ filter ? filter.replaceAll('_', ' ') : '' }} labels here.</h3>
-      <p>Add a label and let the queue take care of the rest.</p>
       <RouterLink class="button secondary" to="/new">Create a label</RouterLink>
     </div>
     <div class="pagination">

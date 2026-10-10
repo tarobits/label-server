@@ -130,8 +130,8 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
     <button class="primary" :disabled="busy" type="submit">Save tape profile</button>
   </form>
   <div v-if="!profiles.length && !formOpen" class="panel empty">
-    <h2>Make room for your tapes.</h2>
-    <p>Start with a profile for the tape you use most.</p>
+    <h2>No tape profiles</h2>
+    <p>Create a profile with your tape’s width and colors.</p>
     <button class="primary" @click="edit()">Create first tape profile</button>
   </div>
   <div class="card-grid">

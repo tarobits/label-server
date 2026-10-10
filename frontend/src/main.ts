@@ -27,7 +27,6 @@ const router = createRouter({
       component: AccessHolds,
       meta: {
         title: 'Paused labels',
-        subtitle: 'Review queued work after an account or permission change.',
       },
     },
     {
@@ -35,7 +34,6 @@ const router = createRouter({
       component: Administration,
       meta: {
         title: 'Administration',
-        subtitle: 'People, permissions, and access to your printers.',
       },
     },
     {
@@ -43,7 +41,6 @@ const router = createRouter({
       component: Requests,
       meta: {
         title: 'Print requests',
-        subtitle: 'Review labels before they enter the print queue.',
       },
     },
     {
@@ -51,82 +48,78 @@ const router = createRouter({
       component: Printers,
       meta: {
         title: 'Printers & groups',
-        subtitle: 'Route labels to the printer with the right tape.',
       },
     },
     {
       path: '/images',
       component: Images,
-      meta: { title: 'Images', subtitle: 'Artwork for your labels.' },
+      meta: { title: 'Images' },
     },
     {
       path: '/fonts',
       component: Fonts,
-      meta: { title: 'Fonts', subtitle: 'Add typefaces for your labels.' },
+      meta: { title: 'Fonts' },
     },
     {
       path: '/runs/:id?',
       component: CsvRuns,
       meta: {
         title: 'CSV runs',
-        subtitle: 'Map your data, review every label, and queue a run.',
       },
     },
     {
       path: '/templates/new',
       component: TemplateEditor,
-      meta: { title: 'New template', subtitle: 'Design a reusable label.' },
+      meta: { title: 'New template' },
     },
     {
       path: '/templates/:id/edit',
       component: TemplateEditor,
       meta: {
         title: 'Template editor',
-        subtitle: 'Arrange text, images, QR codes and shapes on your tape.',
       },
     },
     {
       path: '/',
       component: Dashboard,
-      meta: { title: 'Overview', subtitle: 'Your printers, tapes and queued labels in one place.' },
+      meta: { title: 'Overview' },
     },
     {
       path: '/queue',
       component: Jobs,
-      meta: { title: 'Print queue', subtitle: 'Every label in its own time, on the right tape.' },
+      meta: { title: 'Print queue' },
     },
     {
       path: '/new',
       component: NewLabel,
-      meta: { title: 'New label', subtitle: 'Choose your tape and add a label to the queue.' },
+      meta: { title: 'New label' },
     },
     {
       path: '/profiles',
       component: Profiles,
       meta: {
         title: 'Tape profiles',
-        subtitle: 'Colors, widths, and a printing rhythm for each tape.',
       },
     },
     {
       path: '/cartridges',
       component: Cartridges,
-      meta: { title: 'Cartridges', subtitle: 'Keep track of the tape you actually have.' },
+      meta: { title: 'Cartridges' },
     },
     {
       path: '/templates',
       component: Templates,
-      meta: { title: 'Templates', subtitle: 'Reusable layouts for the things around you.' },
+      meta: { title: 'Templates' },
     },
     {
       path: '/activity',
       component: Activity,
-      meta: { title: 'Activity', subtitle: 'Recent print attempts and notifications.' },
+      meta: { title: 'Activity' },
     },
     {
       path: '/batches/:id',
       component: Review,
-      meta: { title: 'Batch details', subtitle: 'Check what printed before continuing.' },
+      meta: { title: 'Batch details' },
     },
     {
       path: '/settings',

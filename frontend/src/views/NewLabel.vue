@@ -61,23 +61,23 @@ const matchingPrinters = computed(() =>
 )
 const routingHint = computed(() => {
   if (destination.value?.available === false)
-    return 'This destination has no configured printer available. Update its printers before submitting labels.'
+    return 'No configured printer is available. Check the destination’s printer settings.'
   if (!auth.atLeast(form.destination_id, 'print'))
-    return 'Your label will be sent for approval. It enters the print queue only after an approver accepts it.'
+    return 'Approval is required before this label enters the queue.'
   if (destination.value?.automatic_printing_held)
-    return 'Automatic printing is held. These copies will wait for a manual flush or resume.'
+    return 'Automatic printing is held. Print manually or resume to print these copies.'
   if (
     destination.value?.kind === 'group' &&
     destination.value.printer_ids.some(
       (id) => !w.printerStatuses.value.some((state) => state.printer_id === id),
     )
   )
-    return 'This group routes queued labels to an available member with matching tape. Printing starts when the queue is ready.'
+    return 'Labels wait for a ready group member with matching tape and enough copies to reach the threshold.'
   if (!matchingPrinters.value.length)
-    return 'This label will wait until its tape is installed at the selected destination.'
+    return 'Waiting for this tape to be installed at the destination.'
   if (matchingPrinters.value.every((s) => s.automatic_printing_held))
-    return 'The matching printers are held. These copies will wait for a manual flush or resume.'
-  return 'This tape is installed at the selected destination. Eligible copies can print once a matching printer is ready and the queue threshold is reached.'
+    return 'Matching printers are held. Print manually or resume to print these copies.'
+  return 'Tape installed. Automatic printing starts when a matching printer is ready and the threshold is reached.'
 })
 const template = computed(() => templates.value.find((t) => t.id === form.template))
 const adaptiveText = computed(() => template.value?.id === 'text' && template.value.revision === 2)
@@ -201,7 +201,7 @@ async function submit() {
 </script>
 <template>
   <div v-if="!profiles.length" class="panel empty">
-    <h2>First, choose your tape.</h2>
+    <h2>No tape profiles</h2>
     <p>Add a tape profile before submitting a label.</p>
     <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
       >Create tape profile</RouterLink
@@ -209,7 +209,7 @@ async function submit() {
     <p v-else class="help">Ask an administrator to create a tape profile.</p>
   </div>
   <div v-else-if="!templates.length" class="panel empty">
-    <h2>Create your first template.</h2>
+    <h2>No templates</h2>
     <RouterLink class="button primary" to="/templates/new">Open visual editor</RouterLink>
   </div>
   <div v-else class="two-column">

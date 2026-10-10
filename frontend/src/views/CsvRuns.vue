@@ -450,9 +450,9 @@ onMounted(load)
         {{ run.rows.length }} records · {{ run.copies }} copies
       </p>
       <p>
-        {{ run.label_length_mm.toFixed(2) }} mm total label length. Estimated tape use as one batch:
-        {{ run.estimated_mm.toFixed(2) }} mm. Other queued labels and separate attempts can change
-        overhead. Estimates need calibration against physical tape use.
+        Labels: {{ run.label_length_mm.toFixed(2) }} mm · Estimated tape:
+        {{ run.estimated_mm.toFixed(2) }} mm as one batch. Actual use depends on feed, cuts, and
+        retries.
       </p>
       <div v-if="run.print_plan" class="inset">
         <strong>Planned tape sequence</strong>
@@ -483,8 +483,8 @@ onMounted(load)
       </p>
       <template v-else
         ><p class="help">
-          Submitting adds every row together. Normal tape thresholds and automatic-print hold apply;
-          an eligible run may print immediately after submission.
+          The entire run enters the queue together. It may print immediately if the threshold is
+          reached and automatic printing is enabled.
         </p>
         <p v-if="!auth.atLeast(run.destination_id, 'print')" class="help">
           The entire run will wait for approval before entering the queue.

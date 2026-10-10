@@ -137,7 +137,6 @@ function move(index: number, offset: number) {
 </script>
 <template>
   <div class="section-heading">
-    <p class="muted">Each printer keeps its own cartridge, queue hold and batch review.</p>
     <div class="row wrap">
       <button v-if="auth.can('printers.manage')" class="secondary" @click="editPrinter()">
         Add printer</button
@@ -198,8 +197,7 @@ function move(index: number, offset: number) {
     </PropertySection>
 
     <p class="help">
-      USB serial is optional for a single Brother printer. When using several, enter a distinct
-      serial for each here. All printer settings are saved in this application.
+      USB serial is optional for one printer. Multiple printers each need a distinct serial.
     </p>
     <div class="row">
       <button class="primary" :disabled="w.busy.value">
@@ -210,8 +208,8 @@ function move(index: number, offset: number) {
   <p v-if="!w.printers.value.length && !showPrinter" class="panel empty">
     {{
       auth.can('printers.manage')
-        ? 'No printers yet. Add your first printer to get started.'
-        : 'No individual printers are assigned to you. Your permitted distribution groups are shown below.'
+        ? 'No printers registered.'
+        : 'No direct printer access. Available groups are listed below.'
     }}
   </p>
   <div class="printer-cards">
@@ -342,9 +340,8 @@ function move(index: number, offset: number) {
       </li>
     </ol>
     <p class="help">
-      When several printers have the required tape, the first available matching member is
-      preferred. Members must share printable geometry and resolution settings. CSV runs stay
-      together on one printer.
+      The first ready member with matching tape is used. Members need matching geometry and
+      resolution. CSV runs stay on one printer.
     </p>
     <div class="row">
       <button class="primary" :disabled="w.busy.value || !group.printer_ids.length">

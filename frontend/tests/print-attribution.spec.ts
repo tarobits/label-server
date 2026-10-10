@@ -127,7 +127,6 @@ test('activity separates label requester, approver, release and manual batch sta
       animations: 'disabled',
     })
 
-    // Direct submissions attribute both requested/approved fields to their submitter.
     const direct = await operator.request.post('/api/jobs', {
       headers: operator.headers,
       data: {

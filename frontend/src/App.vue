@@ -113,7 +113,7 @@ onUnmounted(() => {
       <aside class="sidebar">
         <RouterLink class="brand" to="/"
           ><span class="brand-icon"><Icon name="printer" /></span
-          ><span>Label room<small>HOMELAB PRINT STUDIO</small></span></RouterLink
+          ><span>Label room</span></RouterLink
         >
         <div class="nav-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
@@ -183,7 +183,6 @@ onUnmounted(() => {
           <header class="page-header">
             <div>
               <h1>{{ route.meta.title }}</h1>
-              <p>{{ route.meta.subtitle }}</p>
             </div>
             <RouterLink
               v-if="route.path !== '/new' && auth.any('request')"
@@ -260,7 +259,10 @@ onUnmounted(() => {
             :key="auth.user.value.id"
           />
           <footer class="page-footer">
-            <span>Made with ♥ by <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span>
+            <span
+              >Made with ♥ by
+              <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span
+            >
           </footer>
         </main>
       </div>

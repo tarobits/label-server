@@ -57,7 +57,7 @@ test('invite a member, request approval, and approve frozen labels without expos
   const member = await memberContext.newPage()
   try {
     await member.goto('/#/new')
-    await expect(member.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    await expect(member.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(member.getByRole('navigation')).toHaveCount(0)
     await member.getByRole('button', { name: 'Create an account', exact: true }).click()
     await member.getByLabel('Username', { exact: true }).fill('member')
@@ -96,7 +96,7 @@ test('invite a member, request approval, and approve frozen labels without expos
     await member.goto('/#/admin')
     await expect(member.getByRole('heading', { name: 'Access restricted' })).toBeVisible()
     await member.getByRole('button', { name: 'Sign out', exact: true }).click()
-    await expect(member.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    await expect(member.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(member.getByRole('navigation')).toHaveCount(0)
     expect(
       await member.evaluate(() =>
@@ -348,7 +348,7 @@ test('group-only moderators reach scoped queue controls without physical configu
     await member.goto('/#/new')
     await member.getByLabel('Label text').fill('Scoped group label')
     await expect(
-      member.getByText('This group routes queued labels', { exact: false }),
+      member.getByText('Labels wait for a ready group member', { exact: false }),
     ).toBeVisible()
     await member.getByRole('button', { name: 'Add to queue', exact: true }).click()
     await expect(member).toHaveURL(/#\/queue/)

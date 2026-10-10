@@ -231,10 +231,9 @@ test('automatic hold is visible, persists after reload, and resumes explicitly',
   ).toBeVisible()
   await page.getByRole('link', { name: 'New label', exact: true }).click()
   await expect(
-    page.getByText(
-      'Automatic printing is held. These copies will wait for a manual flush or resume.',
-      { exact: true },
-    ),
+    page.getByText('Automatic printing is held. Print manually or resume to print these copies.', {
+      exact: true,
+    }),
   ).toBeVisible()
   await page.goto('/')
   await page.getByRole('button', { name: 'Resume automatic printing', exact: true }).click()
@@ -743,6 +742,7 @@ test('template resolution, text padding, rulers and object bounds work together'
       node.dispatchEvent(new Event('input', { bubbles: true }))
     }, zoom)
     await expect(canvas).toHaveAttribute('width', String((60 * 8 * zoom) / 100))
+    await canvas.scrollIntoViewIfNeeded()
     await page.locator('.editor-canvas-scroll').evaluate((node) => {
       node.scrollLeft = 50
     })

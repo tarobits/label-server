@@ -30,7 +30,6 @@ async function archive(template: Template) {
 </script>
 <template>
   <div class="section-heading">
-    <p class="muted">Design reusable labels with text, QR codes, and shapes.</p>
     <RouterLink class="button primary" to="/templates/new">Create template</RouterLink>
   </div>
   <div class="card-grid">

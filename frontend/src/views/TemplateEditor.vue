@@ -833,11 +833,13 @@ onUnmounted(() => {
             : showPrintPixels
               ? 'Device raster preview'
               : 'Smooth design preview'
-        }}. Drag elements or use arrow keys; resize with the corner handle.
+        }}
       </p>
       <p v-if="document.auto_length || document.out_of_bounds === 'clip'" class="help">
-        Automatic length fits element boxes and margins (10–300 mm); tape width stays fixed.
-        Ignoring bounds clips the print to the guides. Hidden objects remain in the layer list.
+        <span v-if="document.auto_length">Automatic length: 10–300 mm.</span>
+        <span v-if="document.out_of_bounds === 'clip'">
+          Objects outside the guides are clipped but remain editable.
+        </span>
       </p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
@@ -922,8 +924,7 @@ onUnmounted(() => {
               @change="record"
             ></textarea
             ><span class="help"
-              >Bind variables using double braces, for example <code v-pre>{{ name }}</code
-              >.</span
+              >Use <code v-pre>{{ name }}</code> for a variable.</span
             ></label
           >
           <template v-if="selected.kind === 'image'">
@@ -981,8 +982,8 @@ onUnmounted(() => {
                   @change="setQrMargin"
               /></label>
               <p class="help">
-                Margin on each side, inside the box. Use 0 to fill to the edges, or leave blank for
-                the automatic clear border. Leave clear space around the code for scanning.
+                Inset on each side: 0 fills the box; blank adds a four-module border. Leave clear
+                space around the code for scanning.
               </p>
             </template>
           </template>
@@ -1022,8 +1023,7 @@ onUnmounted(() => {
               @change="record"
           /></label>
           <p class="help">
-            Brightness and contrast: 1 keeps the original. Dithering represents shading with ink
-            dots. The preview uses your tape colors.
+            Brightness and contrast: 1 keeps the original. Dithering creates shading with ink dots.
           </p>
         </PropertySection>
         <PropertySection v-if="selected.kind === 'text'" title="Typography">
@@ -1058,7 +1058,7 @@ onUnmounted(() => {
                 step="0.1"
                 @change="record"
             /></label>
-            <p class="help">Font size is the maximum. Text shrinks automatically to fit its box.</p>
+            <p class="help">Text shrinks to fit; this is its maximum size.</p>
             <div class="row">
               <label class="checkbox"
                 ><input
@@ -1193,10 +1193,8 @@ onUnmounted(() => {
             /></label>
           </template>
           <p class="help">
-            Keep a fixed gap between element edges, including rotation and padding. Use “Fit text
-            box width to content” for variable text. For a cable tag, make the divider follow the
-            first text, then make the second text follow the divider with the same gap. Removing the
-            followed element releases the distance holder.
+            Gap between element bounds, including rotation and padding. Deleting the anchor detaches
+            this element at its current position.
           </p>
         </PropertySection>
         <PropertySection title="Arrange">
@@ -1221,10 +1219,7 @@ onUnmounted(() => {
       <h2>Variable fields</h2>
       <button @click="addField">Add variable</button>
     </div>
-    <p class="help">
-      These fields become the submission form. Sample values are used only in the editor; defaults
-      are used when submitting labels.
-    </p>
+    <p class="help">Samples are used in the editor. Defaults prefill the label submission form.</p>
     <div v-for="(field, index) in document.fields" :key="index" class="variable-row">
       <label
         >Variable name<input

@@ -78,7 +78,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
   <div class="stats-grid fleet-stats" :class="{ 'groups-only': !w.printers.value.length }">
     <article class="stat" aria-label="Queued labels">
       <span>QUEUED LABELS</span><strong>{{ w.totalQueued.value }}<small>copies</small></strong>
-      <p>Across queues you can view, with each copy counted once</p>
+      <p>Copies in accessible queues</p>
     </article>
     <template v-if="w.printers.value.length">
       <article class="stat" aria-label="Connected printers">
@@ -94,12 +94,10 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
       </article>
       <article class="stat" aria-label="Printers needing review">
         <span>NEEDS YOUR REVIEW</span><strong>{{ reviews }}<small>printers</small></strong>
-        <p>Interrupted batches you can reconcile</p>
       </article>
     </template>
     <article v-else class="stat" aria-label="Distribution groups">
       <span>DISTRIBUTION GROUPS</span><strong>{{ groups.length }}</strong>
-      <p>Shared destinations available to your account</p>
     </article>
   </div>
 
@@ -107,9 +105,6 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
     <div class="section-heading">
       <div>
         <h2 id="fleet-printers-title">Your printers</h2>
-        <p class="help">
-          Live status and installed tape for every printer you can access directly.
-        </p>
       </div>
       <RouterLink v-if="auth.can('printers.manage')" to="/printers" class="text-link"
         >Manage printers →</RouterLink
@@ -193,9 +188,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
           {{ state(device.id)?.blocker }}
         </p>
         <div class="fleet-queue">
-          <p class="help">
-            Copies sent directly to this printer. Group queues are shown separately below.
-          </p>
+          <p class="help">Direct queue · copies / threshold</p>
           <div
             v-for="queue in waiting(directQueue(device.id))"
             :key="queue.profile_id"
@@ -268,7 +261,6 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
     <div class="section-heading">
       <div>
         <h2 id="fleet-groups-title">Distribution groups</h2>
-        <p class="help">Each group queue is counted once, independently of its member printers.</p>
       </div>
     </div>
     <div class="fleet-grid">
@@ -301,8 +293,8 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
           No configured member printer is available. Existing labels remain queued.
         </p>
         <p class="help">
-          Routes labels to a matching tape across {{ group.printer_ids.length }} member
-          {{ group.printer_ids.length === 1 ? 'printer' : 'printers' }}.
+          {{ group.printer_ids.length }} member
+          {{ group.printer_ids.length === 1 ? 'printer' : 'printers' }} · copies / threshold
         </p>
         <dl class="fleet-metrics">
           <div>

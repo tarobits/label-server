@@ -111,11 +111,9 @@ async function visibility(asset: ImageAsset) {
   <section class="panel">
     <h2>Image library</h2>
     <p class="help">
-      Hiding an image removes it from new selections. Saved templates and queued jobs keep the
-      original artwork and their own brightness and contrast settings. Unused images can be
-      permanently deleted. Click a preview to enlarge it.
+      Hidden images remain available to saved labels. Only unused images can be permanently deleted.
     </p>
-    <p v-if="!w.images.value.length" class="empty">Upload your first image to get started.</p>
+    <p v-if="!w.images.value.length" class="empty">No images uploaded.</p>
     <div v-else class="table-scroll">
       <table class="image-library-table">
         <thead>
@@ -236,10 +234,7 @@ async function visibility(asset: ImageAsset) {
           :alt="preview.name"
           @error="previewFailed = true"
         />
-        <p class="help">
-          {{ preview.width }} × {{ preview.height }} px · Original artwork. Print conversion is set
-          per template.
-        </p>
+        <p class="help">{{ preview.width }} × {{ preview.height }} px · Original artwork</p>
       </template>
     </dialog>
   </Teleport>

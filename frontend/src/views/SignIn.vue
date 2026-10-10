@@ -38,23 +38,14 @@ async function submit() {
     <form class="panel form-stack auth-card" @submit.prevent="submit">
       <div class="nav-label">LABEL ROOM</div>
       <h1>
-        {{ setup ? 'Make yourself at home' : registering ? 'Create your account' : 'Welcome back' }}
+        {{ setup ? 'Create administrator' : registering ? 'Create account' : 'Sign in' }}
       </h1>
-      <p class="muted">
-        {{
-          setup
-            ? 'Create the first administrator account to set up your label workspace.'
-            : registering
-              ? 'Your labels, templates, and print requests in one place.'
-              : 'Sign in to your label workspace.'
-        }}
-      </p>
       <div v-if="error" class="alert danger" role="alert">{{ error }}</div>
       <label v-if="setup"
         >Setup token<input v-model="form.setup_token" autocomplete="off" required />
         <span class="help"
           >Use the token from the server’s startup logs or <code>auth-setup-token</code> in its data
-          directory. This verifies that you own the server.</span
+          directory.</span
         >
       </label>
       <label
@@ -85,7 +76,6 @@ async function submit() {
           :required="auth.session.value?.registration_code_required"
         /><span class="help">Ask your administrator for a registration code.</span></label
       >
-      <p v-if="registering" class="help">New accounts send labels for approval before printing.</p>
       <button class="primary" :disabled="busy">
         {{
           busy

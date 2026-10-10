@@ -324,10 +324,7 @@ onMounted(() => {
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <p v-if="success" class="alert success" role="status">{{ success }}</p>
   <div class="panel">
-    <p>
-      Assign roles directly to people. Roles grant application permissions and access to specific
-      print destinations. Template groups share designs and control collaboration.
-    </p>
+    <p>Roles grant printer and application access. Template groups control sharing and editing.</p>
   </div>
   <section class="panel">
     <PropertySection title="Users" initially-open>
@@ -650,10 +647,7 @@ onMounted(() => {
       @cancel.prevent="cancelPreview"
     >
       <h2 id="access-preview-title">Review effective access</h2>
-      <p>
-        Compare access before and after this change. Unchanged users remain visible so overlapping
-        roles can be checked.
-      </p>
+      <p>Review each user’s access before applying this change.</p>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
       <div v-if="impact" class="table-scroll">
         <table>

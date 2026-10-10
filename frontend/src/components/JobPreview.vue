@@ -61,10 +61,7 @@ function enlarge() {
         :alt="`Enlarged label: ${text}`"
         @error="failed = true"
       />
-      <p class="help">
-        {{ lengthMm }} × {{ widthMm }} mm · Saved print pixels, shown in black and white. The copy’s
-        outcome is shown in the history table.
-      </p>
+      <p class="help">{{ lengthMm }} × {{ widthMm }} mm · Saved print pixels</p>
     </dialog>
   </Teleport>
 </template>
