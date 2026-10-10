@@ -37,6 +37,8 @@ class Element(Input):
     content: str = Field(default="", max_length=2000)
     font: str = Field(default="Noto Sans", pattern=r"^(Noto Sans|[a-f0-9]{64})$")
     font_size: float = Field(default=3, ge=1, le=24)
+    character_spacing: float = Field(default=0, ge=0, le=20)
+    line_spacing: float = Field(default=0, ge=0, le=20)
     bold: bool = False
     align: Literal["left", "center", "right"] = "left"
     vertical_align: Literal["top", "center", "bottom"] = "top"

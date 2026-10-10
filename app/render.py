@@ -3,6 +3,7 @@
 import base64
 import io
 import math
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from html import escape
@@ -103,6 +104,47 @@ def font_path(element: Element, fonts: FontStore | None) -> str | None:
     return str(fonts.path(element.font))
 
 
+def right_to_left(text: str) -> bool:
+    return any(unicodedata.bidirectional(char) in ("R", "AL") for char in text)
+
+
+def text_clusters(text: str) -> list[str]:
+    """Keep accents, variation selectors and joined characters with their base."""
+    # Bidirectional runs need whole-run shaping and visual ordering. Keep their
+    # joining intact rather than separating letters into isolated SVG chunks.
+    if right_to_left(text):
+        return [text] if text else []
+    clusters: list[str] = []
+    for char in text:
+        if clusters and (
+            unicodedata.category(char).startswith("M")
+            or char == "\u200d"
+            or clusters[-1].endswith("\u200d")
+            or unicodedata.combining(clusters[-1][-1]) == 9  # Virama joins the next consonant.
+        ):
+            clusters[-1] += char
+        else:
+            clusters.append(char)
+    return clusters
+
+
+def text_advance(font: ImageFont.FreeTypeFont, text: str, spacing: float) -> float:
+    # Explicit tracking must separate optional ligatures such as ffi. Preserve
+    # normal kerning and the original shaping path when no tracking is requested.
+    features = (
+        ["-liga", "-clig"]
+        if spacing and len(text_clusters(text)) > 1 and font.layout_engine == ImageFont.Layout.RAQM
+        else None
+    )
+    return font.getlength(text, features=features) / 100
+
+
+def text_width(font: ImageFont.FreeTypeFont, text: str, spacing: float) -> float:
+    if not spacing:
+        return font.getlength(text) / 100
+    return text_advance(font, text, spacing) + max(0, len(text_clusters(text)) - 1) * spacing
+
+
 def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str:
     path = font_path(element, fonts)
     family = "Noto Sans" if path is None else f"LabelFont_{element.font[:48]}"
@@ -117,25 +159,36 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
     if inner_width <= 0 or inner_height <= 0:
         raise ValueError(f"Element {element.id}: text padding leaves no space for text")
 
+    def width(line: str, scale: float) -> float:
+        return text_width(font, line, element.character_spacing) * scale
+
+    def block_height(count: int) -> float:
+        return count * base_line_height + max(0, count - 1) * element.line_spacing
+
     def layout(scale: float) -> list[str] | None:
         lines: list[str] = []
         for paragraph in paragraphs:
             if not element.wrap:
-                if font.getlength(paragraph) * scale / 100 > inner_width:
+                if width(paragraph, scale) > inner_width:
                     return None
                 lines.append(paragraph)
                 continue
             line = ""
-            for char in paragraph:
-                if font.getlength(line + char) * scale / 100 > inner_width:
-                    if not line or font.getlength(char) * scale / 100 > inner_width:
+            characters = (
+                text_clusters(paragraph)
+                if element.character_spacing and not right_to_left(paragraph)
+                else paragraph
+            )
+            for char in characters:
+                if width(line + char, scale) > inner_width:
+                    if not line or width(char, scale) > inner_width:
                         return None
                     lines.append(line)
                     line = char
                 else:
                     line += char
             lines.append(line)
-        return lines if len(lines) * base_line_height * scale <= inner_height else None
+        return lines if block_height(len(lines)) * scale <= inner_height else None
 
     scale = 1.0
     lines = layout(scale)
@@ -144,7 +197,7 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
         # a minimum font-size rejection. The chosen size remains the upper bound.
         low = 0.0
         widest = max((font.getlength(c) / 100 for c in text if c not in "\n\r\t"), default=0)
-        high = min(1.0, inner_height / (len(paragraphs) * base_line_height))
+        high = min(1.0, inner_height / block_height(len(paragraphs)))
         if widest:
             high = min(high, inner_width / widest)
         for _ in range(32):
@@ -156,15 +209,35 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
         scale = low
         lines = layout(scale)
         assert lines is not None
-    line_height = base_line_height * scale
+    line_height = (base_line_height + element.line_spacing) * scale
     anchor = {"left": "start", "center": "middle", "right": "end"}[element.align]
     x = {"left": 0, "center": inner_width / 2, "right": inner_width}[element.align]
-    remaining = max(0, inner_height - len(lines) * line_height)
+    remaining = max(0, inner_height - block_height(len(lines)) * scale)
     y_offset = {"top": 0, "center": remaining / 2, "bottom": remaining}[element.vertical_align]
     parts = []
     for index, line in enumerate(lines):
+        content = escape(line)
+        line_anchor = anchor
+        if element.character_spacing:
+            # resvg tracks shaped clusters and retains optional ligatures. Give
+            # each character cluster an explicit origin so measured advances,
+            # kerning, accents and physical character gaps match the output.
+            line_anchor = "start"
+            offset = {"left": 0, "center": -width(line, scale) / 2, "right": -width(line, scale)}[
+                element.align
+            ]
+            prefix = ""
+            spans = []
+            for position, cluster in enumerate(text_clusters(line)):
+                prefix += cluster
+                advance = text_advance(font, prefix, element.character_spacing) - text_advance(
+                    font, cluster, element.character_spacing
+                )
+                origin = x + offset + (advance + position * element.character_spacing) * scale
+                spans.append(f'<tspan x="{origin}">{escape(cluster)}</tspan>')
+            content = "".join(spans)
         parts.append(
-            f'<text x="{x}" y="{y_offset + ascent * scale / 100 + index * line_height}" font-family="{family}" font-size="{element.font_size * scale}" font-weight="{700 if element.bold and path is None else 400}" text-anchor="{anchor}" xml:space="preserve">{escape(line)}</text>'
+            f'<text x="{x}" y="{y_offset + ascent * scale / 100 + index * line_height}" font-family="{family}" font-size="{element.font_size * scale}" font-weight="{700 if element.bold and path is None else 400}" text-anchor="{line_anchor}" xml:space="preserve">{content}</text>'
         )
     body = "".join(parts)
     if any(
@@ -189,7 +262,6 @@ def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
     qr.add_data(content)
     qr.make(fit=True)
     matrix = qr.get_matrix()
-    # Reserve either the requested physical margin or the automatic quiet zone.
     margin = (element.qr_margin_mm or 0) if explicit_margin else 0
     available = element.width - 2 * margin
     qr_dpi = min(spec.horizontal_dpi, spec.dpi)
@@ -238,7 +310,14 @@ def resolve_layout(
             lines = content.replace("\t", "    ").splitlines() or [""]
             # Round outward so floating point measurement never forces an extra wrap.
             element.width = (
-                max(0.1, math.ceil(max(font.getlength(line) for line in lines)) / 100)
+                max(
+                    0.1,
+                    math.ceil(
+                        max(text_width(font, line, element.character_spacing) for line in lines)
+                        * 100
+                    )
+                    / 100,
+                )
                 + element.padding_left
                 + element.padding_right
             )
