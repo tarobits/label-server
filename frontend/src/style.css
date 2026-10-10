@@ -983,6 +983,13 @@ fieldset {
   flex-direction: column;
   gap: 20px;
 }
+legend {
+  padding: 0;
+  margin-bottom: 7px;
+  color: var(--text-label);
+  font-size: 13px;
+  font-weight: 600;
+}
 fieldset button {
   align-self: flex-start;
 }

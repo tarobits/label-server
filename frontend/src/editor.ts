@@ -17,6 +17,8 @@ export interface Element {
   content: string
   font: string
   font_size: number
+  character_spacing?: number
+  line_spacing?: number
   bold: boolean
   align: 'left' | 'center' | 'right'
   vertical_align?: 'top' | 'center' | 'bottom'
@@ -82,6 +84,8 @@ export function newElement(kind: Element['kind']): Element {
     content: kind === 'qr' ? 'https://example.org' : kind === 'text' ? 'Your label' : '',
     font: 'Noto Sans',
     font_size: 3,
+    character_spacing: 0,
+    line_spacing: 0,
     bold: false,
     align: 'left',
     vertical_align: 'top',

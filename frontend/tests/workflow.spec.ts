@@ -162,6 +162,8 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await page.getByLabel('Height (mm)', { exact: true }).fill('20')
   await page.getByLabel('Content', { exact: true }).fill('{{asset}}')
   await page.getByRole('button', { name: 'Spacing & alignment', exact: true }).click()
+  await page.getByLabel('Horizontal character spacing (mm)', { exact: true }).fill('0.3')
+  await page.getByLabel('Vertical line spacing (mm)', { exact: true }).fill('1.1')
   await page
     .getByRole('combobox', { name: 'Vertical text alignment', exact: true })
     .selectOption('center')
@@ -179,6 +181,12 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await expect(page.getByText('Revision 1', { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Template name', { exact: true })).toHaveValue('Asset labels')
+  await page.getByRole('button', { name: '1. text', exact: true }).click()
+  await page.getByRole('button', { name: 'Spacing & alignment', exact: true }).click()
+  await expect(page.getByLabel('Horizontal character spacing (mm)', { exact: true })).toHaveValue(
+    '0.3',
+  )
+  await expect(page.getByLabel('Vertical line spacing (mm)', { exact: true })).toHaveValue('1.1')
   await expect(page.getByRole('button', { name: '2. qr', exact: true })).toBeVisible()
   await expect(page.locator('svg image')).toBeVisible()
   await expect(page.getByLabel('Show print pixels', { exact: true })).toBeChecked()
@@ -200,6 +208,8 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   const queued = jobs.find((job: { template_id: string }) => job.template_id === id)
   expect(queued.template_snapshot.revision).toBe(1)
   expect(queued.template_snapshot.document.elements[0].vertical_align).toBe('center')
+  expect(queued.template_snapshot.document.elements[0].character_spacing).toBe(0.3)
+  expect(queued.template_snapshot.document.elements[0].line_spacing).toBe(1.1)
   expect(queued.template_snapshot.document.elements[1].qr_margin_mm).toBe(0.5)
   await page.goto(`/#/templates/${id}/edit`)
   await page.getByLabel('Template name', { exact: true }).fill('Asset labels v2')

@@ -420,6 +420,11 @@ function setPadding(side: (typeof paddingSides)[number], event: Event) {
   selected.value[`padding_${side}`] = Number((event.target as HTMLInputElement).value)
   record()
 }
+function setTextSpacing(key: 'character_spacing' | 'line_spacing', event: Event) {
+  if (!selected.value) return
+  selected.value[key] = Number((event.target as HTMLInputElement).value)
+  record()
+}
 function chooseImageFile(event: Event) {
   imageFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
 }
@@ -1068,10 +1073,39 @@ onUnmounted(() => {
             </div></template
           >
           <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
-            Uploaded fonts use the chosen face’s own weight. Upload a bold face to use bold text.
+            For bold text, select an uploaded bold face.
           </p>
         </PropertySection>
         <PropertySection v-if="selected.kind === 'text'" title="Spacing &amp; alignment">
+          <fieldset class="text-padding">
+            <legend>Text spacing (mm)</legend>
+            <div class="field-row">
+              <label
+                >Horizontal<input
+                  aria-label="Horizontal character spacing (mm)"
+                  :value="selected.character_spacing ?? 0"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.1"
+                  @input="setTextSpacing('character_spacing', $event)"
+              /></label>
+              <label
+                >Vertical<input
+                  aria-label="Vertical line spacing (mm)"
+                  :value="selected.line_spacing ?? 0"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.1"
+                  @input="setTextSpacing('line_spacing', $event)"
+              /></label>
+            </div>
+          </fieldset>
+          <p class="help">
+            Extra gaps between characters and lines. Zero uses normal spacing; gaps shrink with
+            text.
+          </p>
           <fieldset class="text-padding">
             <legend>Text padding (mm)</legend>
             <div
