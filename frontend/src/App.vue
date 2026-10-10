@@ -260,9 +260,7 @@ onUnmounted(() => {
             :key="auth.user.value.id"
           />
           <footer class="page-footer">
-            Built for the little things that deserve a label.<span>{{
-              fleetPage ? fleetSummary : status?.printer_name
-            }}</span>
+            <span>Made with ♥ by <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span>
           </footer>
         </main>
       </div>

@@ -301,14 +301,6 @@ async function submit() {
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
         {{ warning }}
       </p>
-      <div class="note">
-        <strong>Design and print views share the same layout.</strong>
-        <p>
-          The smooth view renders the design at higher resolution. Enable Show print pixels to
-          inspect the actual monochrome raster. Physical print quality still needs verification on
-          the Brother printer.
-        </p>
-      </div>
     </section>
   </div>
 </template>
