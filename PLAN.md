@@ -52,8 +52,8 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
   geometry through capabilities, and keep driver commands separate from USB/IP
   transport. Wi-Fi and Ethernet use network endpoints; Wi-Fi provisioning and
   discovery are future integrations. Shipping printer drivers and real network
-  printing are not part of this implementation. A single active destination can use the mock or Brother USB driver; independent
-  multi-printer scheduling remains future work.
+  printing are not part of this implementation. Independent Brother USB printers and groups are operational. Groups route
+  jobs by installed tape profile; other drivers remain deferred.
 - **Required physical implementation:** the Brother PT-P710BT remains in scope,
   including its USB backend, status/width detection and verified batch/cut/feed
   behavior in stages 4–5. Only additional printer models (including shipping
@@ -133,7 +133,7 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
 6. **Deployment:** container image, Compose, persistent volumes and Debian LXC
    USB passthrough documentation with the built Vue app served by FastAPI.
    Verify restarts, printer power loss, tape exhaustion and ntfy outages. Document
-   single worker operation, backups, upgrades, restores and LAN exposure.
+   single-process operation with one worker per printer, backups, upgrades, restores and LAN exposure.
 7. **Integrations:** document REST workflows and add idempotency keys before
    integration retries can create duplicate jobs. Verify HomeBox extension points
    before implementing its specific integration; retain direct REST support for
@@ -141,6 +141,23 @@ worker. No Brother protocol concerns may enter queue/domain code (AGENTS.md).
    frozen image-job submission, plus a standalone HomeBox print-command bridge.
    Reuse generic printable geometry, resolution and queue policies. Verify the
    bridge in the user's HomeBox deployment separately from API/client tests.
+
+7a. **Operational printers and groups (2026-10-04):** persist independent
+   printers, cartridges, holds and status; reserve work transactionally with one
+   physical worker per device. Add explicit group destinations with ordered
+   preference and routing by installed tape profile. Preserve immutable render
+   inputs and pin each CSV run to its first assigned printer. Scope interruption
+   review to the affected device and never fail over uncertain copies. Add group
+   and printer UI controls, destination selection/filtering, history attribution,
+   and group-aware missing-tape reminders using existing profile cadence/silence.
+   Require matching group rendering capabilities. Verify with concurrent mock
+   devices, restart/migration tests and browser workflows; physical two-USB-printer
+   acceptance remains open. Additional drivers/network printing stay deferred.
+   All printers now use the same web configuration form; the environment-owned
+   original printer and duplicate settings screen are removed. Mock hardware is
+   test-only. Startup supports an empty fleet, and the migration imports existing
+   physical configuration once while preserving history. Runtime printer and mock
+   environment variables have been removed; server/ntfy/deployment variables remain.
 
 8. **Multi-user administration and request approval — low priority, approval
    required:** implement the final phase specified below only after explicit user
@@ -199,8 +216,8 @@ Editor acceptance checks:
 
 These requirements come from the new TODO.md entries. Layout policies, automatic
 sizing, CSV run authoring/previews, font/image uploads and monochrome threshold
-and dithering are implemented. Native grayscale and physical chain-print
-verification remain pending.
+and dithering are implemented. Physical printer testing was validated by the
+user on 2026-10-04. Native grayscale remains deferred.
 
 - **Ignore out-of-bounds objects:** add an explicit, saved layout policy alongside
   strict validation. Implemented behavior: clip objects to the printable area, omit
@@ -258,8 +275,9 @@ personal-template-scope / destination references, and notification recipient
 routing ahead of the delivery adapter. Migration `c52d171ca013` backfills existing
 records without changing frozen documents, run manifests or copy history. Legacy
 asset metadata resolves to the local owner without rewriting image/font bytes.
-The current worker only reserves the `main` destination. Accounts, tenant-filtered
-queries, membership checks and independent per-printer queues are not enabled.
+Stage 7a now provides independent workers for registered printers and explicit
+group routing. This describes the preparatory stage; account and membership
+enforcement are integrated in phase 8 below.
 
 The boundaries to extend in the gated phase are:
 
@@ -273,44 +291,67 @@ The boundaries to extend in the gated phase are:
   notification recipient selection separate from the ntfy delivery adapter.
   These are extension points now; do not activate moderation or account flows.
 - Plan per-printer access checks at service boundaries alongside the existing
-  printer registry and future per-destination queue isolation.
+  printer registry and per-destination queue isolation.
 
-## Phase 8: multi-user administration (explicit approval gate)
+## Phase 8: multi-user administration (implemented)
 
-This is the final, low-priority implementation phase. **Do not begin its feature
-implementation without explicit user approval.** The gate comes directly from
-TODO.md; it does not block the preparatory architecture above.
+Implemented against the design confirmed on 2026-10-04 in
+[docs/ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md). Registration codes remain the
+default; printing approval depends on the destination permission in the user's
+directly assigned roles. Backend and frontend integration, migrations and
+independent code review are complete.
 
 - **Authentication and registration:** add user accounts and administrator-issued
   registration codes. Make code-required registration configurable; turning it
   off permits registration without a code. Registration must not grant admin
   privileges, and existing records need an explicit local-owner migration.
-- **Roles and permissions:** administrators create roles, assign permissions and
-  manage users. Enforce permissions in the backend for every relevant operation,
-  with corresponding UI visibility. Define a permission matrix before coding.
-- **Groups and template scope:** administrators create groups and manage their
-  membership. Support personal, group-shared and global templates. Administrators
-  can see all templates; only administrators may create global templates. Specify
-  edit/share rights and membership-change behavior in the permission matrix.
-- **Printer access:** administrators grant access to each printer to individual
-  users and groups. Enforce access for submission, preview/status and applicable
-  management operations; never treat a hidden UI control as authorization.
-- **Approval requests:** introduce a separate durable request queue. Administrators
-  approve or reject requests; only approval can create executable print jobs.
-  Freeze the content being approved and make approval idempotent so retries
-  cannot duplicate jobs. Decide which roles may submit directly in the permission
-  matrix; pending requests do not count toward automatic printing thresholds.
+- **Roles and permissions:** roles contain permission objects and are assigned
+  directly to users only. The highest applicable access wins. Before applying a
+  role or membership change, show the administrator each affected user's effective
+  access before and after and require confirmation. Administrator is a protected
+  built-in role with every permission on all existing and future resources,
+  including templates in groups its users have not joined. Keep an active admin.
+- **Groups and template scope:** user groups centralize personal/group/global
+  template collaboration and never hand out roles. Roles do not grant access to
+  specific templates. Each membership independently controls creating templates,
+  editing others' templates and deleting others' templates. Owners can always
+  edit/delete their own templates. Only administrators publish global templates.
+- **Printer access:** role permissions target an individual printer or distribution
+  group with No access, Request only, Print, Moderator or Full. Group access applies
+  only through the group and never grants direct printer access. Full on a group
+  permits group configuration; adding a printer additionally requires Full on that
+  printer. Individual printer configuration requires direct Full access.
+- **Approval and queue management:** Request only submits for approval; Print
+  submits directly and starts own jobs. Moderator also manages the scoped queue
+  and approves/rejects scoped requests. Users can always cancel their own queued
+  jobs. Interrupted-batch review requires Moderator or Full directly on the
+  physical printer, irrespective of distribution-group permissions. Freeze request
+  content and make approval idempotent. Pending requests never affect thresholds.
+- **Revoked access:** disablement or lost access pauses affected queued jobs and
+  produces an administrator dashboard notice. Require an explicit administrator
+  release/cancel decision, including after access is restored. Preserve users'
+  ability to cancel their own queued work.
 - **Administrator notifications:** notify administrators when requests arrive via
   the existing durable notification system, preferably ntfy. Add configurable
   debounce/coalescing and summary counts/links so 50 requests can produce one
   notification. Persist pending summaries across restarts and bound postponement
   during continuous arrivals; delivery retries must never approve or print jobs.
 
-Acceptance: test code-required and open registration, role/group access changes,
-all template scopes, administrator visibility, per-user/group printer grants,
-unauthorized API calls, request isolation, exactly-once approval effects, and
-notification coalescing/restart behavior. Confirm the permission matrix and
-registration defaults as part of approval to implement this phase.
+Acceptance: test code-required/open registration, direct role assignment and
+highest-access combinations, membership-specific template rights, every printer
+tier, strict group-versus-printer scope, physical-printer batch review, protected
+administrator access to future resources and non-member templates, confirmed
+before/after access changes, queued-job holds and ownership rights, unauthorized
+API calls, request isolation, exactly-once approval and notification restart
+behavior.
+
+Verified on 2026-10-04: **269 backend tests and 28 Chromium browser tests passed**.
+Ruff, mypy, frontend formatting, the production build and both Compose
+configurations passed. Independent backend and frontend reviews were completed;
+their findings are fixed and covered by regressions. Desktop and mobile screens
+were visually inspected. Testing used isolated databases and test adapters; apply
+the migrations and rebuild/restart the application to enable this on an existing
+installation. The live database and printers were left untouched.
 
 ## Protocol research already checked
 
@@ -335,19 +376,20 @@ Reference: https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt
 
 Stage 1 uses an explicitly artificial mock renderer. Its output and consumption
 estimates are development fixtures, not production label rendering or verified
-PT-P710BT behavior. Physical behavior needs hardware acceptance testing.
+PT-P710BT behavior. The production adapter subsequently received user-reported
+physical validation on 2026-10-04.
 
 ## Implementation status
 
 Stages 1 and 2 are implemented. The backend integration suite covers the acceptance checks above,
 including real Alembic migrations, application restart and worker ownership.
-The API is usable through FastAPI's `/docs`. Docker/Compose defaults to mock mode
-and includes an opt-in USB override; Compose configuration was validated, but the image has not been
+The API is usable through FastAPI's `/docs`. Docker/Compose starts with no devices
+and includes a USB mapping override; Compose configuration was validated, but the image has not been
 built or run because no Docker daemon was available in the development session.
 The Vue workflow includes a responsive dashboard, submission, filtered queue,
 profile/cartridge management, reminder controls, consumption corrections,
-activity and copy-level review. Mock controls exercise interruption and connection
-failures. A production frontend build is served by FastAPI; the Dockerfile also
+activity and copy-level review. Test-only adapters exercise interruption and connection
+failures; no mock printer or controls are exposed in production. A production frontend build is served by FastAPI; the Dockerfile also
 builds it. Chromium tests cover the full interrupted-batch workflow, reminders,
 mobile layout and error handling. The tape appearance sample is not a print preview.
 
@@ -355,16 +397,17 @@ Stage 3 is implemented: a visual text/QR/shape editor with drag, resize, rotatio
 layer ordering, numeric geometry, undo/redo, field bindings and revisioned saves.
 Backend SVG rendering produces a smooth, higher-resolution design preview and
 the immutable job's 1-bit raster using bundled fonts. A Show print pixels toggle
-exposes the exact raster; physical print quality remains unverified. Tests decode rendered QR codes, compare preview
+exposes the exact raster. Physical printer testing was subsequently validated by
+the user on 2026-10-04. Tests decode rendered QR codes, compare preview
 pixels with print pixels and verify that edits cannot alter queued revisions.
 The automatic-print hold from TODO.md persists across restarts, permits manual
 flushes and preserves review safeguards. Browser coverage includes design, save,
 reopen, submission and hold/resume.
 
 Printer definitions, capabilities, USB/network connection types and a driver
-registry establish extension points for multiple printers. The running queue is
-still single-printer; operational destination isolation is specified in
-`docs/PRINTER_ARCHITECTURE.md` before additional devices can be enabled.
+registry establish extension points for multiple printers. The running queue
+now supports independent printer workers and group routing as specified in
+`docs/PRINTER_ARCHITECTURE.md`. All Brother printers are registered and configured in the UI; fresh installations have no device.
 
 The layout portion of the stage 3 extension is implemented: saved strict/clipping
 policies, automatic continuous-label length and optional text width fitted to each
@@ -451,10 +494,38 @@ frozen raster inputs as printing, preserving CSV values, image assets and print
 resolution after later template edits. Previews show physical proportions in black
 and white; outcome badges remain authoritative for whether a copy was printed.
 
-Physical USB behavior, print quality, cuts and consumption calibration still await
-user verification using docs/HARDWARE_VERIFICATION.md. Container image execution
-also remains unverified here because no Docker daemon was running. These are
-acceptance gaps, not completed hardware checks. Backend and browser tests cover
+The user validated physical printer testing on 2026-10-04 after the review fixes;
+see docs/HARDWARE_VERIFICATION.md. No additional calibration measurements were
+reported. Container image execution remains unverified here because no Docker
+daemon was running. Backend and browser tests cover
 the software paths and Compose syntax is checked. Shipping-label and other printer drivers remain
-deferred; Wi-Fi/network support is architectural. Phase 8 is low priority and
-requires explicit approval before implementation.
+deferred; Wi-Fi/network support is architectural. Phase 8 is implemented against
+the agreed permission model; its acceptance checks and verification are above.
+
+The follow-up integration replaces the selected-printer Overview with a fleet
+dashboard: direct queues, group queues, installed tapes, remaining length, holds
+and review actions are scoped to their destination. Unavailable group members do
+not hide queued work; rendering, CSV preparation and approval use a configured
+member, while fully unavailable groups reject new submissions. Automatic holds
+remain on destination cards instead of appearing as global notifications.
+
+Print submissions and attempts now capture requester, approver, manual batch
+starter and access-hold release separately. Direct Print-or-higher submissions
+record one user as both requester and approver. Administrator submissions of
+another user's CSV draft retain its author, displayed with the administrator in
+parentheses. An author-access discrepancy requires an explicit administrator
+override before any jobs exist; queued overrides recheck the authorizer's access.
+Each attempt freezes its attribution, and migration `e84a91c607d2` conservatively
+leaves unsupported historical identities unknown.
+
+Initial enrollment also logs the pending setup token on startup and restarts;
+the token file remains available and token logging stops after setup completes.
+Browser tests launch the backend from this checkout explicitly, avoiding stale
+installed package copies, and use independent sessions for test accounts.
+
+Follow-up verification on 2026-10-09: 283 backend tests and all 34 Chromium browser
+tests passed against the current checkout. Ruff, mypy, frontend formatting, the
+production build and both Compose configurations passed. Independent reviews
+covered the override policy, immutable attribution, unavailable groups and browser
+session/runtime isolation. All verification used temporary databases and test
+printer adapters; the live database and hardware were not changed.

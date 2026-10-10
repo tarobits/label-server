@@ -1,6 +1,31 @@
 # REST integrations
 
 Use the same API for Home Assistant, Shortcuts, scripts and inventory systems.
+Create an account and assign it a role containing permission objects for the
+printers or distribution groups it needs. Print, Moderator or Full permits direct
+queue submission; Request only requires approval. A distribution-group permission
+does not grant direct access to its printers. Image upload also requires the
+`assets.write` application permission in a directly assigned role.
+
+The bundled clients read `LABEL_API_USERNAME` and `LABEL_API_PASSWORD` from their
+environment, sign in, retain the session cookie in memory and send the CSRF token.
+Keep credentials in the integration's secret store rather than command arguments.
+Copy `scripts/api_session.py` alongside the client when installing it elsewhere.
+Add `--request-approval` to either submission script to create a pending request.
+
+Other clients first POST `{"username":"…","password":"…"}` to `/api/auth/login`.
+Retain the returned cookie and send the response's `csrf_token` in the
+`X-CSRF-Token` header on every mutation. Sessions expire after seven days; sign in
+again after a 401. Use HTTPS outside localhost. Never put credentials in a URL.
+
+Administrator submission of another user's CSV draft can return HTTP 409 with
+`detail.code: "owner_access_discrepancy"`, an explanatory `detail.message` and
+`detail.override_allowed: true`. Present that discrepancy and obtain an explicit
+administrator confirmation before retrying `POST /api/runs/{id}/submit` with
+`{"authorization_override": true}`. The first response creates no jobs. Do not
+automatically retry this response: the override uses the administrator's print
+authorization and records it in the immutable print-attempt attribution.
+
 Find profile and template IDs via `GET /api/tape-profiles` and `GET /api/templates`.
 Preview first with `POST /api/preview` using a template ID and field data.
 
@@ -21,7 +46,7 @@ job history and therefore its receipt. CSV preparation uses its existing
 `request_key`; submission of a frozen run is independently idempotent.
 
 In Home Assistant, use an HTTP POST/rest_command to `/api/jobs`, JSON content type,
-an `Idempotency-Key` header derived from the originating event, and body fields
+the authenticated cookie and CSRF token, an `Idempotency-Key` header derived from the originating event, and body fields
 `template`, `tape_profile`, `copies` and `data`. In Shortcuts, use Get Contents of
 URL with the same POST and headers. Retain the originating key for retries rather
 than generating a new key per HTTP attempt. Inspect `/docs` for live schemas.
@@ -108,3 +133,10 @@ into yours. To verify configuration without queuing, temporarily add
 `--preview /tmp/label-preview.html` to the command and inspect that file. A
 successful submission means queued, not physically printed. For structured
 editable labels, map item fields to a saved template through `/api/jobs`.
+
+Retries using the same idempotency key and omitted destination keep the original
+resolved destination, even after more printers are added. Explicitly changing the
+destination with the same key returns 409. Label lengths are 10–300 mm across job,
+image and CSV inputs; tape widths are physical millimetres (3.5, not a wire code).
+A pending manual flush can be cancelled with `DELETE /api/queue/flush/{id}` without
+cancelling its jobs. Automatic holds remain until explicitly resumed.

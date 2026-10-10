@@ -19,14 +19,16 @@ to each field value. Resolved dimensions are frozen when queued. Tape width is f
 - Implement chain printing (with csv to populate fields) (Like the database printing in the p touch editor)
 
 CSV authoring implemented: import, field mapping, selected/reordered records, copy
-counts, durable frozen drafts and atomic, retry-safe submission. Brother USB multi-page and final-feed commands are implemented; physical
-chain/cut behavior and consumption calibration await the verification checklist.
+counts, durable frozen drafts and atomic, retry-safe submission. Brother USB
+multi-page and final-feed commands are implemented. The user validated physical
+printer testing on 2026-10-04; measured consumption calibration values have not
+been recorded.
 
 - Implement print previews for the chain printing as well
 
 Implemented: per-record smooth/raster previews and an ordered run overview with
-dimensions, copies and adapter-based tape estimate. Drafts also retain a planned feed/cut sequence. Physical behavior still needs
-verification with the Brother adapter.
+dimensions, copies and adapter-based tape estimate. Drafts also retain a planned
+feed/cut sequence. Physical printer testing was validated by the user on 2026-10-04.
 
 - Make fonts addable through the web UI
 
@@ -57,6 +59,12 @@ is available now as explicitly monochrome output, not native grayscale.
 
 - All user/group/role and permissions todos are low priority. They should be appended to the end of the implementation plan into a different phase which requires approval before proceeding with implementation. Although implement the vague archetectural structure so the future implementation does not require a full rewrite.
 
-Preparatory architecture implemented: local actor/policy boundary, durable ownership
-and printer references, and notification recipient routing. Account, group, role,
-permission and approval features remain gated by explicit phase 8 approval.
+Phase 8 implemented and verified on 2026-10-04. The agreed model uses
+roles assigned directly to users, per-member template-group rights, and five
+role-defined printer/distribution-group access levels. The protected Administrator
+role covers all existing and future resources, including all group templates.
+Access changes require an administrator preview/confirmation; lost access pauses
+queued jobs for an administrator decision. See PLAN.md and docs/ACCESS_CONTROL.md
+for the full specification and acceptance checks. Verification passed 269 backend
+tests and 28 browser tests, with independent backend/UI review. Existing
+installations require migrations, a frontend rebuild and a server restart.
