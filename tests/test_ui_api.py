@@ -1,9 +1,8 @@
 from pathlib import Path
 
+from conftest import create_test_app as create_app
 from conftest import install, job, profile
 from fastapi.testclient import TestClient
-
-from app.main import create_app
 
 
 def test_mock_controls_interrupt_once_and_link_to_review(client: TestClient) -> None:
@@ -21,7 +20,7 @@ def test_mock_controls_interrupt_once_and_link_to_review(client: TestClient) -> 
         == 200
     )
     queued = job(client, tape["id"], 2)
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     batch = client.get("/api/batches").json()[0]
     detail = client.get(f"/api/batches/{batch['id']}").json()
     assert detail["items"][0]["text"] == "example"
@@ -42,7 +41,7 @@ def test_mock_controls_are_validated_and_locked_during_printing(client: TestClie
         ).status_code
         == 422
     )
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     with worker.printer_lock:
         assert client.put("/api/printer/mock", json={"connected": False}).status_code == 409
     assert (
@@ -71,7 +70,7 @@ def test_job_filters_and_pending_flush_status(client: TestClient) -> None:
     assert client.get("/api/jobs?copy_state=invalid").status_code == 422
     flush = client.post("/api/queue/print").json()
     assert client.get("/api/status").json()["pending_flush"] == flush["id"]
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     assert client.get("/api/status").json()["pending_flush"] is None
 
 

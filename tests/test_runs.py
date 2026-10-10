@@ -30,8 +30,8 @@ def test_run_freezes_preview_and_submits_once_in_order(client: TestClient) -> No
     run = response.json()["run"]
     assert run["copies"] == 3 and run["estimated_mm"] == 200
     assert client.get("/api/jobs").json() == []
-    client.app.state.worker.tick()
-    assert not client.app.state.worker.backend.batches
+    client.app.state.fleet.workers["main"].tick()
+    assert not client.app.state.fleet.workers["main"].backend.batches
     preview = client.get(f"/api/runs/{run['id']}/rows/0/preview").json()
     template = client.get("/api/templates/text").json()
     template["document"]["elements"][0]["content"] = "Changed"
@@ -48,12 +48,14 @@ def test_run_freezes_preview_and_submits_once_in_order(client: TestClient) -> No
     assert [j["payload"]["text"] for j in submitted["jobs"]] == ["Second", "First, label"]
     retry = client.post(f"/api/runs/{run['id']}/submit").json()
     assert [j["id"] for j in retry["jobs"]] == [j["id"] for j in submitted["jobs"]]
-    client.app.state.worker.tick()
-    assert not client.app.state.worker.backend.batches
+    client.app.state.fleet.workers["main"].tick()
+    assert not client.app.state.fleet.workers["main"].backend.batches
     client.post("/api/queue/print")
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     expected = [copy["id"] for job in submitted["jobs"] for copy in job["labels"]]
-    assert [label.copy_id for label in client.app.state.worker.backend.batches[0]] == expected
+    assert [
+        label.copy_id for label in client.app.state.fleet.workers["main"].backend.batches[0]
+    ] == expected
 
 
 def test_invalid_rows_never_create_partial_run(client: TestClient) -> None:
@@ -114,7 +116,7 @@ def test_request_key_conflict_and_selection_validation(client: TestClient) -> No
 
 
 def test_draft_and_submitted_run_survive_restart(client: TestClient) -> None:
-    from app.main import create_app
+    from conftest import create_test_app as create_app
 
     run = client.post("/api/runs/prepare", json=run_body(client)).json()["run"]
     settings = client.app.state.settings
@@ -135,7 +137,7 @@ def test_run_interruption_preserves_copy_review_and_retry_order(client: TestClie
     run = client.post("/api/runs/prepare", json=body).json()["run"]
     jobs = client.post(f"/api/runs/{run['id']}/submit").json()["jobs"]
     ids = [copy["id"] for job in jobs for copy in job["labels"]]
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.backend.fail_after = 1
     worker.tick()
     assert client.get(f"/api/jobs/{jobs[0]['id']}").json()["labels"][0]["state"] == "printed"
@@ -154,9 +156,8 @@ def test_run_interruption_preserves_copy_review_and_retry_order(client: TestClie
 def test_run_migration_keeps_existing_jobs_and_copies(client: TestClient) -> None:
     from alembic import command
     from alembic.config import Config
+    from conftest import create_test_app as create_app
     from conftest import job
-
-    from app.main import create_app
 
     tape = profile(client)
     original = job(client, tape["id"], 2)

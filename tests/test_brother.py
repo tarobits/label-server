@@ -165,17 +165,22 @@ def test_strip_mode_and_estimate_are_explicit() -> None:
 def test_configured_brother_uses_real_capabilities_and_builtin_layout(
     client, resolution, dpi_x
 ) -> None:
+    from conftest import create_test_app as create_app
     from conftest import install, profile
     from fastapi.testclient import TestClient
 
-    from app.main import create_app
+    from app.models import PrinterDevice
 
-    settings = client.app.state.settings.model_copy(
-        update={"printer_backend": "brother-pt-p710bt", "printer_resolution": resolution}
-    )
+    settings = client.app.state.settings
+    with client.app.state.factory.begin() as session:
+        printer = session.get(PrinterDevice, "main")
+        printer.driver = "brother-pt-p710bt"
+        printer.config = {"resolution": resolution}
     client.__exit__(None, None, None)
     transport = Transport()
-    with TestClient(create_app(settings, BrotherPTP710BT(transport), start_worker=False)) as real:
+    with TestClient(
+        create_app(settings, {"main": BrotherPTP710BT(transport)}, start_worker=False)
+    ) as real:
         tape = profile(real, threshold=1)
         install(real, tape["id"])
         response = real.post(
@@ -186,7 +191,7 @@ def test_configured_brother_uses_real_capabilities_and_builtin_layout(
         assert real.get("/api/printers").json()[0]["capabilities"]["dpi_x"] == dpi_x
         assert real.get("/api/status").json()["backend"] == "brother-pt-p710bt"
         assert real.get("/api/printer/mock").status_code == 404
-        real.app.state.worker.tick()
+        real.app.state.fleet.workers["main"].tick()
         assert real.get(f"/api/jobs/{response.json()['id']}").json()["status"] == "printed"
         assert transport.pages == 1
 

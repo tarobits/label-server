@@ -7,13 +7,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
+from conftest import create_test_app as create_app
 from conftest import install, profile
 from fastapi.testclient import TestClient
 from PIL import Image, ImageOps
 from test_access import Policy
 
 from app.access import Action
-from app.main import create_app
 from app.models import LabelCopy, PrintJob
 from app.render import render_job
 from scripts import submit_image
@@ -71,10 +71,10 @@ def test_image_preview_matches_frozen_high_resolution_print_with_physical_band(c
     assert frozen.raster == ImageOps.invert(expected.convert("L")).convert("1").tobytes()
     assert (frozen.dpi_x, frozen.dpi_y) == (360, 180)
     client.put("/api/printer/automatic-printing", json={"held": True})
-    client.app.state.worker.tick()
-    assert client.app.state.worker.backend.batches == []
+    client.app.state.fleet.workers["main"].tick()
+    assert client.app.state.fleet.workers["main"].backend.batches == []
     assert client.post("/api/queue/print").status_code == 202
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     assert client.get(f"/api/jobs/{job['id']}").json()["status"] == "printed"
 
 

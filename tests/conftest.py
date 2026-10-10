@@ -6,10 +6,37 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from mock_backend import MockPrinterBackend
 
 from app.config import Settings
+from app.db import make_engine, session_factory
 from app.main import create_app
-from app.printer.mock import MockPrinterBackend
+from app.models import PrinterDevice, PrinterState
+
+
+def create_test_app(settings=None, backends=None, start_worker=True, **kwargs):
+    from mock_api import router
+    from printer_factory import test_printer
+
+    app = create_app(
+        settings,
+        backends,
+        start_worker,
+        backend_factory=kwargs.get("backend_factory", test_printer),
+    )
+    from app.access import LocalOwnerPolicy
+
+    app.state.access_policy = LocalOwnerPolicy()
+    app.include_router(router)
+    return app
+
+
+def seed_test_printer(url: str) -> None:
+    engine = make_engine(url)
+    with session_factory(engine).begin() as session:
+        session.add(PrinterDevice(id="main", name="Mock printer", driver="mock", config={}))
+        session.add(PrinterState(id=1, printer_id="main"))
+    engine.dispose()
 
 
 @pytest.fixture
@@ -18,8 +45,9 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     config = Config("alembic.ini")
     config.attributes["database_url"] = url
     command.upgrade(config, "head")
-    application = create_app(
-        Settings(printer_backend="mock", database_url=url), MockPrinterBackend(), start_worker=False
+    seed_test_printer(url)
+    application = create_test_app(
+        Settings(database_url=url), {"main": MockPrinterBackend()}, start_worker=False
     )
     with TestClient(application) as client:
         yield client

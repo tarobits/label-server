@@ -1,9 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 
+from conftest import create_test_app as create_app
 from conftest import profile
 from fastapi.testclient import TestClient
-
-from app.main import create_app
 
 
 def test_job_retry_returns_same_frozen_job_and_rejects_changed_input(client: TestClient) -> None:

@@ -18,7 +18,12 @@ def test_hold_survives_new_worker_and_allows_manual_flush(client: TestClient) ->
     install(client, tape["id"])
     assert client.put("/api/printer/automatic-printing", json={"held": True}).status_code == 200
     job(client, tape["id"], 5)
-    worker = QueueWorker(client.app.state.factory, client.app.state.worker.backend)
+    worker = QueueWorker(
+        client.app.state.factory,
+        client.app.state.fleet.workers["main"].backend,
+        printer_id="main",
+        enforce_job_access=False,
+    )
     worker.tick()
     assert not worker.backend.batches
     with client.app.state.factory() as session:
@@ -37,7 +42,7 @@ def test_hold_survives_new_worker_and_allows_manual_flush(client: TestClient) ->
 def test_hold_never_bypasses_review(client: TestClient) -> None:
     tape = profile(client, threshold=1)
     install(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.backend.fail_after = 0
     job(client, tape["id"])
     worker.tick()

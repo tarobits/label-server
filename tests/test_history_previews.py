@@ -30,7 +30,7 @@ def test_history_preview_matches_printed_pixels_and_survives_template_edits(clie
     )
     assert response.status_code == 201, response.text
     job = response.json()
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     assert client.get(f"/api/jobs/{job['id']}").json()["status"] == "printed"
     response = client.get(f"/api/jobs/{job['id']}/preview")
     assert response.status_code == 200
@@ -38,7 +38,7 @@ def test_history_preview_matches_printed_pixels_and_survives_template_edits(clie
     assert response.headers["cache-control"].startswith("private")
     image = Image.open(io.BytesIO(response.content))
     assert image.size == (850, 170)
-    printed = client.app.state.worker.backend.batches[0][0]
+    printed = client.app.state.fleet.workers["main"].backend.batches[0][0]
     assert ImageOps.invert(image.convert("L")).convert("1").tobytes() == printed.raster
     document["elements"][0]["content"] = "Changed later"
     assert (

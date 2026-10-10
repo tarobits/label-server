@@ -26,7 +26,7 @@ def test_waiting_repeat_silence_episode_reset(client: TestClient) -> None:
     yellow = profile(client, "Yellow", threshold=2, reminders=True)
     install(client, white["id"])
     item = job(client, yellow["id"], 2)
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     factory = client.app.state.factory
     now = time.time()
     sender = Sender()
@@ -55,7 +55,7 @@ def test_snooze_and_stale_reminders(client: TestClient) -> None:
     tape = profile(client, threshold=1, reminders=True)
     job(client, tape["id"])
     now = time.time()
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     sender = Sender()
     worker.tick(now)
     client.put(
@@ -77,7 +77,7 @@ def test_delivery_retry_does_not_repeat_printing(client: TestClient) -> None:
     tape = profile(client, threshold=1)
     install(client, tape["id"])
     job(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.backend.fail_after = 0
     worker.tick()
     now = time.time()

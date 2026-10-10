@@ -127,12 +127,12 @@ def test_images_freeze_in_jobs_and_runs_and_match_print_pixels(client: TestClien
     assert changed.status_code == 200, changed.text
     # New store instance reads only durable files; old jobs do not depend on the picker or template.
     store = ImageStore(client.app.state.images.root)
-    client.app.state.images = client.app.state.worker.images = store
+    client.app.state.images = client.app.state.fleet.workers["main"].images = store
     assert client.get(endpoint).json() == frozen
     assert client.post(f"/api/runs/{run['id']}/submit").status_code == 200
     client.post("/api/queue/print")
-    client.app.state.worker.tick()
-    labels = client.app.state.worker.backend.batches[0]
+    client.app.state.fleet.workers["main"].tick()
+    labels = client.app.state.fleet.workers["main"].backend.batches[0]
     assert len(labels) == 2
     for label in labels:
         ink = Image.frombytes("1", (label.pixel_width, label.pixel_height), label.raster)

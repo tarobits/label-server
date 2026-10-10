@@ -1,14 +1,19 @@
 """Isolated backend for browser tests; never opens the user's database or ntfy."""
 
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from conftest import create_test_app as create_app
+from printer_factory import browser_printer
 
+from app.auth import hash_password
 from app.config import Settings
-from app.main import create_app
+from app.identity import LOCAL_OWNER_ID
+from app.models import User
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
@@ -19,7 +24,6 @@ if __name__ == "__main__":
         config.attributes["database_url"] = url
         command.upgrade(config, "head")
         settings = Settings(
-            printer_backend="mock",
             database_url=url,
             worker_interval_seconds=0.1,
             ntfy_url="",
@@ -27,4 +31,19 @@ if __name__ == "__main__":
             ntfy_token="",
             frontend_dist=root / "frontend" / "dist",
         )
-        uvicorn.run(create_app(settings), host="127.0.0.1", port=8765)
+        application = create_app(settings, backend_factory=browser_printer)
+        application.state.access_policy = None
+        with application.state.factory.begin() as session:
+            session.add(
+                User(
+                    id=LOCAL_OWNER_ID,
+                    username="owner",
+                    password_hash=hash_password("browser-owner-password"),
+                    role_ids=["administrator"],
+                )
+            )
+        uvicorn.run(
+            application,
+            host="127.0.0.1",
+            port=int(os.environ.get("LABEL_UI_PORT", "8765")),
+        )

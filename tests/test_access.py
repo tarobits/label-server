@@ -3,13 +3,13 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
+from conftest import create_test_app as create_app
 from conftest import install, job, profile
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.access import Action, Actor, Resource
 from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
-from app.main import create_app
 from app.models import LabelTemplate, Notification, PrintJob, PrintRun
 from app.notifications import RoutedNotificationSender
 
@@ -24,7 +24,7 @@ class Policy:
         return action != self.denied
 
 
-def test_client_cannot_choose_actor_or_destination(client: TestClient) -> None:
+def test_client_cannot_choose_actor_or_unknown_destination(client: TestClient) -> None:
     policy = Policy()
     client.app.state.access_policy = policy
     tape = profile(client)
@@ -47,22 +47,22 @@ def test_client_cannot_choose_actor_or_destination(client: TestClient) -> None:
                 "destination_id": "another",
             },
         ).status_code
-        == 422
+        == 404
     )
 
 
 @pytest.mark.parametrize(
-    "path,body",
+    "path,body,action",
     [
-        ("/api/tape-profiles", {"name": "Denied", "width_mm": 24}),
-        ("/api/templates", {"name": "Denied", "document": {}}),
-        ("/api/runs/prepare", {}),
+        ("/api/tape-profiles", {"name": "Denied", "width_mm": 24}, Action.WRITE),
+        ("/api/templates", {"name": "Denied", "document": {}}, Action.WRITE),
+        ("/api/runs/prepare", {}, Action.SUBMIT),
     ],
 )
-def test_write_policy_prevents_mutations(
-    client: TestClient, path: str, body: dict[str, Any]
+def test_mutation_policy_prevents_unauthorized_changes(
+    client: TestClient, path: str, body: dict[str, Any], action: Action
 ) -> None:
-    client.app.state.access_policy = Policy(Action.WRITE)
+    client.app.state.access_policy = Policy(action)
     assert client.post(path, json=body).status_code == 403
     assert client.get("/api/tape-profiles").json() == []
     assert client.get("/api/runs").json() == []
@@ -108,8 +108,8 @@ def test_other_destination_is_never_printed_by_local_worker(client: TestClient) 
     queued = job(client, tape["id"])
     with client.app.state.factory.begin() as session:
         session.get(PrintJob, queued["id"]).destination_id = "future-printer"
-    client.app.state.worker.tick()
-    assert not client.app.state.worker.backend.batches
+    client.app.state.fleet.workers["main"].tick()
+    assert not client.app.state.fleet.workers["main"].backend.batches
     assert client.get(f"/api/jobs/{queued['id']}").json()["status"] == "queued"
 
 
@@ -130,7 +130,10 @@ def test_notification_routing_does_not_fall_back_to_another_recipient() -> None:
     assert sender.sent == [notice]
 
 
-def test_access_migration_backfills_without_changing_frozen_data(client: TestClient) -> None:
+def test_access_migration_backfills_without_changing_frozen_data(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("LABEL_PRINTER_BACKEND", "brother-pt-p710bt")
     tape = profile(client)
     queued = job(client, tape["id"])
     prepared = client.post(
@@ -163,7 +166,7 @@ def test_access_migration_backfills_without_changing_frozen_data(client: TestCli
         assert restored["template_snapshot"] == queued["template_snapshot"]
         assert restored["labels"] == queued["labels"]
         with restarted.app.state.factory() as session:
-            assert session.get(LabelTemplate, "text").scope == "personal"
+            assert session.get(LabelTemplate, "text").scope == "global"
             assert session.get(LabelTemplate, "text").owner_id == LOCAL_OWNER_ID
             run = session.get(PrintRun, prepared["id"])
             assert run.owner_id == LOCAL_OWNER_ID and run.destination_id == DEFAULT_PRINTER_ID
@@ -193,6 +196,6 @@ def test_csv_submission_checks_saved_destination_before_creating_jobs(client: Te
     identifier = response.json()["run"]["id"]
     with client.app.state.factory.begin() as session:
         session.get(PrintRun, identifier).destination_id = "future-printer"
-    assert client.post(f"/api/runs/{identifier}/submit").status_code == 403
+    assert client.post(f"/api/runs/{identifier}/submit").status_code == 404
     assert client.get("/api/jobs").json() == []
     assert client.get(f"/api/runs/{identifier}").json()["submitted_at"] is None

@@ -13,7 +13,7 @@ from app.queue import QueueWorker
 def test_nine_wait_tenth_prints_one_batch(client: TestClient) -> None:
     tape = profile(client)
     cartridge = install(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     for _ in range(9):
         job(client, tape["id"])
         worker.tick()
@@ -33,7 +33,7 @@ def test_profiles_copies_and_manual_flush(client: TestClient) -> None:
     install(client, white["id"])
     job(client, white["id"], 10)
     yellow_job = job(client, yellow["id"], 3)
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.tick()
     assert len(worker.backend.batches[0]) == 10
     assert client.get(f"/api/jobs/{yellow_job['id']}").json()["status"] == "queued"
@@ -49,7 +49,7 @@ def test_threshold_edit_is_effective(client: TestClient) -> None:
     tape = profile(client)
     install(client, tape["id"])
     job(client, tape["id"], 3)
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.tick()
     assert not worker.backend.batches
     response = client.put(
@@ -70,7 +70,7 @@ def test_width_and_connection_gate(client: TestClient, width: int | None, connec
     tape = profile(client, threshold=1)
     install(client, tape["id"])
     job(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.backend.width_mm, worker.backend.connected = width, connected
     worker.tick()
     worker.tick()
@@ -85,7 +85,7 @@ def test_interrupted_batch_review_preserves_confirmed_copies(client: TestClient)
     tape = profile(client, threshold=3)
     install(client, tape["id"])
     item = job(client, tape["id"], 3)
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.backend.fail_after = 1
     worker.tick()
     batch = client.get("/api/batches").json()[0]
@@ -137,7 +137,7 @@ def test_restart_recovers_inflight_intent_once(client: TestClient) -> None:
         copy = session.get(LabelCopy, item["labels"][0]["id"])
         copy.state = State.PRINTING
         session.add(BatchItem(batch_id=batch.id, copy_id=copy.id, position=0))
-    worker = QueueWorker(factory, client.app.state.worker.backend)
+    worker = QueueWorker(factory, client.app.state.fleet.workers["main"].backend, printer_id="main")
     worker.recover()
     worker.recover()
     worker.tick()
@@ -152,7 +152,7 @@ def test_no_write_failure_keeps_manual_flush(
     tape = profile(client)
     install(client, tape["id"])
     job(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     client.post("/api/queue/print")
     original = worker.backend.print_batch
 
@@ -173,7 +173,7 @@ def test_batch_frozen_and_printer_serialized(
     tape = profile(client, threshold=1)
     install(client, tape["id"])
     job(client, tape["id"])
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     entered, release = Event(), Event()
     original = worker.backend.print_batch
 
@@ -224,7 +224,7 @@ def test_snapshot_validation_and_shortage_warning(client: TestClient) -> None:
         ).status_code
         == 422
     )
-    client.app.state.worker.tick()
+    client.app.state.fleet.workers["main"].tick()
     assert client.get("/api/batches").json()[0]["shortage_warning"]
     assert client.get("/api/cartridges").json()[0]["remaining_mm"] == 0
 
@@ -234,8 +234,8 @@ def test_cancelled_jobs_do_not_print(client: TestClient) -> None:
     install(client, tape["id"])
     item = job(client, tape["id"])
     assert client.delete(f"/api/jobs/{item['id']}").json()["status"] == "cancelled"
-    client.app.state.worker.tick()
-    assert not client.app.state.worker.backend.batches
+    client.app.state.fleet.workers["main"].tick()
+    assert not client.app.state.fleet.workers["main"].backend.batches
 
 
 def test_profile_filter_combines_with_status_before_pagination(client: TestClient) -> None:
@@ -273,7 +273,7 @@ def test_selected_flush_prints_only_selection_and_holds_remainder(client: TestCl
     response = client.post("/api/queue/print", json={"copy_ids": selected[::-1]})
     assert response.status_code == 202, response.text
     assert response.json()["copy_ids"] == selected
-    worker = client.app.state.worker
+    worker = client.app.state.fleet.workers["main"]
     worker.tick()
     worker.tick()
     assert [[label.copy_id for label in batch] for batch in worker.backend.batches] == [selected]

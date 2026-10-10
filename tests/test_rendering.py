@@ -137,8 +137,8 @@ def test_qr_preview_matches_queued_raster_and_revision_is_frozen(client: TestCli
     assert len(client.get(f"/api/templates/{template['id']}/revisions").json()) == 2
     client.delete(f"/api/templates/{template['id']}")
     client.post("/api/queue/print")
-    client.app.state.worker.tick()
-    label = client.app.state.worker.backend.batches[0][0]
+    client.app.state.fleet.workers["main"].tick()
+    label = client.app.state.fleet.workers["main"].backend.batches[0][0]
     ink = Image.frombytes("1", (label.pixel_width, label.pixel_height), label.raster)
     assert ImageOps.invert(ink.convert("L")).tobytes() == image.convert("L").tobytes()
     assert client.get(f"/api/jobs/{queued['id']}").json()["template_snapshot"]["revision"] == 1

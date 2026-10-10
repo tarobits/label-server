@@ -1,48 +1,67 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './fixtures'
 
-test('create tape and cartridge, queue copies, review an interrupted batch, and print the remainder', async ({
-  page,
-}) => {
-  await page.goto('/#/profiles')
-  await page.getByRole('button', { name: 'Add tape profile', exact: true }).click()
-  await page.getByLabel('Profile name').fill('Black on Yellow 24 mm')
-  await page.getByLabel('Automatic batch threshold').fill('3')
-  await page.getByLabel('Tape color', { exact: true }).fill('#ffe17b')
-  await page.getByLabel('Remind me when this tape').check()
-  await page.getByRole('button', { name: 'Save tape profile' }).click()
-  await expect(page.getByRole('heading', { name: 'Black on Yellow 24 mm' })).toBeVisible()
-  await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
-  await page.getByRole('button', { name: 'Register cartridge', exact: true }).click()
-  await page.getByLabel('Cartridge name').fill('Yellow cassette 1')
-  await page.locator('form').getByRole('button', { name: 'Register cartridge' }).click()
-  await page.getByRole('button', { name: 'Install cartridge' }).click()
-  await expect(page.getByText('Installed', { exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Printer & settings' }).click()
-  await page.getByLabel('Interrupt the next print batch').check()
-  await page.getByLabel('Confirmed copies before interruption').fill('1')
-  await page.getByRole('button', { name: 'Apply mock settings' }).click()
-  await expect(page.getByRole('status')).toContainText('interrupted once')
-  await page.getByRole('link', { name: 'New label', exact: true }).click()
-  await page.getByLabel('Label text').fill('Network cables / Box 03')
-  await page.getByLabel('Copies', { exact: true }).fill('3')
-  await page.getByRole('button', { name: 'Add to queue' }).click()
-  await page.getByRole('link', { name: 'Review batch →', exact: true }).click()
-  await expect(page.getByText('Confirmed — no action needed')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Save review and resume' })).toBeDisabled()
-  await page.getByLabel('Decision for label 2', { exact: true }).selectOption('queued')
-  await page.getByLabel('Decision for label 3', { exact: true }).selectOption('cancelled')
-  await page.getByLabel('Total tape consumed by this attempt (mm)').fill('70')
-  await page.getByRole('button', { name: 'Save review and resume' }).click()
-  await expect(page.getByText('Tape consumed: 0.07 m.')).toBeVisible()
-  await page.getByRole('link', { name: 'Overview', exact: true }).click()
-  await page.getByRole('button', { name: 'Print compatible queue now' }).click()
-  await expect(page.getByRole('link', { name: 'Review →', exact: true })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Print queue', exact: false }).click()
-  await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
-  await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
-  await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
-  await expect(page.getByText('≈ 7.85 m')).toBeVisible()
-})
+test(
+  'create tape and cartridge, queue copies, review an interrupted batch, and print the remainder',
+  { tag: '@empty-fleet' },
+  async ({ page }) => {
+    await page.goto('/#/')
+    await expect(page.getByRole('heading', { name: 'Add your first printer' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Printer & settings' })).toHaveCount(0)
+    await page.getByRole('link', { name: 'Activity', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Add your first printer' })).toHaveCount(0)
+    await page.goto('/#/')
+    await page.getByRole('link', { name: 'Set up printers' }).click()
+    await page.getByRole('button', { name: 'Add printer', exact: true }).click()
+    await expect(page.getByRole('option', { name: 'Mock printer', exact: true })).toHaveCount(0)
+    await page.getByLabel('Printer name', { exact: true }).fill('Desk printer')
+    await page
+      .getByRole('combobox', { name: 'Default print resolution', exact: true })
+      .selectOption('normal')
+    await page.getByLabel('USB serial number', { exact: true }).fill('UI-DESK')
+    await page.getByRole('button', { name: 'Register printer', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Desk printer', exact: true })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Desk printer', exact: true })).toBeVisible()
+    await page.goto('/#/profiles')
+    await page.getByRole('button', { name: 'Add tape profile', exact: true }).click()
+    await page.getByLabel('Profile name').fill('Black on Yellow 24 mm')
+    await page.getByLabel('Automatic batch threshold').fill('3')
+    await page.getByLabel('Tape color', { exact: true }).fill('#ffe17b')
+    await page.getByLabel('Remind me when this tape').check()
+    await page.getByRole('button', { name: 'Save tape profile' }).click()
+    await expect(page.getByRole('heading', { name: 'Black on Yellow 24 mm' })).toBeVisible()
+    await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
+    await page.getByRole('button', { name: 'Register cartridge', exact: true }).click()
+    await page.getByLabel('Cartridge name').fill('Yellow cassette 1')
+    await page.locator('form').getByRole('button', { name: 'Register cartridge' }).click()
+    await page.getByRole('button', { name: 'Install cartridge' }).click()
+    await expect(page.getByText('Installed', { exact: true })).toBeVisible()
+    await page.request.put('/api/printer/mock', {
+      data: { connected: true, tape_width_mm: 24, fail_after: 1 },
+    })
+    await page.getByRole('link', { name: 'New label', exact: true }).click()
+    await page.getByLabel('Label text').fill('Network cables / Box 03')
+    await page.getByLabel('Copies', { exact: true }).fill('3')
+    await page.getByRole('button', { name: 'Add to queue' }).click()
+    await page.getByRole('link', { name: 'Review batch →', exact: true }).click()
+    await expect(page.getByText('Confirmed — no action needed')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Save review and resume' })).toBeDisabled()
+    await page.getByLabel('Decision for label 2', { exact: true }).selectOption('queued')
+    await page.getByLabel('Decision for label 3', { exact: true }).selectOption('cancelled')
+    await page.getByLabel('Total tape consumed by this attempt (mm)').fill('70')
+    await page.getByRole('button', { name: 'Save review and resume' }).click()
+    await expect(page.getByText('Tape consumed: 0.07 m.')).toBeVisible()
+    await page.getByRole('link', { name: 'Overview', exact: true }).click()
+    await page.getByRole('button', { name: 'Print direct queue' }).click()
+    await expect(page.getByRole('link', { name: 'Review →', exact: true })).toHaveCount(0)
+    await page.getByRole('link', { name: 'Print queue', exact: false }).click()
+    await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
+    await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
+    await expect(page.getByText('≈ 7.84 m')).toBeVisible()
+  },
+)
 
 test('profile editing, custom snooze, silence and resume survive polling', async ({ page }) => {
   await page.request.post('/api/tape-profiles', {
@@ -118,7 +137,7 @@ test('desktop overview renders without console errors', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'At the printer' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your printers' })).toBeVisible()
   await page.screenshot({ path: 'test-results/desktop-dashboard.png', fullPage: true })
   expect(errors).toEqual([])
 })
@@ -201,7 +220,12 @@ test('automatic hold is visible, persists after reload, and resumes explicitly',
     page.getByRole('button', { name: 'Resume automatic printing', exact: true }),
   ).toBeVisible()
   await page.getByRole('link', { name: 'New label', exact: true }).click()
-  await expect(page.getByText('Automatic printing is held.', { exact: true })).toBeVisible()
+  await expect(
+    page.getByText(
+      'Automatic printing is held. These copies will wait for a manual flush or resume.',
+      { exact: true },
+    ),
+  ).toBeVisible()
   await page.goto('/')
   await page.getByRole('button', { name: 'Resume automatic printing', exact: true }).click()
   await expect(
@@ -553,24 +577,30 @@ test('upload artwork inside the editor and confirm navigation with the themed di
   await expect(page).toHaveURL(/#\/images$/)
 })
 
-test('physical printer status hides mock controls and shows device errors', async ({ page }) => {
-  await page.route('**/api/status', async (route) => {
+test('printer configuration replaces settings and shows device errors', async ({ page }) => {
+  await page.route('**/api/printers/status', async (route) => {
     const response = await route.fetch()
-    const status = await response.json()
+    const states = await response.json()
     await route.fulfill({
-      json: {
-        ...status,
-        backend: 'brother-pt-p710bt',
-        printer_name: 'Brother PT-P710BT',
+      json: states.map((state: object) => ({
+        ...state,
         printer_error: 'Install supported TZe tape',
-      },
+      })),
     })
   })
   await page.goto('/#/settings')
+  await expect(page).toHaveURL(/#\/printers$/)
   await expect(page.getByRole('heading', { name: 'Mock printer controls' })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Brother PT-P710BT status' })).toBeVisible()
   await expect(page.getByText('Install supported TZe tape')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'USB PRINTER', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Configure', exact: true }).click()
+  await expect(page.getByLabel('Printer name', { exact: true })).toHaveValue('Desk printer')
+  await expect(page.getByLabel('USB serial number', { exact: true })).toHaveValue('UI-DESK')
+  await page.getByLabel('Printer name', { exact: true }).fill('Label station')
+  await page.screenshot({ path: 'test-results/printer-configuration.png', fullPage: true })
+  await page.getByRole('button', { name: 'Save printer', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Label station', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Label station', exact: true })).toBeVisible()
 })
 
 test('built-in text preview fits the configured printable tape width', async ({ page }) => {
@@ -1038,10 +1068,10 @@ test('printed batch history shows saved pixels and an enlarged preview', async (
   await expect(
     page.getByRole('button', { name: 'Enlarge label preview: Label', exact: true }).first(),
   ).toBeFocused()
-  await page.route(`**/api/jobs/${job.id}/preview`, (route) => route.fulfill({ status: 404 }))
+  await page.route('**/api/batches/*/items/*/preview', (route) => route.fulfill({ status: 404 }))
   await page.reload()
   await expect(page.getByText('Preview unavailable.', { exact: false })).toHaveCount(2)
-  await page.unroute(`**/api/jobs/${job.id}/preview`)
+  await page.unroute('**/api/batches/*/items/*/preview')
   await page.getByRole('button', { name: 'Retry preview' }).first().click()
   await expect
     .poll(() =>
@@ -1051,4 +1081,81 @@ test('printed batch history shows saved pixels and an enlarged preview', async (
         .evaluate((img: HTMLImageElement) => img.naturalWidth),
     )
     .toBe(850)
+})
+
+test('printer groups route different tapes and preserve destination choices', async ({ page }) => {
+  const first = await (
+    await page.request.post('/api/printers', {
+      data: { name: 'White printer', usb_serial: 'UI-WHITE' },
+    })
+  ).json()
+  const second = await (
+    await page.request.post('/api/printers', {
+      data: { name: 'Yellow printer', usb_serial: 'UI-YELLOW' },
+    })
+  ).json()
+  const tapes = []
+  for (const [name, printer] of [
+    ['White group tape', first],
+    ['Yellow group tape', second],
+  ] as const) {
+    const tape = await (
+      await page.request.post('/api/tape-profiles', {
+        data: { name, width_mm: 24, auto_print_threshold: 1 },
+      })
+    ).json()
+    const cartridge = await (
+      await page.request.post('/api/cartridges', {
+        data: { name: `${name} cassette`, profile_id: tape.id, nominal_length_mm: 8000 },
+      })
+    ).json()
+    await page.request.put(`/api/printer/active-tape?printer_id=${printer.id}`, {
+      data: { cartridge_id: cartridge.id },
+    })
+    tapes.push(tape)
+  }
+  await page.goto('/#/printers')
+  await page.getByRole('button', { name: 'Create group', exact: true }).click()
+  await page.getByLabel('Group name', { exact: true }).fill('Cable station')
+  await page.getByLabel('White printer', { exact: true }).check()
+  await page.getByLabel('Yellow printer', { exact: true }).check()
+  await page.getByRole('button', { name: 'Save group', exact: true }).click()
+  const group = page.locator('.printer-group').filter({ hasText: 'Cable station' })
+  await expect(group).toBeVisible()
+  await group.getByRole('button', { name: 'Hold group', exact: true }).click()
+  await group.getByRole('link', { name: 'Print a label', exact: true }).click()
+  const destination = await page
+    .getByRole('combobox', { name: 'Print destination', exact: true })
+    .inputValue()
+  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption('text')
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tapes[0].id)
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Print destination', exact: true })).toHaveValue(
+    destination,
+  )
+  await page.getByLabel('Label text', { exact: true }).fill('White cable')
+  await page.getByRole('button', { name: 'Add to queue', exact: true }).click()
+  await expect(page).toHaveURL(/#\/queue/)
+  await page.request.post('/api/jobs', {
+    data: {
+      destination_id: destination,
+      tape_profile: tapes[1].id,
+      data: { text: 'Yellow cable' },
+    },
+  })
+  await page.goto('/#/printers')
+  await group.getByRole('button', { name: 'Resume group', exact: true }).click()
+  await expect
+    .poll(async () => {
+      const jobs = await (await page.request.get(`/api/jobs?destination_id=${destination}`)).json()
+      return jobs.map((job: { status: string }) => job.status)
+    })
+    .toEqual(['printed', 'printed'])
+  const batches = await (await page.request.get('/api/batches')).json()
+  expect(batches.some((batch: { printer_id: string }) => batch.printer_id === first.id)).toBe(true)
+  expect(batches.some((batch: { printer_id: string }) => batch.printer_id === second.id)).toBe(true)
+  await page.screenshot({ path: 'test-results/printer-groups.png', fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(group.getByRole('link', { name: 'Print a label', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391)
 })
