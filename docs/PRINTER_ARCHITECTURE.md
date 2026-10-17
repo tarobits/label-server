@@ -135,4 +135,5 @@ capabilities are null and new print intent returns a clear conflict.
 Automated tests cover migration, group matching, concurrent reservations, independent
 printing and review, CSV pinning, holds, reminders, and restart persistence.
 Physical PT-P710BT testing was reported successful on 2026-10-04; simultaneous
-two-device USB testing remains open. See [hardware verification](HARDWARE_VERIFICATION.md).
+two-device USB testing is deferred until a second printer is available. See
+[hardware verification](HARDWARE_VERIFICATION.md).

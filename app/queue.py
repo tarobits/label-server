@@ -27,8 +27,10 @@ from app.models import (
     State,
     TapeProfile,
 )
-from app.notifications import enqueue, schedule_reminders
+from app.notifications import enqueue, schedule_reminders, sync_empty_cartridge_alert
 from app.printer.base import (
+    ControlledPrinterBackend,
+    PrintControl,
     PrinterBackend,
     PrinterStatus,
     PrintInterrupted,
@@ -38,6 +40,9 @@ from app.printer.base import (
 from app.render import render_job
 
 Record = TypeVar("Record", bound=Base)
+EMPTY_TAPE_BLOCKER = (
+    "Installed cartridge is estimated empty; automatic printing is waiting for replacement tape."
+)
 
 
 def required(session: Session, model: type[Record], identifier: str) -> Record:
@@ -108,7 +113,14 @@ class ChoosePrinter(Protocol):
 
 def record_blocker(session: Session, state: PrinterState, reason: str | None) -> None:
     if reason and state.blocker != reason:
-        enqueue(session, "Printing blocked", reason, f"/#/printers?printer={state.printer_id}")
+        enqueue(
+            session,
+            "Printing blocked",
+            reason,
+            f"/#/printers?printer={state.printer_id}",
+            kind="printer_blocked",
+            context={"printer_id": state.printer_id, "reason": reason},
+        )
     state.blocker = reason
 
 
@@ -140,6 +152,7 @@ class QueueWorker:
         self.enforce_job_access = enforce_job_access
         self.lock = lock or Lock()
         self.printer_lock = Lock()
+        self.control = PrintControl()
         self.latest_status = PrinterStatus(False, None)
 
     def recover(self) -> None:
@@ -155,6 +168,8 @@ class QueueWorker:
     def tick(self, now: float | None = None) -> None:
         stamp = time.time() if now is None else now
         with self.printer_lock:
+            with self.lock:
+                self.control.clear()
             try:
                 self.latest_status = self.backend.get_status()
             except Exception:
@@ -176,7 +191,11 @@ class QueueWorker:
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     batch.estimated_mm = estimate
                     batch.shortage_warning = estimate > cartridge.remaining_mm
-                result = self.backend.print_batch(labels)
+                result = (
+                    self.backend.print_batch_controlled(labels, self.control)
+                    if isinstance(self.backend, ControlledPrinterBackend)
+                    else self.backend.print_batch(labels)
+                )
                 consumed = estimate if result.consumed_mm is None else result.consumed_mm
                 if not math.isfinite(consumed) or consumed < 0:
                     raise ValueError("Invalid backend consumption result")
@@ -194,7 +213,7 @@ class QueueWorker:
                         item.outcome = State.FAILED
                         copy = required(session, LabelCopy, item.copy_id)
                         copy.state = State.QUEUED
-                    if prepared.request_id:
+                    if prepared.request_id and not self.control.stop.is_set():
                         stored_request = required(session, FlushRequest, prepared.request_id)
                         stored_request.completed = False
                     state = printer_state(session, self.printer_id)
@@ -218,6 +237,7 @@ class QueueWorker:
                     )
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed)
+                    sync_empty_cartridge_alert(session, state, cartridge, time.time())
                     for item in session.scalars(
                         select(BatchItem).where(BatchItem.batch_id == batch_id)
                     ):
@@ -247,6 +267,9 @@ class QueueWorker:
                 return None
             state = printer_state(session, self.printer_id)
             if not state.active_cartridge_id:
+                state.empty_alert_cartridge_id = None
+                if state.blocker == EMPTY_TAPE_BLOCKER:
+                    state.blocker = None
                 return None
             cartridge = required(session, Cartridge, state.active_cartridge_id)
             profile = required(session, TapeProfile, cartridge.profile_id)
@@ -260,6 +283,12 @@ class QueueWorker:
                 .order_by(FlushRequest.created_at)
                 .limit(1)
             )
+            sync_empty_cartridge_alert(session, state, cartridge, stamp)
+            if request is None and cartridge.remaining_mm <= 0:
+                state.blocker = EMPTY_TAPE_BLOCKER
+                return None
+            if cartridge.remaining_mm > 0 and state.blocker == EMPTY_TAPE_BLOCKER:
+                state.blocker = None
             destinations = [self.printer_id] + [
                 group.id
                 for group in session.scalars(select(PrinterGroup))
@@ -421,6 +450,8 @@ class QueueWorker:
             "Print batch needs review",
             "Printing may have stopped partway through. Review the batch before printing again.",
             f"/#/batches/{batch.id}",
+            kind="batch_review",
+            context={"printer_id": batch.printer_id, "batch_id": batch.id},
         )
 
 
@@ -441,6 +472,9 @@ def resolve_batch(
     cartridge = required(session, Cartridge, batch.cartridge_id)
     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed_mm)
     cartridge.consumption_uncertain = False
+    sync_empty_cartridge_alert(
+        session, printer_state(session, batch.printer_id), cartridge, time.time()
+    )
     batch.consumed_mm = consumed_mm
     batch.finished_at = time.time()
     batch.state = (

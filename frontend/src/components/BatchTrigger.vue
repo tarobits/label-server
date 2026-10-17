@@ -15,6 +15,11 @@ defineProps<{ trigger?: BatchTrigger | null }>()
     >
     <template v-else>Batch starter not recorded</template>
   </p>
+  <p v-if="trigger?.stop_request" class="batch-trigger">
+    {{ trigger.stop_request.mode === 'emergency' ? 'Emergency stop' : 'Stop after current label' }}
+    requested by <strong>{{ trigger.stop_request.actor?.name ?? 'Not recorded' }}</strong> ·
+    {{ date(trigger.stop_request.at) }}
+  </p>
 </template>
 
 <style scoped>

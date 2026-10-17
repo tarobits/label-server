@@ -1,5 +1,104 @@
 import { test, expect } from './fixtures'
 
+test('batch review applies outcomes to selected following uncertain copies before saving', async ({
+  page,
+  request,
+}) => {
+  const printer = (await (await request.get('/api/printers')).json())[0]
+  const tape = (await (await request.get('/api/tape-profiles')).json())[0]
+  const jobResponse = await request.post('/api/jobs', {
+    data: {
+      destination_id: printer.id,
+      tape_profile: tape.id,
+      copies: 5,
+      data: { text: 'Review copies' },
+    },
+  })
+  expect(jobResponse.status()).toBe(201)
+  const job = await jobResponse.json()
+  expect(
+    (
+      await request.put(`/api/printer/mock?printer_id=${printer.id}`, {
+        data: { connected: true, tape_width_mm: 24, fail_after: 1 },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  expect((await request.post(`/api/destinations/${printer.id}/print`)).status()).toBe(202)
+  await expect
+    .poll(async () => (await (await request.get(`/api/jobs/${job.id}`)).json()).status)
+    .toBe('needs_review')
+  const batch = (await (await request.get('/api/batches')).json())[0]
+  const items = (await (await request.get(`/api/batches/${batch.id}`)).json()).items
+  await page.goto(`/#/batches/${batch.id}`)
+  await expect(page.getByLabel('Decision for label 1', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Select label 1', { exact: true })).toHaveCount(0)
+  const save = page.getByRole('button', { name: 'Save review', exact: true })
+  await expect(save).toBeDisabled()
+  await page
+    .getByRole('button', { name: 'Select label 3 and following uncertain labels', exact: true })
+    .click()
+  await expect(page.getByRole('status', { name: '', exact: true })).toHaveText('3 selected')
+  await expect(page.getByLabel('Select label 2', { exact: true })).not.toBeChecked()
+  for (const label of [3, 4, 5])
+    await expect(page.getByLabel(`Select label ${label}`, { exact: true })).toBeChecked()
+  await page.getByLabel('Action for selected copies', { exact: true }).selectOption('printed')
+  await page.getByRole('button', { name: 'Apply to selected', exact: true }).click()
+  for (const label of [3, 4, 5])
+    await expect(page.getByLabel(`Decision for label ${label}`, { exact: true })).toHaveValue(
+      'printed',
+    )
+  await page.getByLabel('Decision for label 4', { exact: true }).selectOption('queued')
+  await page.getByLabel('Select all uncertain copies', { exact: true }).check()
+  await expect(page.getByRole('status', { name: '', exact: true })).toHaveText('4 selected')
+  await page.getByLabel('Select all uncertain copies', { exact: true }).uncheck()
+  await expect(page.getByRole('status', { name: '', exact: true })).toHaveText('0 selected')
+  await expect(page.getByRole('button', { name: 'Apply to selected', exact: true })).toBeDisabled()
+  await page.getByLabel('Select label 2', { exact: true }).check()
+  await page.getByLabel('Action for selected copies', { exact: true }).selectOption('cancelled')
+  await page.getByRole('button', { name: 'Apply to selected', exact: true }).click()
+  await page.getByLabel('Total tape consumed by this attempt (mm)', { exact: true }).fill('200')
+  await expect(save).toBeEnabled()
+  // Applying a bulk action edits local decisions; the batch stays uncertain until Save.
+  const unsaved = await (await request.get(`/api/batches/${batch.id}`)).json()
+  expect(unsaved.items.map((item: { outcome: string }) => item.outcome)).toEqual([
+    'printed',
+    'needs_review',
+    'needs_review',
+    'needs_review',
+    'needs_review',
+  ])
+  await page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/batches/${batch.id}`) && response.request().method() === 'GET',
+  )
+  await expect(page.getByLabel('Decision for label 4', { exact: true })).toHaveValue('queued')
+  await expect(page.getByLabel('Select label 2', { exact: true })).toBeChecked()
+  await page.screenshot({ path: 'test-results/batch-review-selection.png', fullPage: true })
+  const review = page.waitForRequest(
+    (response) =>
+      response.url().endsWith(`/api/batches/${batch.id}/review`) && response.method() === 'POST',
+  )
+  await save.click()
+  expect((await review).postDataJSON()).toEqual({
+    decisions: {
+      [items[1].copy_id]: 'cancelled',
+      [items[2].copy_id]: 'printed',
+      [items[3].copy_id]: 'queued',
+      [items[4].copy_id]: 'printed',
+    },
+    consumed_mm: 200,
+  })
+  await expect(save).toHaveCount(0)
+  const resolved = await (await request.get(`/api/batches/${batch.id}`)).json()
+  expect(resolved.items.map((item: { outcome: string }) => item.outcome)).toEqual([
+    'printed',
+    'cancelled',
+    'printed',
+    'queued',
+    'printed',
+  ])
+})
+
 test('retry after a committed but lost response creates only one job', async ({ page }) => {
   await page.goto('/#/new?template=text')
   await page.getByLabel('Label text', { exact: true }).fill('Lost response')

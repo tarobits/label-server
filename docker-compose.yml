@@ -6,9 +6,6 @@ services:
     environment:
       LABEL_WORKER_INTERVAL_SECONDS: ${LABEL_WORKER_INTERVAL_SECONDS:-2}
       LABEL_DATABASE_URL: sqlite:////srv/labels/data/labels.db
-      LABEL_NTFY_URL: ${LABEL_NTFY_URL:-}
-      LABEL_NTFY_TOPIC: ${LABEL_NTFY_TOPIC:-}
-      LABEL_NTFY_TOKEN: ${LABEL_NTFY_TOKEN:-}
       LABEL_PUBLIC_URL: ${LABEL_PUBLIC_URL:-http://localhost:8000}
     volumes:
       - label-data:/srv/labels/data

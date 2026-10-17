@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { api } from '../api'
-import { auth } from '../auth'
+import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
-import { workspace as w } from '../workspace'
+import { useWorkspaceStore } from '../workspace'
 import type { ImageAsset } from '../types'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const file = ref<File | null>(null),
   input = ref<HTMLInputElement | null>(null)
 const editing = ref<string | null>(null),
@@ -60,7 +62,7 @@ async function upload() {
   const chosen = file.value
   if (!chosen) return
   if (chosen.size > 5_000_000) {
-    w.actionError.value = 'Upload an image of at most 5 MB.'
+    w.actionError = 'Upload an image of at most 5 MB.'
     return
   }
   if (
@@ -103,17 +105,17 @@ async function visibility(asset: ImageAsset) {
         ref="input"
         type="file"
         accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
-        :disabled="w.busy.value"
+        :disabled="w.busy"
         @change="choose"
     /></label>
-    <button class="primary" :disabled="!file || w.busy.value" @click="upload">Upload image</button>
+    <button class="primary" :disabled="!file || w.busy" @click="upload">Upload image</button>
   </section>
   <section class="panel">
     <h2>Image library</h2>
     <p class="help">
       Hidden images remain available to saved labels. Only unused images can be permanently deleted.
     </p>
-    <p v-if="!w.images.value.length" class="empty">No images uploaded.</p>
+    <p v-if="!w.images.length" class="empty">No images uploaded.</p>
     <div v-else class="table-scroll">
       <table class="image-library-table">
         <thead>
@@ -127,7 +129,7 @@ async function visibility(asset: ImageAsset) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="asset in w.images.value" :key="asset.id">
+          <tr v-for="asset in w.images" :key="asset.id">
             <td>
               <button
                 class="image-thumbnail"
@@ -156,16 +158,16 @@ async function visibility(asset: ImageAsset) {
                     v-model="imageName"
                     maxlength="120"
                     required
-                    :disabled="w.busy.value"
+                    :disabled="w.busy"
                 /></label>
                 <div class="row wrap">
-                  <button class="small primary" :disabled="w.busy.value || !imageName.trim()">
+                  <button class="small primary" :disabled="w.busy || !imageName.trim()">
                     Save name
                   </button>
                   <button
                     type="button"
                     class="small secondary"
-                    :disabled="w.busy.value"
+                    :disabled="w.busy"
                     @click="editing = null"
                   >
                     Cancel
@@ -182,24 +184,23 @@ async function visibility(asset: ImageAsset) {
               <div
                 v-if="
                   auth.can('assets.write') &&
-                  (asset.can_edit ??
-                    (auth.user.value?.is_admin || asset.owner_id === auth.user.value?.id))
+                  (asset.can_edit ?? (auth.user?.is_admin || asset.owner_id === auth.user?.id))
                 "
                 class="image-library-actions"
               >
                 <button
                   class="small secondary"
-                  :disabled="w.busy.value || editing === asset.id"
+                  :disabled="w.busy || editing === asset.id"
                   @click="startRename(asset)"
                 >
                   Rename
                 </button>
-                <button class="small secondary" :disabled="w.busy.value" @click="visibility(asset)">
+                <button class="small secondary" :disabled="w.busy" @click="visibility(asset)">
                   {{ asset.archived ? 'Restore' : 'Hide' }}
                 </button>
                 <button
                   class="small secondary danger-text"
-                  :disabled="w.busy.value"
+                  :disabled="w.busy"
                   @click="remove(asset)"
                 >
                   Delete

@@ -1,5 +1,35 @@
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from threading import Event
+from typing import Literal, Protocol, Sequence, runtime_checkable
+
+StopMode = Literal["after_current", "emergency"]
+
+
+class PrintControl:
+    """Thread-safe intent consumed by the hardware owner at safe boundaries."""
+
+    def __init__(self) -> None:
+        self.stop = Event()
+        self.emergency = Event()
+
+    def request(self, mode: StopMode) -> None:
+        if mode == "emergency":
+            self.emergency.set()
+        self.stop.set()
+
+    def clear(self) -> None:
+        self.stop.clear()
+        self.emergency.clear()
+
+    @property
+    def mode(self) -> StopMode | None:
+        return (
+            "emergency"
+            if self.emergency.is_set()
+            else "after_current"
+            if self.stop.is_set()
+            else None
+        )
 
 
 @dataclass(frozen=True)
@@ -7,6 +37,17 @@ class PrinterStatus:
     connected: bool
     tape_width_mm: float | None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class LabelGeometry:
+    """Saved physical dimensions for estimating consumption without rasterizing."""
+
+    copy_id: str
+    tape_width_mm: float
+    length_mm: float
+    dpi_x: int = 180
+    dpi_y: int = 180
 
 
 @dataclass(frozen=True)
@@ -55,5 +96,12 @@ class BatchPlan:
 class PrinterBackend(Protocol):
     def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan: ...
     def get_status(self) -> PrinterStatus: ...
-    def estimate_consumption(self, labels: Sequence[RenderedLabel]) -> float: ...
+    def estimate_consumption(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> float: ...
     def print_batch(self, labels: Sequence[RenderedLabel]) -> PrintResult: ...
+
+
+@runtime_checkable
+class ControlledPrinterBackend(Protocol):
+    def print_batch_controlled(
+        self, labels: Sequence[RenderedLabel], control: PrintControl
+    ) -> PrintResult: ...

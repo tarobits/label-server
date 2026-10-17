@@ -18,9 +18,8 @@ from app.config import Settings
 from app.db import make_engine, session_factory
 from app.fleet import PrinterFleet
 from app.font_assets import FontStore
-from app.identity import LOCAL_OWNER_ID
 from app.image_assets import ImageStore
-from app.notifications import NtfySender, RoutedNotificationSender, deliver_pending
+from app.notification_routing import deliver_routed_pending
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
@@ -54,16 +53,13 @@ def create_app(
     def run_notifications() -> None:
         import time
 
-        sender = RoutedNotificationSender(
-            {LOCAL_OWNER_ID: NtfySender(settings), "administrators": NtfySender(settings)}
-        )
         while not stop.is_set():
             try:
                 from app.request_notifications import schedule_request_digest
 
                 with fleet.lock, factory.begin() as session:
                     schedule_request_digest(session, time.time())
-                deliver_pending(factory, sender, time.time())
+                deliver_routed_pending(factory, settings, time.time())
             except Exception:
                 logger.exception("Notification tick failed")
             stop.wait(settings.worker_interval_seconds)
@@ -96,10 +92,9 @@ def create_app(
                 device.recover()
             if start_worker:
                 fleet.start()
-                if settings.ntfy_url:
-                    threads.append(
-                        Thread(target=run_notifications, name="notification-worker", daemon=True)
-                    )
+                threads.append(
+                    Thread(target=run_notifications, name="notification-worker", daemon=True)
+                )
                 for thread in threads:
                     thread.start()
             yield
@@ -127,11 +122,13 @@ def create_app(
     from app.font_api import router as font_router
     from app.image_api import router as image_router
     from app.job_access_api import router as access_holds_router
+    from app.notification_api import router as notification_endpoints_router
     from app.request_api import router as requests_router
     from app.runs import router as runs_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(notification_endpoints_router)
     app.include_router(router, dependencies=[Depends(authorize_request)])
     app.include_router(fleet_router, dependencies=[Depends(authorize_request)])
     app.include_router(runs_router, dependencies=[Depends(authorize_request)])

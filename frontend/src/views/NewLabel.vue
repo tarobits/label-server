@@ -1,16 +1,22 @@
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
-import { auth } from '../auth'
-import { workspace as w } from '../workspace'
+import { useAuthStore } from '../auth'
+import { useWorkspaceStore } from '../workspace'
+import { useResourceStore } from '../stores/resources'
+import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
+const w = useWorkspaceStore()
+const resources = useResourceStore()
+const auth = useAuthStore()
 const router = useRouter(),
   route = useRoute()
-const { profiles, activeProfile, busy, templates } = w
+const { profiles, activeProfile, busy, templates } = storeToRefs(w)
 const form = reactive({
   destination_id:
-    typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter.value,
+    typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter,
   tape_profile:
     typeof route.query.profile === 'string'
       ? route.query.profile
@@ -49,12 +55,12 @@ const data = ref<Record<string, string>>({}),
   rendering = ref(false),
   showPrintPixels = ref(true)
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
-const destination = computed(() => w.destinations.value.find((d) => d.id === form.destination_id))
+const destination = computed(() => w.destinations.find((d) => d.id === form.destination_id))
 const matchingPrinters = computed(() =>
-  w.printerStatuses.value.filter(
+  w.printerStatuses.filter(
     (s) =>
       destination.value?.printer_ids.includes(s.printer_id) &&
-      w.cartridges.value.some(
+      w.cartridges.some(
         (c) => c.id === s.active_cartridge_id && c.profile_id === form.tape_profile,
       ),
   ),
@@ -69,7 +75,7 @@ const routingHint = computed(() => {
   if (
     destination.value?.kind === 'group' &&
     destination.value.printer_ids.some(
-      (id) => !w.printerStatuses.value.some((state) => state.printer_id === id),
+      (id) => !w.printerStatuses.some((state) => state.printer_id === id),
     )
   )
     return 'Labels wait for a ready group member with matching tape and enough copies to reach the threshold.'
@@ -128,13 +134,20 @@ async function render() {
   try {
     if (document.value.width_mm !== selected.value?.width_mm)
       throw new Error('Template and tape widths do not match.')
-    const result = await api<Preview>('/preview', 'POST', {
-      destination_id: form.destination_id,
-      document: document.value,
-      data: data.value,
-      foreground: selected.value?.foreground ?? '#000000',
-      background: selected.value?.background ?? '#ffffff',
-    })
+    const missing = document.value.fields.find(
+      (field) => field.required && !(data.value[field.name] ?? field.default).trim(),
+    )
+    if (missing) throw new Error(`${missing.label} is required`)
+    const result = await resources.preview<Preview>(
+      {
+        destination_id: form.destination_id,
+        document: document.value,
+        data: data.value,
+        foreground: selected.value?.foreground ?? '#000000',
+        background: selected.value?.background ?? '#ffffff',
+      },
+      w.destinationPrinter(form.destination_id)?.capabilities,
+    )
     if (ticket === serial && !stopped) {
       preview.value = result
       error.value = ''
@@ -175,8 +188,8 @@ async function submit() {
   }
   const signature = JSON.stringify(body)
   if (signature !== submissionBody) {
+    submissionKey = randomUUID()
     submissionBody = signature
-    submissionKey = crypto.randomUUID()
   }
   if (
     await w.action(
@@ -218,7 +231,7 @@ async function submit() {
       <label
         >Print destination<select v-model="form.destination_id">
           <option
-            v-for="destination in w.destinations.value"
+            v-for="destination in w.destinations"
             :key="destination.id"
             :value="destination.id"
             :disabled="destination.available === false"

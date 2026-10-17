@@ -1,7 +1,7 @@
 """Durable outbox and profile reminder episodes, independent of print outcomes."""
 
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from sqlalchemy import func, select, true
@@ -12,13 +12,20 @@ from app.destinations import installed_profile
 from app.identity import LOCAL_OWNER_ID
 from app.job_access_models import JobAccessHold
 from app.models import (
+    Batch,
+    Cartridge,
     LabelCopy,
     Notification,
+    NotificationEndpoint,
     PrinterDevice,
     PrinterGroup,
+    PrinterState,
     PrintJob,
     State,
     TapeProfile,
+)
+from app.notification_types import (
+    DEFAULT_NOTIFICATION_PRIORITIES,
 )
 
 
@@ -31,10 +38,14 @@ def enqueue(
     now: float | None = None,
     *,
     recipient_id: str = LOCAL_OWNER_ID,
+    kind: str = "general",
+    context: dict[str, Any] | None = None,
 ) -> None:
     stamp = time.time() if now is None else now
     session.add(
         Notification(
+            kind=kind,
+            context=context or {},
             recipient_id=recipient_id,
             title=title,
             message=message,
@@ -44,6 +55,66 @@ def enqueue(
             profile_id=profile.id if profile else None,
             episode=profile.reminder_episode if profile else None,
         )
+    )
+
+
+def clear_empty_cartridge_alert(session: Session, state: PrinterState) -> None:
+    """End the depletion episode and discard unsent alerts before a later episode."""
+    if state.empty_alert_cartridge_id is None:
+        return
+    for notice in session.scalars(
+        select(Notification).where(
+            Notification.kind == "empty_tape",
+            Notification.context["printer_id"].as_string() == state.printer_id,
+            Notification.delivered_at.is_(None),
+            Notification.cancelled.is_(False),
+        )
+    ):
+        notice.cancelled = True
+    state.empty_alert_cartridge_id = None
+
+
+def sync_empty_cartridge_alert(
+    session: Session, state: PrinterState, cartridge: Cartridge, now: float
+) -> None:
+    """One durable administrator alert per installed cartridge depletion episode."""
+    if cartridge.remaining_mm > 0:
+        clear_empty_cartridge_alert(session, state)
+        return
+    if state.empty_alert_cartridge_id == cartridge.id:
+        return
+    device = session.get(PrinterDevice, state.printer_id)
+    if device is None or device.config.get("retired"):
+        return
+    state.empty_alert_cartridge_id = cartridge.id
+    enqueue(
+        session,
+        "Installed cartridge is empty",
+        f"{device.name}: {cartridge.name} has an estimated 0 mm of tape remaining. "
+        "Automatic printing will wait for replacement tape or a remaining-length correction.",
+        f"/#/printers?printer={device.id}",
+        now=now,
+        recipient_id="administrators",
+        kind="empty_tape",
+        context={"printer_id": device.id, "cartridge_id": cartridge.id},
+    )
+
+
+def empty_tape_alert_valid(session: Session, notification: Notification) -> bool:
+    state = session.scalar(
+        select(PrinterState).where(
+            PrinterState.printer_id == notification.context.get("printer_id")
+        )
+    )
+    cartridge = session.get(Cartridge, notification.context.get("cartridge_id", ""))
+    device = session.get(PrinterDevice, notification.context.get("printer_id", ""))
+    return bool(
+        state
+        and cartridge
+        and device
+        and not device.config.get("retired")
+        and state.active_cartridge_id == cartridge.id
+        and cartridge.remaining_mm <= 0
     )
 
 
@@ -144,29 +215,35 @@ def schedule_reminders(session: Session, now: float) -> None:
             and now - profile.reminder_last_at < profile.waiting_notification_interval_seconds
         ):
             continue
-        pending = session.scalar(
-            select(Notification.id)
-            .where(
-                Notification.profile_id == profile.id,
-                Notification.episode == profile.reminder_episode,
-                Notification.delivered_at.is_(None),
-                Notification.cancelled.is_(False),
+        pending = list(
+            session.scalars(
+                select(Notification).where(
+                    Notification.profile_id == profile.id,
+                    Notification.episode == profile.reminder_episode,
+                    Notification.delivered_at.is_(None),
+                    Notification.cancelled.is_(False),
+                )
             )
-            .limit(1)
         )
-        if pending:
+        waiting = waiting_destinations(session, profile)
+        covered = {
+            identifier
+            for notice in pending
+            for identifier in notice.context.get("destination_ids", [])
+        }
+        waiting = [item for item in waiting if item[0] not in covered]
+        if not waiting:
             continue
         enqueue(
             session,
             "Tape swap needed",
             f"{profile.name} is needed: "
-            + "; ".join(
-                f"{count} queued copies at {name}"
-                for _, name, count in waiting_destinations(session, profile)
-            ),
+            + "; ".join(f"{count} queued copies at {name}" for _, name, count in waiting),
             "/#/printers",
             profile,
             now,
+            kind="tape_waiting",
+            context={"destination_ids": [identifier for identifier, _, _ in waiting]},
         )
         profile.reminder_last_at = now
 
@@ -189,25 +266,74 @@ class RoutedNotificationSender:
 
 
 class NtfySender:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, endpoint: NotificationEndpoint) -> None:
         self.settings = settings
+        self.endpoint = endpoint
 
     def send(self, notification: Notification) -> None:
         headers = {}
-        if self.settings.ntfy_token.get_secret_value():
-            headers["Authorization"] = f"Bearer {self.settings.ntfy_token.get_secret_value()}"
+        if self.endpoint.token:
+            headers["Authorization"] = f"Bearer {self.endpoint.token}"
         response = httpx.post(
-            self.settings.ntfy_url.rstrip("/"),
+            self.endpoint.url.rstrip("/"),
             headers=headers,
             json={
-                "topic": self.settings.ntfy_topic,
+                "topic": self.endpoint.topic,
                 "title": notification.title,
                 "message": notification.message,
+                "priority": (self.endpoint.priorities or {}).get(
+                    notification.kind, DEFAULT_NOTIFICATION_PRIORITIES.get(notification.kind, 3)
+                ),
                 "click": self.settings.public_url.rstrip("/") + notification.path,
             },
             timeout=10,
         )
         response.raise_for_status()
+
+
+def notification_valid(session: Session, notification: Notification, now: float) -> bool:
+    if notification.kind == "tape_waiting":
+        profile = session.get(TapeProfile, notification.profile_id or "")
+        recorded = set(notification.context.get("destination_ids", []))
+        if profile is None or not any(
+            identifier in recorded for identifier, _, _ in waiting_destinations(session, profile)
+        ):
+            return False
+    if notification.kind == "empty_tape":
+        return empty_tape_alert_valid(session, notification)
+    if notification.kind == "batch_review":
+        batch = session.get(Batch, notification.context.get("batch_id", ""))
+        return batch is not None and batch.state == State.NEEDS_REVIEW
+    if notification.kind == "printer_blocked":
+        state = session.scalar(
+            select(PrinterState).where(
+                PrinterState.printer_id == notification.context.get("printer_id")
+            )
+        )
+        return state is not None and state.blocker == notification.context.get("reason")
+    if notification.kind == "approval_digest":
+        from app.auth import active_administrators
+        from app.models import AuthSettings
+        from app.request_models import PrintRequest
+
+        settings = session.get(AuthSettings, 1)
+        count = (
+            session.scalar(
+                select(func.count())
+                .select_from(PrintRequest)
+                .where(PrintRequest.status == "pending")
+            )
+            or 0
+        )
+        if (
+            not settings
+            or not settings.approval_notifications_enabled
+            or not active_administrators(session)
+            or not count
+        ):
+            return False
+        notification.message = f"{count} print request(s) await administrator review."
+    return reminder_valid(session, notification, now)
 
 
 def deliver_pending(factory: sessionmaker[Session], sender: NotificationSender, now: float) -> None:
@@ -227,8 +353,19 @@ def deliver_pending(factory: sessionmaker[Session], sender: NotificationSender, 
     for identifier in ids:
         with factory.begin() as session:
             notification = session.get(Notification, identifier)
-            assert notification is not None
-            if notification.recipient_id == "administrators":
+            if (
+                notification is None
+                or notification.cancelled
+                or notification.delivered_at is not None
+                or notification.next_attempt_at > now
+            ):
+                continue
+            if notification.kind == "empty_tape" and not empty_tape_alert_valid(
+                session, notification
+            ):
+                notification.cancelled = True
+                continue
+            if notification.kind == "approval_digest":
                 from app.auth import active_administrators
                 from app.models import AuthSettings
 
@@ -256,6 +393,12 @@ def deliver_pending(factory: sessionmaker[Session], sender: NotificationSender, 
                     f"{pending_count} print request(s) await administrator review."
                 )
                 session.flush()
+            elif notification.recipient_id == "administrators":
+                from app.auth import active_administrators
+
+                if not active_administrators(session):
+                    # Retain operational alerts until an administrator can receive them.
+                    continue
             if not reminder_valid(session, notification, now):
                 # Snoozed reminders can be recreated when the snooze expires.
                 notification.cancelled = True

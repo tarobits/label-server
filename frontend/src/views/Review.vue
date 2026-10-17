@@ -1,55 +1,86 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import type { BatchDetail } from '../types'
-import { workspace as w, date, metres } from '../workspace'
+import { useWorkspaceStore, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
 import JobPreview from '../components/JobPreview.vue'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
+import { useAuthStore } from '../auth'
+import { useLiveRefresh } from '../live'
+import { useResourceStore } from '../stores/resources'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const route = useRoute(),
+  resources = useResourceStore(),
   batch = ref<BatchDetail | null>(null),
   error = ref('')
 const decisions = ref<Record<string, string>>({}),
-  consumed = ref<number | null>(null)
+  consumed = ref<number | null>(null),
+  selected = ref<string[]>([]),
+  bulkDecision = ref('')
 const uncertain = computed(
   () => batch.value?.items.filter((i) => i.outcome === 'needs_review') ?? [],
 )
-let timer: ReturnType<typeof setTimeout> | undefined,
-  stopped = false,
+const allSelected = computed(
+  () => uncertain.value.length > 0 && selected.value.length === uncertain.value.length,
+)
+function selectAll(event: Event) {
+  selected.value = (event.target as HTMLInputElement).checked
+    ? uncertain.value.map((item) => item.copy_id)
+    : []
+}
+function selectFollowing(copyId: string) {
+  const start = uncertain.value.findIndex((item) => item.copy_id === copyId)
+  if (start >= 0) selected.value = uncertain.value.slice(start).map((item) => item.copy_id)
+}
+function applyDecision() {
+  if (!bulkDecision.value) return
+  for (const item of uncertain.value)
+    if (selected.value.includes(item.copy_id)) decisions.value[item.copy_id] = bulkDecision.value
+}
+let stopped = false,
   generation = 0
-async function load() {
+async function load(force = false) {
   const ticket = ++generation,
-    id = String(route.params.id)
+    id = String(route.params.id),
+    actor = auth.user?.id
   try {
-    const result = await api<BatchDetail>(`/batches/${encodeURIComponent(id)}`)
-    if (ticket === generation) {
-      batch.value = result
+    const result = await resources.get<BatchDetail>(`/batches/${encodeURIComponent(id)}`, {
+      ttl: 5000,
+      force,
+    })
+    if (!stopped && ticket === generation && auth.user?.id === actor) {
+      if (JSON.stringify(batch.value) !== JSON.stringify(result)) batch.value = result
+      const ids = new Set(uncertain.value.map((item) => item.copy_id))
+      selected.value = selected.value.filter((id) => ids.has(id))
       error.value = ''
     }
   } catch (e) {
-    if (ticket === generation) error.value = errorMessage(e)
+    if (!stopped && ticket === generation && auth.user?.id === actor) error.value = errorMessage(e)
   }
 }
-async function poll() {
-  await load()
-  if (!stopped) timer = setTimeout(poll, 2500)
-}
+useLiveRefresh(async () => {
+  if (!batch.value || batch.value.state === 'printing' || batch.value.state === 'needs_review')
+    await load()
+}, 5000)
 watch(
   () => route.params.id,
   () => {
+    generation++
     batch.value = null
     decisions.value = {}
+    selected.value = []
+    bulkDecision.value = ''
     consumed.value = null
     void load()
   },
 )
-onMounted(poll)
 onUnmounted(() => {
   stopped = true
   generation++
-  clearTimeout(timer)
 })
 async function resolve() {
   if (!batch.value) return
@@ -63,10 +94,12 @@ async function resolve() {
           decisions: payload,
           consumed_mm: consumed.value,
         }),
-      'Review saved. Printing can resume; requeued copies follow the normal threshold.',
+      'Review saved. Requeued copies follow the printer’s hold and queue settings.',
     )
-  )
-    await load()
+  ) {
+    resources.invalidate(['/batches'])
+    await load(true)
+  }
 }
 </script>
 <template>
@@ -88,12 +121,44 @@ async function resolve() {
     <form @submit.prevent="resolve">
       <p v-if="batch.state === 'needs_review'" class="help">
         Inspect the output and choose an outcome for each uncertain copy. Confirmed copies are
-        locked.
+        locked. Select from a row to include that copy and all following uncertain copies. Changes
+        are saved only when you save the review.
       </p>
+      <div v-if="batch.state === 'needs_review'" class="review-bulk">
+        <label
+          >Action for selected copies<select
+            v-model="bulkDecision"
+            aria-label="Action for selected copies"
+          >
+            <option disabled value="">Choose outcome</option>
+            <option value="printed">Printed</option>
+            <option value="queued">Requeue</option>
+            <option value="cancelled">Cancel</option>
+          </select></label
+        >
+        <button
+          type="button"
+          class="secondary"
+          :disabled="!selected.length || !bulkDecision || w.busy"
+          @click="applyDecision"
+        >
+          Apply to selected
+        </button>
+        <span class="muted" role="status">{{ selected.length }} selected</span>
+      </div>
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
+              <th v-if="batch.state === 'needs_review'" class="review-selection">
+                <input
+                  type="checkbox"
+                  :checked="allSelected"
+                  :indeterminate="selected.length > 0 && !allSelected"
+                  aria-label="Select all uncertain copies"
+                  @change="selectAll"
+                />
+              </th>
               <th>Label</th>
               <th>People</th>
               <th>Copy</th>
@@ -103,6 +168,15 @@ async function resolve() {
           </thead>
           <tbody>
             <tr v-for="item in batch.items" :key="item.copy_id">
+              <td v-if="batch.state === 'needs_review'" class="review-selection">
+                <input
+                  v-if="item.outcome === 'needs_review'"
+                  v-model="selected"
+                  type="checkbox"
+                  :value="item.copy_id"
+                  :aria-label="`Select label ${item.position + 1}`"
+                />
+              </td>
               <td class="review-text">
                 <JobPreview
                   :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
@@ -119,17 +193,27 @@ async function resolve() {
               <td>{{ item.copy_number }}</td>
               <td><Badge :state="item.outcome" /></td>
               <td v-if="batch.state === 'needs_review'">
-                <select
-                  v-if="item.outcome === 'needs_review'"
-                  v-model="decisions[item.copy_id]"
-                  required
-                  :aria-label="`Decision for label ${item.position + 1}`"
-                >
-                  <option disabled value="">Choose outcome</option>
-                  <option value="printed">It printed</option>
-                  <option value="queued">Requeue this copy</option>
-                  <option value="cancelled">Cancel this copy</option></select
-                ><span v-else class="muted">Confirmed — no action needed</span>
+                <div v-if="item.outcome === 'needs_review'" class="review-decision">
+                  <select
+                    v-model="decisions[item.copy_id]"
+                    required
+                    :aria-label="`Decision for label ${item.position + 1}`"
+                  >
+                    <option disabled value="">Choose outcome</option>
+                    <option value="printed">It printed</option>
+                    <option value="queued">Requeue this copy</option>
+                    <option value="cancelled">Cancel this copy</option>
+                  </select>
+                  <button
+                    type="button"
+                    class="secondary"
+                    :aria-label="`Select label ${item.position + 1} and following uncertain labels`"
+                    @click="selectFollowing(item.copy_id)"
+                  >
+                    Select from here
+                  </button>
+                </div>
+                <span v-else class="muted">Confirmed — no action needed</span>
               </td>
             </tr>
           </tbody>
@@ -151,11 +235,9 @@ async function resolve() {
         </p>
         <button
           class="primary"
-          :disabled="
-            w.busy.value || consumed === null || uncertain.some((i) => !decisions[i.copy_id])
-          "
+          :disabled="w.busy || consumed === null || uncertain.some((i) => !decisions[i.copy_id])"
         >
-          Save review and resume
+          Save review
         </button>
       </div>
       <p v-else-if="batch.consumed_mm !== null" class="help">
@@ -167,6 +249,32 @@ async function resolve() {
 </template>
 
 <style scoped>
+.review-bulk {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin: 20px 0;
+}
+.review-bulk label {
+  width: 250px;
+  max-width: 100%;
+}
+.review-bulk > span {
+  align-self: center;
+}
+.review-selection {
+  width: 44px;
+}
+.review-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 165px;
+}
+.review-decision button {
+  white-space: nowrap;
+}
 .review-attribution {
   min-width: 220px;
   vertical-align: top;

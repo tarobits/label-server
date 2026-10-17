@@ -6,8 +6,10 @@ import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroi
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
-import { auth } from '../auth'
-import { workspace as w } from '../workspace'
+import { useAuthStore } from '../auth'
+import { useWorkspaceStore } from '../workspace'
+import { useResourceStore } from '../stores/resources'
+import { randomUUID } from '../uuid'
 import {
   newDocument,
   newElement,
@@ -16,6 +18,9 @@ import {
   type TemplateDocument,
 } from '../editor'
 import type { ImageAsset, Template } from '../types'
+const w = useWorkspaceStore()
+const resources = useResourceStore()
+const auth = useAuthStore()
 const route = useRoute(),
   router = useRouter()
 const document = ref<TemplateDocument>(newDocument()),
@@ -28,9 +33,9 @@ const userGroups = ref<{ id: string; name: string }[]>([])
 const availableGroups = computed(() =>
   userGroups.value.filter(
     (group) =>
-      auth.user.value?.is_admin ||
+      auth.user?.is_admin ||
       group.id === groupId.value ||
-      auth.user.value?.group_memberships?.[group.id]?.can_create,
+      auth.user?.group_memberships?.[group.id]?.can_create,
   ),
 )
 const editable = ref(true)
@@ -134,18 +139,22 @@ const selectedBounds = computed(() => {
     height = rotated ? e.width : e.height
   return { x: e.x + (e.width - width) / 2, y: e.y + (e.height - height) / 2, width, height }
 })
-watch(w.selectedPrinter, () => {
-  const capabilities = w.destinationPrinter(w.selectedPrinter.value)?.capabilities
-  if (!capabilities) return
-  if (!capabilities) return
-  supportedWidths.value = capabilities.supported_widths_mm
-  margin.value = capabilities.printable_margin_mm
-  printableWidths.value = capabilities.printable_widths_mm ?? {}
-  resolutionModes.value = capabilities.resolution_modes ?? {}
-  defaultResolution.value = [capabilities.dpi_x, capabilities.dpi_y]
-})
+watch(
+  () => w.selectedPrinter,
+  () => {
+    const capabilities = w.destinationPrinter(w.selectedPrinter)?.capabilities
+    if (!capabilities) return
+    if (!capabilities) return
+    supportedWidths.value = capabilities.supported_widths_mm
+    margin.value = capabilities.printable_margin_mm
+    printableWidths.value = capabilities.printable_widths_mm ?? {}
+    resolutionModes.value = capabilities.resolution_modes ?? {}
+    defaultResolution.value = [capabilities.dpi_x, capabilities.dpi_y]
+  },
+)
 let timer: ReturnType<typeof setTimeout> | undefined,
   serial = 0,
+  loadGeneration = 0,
   stopped = false
 const canvas = ref<SVGSVGElement | null>(null)
 let drag: { mode: 'move' | 'size'; x: number; y: number; element: Element } | null = null
@@ -173,17 +182,28 @@ function restore(offset: number) {
   groupId.value = value.group_id
 }
 async function load() {
+  const ticket = ++loadGeneration,
+    actor = auth.user?.id,
+    identifier = route.params.id
+  const current = () =>
+    !stopped &&
+    ticket === loadGeneration &&
+    auth.user?.id === actor &&
+    route.params.id === identifier
   ready.value = false
   try {
-    userGroups.value = await api<{ id: string; name: string }[]>('/user-groups')
-    const capabilities = w.destinationPrinter(w.selectedPrinter.value)?.capabilities
+    const groups = await resources.get<{ id: string; name: string }[]>('/user-groups')
+    if (!current()) return
+    userGroups.value = [...groups]
+    const capabilities = w.destinationPrinter(w.selectedPrinter)?.capabilities
     supportedWidths.value = capabilities?.supported_widths_mm ?? [3.5, 6, 9, 12, 18, 24]
     margin.value = capabilities?.printable_margin_mm ?? 1
     printableWidths.value = capabilities?.printable_widths_mm ?? {}
     resolutionModes.value = capabilities?.resolution_modes ?? {}
     defaultResolution.value = [capabilities?.dpi_x ?? 180, capabilities?.dpi_y ?? 180]
     if (route.params.id) {
-      const template = await api<Template>(`/templates/${route.params.id}`)
+      const template = await resources.get<Template>(`/templates/${identifier}`)
+      if (!current()) return
       id.value = template.id
       revision.value = template.revision
       name.value = template.name
@@ -192,8 +212,7 @@ async function load() {
       if (groupId.value && !userGroups.value.some((g) => g.id === groupId.value))
         userGroups.value.push({ id: groupId.value, name: 'Current template group' })
       editable.value =
-        template.can_edit ??
-        (!!auth.user.value?.is_admin || template.owner_id === auth.user.value?.id)
+        template.can_edit ?? (!!auth.user?.is_admin || template.owner_id === auth.user?.id)
       document.value = { print_resolution: 'printer', ...structuredClone(template.document) }
     } else {
       id.value = null
@@ -213,23 +232,27 @@ async function load() {
         ? route.query.element
         : ''
     ready.value = true
+    clearTimeout(timer)
     await updatePreview()
   } catch (e) {
-    error.value = errorMessage(e)
+    if (current()) error.value = errorMessage(e)
   }
 }
 async function updatePreview() {
   const ticket = ++serial
   rendering.value = true
   try {
-    const profile = w.profiles.value.find((p) => p.id === sampleProfile.value)
-    const result = await api<Preview>('/preview', 'POST', {
-      destination_id: w.selectedPrinter.value || undefined,
-      document: document.value,
-      use_samples: true,
-      foreground: profile?.foreground ?? '#000000',
-      background: profile?.background ?? '#ffffff',
-    })
+    const profile = w.profiles.find((p) => p.id === sampleProfile.value)
+    const result = await resources.preview<Preview>(
+      {
+        destination_id: w.selectedPrinter || undefined,
+        document: document.value,
+        use_samples: true,
+        foreground: profile?.foreground ?? '#000000',
+        background: profile?.background ?? '#ffffff',
+      },
+      w.destinationPrinter(w.selectedPrinter)?.capabilities,
+    )
     if (ticket === serial && !stopped) {
       preview.value = result
       error.value = ''
@@ -244,7 +267,7 @@ async function updatePreview() {
   }
 }
 watch(
-  [document, name, sampleProfile, w.selectedPrinter],
+  [document, sampleProfile, () => w.selectedPrinter],
   () => {
     serial++
     clearTimeout(timer)
@@ -298,7 +321,7 @@ function remove() {
 function duplicate() {
   if (selected.value) {
     const e = structuredClone({ ...selected.value })
-    e.id = crypto.randomUUID()
+    e.id = randomUUID()
     document.value.elements.push(e)
     selectedId.value = e.id
     record()
@@ -433,7 +456,7 @@ async function uploadImage() {
     target = selected.value
   if (!file || target?.kind !== 'image') return
   if (file.size > 5_000_000) {
-    w.actionError.value = 'Upload an image of at most 5 MB.'
+    w.actionError = 'Upload an image of at most 5 MB.'
     return
   }
   let asset: ImageAsset | undefined
@@ -454,7 +477,7 @@ async function uploadImage() {
   }
 }
 function imageRatio(element: Element): number | undefined {
-  const asset = w.images.value.find((asset) => asset.id === element.image_asset)
+  const asset = w.images.find((asset) => asset.id === element.image_asset)
   return asset ? asset.width / asset.height : undefined
 }
 function fitImageBox() {
@@ -521,7 +544,7 @@ async function save() {
         name: name.value,
         scope: scope.value,
         group_id: scope.value === 'group' ? groupId.value : null,
-        destination_id: w.selectedPrinter.value || undefined,
+        destination_id: w.selectedPrinter || undefined,
         document: document.value,
         expected_revision: id.value ? revision.value : null,
       },
@@ -563,6 +586,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   stopped = true
+  loadGeneration++
   serial++
   clearTimeout(timer)
   window.removeEventListener('beforeunload', beforeUnload)
@@ -608,9 +632,9 @@ onUnmounted(() => {
           <option value="personal">Personal</option>
           <option v-if="availableGroups.length" value="group">User group</option>
           <option
-            v-if="auth.user.value?.is_admin || scope === 'global'"
+            v-if="auth.user?.is_admin || scope === 'global'"
             value="global"
-            :disabled="!auth.user.value?.is_admin"
+            :disabled="!auth.user?.is_admin"
           >
             Global
           </option>
@@ -646,7 +670,7 @@ onUnmounted(() => {
         <button
           class="primary"
           :disabled="
-            w.busy.value ||
+            w.busy ||
             !ready ||
             rendering ||
             !!error ||
@@ -709,7 +733,7 @@ onUnmounted(() => {
           >Preview tape
           <select v-model="sampleProfile">
             <option value="">Black on white</option>
-            <option v-for="p in w.profiles.value" :key="p.id" :value="p.id">{{ p.name }}</option>
+            <option v-for="p in w.profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
           </select>
         </label>
       </div>
@@ -932,7 +956,7 @@ onUnmounted(() => {
               >Image<select v-model="selected.image_asset" @change="fitImageBox">
                 <option :value="null" disabled>Select an uploaded image</option>
                 <option
-                  v-for="asset in w.images.value.filter(
+                  v-for="asset in w.images.filter(
                     (a) => !a.archived || a.id === selected?.image_asset,
                   )"
                   :key="asset.id"
@@ -947,13 +971,13 @@ onUnmounted(() => {
                 ref="imageInput"
                 type="file"
                 accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
-                :disabled="w.busy.value"
+                :disabled="w.busy"
                 @change="chooseImageFile"
             /></label>
             <button
               v-if="auth.can('assets.write')"
               class="secondary"
-              :disabled="!imageFile || w.busy.value"
+              :disabled="!imageFile || w.busy"
               @click="uploadImage"
             >
               Upload and use image
@@ -1040,9 +1064,7 @@ onUnmounted(() => {
               >Font<select v-model="selected.font" @change="record">
                 <option>Noto Sans</option>
                 <option
-                  v-for="font in w.fonts.value.filter(
-                    (f) => !f.archived || f.id === selected?.font,
-                  )"
+                  v-for="font in w.fonts.filter((f) => !f.archived || f.id === selected?.font)"
                   :key="font.id"
                   :value="font.id"
                 >

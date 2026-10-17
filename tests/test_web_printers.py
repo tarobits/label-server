@@ -1,12 +1,13 @@
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import MetaData, Table
 
 from app.access import LocalOwnerPolicy
 from app.config import Settings
-from app.db import make_engine, session_factory
+from app.db import make_engine
 from app.main import create_app as production_app
-from app.models import PrinterDevice, PrinterState
+from app.models import PrinterDevice
 
 
 def create_app(*args, **kwargs):
@@ -146,15 +147,30 @@ def test_legacy_physical_config_import_and_mock_retirement(tmp_path, monkeypatch
     settings, config = setup(tmp_path)
     command.downgrade(config, "e51f038b02cd")
     engine = make_engine(settings.database_url)
-    with session_factory(engine).begin() as session:
-        session.add(
-            PrinterDevice(
-                id="main", name="Brother", driver="brother-pt-p710bt", config={"usb_serial": "OLD"}
-            )
+    # Seed the historical schema without today's ORM columns.
+    with engine.begin() as connection:
+        metadata = MetaData()
+        devices = Table("printers", metadata, autoload_with=connection)
+        states = Table("printer_state", metadata, autoload_with=connection)
+        connection.execute(
+            devices.insert(),
+            [
+                {
+                    "id": "main",
+                    "name": "Brother",
+                    "driver": "brother-pt-p710bt",
+                    "config": {"usb_serial": "OLD"},
+                },
+                {"id": "simulation", "name": "Old mock", "driver": "mock", "config": {}},
+            ],
         )
-        session.add(PrinterState(id=1, printer_id="main"))
-        session.add(PrinterDevice(id="simulation", name="Old mock", driver="mock", config={}))
-        session.add(PrinterState(printer_id="simulation"))
+        connection.execute(
+            states.insert(),
+            [
+                {"id": 1, "printer_id": "main"},
+                {"id": 2, "printer_id": "simulation"},
+            ],
+        )
     engine.dispose()
     monkeypatch.setenv("LABEL_PRINTER_RESOLUTION", "high")
     monkeypatch.setenv("LABEL_PRINTER_FEED_MM", "4")

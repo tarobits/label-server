@@ -49,6 +49,9 @@ class PrinterCapabilities:
     supports_consecutive: bool = False
     printable_widths_mm: dict[str, float] | None = None
     resolution_modes: dict[str, tuple[int, int]] | None = None
+    supports_stop_after_current: bool = False
+    supports_emergency_stop: bool = False
+    supports_manual_cut: bool = False
 
 
 @dataclass(frozen=True)

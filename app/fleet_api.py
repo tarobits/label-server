@@ -1,5 +1,6 @@
 """Printer registrations and explicit group destinations."""
 
+import time
 from dataclasses import asdict
 from typing import Any
 
@@ -12,6 +13,8 @@ from app.authorization import visible_copy_count
 from app.destinations import members, printer_state
 from app.http import db, get, record
 from app.models import (
+    Batch,
+    FlushRequest,
     LabelCopy,
     PrinterDevice,
     PrinterGroup,
@@ -21,10 +24,18 @@ from app.models import (
     State,
     TapeProfile,
 )
+from app.print_audit import actor_snapshot
+from app.printer.base import ControlledPrinterBackend
 from app.printer_status import status_record
 from app.request_models import PrintRequest
-from app.reservations import reserve_flush
-from app.schemas import AutomaticPrintingInput, CopySelectionInput, PrinterGroupInput, PrinterInput
+from app.reservations import check_tape_shortage, reserve_flush, select_flush
+from app.schemas import (
+    AutomaticPrintingInput,
+    CopySelectionInput,
+    PrinterGroupInput,
+    PrinterInput,
+    PrinterStopInput,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -301,6 +312,59 @@ def hold_destination(
     return record(target)
 
 
+@router.post("/printers/{identifier}/stop", status_code=202)
+def stop_printer(
+    identifier: str,
+    body: PrinterStopInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    context = access_context(request)
+    context.require_destination(identifier, "full" if body.mode == "emergency" else "moderator")
+    get(session, PrinterDevice, identifier)
+    fleet = request.app.state.fleet
+    worker = fleet.workers.get(identifier)
+    if worker is None:
+        raise HTTPException(409, "Printer is unavailable")
+    caps = fleet.registry.definition(identifier).capabilities
+    supported = (
+        caps.supports_emergency_stop
+        if body.mode == "emergency"
+        else caps.supports_stop_after_current
+    )
+    if not supported or not isinstance(worker.backend, ControlledPrinterBackend):
+        raise HTTPException(409, "This printer driver does not support the requested stop mode")
+    state = printer_state(session, identifier)
+    state.automatic_printing_held = True
+    for pending in session.scalars(
+        select(FlushRequest).where(
+            FlushRequest.printer_id == identifier, FlushRequest.completed.is_(False)
+        )
+    ):
+        pending.completed = True
+    batch = session.scalar(
+        select(Batch).where(Batch.printer_id == identifier, Batch.state == State.PRINTING)
+    )
+    mode = body.mode
+    if batch is not None:
+        previous = (batch.trigger or {}).get("stop_request")
+        # A later graceful request cannot downgrade an emergency cancellation.
+        if previous and previous["mode"] == "emergency":
+            mode = "emergency"
+        else:
+            batch.trigger = {
+                **(batch.trigger or {}),
+                "stop_request": {
+                    "mode": mode,
+                    "actor": actor_snapshot(context.actor),
+                    "at": time.time(),
+                },
+            }
+        request.state.after_commit.append(lambda: worker.control.request(mode))
+    session.flush()
+    return {"printer_id": identifier, "batch_id": batch.id if batch else None, "mode": mode}
+
+
 @router.post("/destinations/{identifier}/print", status_code=202)
 def print_destination(
     identifier: str,
@@ -350,6 +414,11 @@ def print_destination(
         )
     if not choices:
         raise HTTPException(409, "No queued labels have a ready matching printer")
+    selections = [
+        select_flush(session, printer_id, identifier, CopySelectionInput(copy_ids=ids))
+        for printer_id, ids in choices.items()
+    ]
+    check_tape_shortage(session, selections)
     requests = [
         reserve_flush(
             session,
@@ -357,6 +426,7 @@ def print_destination(
             identifier,
             CopySelectionInput(copy_ids=ids),
             hold_unselected=body is not None and moderates,
+            shortage_checked=True,
         )
         for printer_id, ids in choices.items()
     ]

@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { defineStore } from 'pinia'
 import { api, configureSession, errorMessage } from './api'
 export type AccessLevel = 'none' | 'request' | 'print' | 'moderator' | 'full'
 export const accessLevels: { value: AccessLevel; label: string }[] = [
@@ -31,53 +32,98 @@ export interface Session {
   user: User | null
   csrf_token: string | null
 }
-const session = ref<Session | null>(null)
-const ready = ref(false)
-const error = ref('')
-const user = computed(() => session.value?.user ?? null)
-const can = (permission: string) =>
-  !!user.value && (user.value.is_admin || user.value.permissions.includes(permission))
-const level = (destination: string) =>
-  user.value?.is_admin ? 'full' : (user.value?.destination_levels?.[destination] ?? 'none')
-const atLeast = (destination: string, minimum: AccessLevel) =>
-  accessLevels.findIndex((l) => l.value === level(destination)) >=
-  accessLevels.findIndex((l) => l.value === minimum)
-const any = (minimum: AccessLevel) =>
-  !!user.value?.is_admin ||
-  Object.keys(user.value?.destination_levels ?? {}).some((id) => atLeast(id, minimum))
-function accept(value: Session) {
-  session.value = value
-  configureSession(value.csrf_token, () => {
-    if (session.value) session.value = { ...session.value, user: null, csrf_token: null }
-    configureSession(null)
-    window.dispatchEvent(new Event('session-ended'))
-  })
-  ready.value = true
-}
-async function refresh() {
-  error.value = ''
-  try {
-    accept(await api<Session>('/auth/session'))
-  } catch (e) {
-    error.value = errorMessage(e)
+export const useAuthStore = defineStore('auth', () => {
+  const session = ref<Session | null>(null)
+  const ready = ref(false)
+  const error = ref('')
+  const user = computed(() => session.value?.user ?? null)
+  const can = (permission: string) =>
+    !!user.value && (user.value.is_admin || user.value.permissions.includes(permission))
+  const level = (destination: string) =>
+    user.value?.is_admin ? 'full' : (user.value?.destination_levels?.[destination] ?? 'none')
+  const atLeast = (destination: string, minimum: AccessLevel) =>
+    accessLevels.findIndex((l) => l.value === level(destination)) >=
+    accessLevels.findIndex((l) => l.value === minimum)
+  const any = (minimum: AccessLevel) =>
+    !!user.value?.is_admin ||
+    Object.keys(user.value?.destination_levels ?? {}).some((id) => atLeast(id, minimum))
+  let fetchedAt = 0,
+    generation = 0
+  let pending: Promise<void> | null = null
+  let forced: Promise<void> | null = null
+  function accept(value: Session) {
+    const previous = JSON.stringify(session.value?.user ?? null)
+    const changed = session.value?.user?.id !== value.user?.id
+    if (changed) {
+      generation++
+      pending = null
+      forced = null
+    }
+    if (JSON.stringify(session.value) !== JSON.stringify(value)) session.value = value
+    fetchedAt = Date.now()
+    configureSession(value.csrf_token, () => {
+      if (session.value) session.value = { ...session.value, user: null, csrf_token: null }
+      configureSession(null)
+      generation++
+      pending = null
+      forced = null
+      fetchedAt = 0
+      window.dispatchEvent(new Event('session-ended'))
+    })
+    ready.value = true
+    if (changed) window.dispatchEvent(new Event('session-ended'))
+    else if (previous !== JSON.stringify(value.user))
+      window.dispatchEvent(new Event('access-changed'))
   }
-}
-async function logout() {
-  await api('/auth/logout', 'POST', {})
-  if (session.value) accept({ ...session.value, user: null, csrf_token: null })
-  window.dispatchEvent(new Event('session-ended'))
-  await refresh()
-}
-export const auth = {
-  session,
-  user,
-  ready,
-  error,
-  can,
-  level,
-  atLeast,
-  any,
-  accept,
-  refresh,
-  logout,
-}
+  async function refresh(force = false) {
+    if (force === true && pending) {
+      if (forced) return forced
+      const ticket = generation
+      const previous = pending
+      const following = previous
+        .then(async () => {
+          if (ticket === generation) await refresh(true)
+        })
+        .finally(() => {
+          if (forced === following) forced = null
+        })
+      forced = following
+      return following
+    }
+    if (pending) return pending
+    if (force !== true && ready.value && Date.now() - fetchedAt < 30000) return
+    error.value = ''
+    const ticket = generation
+    const request = (async () => {
+      try {
+        const result = await api<Session>('/auth/session')
+        if (ticket === generation) accept(result)
+      } catch (e) {
+        if (ticket === generation) error.value = errorMessage(e)
+      }
+    })().finally(() => {
+      if (pending === request) pending = null
+    })
+    pending = request
+    return request
+  }
+  async function logout() {
+    await api('/auth/logout', 'POST', {})
+    if (session.value) accept({ ...session.value, user: null, csrf_token: null })
+    window.dispatchEvent(new Event('session-ended'))
+    await refresh(true)
+  }
+  return {
+    session,
+    user,
+    ready,
+    error,
+    can,
+    level,
+    atLeast,
+    any,
+    accept,
+    refresh,
+    logout,
+  }
+})

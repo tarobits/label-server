@@ -1,5 +1,9 @@
 let csrfToken: string | null = null
 let unauthorized: (() => void) | undefined
+const mutationListeners = new Set<(path: string) => void>()
+export function onApiMutation(listener: (path: string) => void) {
+  mutationListeners.add(listener)
+}
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -57,6 +61,11 @@ export async function api<T>(
             : `Request failed (${response.status})`
     throw new ApiError(message, response.status, detail)
   }
+  if (
+    !['GET', 'HEAD', 'OPTIONS'].includes(method) &&
+    !['/preview', '/runs/inspect', '/admin/access-preview'].includes(path)
+  )
+    for (const listener of mutationListeners) listener(path.split('?')[0]!)
   return result as T
 }
 export function errorMessage(error: unknown): string {

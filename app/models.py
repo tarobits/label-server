@@ -5,10 +5,11 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
+from app.notification_types import DEFAULT_NOTIFICATION_PRIORITIES
 
 
 def new_id() -> str:
@@ -143,6 +144,7 @@ class PrinterState(Base):
         String, unique=True, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )
     active_cartridge_id: Mapped[str | None] = mapped_column(ForeignKey("cartridges.id"))
+    empty_alert_cartridge_id: Mapped[str | None] = mapped_column(String)
     blocker: Mapped[str | None]
     automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")
 
@@ -247,6 +249,8 @@ class FlushRequest(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    kind: Mapped[str] = mapped_column(String, default="general", server_default="general")
+    context: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
     recipient_id: Mapped[str] = mapped_column(
         String, default=LOCAL_OWNER_ID, server_default=LOCAL_OWNER_ID
     )
@@ -259,6 +263,41 @@ class Notification(Base):
     created_at: Mapped[float] = mapped_column(default=time.time)
     next_attempt_at: Mapped[float] = mapped_column(default=time.time)
     attempts: Mapped[int] = mapped_column(default=0)
+    delivered_at: Mapped[float | None]
+    cancelled: Mapped[bool] = mapped_column(default=False)
+    last_error: Mapped[str | None]
+    routed_at: Mapped[float | None]
+
+
+class NotificationEndpoint(Base):
+    __tablename__ = "notification_endpoints"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    name: Mapped[str]
+    url: Mapped[str]
+    topic: Mapped[str]
+    token: Mapped[str] = mapped_column(default="")
+    enabled: Mapped[bool] = mapped_column(default=True)
+    destination_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    all_printers: Mapped[bool] = mapped_column(default=False, server_default="0")
+    priorities: Mapped[dict[str, int]] = mapped_column(
+        JSON, default=lambda: dict(DEFAULT_NOTIFICATION_PRIORITIES)
+    )
+    kinds: Mapped[list[str]] = mapped_column(JSON)
+    revision: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[float] = mapped_column(default=time.time)
+    deleted_at: Mapped[float | None]
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (UniqueConstraint("notification_id", "endpoint_id"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    notification_id: Mapped[str] = mapped_column(ForeignKey("notifications.id"), index=True)
+    endpoint_id: Mapped[str] = mapped_column(ForeignKey("notification_endpoints.id"))
+    endpoint_revision: Mapped[int]
+    endpoint_name: Mapped[str]
+    attempts: Mapped[int] = mapped_column(default=0)
+    next_attempt_at: Mapped[float] = mapped_column(default=time.time)
     delivered_at: Mapped[float | None]
     cancelled: Mapped[bool] = mapped_column(default=False)
     last_error: Mapped[str | None]

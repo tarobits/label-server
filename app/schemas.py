@@ -81,6 +81,10 @@ class AutomaticPrintingInput(Input):
     held: bool
 
 
+class PrinterStopInput(Input):
+    mode: Literal["after_current", "emergency"]
+
+
 class CopySelectionInput(Input):
     copy_ids: list[str] = Field(min_length=1, max_length=10000)
 

@@ -216,7 +216,10 @@ test('revoked access pauses queued labels while their owner can cancel and an ad
       member.getByRole('link', { name: 'Draft before revocation', exact: true }),
     ).toHaveCount(0)
     await page.getByRole('link', { name: 'Review paused labels', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Release copies', exact: true })).toHaveCount(1)
+    // The member cancelled from another client; allow the live access-hold cache to refresh.
+    await expect(page.getByRole('button', { name: 'Release copies', exact: true })).toHaveCount(1, {
+      timeout: 15000,
+    })
     await page.getByRole('button', { name: 'Release copies', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
     await expect(page.getByText('No labels are paused for access review.', exact())).toBeVisible()

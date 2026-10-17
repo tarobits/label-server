@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { api, errorMessage } from '../api'
-import { auth, type Session } from '../auth'
+import { useAuthStore, type Session } from '../auth'
+const auth = useAuthStore()
 const registering = ref(false)
-const setup = computed(() => auth.session.value?.setup_required)
+const setup = computed(() => auth.session?.setup_required)
 const form = reactive({ username: '', password: '', registration_code: '', setup_token: '' })
 const busy = ref(false),
   error = ref('')
@@ -69,11 +70,11 @@ async function submit() {
           required
       /></label>
       <label v-if="registering"
-        >Registration code{{ auth.session.value?.registration_code_required ? '' : ' (optional)'
+        >Registration code{{ auth.session?.registration_code_required ? '' : ' (optional)'
         }}<input
           v-model="form.registration_code"
           autocomplete="off"
-          :required="auth.session.value?.registration_code_required"
+          :required="auth.session?.registration_code_required"
         /><span class="help">Ask your administrator for a registration code.</span></label
       >
       <button class="primary" :disabled="busy">

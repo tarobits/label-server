@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
-import { auth } from '../auth'
-import { workspace as w, date } from '../workspace'
+import { useAuthStore } from '../auth'
+import { useWorkspaceStore, date } from '../workspace'
 import { confirmAction } from '../confirmation'
+import { useLiveRefresh } from '../live'
+import { useResourceStore } from '../stores/resources'
 interface PrintRequest {
   id: string
   owner_id: string
@@ -18,8 +20,11 @@ interface PrintRequest {
   kind: 'job' | 'image' | 'run'
   labels: { payload: Record<string, string>; width_mm: number; length_mm: number; copies: number }[]
 }
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const route = useRoute(),
-  router = useRouter()
+  router = useRouter(),
+  resources = useResourceStore()
 const requests = ref<PrintRequest[]>([]),
   selected = ref<PrintRequest | null>(null)
 const filter = ref('pending'),
@@ -32,25 +37,34 @@ const visible = computed(() =>
 )
 const label = computed(() => selected.value?.labels[position.value])
 let stopped = false,
-  timer: ReturnType<typeof setTimeout> | undefined
-async function load() {
+  generation = 0
+async function load(force = false) {
+  const ticket = ++generation,
+    actor = auth.user?.id,
+    id = typeof route.params.id === 'string' ? route.params.id : ''
+  const current = () => !stopped && ticket === generation && auth.user?.id === actor
   try {
-    const data = await api<PrintRequest[]>('/requests')
-    if (stopped) return
-    if (JSON.stringify(requests.value) !== JSON.stringify(data)) requests.value = data
-    if (route.params.id) {
-      const detail = await api<PrintRequest>(`/requests/${route.params.id}`)
-      if (!stopped && detail.id === route.params.id) selected.value = detail
-    } else selected.value = null
+    if (id) {
+      const detail = await resources.get<PrintRequest>(`/requests/${encodeURIComponent(id)}`, {
+        ttl: 5000,
+        force,
+      })
+      if (!current() || detail.id !== route.params.id) return
+      if (JSON.stringify(selected.value) !== JSON.stringify(detail)) selected.value = detail
+    } else {
+      const data = await resources.get<PrintRequest[]>('/requests', { ttl: 5000, force })
+      if (!current()) return
+      if (JSON.stringify(requests.value) !== JSON.stringify(data)) requests.value = data
+      selected.value = null
+    }
     error.value = ''
   } catch (e) {
-    if (!stopped) error.value = errorMessage(e)
+    if (current()) error.value = errorMessage(e)
   }
 }
-async function poll() {
-  await load()
-  if (!stopped) timer = setTimeout(poll, 5000)
-}
+useLiveRefresh(async () => {
+  if (!selected.value || selected.value.status === 'pending') await load()
+}, 5000)
 async function decide(approve: boolean) {
   if (!selected.value || busy.value) return
   if (
@@ -70,7 +84,8 @@ async function decide(approve: boolean) {
       approve ? {} : { reason: reason.value },
     )
     reason.value = ''
-    await load()
+    resources.invalidate(['/requests'])
+    await load(true)
     await w.refresh()
   } catch (e) {
     error.value = errorMessage(e)
@@ -81,16 +96,16 @@ async function decide(approve: boolean) {
 watch(
   () => route.params.id,
   () => {
+    generation++
     selected.value = null
     position.value = 0
     reason.value = ''
     void load()
   },
 )
-onMounted(poll)
 onUnmounted(() => {
   stopped = true
-  clearTimeout(timer)
+  generation++
 })
 </script>
 <template>

@@ -7,10 +7,19 @@ USB printing, printer groups, CSV runs, REST integrations, and accounts with
 approval workflows. These features are implemented. See [README.md](README.md)
 for usage and [TODO.md](TODO.md) for remaining work.
 
-Physical printer testing was reported successful on 2026-10-04. Consumption
-calibration, simultaneous two-device USB testing, Docker runtime testing, and live
-HomeBox verification remain open. Additional printer drivers, network printing,
-and native grayscale are not implemented.
+Physical printer testing was reported successful on 2026-10-04. Docker image build
+and isolated local runtime checks passed on 2026-10-17. The user accepted the
+consumption baseline and stopping after the current label on 2026-10-17; no
+repeat measurements or mid-label interruption are required. Simultaneous
+two-device USB testing is deferred until a second printer is available.
+Native VM service startup, health/frontend checks, application USB access,
+physical printing, VM reboot, hold persistence and USB reconnect without a
+service restart passed on 2026-10-17. The deployment uses a Python virtual
+environment and systemd directly inside the Debian VM, with a Proxmox USB resource
+mapping. Live HomeBox verification is deferred in favor of manual label creation
+with the native editor. Additional printer drivers,
+network printing, and native grayscale are not implemented. The documented
+PT-P710BT raster protocol provides no native grayscale mode; use dithering.
 
 ## Architecture constraints
 
@@ -42,6 +51,18 @@ do not interrupt reserved batches. Resuming rechecks thresholds immediately.
 Moderator-selected printing holds the destination to leave unselected work queued;
 Print-level users can select their own copies without holding others' work.
 
+Per-device stop controls commit the hold and cancel pending manual intents before
+signaling the hardware owner. Stop after current label requires direct Moderator;
+emergency stop requires direct Full. Drivers consume stop intent at safe command
+boundaries without concurrent transport writes. A cancellation request does not
+guarantee a mid-label stop; physical PT-P710BT tests completed the current label.
+Stopping after the current label is sufficient for the current scope.
+Interrupted output goes through normal review; saving review preserves the hold.
+Bulk review actions include the
+selected copy and subsequent uncertain copies, leaving confirmed copies locked.
+Standalone cutter capability is separate from automatic cuts and requires Full;
+it remains unavailable on the PT-P710BT USB driver.
+
 A guaranteed no-start failure returns copies to the queue. A confirmed prefix may
 be marked printed; the uncertain remainder needs review. Other errors after the
 adapter starts printing are uncertain. Restart recovery also sends in-flight
@@ -49,8 +70,20 @@ attempts to review. Never replay uncertain copies automatically.
 
 Review requires a decision for every uncertain copy and total tape consumption
 for the attempt. Confirmed copies cannot be changed. Cartridge estimates survive
-swaps; shortages warn rather than block, and uncertain consumption stays flagged
-until review. Feed and leader estimates require physical calibration.
+swaps; manual printing warns before reserving copies when estimated consumption
+exceeds remaining tape, with an explicit Print anyway override for all affected
+printers. Automatic shortages retain their batch warning, and uncertain
+consumption stays flagged until review. The measured feed and leader defaults
+were accepted for the tested conditions; different settings need their own
+physical validation before changing the estimates.
+
+An installed cartridge with zero estimated remaining tape blocks automatic
+reservation before raster preparation. Group routing skips empty members while
+respecting CSV printer assignments. A durable depletion episode alerts
+administrators once, independently of approval notification settings; stale
+unsent alerts are cancelled after a swap or length correction. Correcting or
+replacing tape restores eligibility without changing manual holds. Explicitly
+acknowledged manual printing remains available.
 
 Groups route to the first ready member with the exact profile and matching render
 capabilities. CSV runs stay pinned to their first printer, including after review.
@@ -131,6 +164,19 @@ are optional per profile, with persistent interval, snooze, and episode silence.
 Request summaries use a fixed window from the first arrival so continuous arrivals
 cannot delay them indefinitely.
 
+Manage ntfy endpoints in Administration with masked server-side tokens, selected
+event types, printer/distribution-group scopes and per-type message priorities.
+Remove role and minimum-access filters. Explicitly select all current and future
+printers or snapshot only current physical printers with Select all. Groups remain
+manually selectable and follow membership changes. No selected scope disables
+and clears printer event types. Group channels include operational alerts from
+their members. Approval summaries can be global or limited to selected logical
+destinations. Topic subscriptions are configured separately in ntfy.
+Fan out each event to all matching endpoints with independent durable delivery
+attempts and retries. Endpoint changes cancel old pending deliveries; notification
+configuration and delivery never alter print state. Preserve an existing legacy
+environment channel once during migration only when the installation has accounts.
+
 ## Verification
 
 Use isolated databases and test adapters for automated checks. Cover thresholds,
@@ -140,6 +186,13 @@ concurrent reservations, group routing, migrations, and notification retries.
 Rendering checks compare preview and print pixels, decode QR output, and verify
 frozen jobs after template edits. Browser tests cover design-to-queue, CSV drafts,
 review, permissions, form persistence during polling, and mobile layouts.
+
+Shared frontend state uses Pinia stores. Cache route-specific catalogs, coalesce
+concurrent reads, invalidate affected resources after mutations, and discard stale
+responses across session or access changes. Use one visibility-aware polling
+scheduler; keep live queues/status fresh without repeatedly fetching every catalog.
+Browser checks cover request counts, navigation reuse, mutation freshness, hidden
+tabs, and delayed private responses during logout/login.
 
 Hardware acceptance requires printed dimensions, QR scans, cut/feed behavior,
 completion, interruption recovery, and measured tape use. Screen previews and

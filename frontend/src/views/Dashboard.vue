@@ -1,37 +1,39 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { workspace as w, date, metres } from '../workspace'
+import { useWorkspaceStore, date, metres } from '../workspace'
 import { api } from '../api'
-import { auth } from '../auth'
+import { requestPrinting } from '../printing'
+import { useAuthStore } from '../auth'
 import type { Destination } from '../types'
 import Badge from '../components/Badge.vue'
 import Icon from '../components/Icon.vue'
 
-const state = (id: string) => w.printerStatuses.value.find((item) => item.printer_id === id)
-const destination = (id: string) => w.destinations.value.find((item) => item.id === id)
+const w = useWorkspaceStore()
+const auth = useAuthStore()
+const state = (id: string) => w.printerStatuses.find((item) => item.printer_id === id)
+const destination = (id: string) => w.destinations.find((item) => item.id === id)
 const cartridge = (id: string) =>
-  w.cartridges.value.find((item) => item.id === state(id)?.active_cartridge_id)
-const profile = (id: string) =>
-  w.profiles.value.find((item) => item.id === cartridge(id)?.profile_id)
-const groups = computed(() => w.destinations.value.filter((item) => item.kind === 'group'))
+  w.cartridges.find((item) => item.id === state(id)?.active_cartridge_id)
+const profile = (id: string) => w.profiles.find((item) => item.id === cartridge(id)?.profile_id)
+const groups = computed(() => w.destinations.filter((item) => item.kind === 'group'))
 const directQueue = (id: string) => destination(id) ?? state(id)
 const queued = (target?: Pick<Destination, 'queues'>) =>
   target?.queues.reduce((total, queue) => total + queue.queued_copies, 0) ?? 0
 const waiting = (target?: Pick<Destination, 'queues'>) =>
   target?.queues.filter((q) => q.queued_copies > 0) ?? []
-const connected = computed(() => w.printerStatuses.value.filter((item) => item.connected).length)
-const printing = computed(() => w.printerStatuses.value.filter((item) => item.printing).length)
-const pending = computed(() => w.printerStatuses.value.filter((item) => item.pending_flush).length)
+const connected = computed(() => w.printerStatuses.filter((item) => item.connected).length)
+const printing = computed(() => w.printerStatuses.filter((item) => item.printing).length)
+const pending = computed(() => w.printerStatuses.filter((item) => item.pending_flush).length)
 const reviews = computed(
-  () => w.printerStatuses.value.filter((item) => item.needs_review.length > 0).length,
+  () => w.printerStatuses.filter((item) => item.needs_review.length > 0).length,
 )
-const recentBatches = computed(() => w.batches.value.slice(0, 4))
+const recentBatches = computed(() => w.batches.slice(0, 4))
 function canPrintDirect(id: string) {
   const current = state(id),
     installed = profile(id)
   return (
-    !w.busy.value &&
-    !w.connectionError.value &&
+    !w.busy &&
+    !w.connectionError &&
     current?.connected &&
     !current.printer_error &&
     !current.printing &&
@@ -52,15 +54,21 @@ async function hold(id: string, held: boolean) {
 }
 async function print(id: string) {
   await w.action(
-    () => api(`/destinations/${encodeURIComponent(id)}/print`, 'POST'),
+    () => requestPrinting(`/destinations/${encodeURIComponent(id)}/print`),
     `${w.destinationName(id)}: matching queued labels requested for printing.`,
   )
 }
-const printerName = (id: string) => w.printers.value.find((device) => device.id === id)?.name ?? id
+async function stopPrinter(id: string, mode: 'after_current' | 'emergency') {
+  await w.action(
+    () => api(`/printers/${encodeURIComponent(id)}/stop`, 'POST', { mode }),
+    `${w.destinationName(id)}: ${mode === 'emergency' ? 'emergency stop' : 'stop after current label'} requested. Automatic printing is held.`,
+  )
+}
+const printerName = (id: string) => w.printers.find((device) => device.id === id)?.name ?? id
 </script>
 
 <template>
-  <div v-if="!w.printers.value.length && !groups.length" class="panel empty">
+  <div v-if="!w.printers.length && !groups.length" class="panel empty">
     <h2>
       {{ auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet' }}
     </h2>
@@ -75,16 +83,16 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
       >Set up printers</RouterLink
     >
   </div>
-  <div class="stats-grid fleet-stats" :class="{ 'groups-only': !w.printers.value.length }">
+  <div class="stats-grid fleet-stats" :class="{ 'groups-only': !w.printers.length }">
     <article class="stat" aria-label="Queued labels">
-      <span>QUEUED LABELS</span><strong>{{ w.totalQueued.value }}<small>copies</small></strong>
+      <span>QUEUED LABELS</span><strong>{{ w.totalQueued }}<small>copies</small></strong>
       <p>Copies in accessible queues</p>
     </article>
-    <template v-if="w.printers.value.length">
+    <template v-if="w.printers.length">
       <article class="stat" aria-label="Connected printers">
         <span>CONNECTED PRINTERS</span
         ><strong
-          >{{ connected }}<small>/ {{ w.printers.value.length }}</small></strong
+          >{{ connected }}<small>/ {{ w.printers.length }}</small></strong
         >
         <p>Printers you can access directly</p>
       </article>
@@ -101,7 +109,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
     </article>
   </div>
 
-  <section v-if="w.printers.value.length" aria-labelledby="fleet-printers-title">
+  <section v-if="w.printers.length" aria-labelledby="fleet-printers-title">
     <div class="section-heading">
       <div>
         <h2 id="fleet-printers-title">Your printers</h2>
@@ -112,7 +120,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
     </div>
     <div class="fleet-grid">
       <article
-        v-for="device in w.printers.value"
+        v-for="device in w.printers"
         :key="device.id"
         class="panel fleet-card"
         :aria-label="`Printer ${device.name}`"
@@ -234,7 +242,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
               </button>
               <button
                 class="secondary"
-                :disabled="w.busy.value"
+                :disabled="w.busy || !!state(device.id)?.stop_requested"
                 @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
               >
                 {{
@@ -244,6 +252,65 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
                 }}
               </button>
             </div>
+            <div v-if="device.capabilities?.supports_stop_after_current" class="row wrap">
+              <button
+                class="secondary"
+                :disabled="
+                  w.busy ||
+                  !!w.connectionError ||
+                  (!state(device.id)?.printing && !state(device.id)?.pending_flush) ||
+                  !!state(device.id)?.stop_requested
+                "
+                @click="stopPrinter(device.id, 'after_current')"
+              >
+                Stop after current label
+              </button>
+              <button
+                v-if="
+                  auth.atLeast(device.id, 'full') && device.capabilities?.supports_emergency_stop
+                "
+                class="danger"
+                :disabled="
+                  w.busy ||
+                  !!w.connectionError ||
+                  !state(device.id)?.printing ||
+                  state(device.id)?.stop_requested === 'emergency'
+                "
+                title="Requests cancellation immediately. The current label may finish."
+                @click="stopPrinter(device.id, 'emergency')"
+              >
+                Emergency stop
+              </button>
+              <button
+                v-if="auth.atLeast(device.id, 'full') && device.driver === 'brother-pt-p710bt'"
+                class="secondary"
+                disabled
+                title="Standalone cutting is not supported by this printer’s USB driver."
+              >
+                Cut tape
+              </button>
+            </div>
+            <p v-if="state(device.id)?.stop_requested" class="alert warning" role="status">
+              {{
+                state(device.id)?.stop_requested === 'emergency'
+                  ? 'Emergency stop requested. The current label may finish. Review the batch before printing again.'
+                  : 'Stopping after the current label. The remaining batch will need review.'
+              }}
+            </p>
+            <p
+              v-if="auth.atLeast(device.id, 'full') && device.capabilities?.supports_emergency_stop"
+              class="help"
+            >
+              Emergency stop may allow the current label to finish. Review all output before
+              printing again.
+            </p>
+            <p
+              v-if="auth.atLeast(device.id, 'full') && device.driver === 'brother-pt-p710bt'"
+              class="help"
+            >
+              Manual cut over USB is unavailable. While idle, double-press the printer’s power
+              button to feed and cut.
+            </p>
             <RouterLink
               v-for="batchId in state(device.id)?.needs_review ?? []"
               :key="batchId"
@@ -340,10 +407,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
             <button
               class="primary"
               :disabled="
-                group.available === false ||
-                w.busy.value ||
-                !!w.connectionError.value ||
-                !queued(group)
+                group.available === false || w.busy || !!w.connectionError || !queued(group)
               "
               @click="print(group.id)"
             >
@@ -351,7 +415,7 @@ const printerName = (id: string) => w.printers.value.find((device) => device.id 
             </button>
             <button
               class="secondary"
-              :disabled="w.busy.value"
+              :disabled="w.busy"
               @click="hold(group.id, !group.automatic_printing_held)"
             >
               {{ group.automatic_printing_held ? 'Resume group' : 'Hold group' }}

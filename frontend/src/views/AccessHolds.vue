@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { api } from '../api'
-import { workspace as w, date } from '../workspace'
+import { useWorkspaceStore, date } from '../workspace'
+const w = useWorkspaceStore()
 import { confirmAction } from '../confirmation'
 import JobPreview from '../components/JobPreview.vue'
 import type { AccessHold } from '../types'
@@ -26,10 +27,8 @@ async function resolve(hold: AccessHold, release: boolean) {
       print them. Restoring access alone does not release this hold.
     </p>
   </div>
-  <p v-if="!w.accessHolds.value.length" class="panel empty">
-    No labels are paused for access review.
-  </p>
-  <article v-for="hold in w.accessHolds.value" :key="hold.job_id" class="panel">
+  <p v-if="!w.accessHolds.length" class="panel empty">No labels are paused for access review.</p>
+  <article v-for="hold in w.accessHolds" :key="hold.job_id" class="panel">
     <div class="section-heading">
       <h2>{{ hold.owner_name }}</h2>
       <span class="badge">Paused</span>
@@ -46,9 +45,8 @@ async function resolve(hold: AccessHold, release: boolean) {
       :length-mm="hold.job.length_mm"
     />
     <div class="row wrap">
-      <button class="primary" :disabled="w.busy.value" @click="resolve(hold, true)">
-        Release copies</button
-      ><button class="secondary danger-text" :disabled="w.busy.value" @click="resolve(hold, false)">
+      <button class="primary" :disabled="w.busy" @click="resolve(hold, true)">Release copies</button
+      ><button class="secondary danger-text" :disabled="w.busy" @click="resolve(hold, false)">
         Cancel copies
       </button>
     </div>

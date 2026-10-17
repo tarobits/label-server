@@ -15,6 +15,8 @@ from PIL import Image
 
 from app.printer.base import (
     BatchPlan,
+    LabelGeometry,
+    PrintControl,
     PrinterStatus,
     PrintInterrupted,
     PrintNotStarted,
@@ -39,6 +41,9 @@ def capabilities(*, high_resolution: bool = False) -> PrinterCapabilities:
         tuple(PRINT_PINS),
         1,
         supports_cut=True,
+        supports_stop_after_current=True,
+        supports_emergency_stop=True,
+        supports_manual_cut=False,
         supports_consecutive=True,
         printable_widths_mm={str(width): pins * 25.4 / DPI for width, pins in PRINT_PINS.items()},
         resolution_modes={"normal": (180, 180), "high": (360, 180)},
@@ -122,6 +127,10 @@ def encode_raster(label: RenderedLabel) -> bytes:
     return bytes(output)
 
 
+class _StopRequested(Exception):
+    pass
+
+
 class BrotherPTP710BT:
     def __init__(
         self,
@@ -143,12 +152,19 @@ class BrotherPTP710BT:
         )
         self.buffer = bytearray()
 
-    def _read(self, deadline: float) -> StatusPacket:
+    def _read(self, deadline: float, control: PrintControl | None = None) -> StatusPacket:
         while len(self.buffer) < 32:
+            if control is not None and control.emergency.is_set():
+                raise _StopRequested("Emergency stop requested")
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("Printer status timed out")
-            data = self.transport.read(64, remaining)
+            try:
+                data = self.transport.read(64, min(remaining, 0.1) if control else remaining)
+            except TimeoutError:
+                if control is None:
+                    raise
+                continue  # Keep the original deadline and any partial status packet.
             if not data:
                 raise OSError("Printer disconnected while reading status")
             self.buffer.extend(data)
@@ -197,7 +213,7 @@ class BrotherPTP710BT:
         finally:
             self._close()
 
-    def estimate_consumption(self, labels: Sequence[RenderedLabel]) -> float:
+    def estimate_consumption(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> float:
         if not labels:
             return 0
         lengths = [label.length_mm + self._feed_per_label(label) for label in labels]
@@ -216,14 +232,14 @@ class BrotherPTP710BT:
             tuple(label.length_mm for label in labels),
         )
 
-    def _feed_per_label(self, label: RenderedLabel) -> float:
+    def _feed_per_label(self, label: RenderedLabel | LabelGeometry) -> float:
         return 2 * round(self.feed_mm * label.dpi_x / 25.4) * 25.4 / label.dpi_x
 
-    def _wait_page(self) -> None:
+    def _wait_page(self, control: PrintControl | None = None) -> None:
         deadline = time.monotonic() + self.timeout
         completed = False
         while True:
-            status = self._read(deadline)
+            status = self._read(deadline, control)
             if status.problem:
                 raise OSError(status.problem)
             if status.kind == 1:
@@ -232,8 +248,20 @@ class BrotherPTP710BT:
                 return
 
     def print_batch(self, labels: Sequence[RenderedLabel]) -> PrintResult:
+        return self._print_batch(labels)
+
+    def print_batch_controlled(
+        self, labels: Sequence[RenderedLabel], control: PrintControl
+    ) -> PrintResult:
+        return self._print_batch(labels, control)
+
+    def _print_batch(
+        self, labels: Sequence[RenderedLabel], control: PrintControl | None = None
+    ) -> PrintResult:
         if not labels:
             return PrintResult(0)
+        if control is not None and control.stop.is_set():
+            raise PrintNotStarted("Printing stopped before transmission")
         # Validate the entire batch before touching USB, not halfway through its transmission.
         try:
             if len({label.tape_width_mm for label in labels}) != 1:
@@ -253,8 +281,12 @@ class BrotherPTP710BT:
                 or WIDTH_MM.get(status.width) != labels[0].tape_width_mm
             ):
                 raise PrintNotStarted(status.problem or "Printer busy or tape width does not match")
+            if control is not None and control.stop.is_set():
+                raise PrintNotStarted("Printing stopped before transmission")
             self.transport.write(b"\x00" * 100 + b"\x1b@\x1bia\x01\x1bi!\x00")
             for index, label in enumerate(labels):
+                if control is not None and control.stop.is_set():
+                    raise _StopRequested("Printing stopped after the current label")
                 final = index == len(labels) - 1
                 controls = (
                     b"\x1biz"
@@ -271,17 +303,32 @@ class BrotherPTP710BT:
                 )
                 # From this point any failure is uncertain, even a short USB write.
                 started = True
-                self.transport.write(
-                    controls + encode_raster(label) + (b"\x1a" if final else b"\x0c")
-                )
-                self._wait_page()
+                raster = encode_raster(label)
+                ending = b"\x1a" if final else b"\x0c"
+                if control is None:
+                    self.transport.write(controls + raster + ending)
+                else:
+                    # Every G command is exactly 20 bytes in our literal PackBits encoding.
+                    # Cancel only between complete commands, never within USB's arbitrary
+                    # chunk boundaries. An already blocked write can still delay the stop.
+                    self.transport.write(controls)
+                    for offset in range(0, len(raster), 3200):
+                        if control.emergency.is_set():
+                            raise _StopRequested("Emergency stop requested")
+                        self.transport.write(raster[offset : offset + 3200])
+                    if control.emergency.is_set():
+                        raise _StopRequested("Emergency stop requested")
+                    self.transport.write(ending)
+                self._wait_page(control)
                 completed += 1
+            if control is not None and control.stop.is_set():
+                raise _StopRequested("Printing stopped after the current label")
             # A final feed/cut error can arrive in a separate USB transfer.
             # Read briefly without issuing any command before accepting completion.
             deadline = time.monotonic() + 0.25
             while True:
                 try:
-                    trailing = self._read(deadline)
+                    trailing = self._read(deadline, control)
                 except TimeoutError:
                     if self.buffer:
                         raise OSError("Incomplete final status packet")
@@ -289,6 +336,17 @@ class BrotherPTP710BT:
                 if trailing.problem:
                     raise OSError(trailing.problem)
             return PrintResult()  # No documented measured-consumption counter.
+        except _StopRequested as error:
+            # ESC @ cancels printing and clears the chain buffer (Brother reference p.23).
+            # This runs on the hardware-owning thread with the already-open transport.
+            message = str(error)
+            try:
+                self.transport.write(b"\x1b@")
+            except Exception as cancel_error:
+                message += f"; printer cancellation could not be confirmed: {cancel_error}"
+            if started:
+                raise PrintInterrupted(message, max(0, completed - 1)) from error
+            raise PrintNotStarted(message) from error
         except PrintNotStarted:
             raise
         except Exception as error:

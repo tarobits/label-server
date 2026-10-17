@@ -14,6 +14,13 @@ from app.main import create_app
 from app.models import PrinterDevice, PrinterState
 
 
+@pytest.fixture(autouse=True)
+def isolated_notification_environment(monkeypatch):
+    # Migration tests must never import the developer's live notification channel.
+    for name in ("LABEL_NTFY_URL", "LABEL_NTFY_TOPIC", "LABEL_NTFY_TOKEN"):
+        monkeypatch.setenv(name, "")
+
+
 def create_test_app(settings=None, backends=None, start_worker=True, **kwargs):
     from mock_api import router
     from printer_factory import test_printer

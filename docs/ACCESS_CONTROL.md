@@ -70,6 +70,14 @@ printer. Distribution-group permissions cannot authorize batch review. Once the
 physical printer has produced an uncertain result, its authorized reviewer must
 be able to reconcile that batch, including work routed through a group.
 
+**Stop after current label** requires Moderator directly on the physical printer.
+**Emergency stop** and any future standalone cutter operation require Full
+directly on it. Distribution-group access never grants these hardware controls.
+The PT-P710BT USB adapter currently does not support standalone manual cutting.
+Stop requests are saved with the actor and time in the batch history before the
+hardware worker is signaled. Stopping holds automatic printing and cancels pending
+manual requests on that device; reviewing output does not remove the hold.
+
 ## Previewing access changes
 
 Before a role or membership change takes effect, show the administrator each
@@ -96,10 +104,23 @@ does not resolve that hold. A user can still cancel their own queued jobs. Work
 already being printed remains subject to the existing physical-outcome and
 interrupted-batch review rules.
 
-Administrator request notifications use the configured ntfy topic, restricted to
-administrators. Summaries collect requests during a configurable, fixed interval starting
-with the first request. The interval survives restarts; later arrivals do not
-extend it. Notification retries never approve or print jobs.
+Administrators configure ntfy endpoints in Administration. Each endpoint selects
+event types, printer or distribution-group scopes, and severity per event type.
+Group scopes include operational alerts from member printers as membership changes.
+Select all captures only current physical printers; groups remain manually selectable.
+All current and future printers is a separate,
+explicit choice. With neither option nor individual selections, printer event
+types are disabled and cleared. Roles and application access levels do not affect
+endpoint routing. Notification filters do not grant users access to printers or
+topics: configure ntfy subscription permissions separately.
+
+Approval summaries sent to scoped endpoints include only requests addressed to
+the selected logical destinations. Without destination restrictions, they include
+all pending requests. Summaries collect requests during a configurable,
+fixed interval starting with the first request. The interval survives restarts;
+later arrivals do not extend it. Matching endpoints receive independent deliveries
+and retries. Endpoint edits, disabling or deletion cancel pending deliveries.
+Notification retries never approve or print jobs.
 
 ## Printing attribution and delegated drafts
 

@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { workspace as w, date, metres } from '../workspace'
+import { storeToRefs } from 'pinia'
+import { useWorkspaceStore, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
-import { auth } from '../auth'
+import { useAuthStore } from '../auth'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
-const { batches, notices, overview } = w
+import type { Notice } from '../types'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
+const { batches, notices, overview } = storeToRefs(w)
+function deliveryState(delivery: NonNullable<Notice['deliveries']>[number]) {
+  return delivery.cancelled
+    ? 'cancelled'
+    : delivery.delivered_at
+      ? 'delivered'
+      : delivery.last_error
+        ? 'retrying'
+        : 'pending'
+}
 function noticeState(notice: (typeof notices.value)[number]) {
   return notice.cancelled
     ? 'cancelled'
@@ -53,7 +66,7 @@ function noticeState(notice: (typeof notices.value)[number]) {
       </div>
     </article>
   </section>
-  <section v-if="auth.user.value?.is_admin" class="panel">
+  <section v-if="auth.user?.is_admin" class="panel">
     <div class="section-heading">
       <h2>Notifications</h2>
       <span class="badge" :class="overview.notifications_enabled ? 'printed' : 'queued'">{{
@@ -72,6 +85,23 @@ function noticeState(notice: (typeof notices.value)[number]) {
         ><Badge :state="noticeState(notice)" />
       </div>
       <p>{{ notice.message }}</p>
+      <ul
+        v-if="notice.deliveries?.length"
+        class="notice-deliveries"
+        aria-label="Endpoint deliveries"
+      >
+        <li v-for="(delivery, index) in notice.deliveries" :key="index">
+          <div class="row spread">
+            <strong>{{ delivery.endpoint_name }}</strong>
+            <Badge :state="deliveryState(delivery)" />
+          </div>
+          <small
+            >{{ delivery.attempts }} delivery attempts<span v-if="delivery.delivered_at">
+              · {{ date(delivery.delivered_at) }}</span
+            ><span v-if="delivery.last_error"> · {{ delivery.last_error }}</span></small
+          >
+        </li>
+      </ul>
       <small
         >{{ date(notice.created_at) }} · {{ notice.attempts }} delivery attempts<span
           v-if="notice.last_error"
@@ -111,5 +141,22 @@ function noticeState(notice: (typeof notices.value)[number]) {
   margin: 0 0 12px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+.notice-deliveries {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.notice-deliveries li {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.notice-deliveries strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 </style>

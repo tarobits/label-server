@@ -1,40 +1,20 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { api, ApiError, errorMessage } from '../api'
-import { auth, accessLevels, type AccessLevel, type Membership } from '../auth'
-import { workspace as w, date } from '../workspace'
+import { useAuthStore, accessLevels, type AccessLevel, type Membership } from '../auth'
+import { useWorkspaceStore, date } from '../workspace'
 import PropertySection from '../components/PropertySection.vue'
-interface Person {
-  id: string
-  username: string
-  is_admin: boolean
-  disabled: boolean
-  role_ids: string[]
-}
-type Permission =
-  | { kind: 'application'; permission: string }
-  | { kind: 'destination'; destination_id: string; level: AccessLevel }
-interface Role {
-  id: string
-  name: string
-  protected: boolean
-  permissions: Permission[]
-}
-interface Member extends Membership {
-  user_id: string
-}
-interface Group {
-  id: string
-  name: string
-  members: Member[]
-}
-interface Code {
-  id: string
-  name: string
-  expires_at: number | null
-  redeemed_at: number | null
-  revoked: boolean
-}
+import NotificationEndpoints from '../components/NotificationEndpoints.vue'
+import {
+  useAdministrationStore,
+  type AdminResource,
+  type Person,
+  type Permission,
+  type Role,
+  type Member,
+  type Group,
+} from '../stores/administration'
 interface Effective {
   is_admin: boolean
   disabled: boolean
@@ -60,11 +40,10 @@ interface Change {
   message: string
   done?: () => void
 }
-const users = ref<Person[]>([]),
-  roles = ref<Role[]>([]),
-  groups = ref<Group[]>([]),
-  codes = ref<Code[]>([]),
-  permissions = ref<{ id: string; label: string }[]>([])
+const w = useWorkspaceStore()
+const auth = useAuthStore()
+const administration = useAdministrationStore()
+const { users, roles, groups, codes, permissions } = storeToRefs(administration)
 const busy = ref(false),
   error = ref(''),
   success = ref(''),
@@ -96,30 +75,18 @@ const selectedUser = ref<Person | null>(null),
   previewDialog = ref<HTMLDialogElement | null>(null)
 const levelName = (level: AccessLevel) =>
   accessLevels.find((item) => item.value === level)?.label ?? level
-async function load() {
-  const [u, r, g, c, p, s] = await Promise.all([
-    api<Person[]>('/admin/users'),
-    api<Role[]>('/admin/roles'),
-    api<Group[]>('/admin/groups'),
-    api<Code[]>('/admin/registration-codes'),
-    api<typeof permissions.value>('/admin/permissions'),
-    api<typeof settings>('/admin/settings'),
-  ])
-  users.value = u
-  roles.value = r
-  groups.value = g
-  codes.value = c
-  permissions.value = p
-  Object.assign(settings, s)
+async function load(keys?: AdminResource[]) {
+  if (!(await administration.load(keys))) return
+  if (!keys || keys.includes('settings')) Object.assign(settings, administration.settings)
 }
-async function perform(task: () => Promise<unknown>, message: string) {
+async function perform(task: () => Promise<unknown>, message: string, reload: AdminResource[]) {
   if (busy.value) return
   busy.value = true
   error.value = ''
   success.value = ''
   try {
     await task()
-    await load()
+    await load(reload)
     await auth.refresh()
     await w.refresh()
     success.value = message
@@ -174,8 +141,16 @@ async function applyChange() {
     previewDialog.value?.close()
     impact.value = null
     change.value = null
-    await auth.refresh()
-    if (auth.user.value?.is_admin) await load()
+    await auth.refresh(true)
+    if (auth.user?.is_admin) {
+      const reload: AdminResource[] = [value.resource]
+      if (value.resource === 'groups') reload.push('users')
+      if (value.method === 'DELETE') {
+        reload.push('codes')
+        if (value.resource === 'roles') reload.push('users')
+      }
+      await load(reload)
+    }
     await w.refresh()
     success.value = value.message
   } catch (e) {
@@ -291,11 +266,15 @@ function remove(resource: 'roles' | 'groups', identifier: string) {
   void preview({ resource, identifier, method: 'DELETE', payload: {}, message: 'Removed.' })
 }
 async function issueCode() {
-  await perform(async () => {
-    const result = await api<{ code: string }>('/admin/registration-codes', 'POST', codeForm)
-    issuedCode.value = result.code
-    codeForm.name = ''
-  }, 'Registration code created. Copy it before leaving this page.')
+  await perform(
+    async () => {
+      const result = await api<{ code: string }>('/admin/registration-codes', 'POST', codeForm)
+      issuedCode.value = result.code
+      codeForm.name = ''
+    },
+    'Registration code created. Copy it before leaving this page.',
+    ['codes'],
+  )
 }
 function describe(value: Effective | null) {
   if (!value) return ['Account does not exist']
@@ -314,11 +293,20 @@ function describe(value: Effective | null) {
     'Own templates: edit and delete; own queued jobs: cancel',
   ]
 }
+function refreshAccess() {
+  if (!auth.user?.is_admin) return
+  // Preserve the local settings form while replacing shared, authorized records.
+  void load(['users', 'roles', 'groups', 'codes', 'permissions']).catch((issue) => {
+    error.value = errorMessage(issue)
+  })
+}
 onMounted(() => {
+  window.addEventListener('access-changed', refreshAccess)
   void load().catch((e) => {
     error.value = errorMessage(e)
   })
 })
+onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 </script>
 <template>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
@@ -452,7 +440,7 @@ onMounted(() => {
         <fieldset>
           <legend>Print destinations</legend>
           <div class="destination-grants">
-            <label v-for="destination in w.destinations.value" :key="destination.id"
+            <label v-for="destination in w.destinations" :key="destination.id"
               >{{ destination.name }}
               <span class="help">{{
                 destination.kind === 'group' ? 'Distribution group' : 'Printer'
@@ -602,7 +590,9 @@ onMounted(() => {
           class="small danger-text"
           :disabled="busy"
           @click="
-            perform(() => api('/admin/registration-codes/' + code.id, 'DELETE'), 'Code revoked.')
+            perform(() => api('/admin/registration-codes/' + code.id, 'DELETE'), 'Code revoked.', [
+              'codes',
+            ])
           "
         >
           Revoke code
@@ -615,7 +605,9 @@ onMounted(() => {
       ><form
         class="form-stack"
         @submit.prevent="
-          perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.')
+          perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.', [
+            'settings',
+          ])
         "
       >
         <label class="checkbox"
@@ -639,6 +631,7 @@ onMounted(() => {
       </form></PropertySection
     >
   </section>
+  <NotificationEndpoints v-if="auth.user?.is_admin" />
   <Teleport to="body"
     ><dialog
       ref="previewDialog"

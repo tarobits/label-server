@@ -1,39 +1,44 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './components/Icon.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import SignIn from './views/SignIn.vue'
-import { auth } from './auth'
-import { workspace as w } from './workspace'
+import { useAuthStore } from './auth'
+import { useWorkspaceStore } from './workspace'
+import { useLiveRefresh } from './live'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const route = useRoute()
 const needsPrinter = computed(() => route.path === '/new')
-const fleetPage = computed(
-  () => ['/', '/activity'].includes(route.path) || route.path.startsWith('/batches/'),
+const designPage = computed(
+  () =>
+    route.path === '/new' || route.path.startsWith('/templates/') || route.path.startsWith('/runs'),
 )
 const connectedPrinters = computed(
-  () => w.printerStatuses.value.filter((printer) => printer.connected).length,
+  () => w.printerStatuses.filter((printer) => printer.connected).length,
 )
 const fleetSummary = computed(() =>
-  w.printers.value.length
-    ? `${connectedPrinters.value} of ${w.printers.value.length} printers connected`
-    : w.destinations.value.some((destination) => destination.kind === 'group')
+  w.printers.length
+    ? `${connectedPrinters.value} of ${w.printers.length} printers connected`
+    : w.destinations.some((destination) => destination.kind === 'group')
       ? 'Distribution groups available'
       : 'No printers assigned',
 )
 const reviewPrinters = computed(() =>
-  w.printerStatuses.value.filter(
+  w.printerStatuses.filter(
     (printer) => printer.needs_review.length && auth.atLeast(printer.printer_id, 'moderator'),
   ),
 )
 watch(
-  () => route.query.printer,
+  () => (designPage.value ? route.query.printer : undefined),
   (value) => {
-    if (typeof value === 'string') w.selectedPrinter.value = value
+    if (typeof value === 'string') w.selectedPrinter = value
   },
   { immediate: true },
 )
-const { status, loaded, connectionError, actionError, success } = w
+const { loaded, connectionError, actionError, success } = storeToRefs(w)
 const links = computed(() =>
   [
     ['/', 'Overview', 'overview'],
@@ -49,64 +54,54 @@ const links = computed(() =>
     ['/printers', 'Printers & groups', 'printer'],
     ['/admin', 'Administration', 'users'],
   ].filter(([path]) => {
-    if (auth.user.value?.is_admin) return true
-    if (path === '/admin') return auth.user.value?.is_admin
+    if (auth.user?.is_admin) return true
+    if (path === '/admin') return auth.user?.is_admin
     if (path === '/printers') return auth.can('printers.manage') || auth.any('moderator')
     if (['/profiles', '/cartridges'].includes(path!)) return auth.can('inventory.manage')
-    if (path === '/activity') return w.printers.value.some((p) => auth.atLeast(p.id, 'moderator'))
+    if (path === '/activity') return w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
     return true
   }),
 )
 const allowed = computed(() => {
-  if (auth.user.value?.is_admin) return true
-  if (route.path === '/admin' || route.path === '/access-holds') return !!auth.user.value?.is_admin
+  if (auth.user?.is_admin) return true
+  if (route.path === '/admin' || route.path === '/access-holds') return !!auth.user?.is_admin
   if (route.path === '/printers') return auth.can('printers.manage') || auth.any('moderator')
   if (['/profiles', '/cartridges'].includes(route.path)) return auth.can('inventory.manage')
   if (route.path === '/activity' || route.path.startsWith('/batches/'))
-    return w.printers.value.some((p) => auth.atLeast(p.id, 'moderator'))
+    return w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
   if (route.path.endsWith('/edit') || route.path === '/templates/new') return true
   if (route.path === '/new') return auth.any('request')
   return true
 })
-let timer: ReturnType<typeof setTimeout> | undefined
-let stopped = false
 function skipToContent() {
   document.getElementById('main-content')?.focus()
 }
-async function poll() {
-  clearTimeout(timer)
-  if (!auth.user.value) return
-  await w.refresh()
-  if (!stopped && auth.user.value) timer = setTimeout(poll, 2500)
-}
+useLiveRefresh(async () => {
+  if (auth.user) await w.refresh()
+})
 watch(
-  () => auth.user.value?.id,
-  (id) => {
-    clearTimeout(timer)
-    w.clear()
-    if (id) void poll()
+  () => [auth.user?.id, route.path],
+  ([id]) => {
+    if (id) void w.setRoute(route.path)
   },
+  { immediate: true },
 )
 onMounted(auth.refresh)
 async function logout() {
   try {
     await auth.logout()
   } catch {
-    w.actionError.value = 'Could not sign out. Please try again.'
+    w.actionError = 'Could not sign out. Please try again.'
   }
 }
-onUnmounted(() => {
-  stopped = true
-  clearTimeout(timer)
-})
 </script>
 <template>
   <ConfirmDialog />
-  <main v-if="!auth.ready.value" class="panel empty">
-    <p>{{ auth.error.value || 'Opening your workspace…' }}</p>
-    <button v-if="auth.error.value" @click="auth.refresh">Retry</button>
+  <main v-if="!auth.ready" class="panel empty">
+    <p>{{ auth.error || 'Opening your workspace…' }}</p>
+    <button v-if="auth.error" @click="auth.refresh(true)">Retry</button>
   </main>
-  <SignIn v-else-if="!auth.user.value" />
+  <SignIn v-else-if="!auth.user" />
   <template v-else>
     <a class="skip" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
     <div class="app-shell">
@@ -123,15 +118,15 @@ onUnmounted(() => {
             :to="path!"
             :class="{ selected: route.path === path }"
             ><Icon :name="icon!" />{{ label
-            }}<span v-if="path === '/queue' && w.totalQueued.value" class="nav-count">{{
-              w.totalQueued.value
+            }}<span v-if="path === '/queue' && w.totalQueued" class="nav-count">{{
+              w.totalQueued
             }}</span></RouterLink
           >
         </nav>
-        <div v-if="!fleetPage && w.destinations.value.length > 1" class="printer-picker">
+        <div v-if="designPage && w.destinations.length > 1" class="printer-picker">
           <label
-            >Design destination<select v-model="w.selectedPrinter.value">
-              <option v-for="printer in w.destinations.value" :key="printer.id" :value="printer.id">
+            >Design destination<select v-model="w.selectedPrinter">
+              <option v-for="printer in w.destinations" :key="printer.id" :value="printer.id">
                 {{ printer.name }}
               </option>
             </select></label
@@ -139,43 +134,24 @@ onUnmounted(() => {
         </div>
         <div class="sidebar-footer">
           <span
-            v-if="status || connectionError || (fleetPage && w.printers.value.length)"
+            v-if="connectionError || w.printers.length"
             class="status-dot"
             :class="{
-              off: connectionError || (fleetPage ? !connectedPrinters : !status?.connected),
+              off: connectionError || !connectedPrinters,
             }"
           ></span
-          >{{
-            connectionError
-              ? 'Server unavailable'
-              : fleetPage
-                ? fleetSummary
-                : status?.connected
-                  ? `${status.printer_name} connected`
-                  : w.destinations.value.find((d) => d.id === w.selectedPrinter.value)?.kind ===
-                      'group'
-                    ? 'Distribution group selected'
-                    : !w.printers.value.length
-                      ? 'No printers assigned'
-                      : 'Printer disconnected'
-          }}<small>{{
-            fleetPage
-              ? 'Your printer fleet'
-              : (status?.printer_name ??
-                (w.selectedPrinter.value
-                  ? w.destinationName(w.selectedPrinter.value)
-                  : 'Your label workspace'))
-          }}</small>
+          >{{ connectionError ? 'Server unavailable' : fleetSummary
+          }}<small>Your printer fleet</small>
         </div>
       </aside>
       <div class="main-wrap">
         <div class="topbar">
           <span>YOUR LABEL WORKSPACE</span>
           <div class="row">
-            <span>{{ auth.user.value.username }}</span
+            <span>{{ auth.user.username }}</span
             ><button class="text-button sign-out" @click="logout">Sign out</button
             ><RouterLink v-if="auth.can('printers.manage')" to="/printers" class="printer-pill">{{
-              !w.printers.value.length ? 'ADD PRINTER' : 'PRINTERS'
+              !w.printers.length ? 'ADD PRINTER' : 'PRINTERS'
             }}</RouterLink>
           </div>
         </div>
@@ -192,7 +168,8 @@ onUnmounted(() => {
             >
           </header>
           <div v-if="connectionError" class="alert danger" role="alert">
-            {{ connectionError }} <button class="text-button" @click="w.refresh">Retry</button>
+            {{ connectionError }}
+            <button class="text-button" @click="w.refresh(true)">Retry</button>
           </div>
           <div v-if="actionError" class="alert danger" role="alert">
             {{ actionError
@@ -220,19 +197,17 @@ onUnmounted(() => {
             {{ connectionError ? 'Waiting for the server…' : 'Loading your workspace…' }}
           </div>
           <div
-            v-if="w.accessHolds.value.length && route.path !== '/access-holds'"
+            v-if="w.accessHolds.length && route.path !== '/access-holds'"
             class="alert warning"
             role="status"
           >
             <span
-              ><strong
-                >{{ w.accessHolds.value.length }} labels paused after an access change.</strong
-              >
+              ><strong>{{ w.accessHolds.length }} labels paused after an access change.</strong>
               Review and release or cancel their queued copies.</span
             >
             <RouterLink to="/access-holds">Review paused labels</RouterLink>
           </div>
-          <div v-if="loaded && !w.destinations.value.length && needsPrinter" class="panel empty">
+          <div v-if="loaded && !w.destinations.length && needsPrinter" class="panel empty">
             <h2>
               {{
                 auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet'
@@ -255,8 +230,8 @@ onUnmounted(() => {
             <RouterLink to="/">Back to overview</RouterLink>
           </div>
           <RouterView
-            v-else-if="loaded && (w.destinations.value.length || !needsPrinter)"
-            :key="auth.user.value.id"
+            v-else-if="loaded && w.routeReady && (w.destinations.length || !needsPrinter)"
+            :key="auth.user.id"
           />
           <footer class="page-footer">
             <span

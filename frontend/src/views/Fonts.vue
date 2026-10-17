@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api } from '../api'
-import { auth } from '../auth'
-import { workspace as w } from '../workspace'
+import { useAuthStore } from '../auth'
+import { useWorkspaceStore } from '../workspace'
 import type { FontAsset } from '../types'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const file = ref<File | null>(null),
   input = ref<HTMLInputElement | null>(null)
 function choose(event: Event) {
@@ -12,7 +14,7 @@ function choose(event: Event) {
 async function upload() {
   if (!file.value) return
   if (file.value.size > 5_000_000) {
-    w.actionError.value = 'Upload a font of at most 5 MB.'
+    w.actionError = 'Upload a font of at most 5 MB.'
     return
   }
   if (await w.action(() => api<FontAsset>('/font-assets', 'POST', file.value), 'Font uploaded.')) {
@@ -45,10 +47,10 @@ async function visibility(font: FontAsset) {
         ref="input"
         type="file"
         accept=".ttf,.otf"
-        :disabled="w.busy.value"
+        :disabled="w.busy"
         @change="choose"
     /></label>
-    <button class="primary" :disabled="!file || w.busy.value" @click="upload">Upload font</button>
+    <button class="primary" :disabled="!file || w.busy" @click="upload">Upload font</button>
   </section>
   <section class="panel">
     <h2>Font library</h2>
@@ -74,7 +76,7 @@ async function visibility(font: FontAsset) {
             <td>Available</td>
             <td>—</td>
           </tr>
-          <tr v-for="font in w.fonts.value" :key="font.id">
+          <tr v-for="font in w.fonts" :key="font.id">
             <td>
               {{ font.family }}<small>{{ font.id.slice(0, 12) }}</small>
             </td>
@@ -85,11 +87,10 @@ async function visibility(font: FontAsset) {
               <button
                 v-if="
                   auth.can('assets.write') &&
-                  (font.can_edit ??
-                    (auth.user.value?.is_admin || font.owner_id === auth.user.value?.id))
+                  (font.can_edit ?? (auth.user?.is_admin || font.owner_id === auth.user?.id))
                 "
                 class="text-button"
-                :disabled="w.busy.value"
+                :disabled="w.busy"
                 @click="visibility(font)"
               >
                 {{ font.archived ? 'Restore' : 'Hide' }}

@@ -28,6 +28,7 @@ from app.models import (
     LabelCopy,
     LabelTemplate,
     Notification,
+    NotificationDelivery,
     PrinterState,
     PrintJob,
     PrintRun,
@@ -35,10 +36,12 @@ from app.models import (
     TapeProfile,
     TemplateRevision,
 )
+from app.notification_routing import notifications_enabled
+from app.notifications import clear_empty_cartridge_alert
 from app.preparation import rendering
 from app.print_audit import batch_audit, unknown_attribution
 from app.printer_status import status_record
-from app.queue import resolve_batch
+from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
 from app.render import render_document, render_job
 from app.reservations import reserve_flush
 from app.schemas import (
@@ -151,7 +154,25 @@ def control_reminder(
 
 @router.get("/cartridges")
 def list_cartridges(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
-    return [record(c) for c in session.scalars(select(Cartridge))]
+    # Inventory is shared, but physical printer identities may be restricted.
+    installed = {
+        state.active_cartridge_id: state.printer_id
+        for state in session.scalars(select(PrinterState))
+        if state.active_cartridge_id
+    }
+    busy_printers = set(
+        session.scalars(
+            select(Batch.printer_id).where(Batch.state.in_([State.PRINTING, State.NEEDS_REVIEW]))
+        )
+    )
+    return [
+        {
+            **record(cartridge),
+            "installed": cartridge.id in installed,
+            "estimate_locked": installed.get(cartridge.id) in busy_printers,
+        }
+        for cartridge in session.scalars(select(Cartridge))
+    ]
 
 
 @router.post("/cartridges", status_code=201)
@@ -173,15 +194,21 @@ def create_cartridge(
 def correct_remaining(
     identifier: str, body: RemainingInput, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    for state in session.scalars(
-        select(PrinterState).where(PrinterState.active_cartridge_id == identifier)
-    ):
+    installed_states = list(
+        session.scalars(select(PrinterState).where(PrinterState.active_cartridge_id == identifier))
+    )
+    for state in installed_states:
         idle(session, state.printer_id)
     cartridge = get(session, Cartridge, identifier)
     if body.remaining_mm > cartridge.nominal_length_mm:
         raise HTTPException(422, "Remaining length exceeds nominal length")
     cartridge.remaining_mm = body.remaining_mm
     cartridge.consumption_uncertain = False
+    if body.remaining_mm > 0:
+        for state in installed_states:
+            clear_empty_cartridge_alert(session, state)
+            if state.blocker == EMPTY_TAPE_BLOCKER:
+                state.blocker = None
     session.flush()
     return record(cartridge)
 
@@ -218,6 +245,8 @@ def active_tape(
             raise HTTPException(409, "Cartridge is already installed in another printer")
     printer_id = resolve_destination(session, printer_id)
     state = printer_state(session, printer_id)
+    if state.active_cartridge_id != body.cartridge_id:
+        clear_empty_cartridge_alert(session, state)
     state.active_cartridge_id = body.cartridge_id
     state.blocker = None
     session.flush()
@@ -263,7 +292,7 @@ def workspace_info(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     return {
-        "notifications_enabled": bool(request.app.state.settings.ntfy_url),
+        "notifications_enabled": notifications_enabled(session),
         "total_queued": session.scalar(
             visible_jobs(
                 request, session, select(func.count()).select_from(LabelCopy).join(PrintJob)
@@ -844,7 +873,25 @@ def batch_item_preview(
 @router.get("/notifications")
 def notifications(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
     return [
-        record(n)
+        {
+            **record(n),
+            "deliveries": [
+                {
+                    key: getattr(delivery, key)
+                    for key in (
+                        "endpoint_name",
+                        "attempts",
+                        "next_attempt_at",
+                        "delivered_at",
+                        "cancelled",
+                        "last_error",
+                    )
+                }
+                for delivery in session.scalars(
+                    select(NotificationDelivery).where(NotificationDelivery.notification_id == n.id)
+                )
+            ],
+        }
         for n in session.scalars(
             select(Notification).order_by(Notification.created_at.desc()).limit(100)
         )

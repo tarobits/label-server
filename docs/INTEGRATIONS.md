@@ -65,6 +65,14 @@ than generating a new key per HTTP attempt. Inspect `/docs` for live schemas.
 Automatic submission is separate from `POST /api/queue/print`; don't flush on every
 label if you want threshold-based batching and reduced feed waste.
 
+Manual printing (`POST /api/queue/print` or `/api/destinations/{id}/print`) returns
+HTTP 409 with `detail.code: "tape_shortage"` when the selected labels exceed
+estimated remaining tape. `detail.shortages` lists estimated and remaining lengths
+in mm per printer. Present `detail.message` for confirmation before retrying the
+same request with `X-Tape-Shortage-Confirmation: <detail.confirmation>`. The
+confirmation applies to that exact selection, routing and tape estimate; changed
+conditions return a fresh warning. Without confirmation, no flush is reserved.
+
 ## Image labels
 
 The standalone `scripts/submit_image.py` client uploads artwork and submits a
@@ -142,7 +150,9 @@ new invocation; this hook cannot distinguish it from an intentional reprint.
 Integrations with a durable event ID should use `--key` instead.
 
 The bridge has automated retry tests but has not been verified in a live HomeBox
-deployment. To verify configuration without queuing, temporarily add
+deployment. Live verification was deferred on 2026-10-17; the current workflow
+preference is manual label creation with this server's native editor. To verify
+configuration without queuing if the bridge is revisited, temporarily add
 `--preview /tmp/label-preview.html` to the command and inspect that file. A
 successful submission means queued, not physically printed. For structured
 editable labels, map item fields to a saved template through `/api/jobs`.

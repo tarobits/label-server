@@ -13,7 +13,7 @@ from app.config import Settings
 from app.destinations import busy, installed_profile, members, printer_state
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
-from app.models import PrinterDevice, PrintJob
+from app.models import Cartridge, PrinterDevice, PrintJob
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
@@ -134,6 +134,13 @@ class PrinterFleet:
                 or busy(session, identifier)
                 or (state.automatic_printing_held and not manual)
             ):
+                continue
+            cartridge = (
+                session.get(Cartridge, state.active_cartridge_id)
+                if state.active_cartridge_id
+                else None
+            )
+            if not manual and cartridge is not None and cartridge.remaining_mm <= 0:
                 continue
             status = worker.latest_status
             if (

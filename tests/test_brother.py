@@ -5,7 +5,7 @@ import pytest
 import usb.core
 from PIL import Image
 
-from app.printer.base import PrintInterrupted, PrintNotStarted, RenderedLabel
+from app.printer.base import PrintControl, PrintInterrupted, PrintNotStarted, RenderedLabel
 from app.printer.brother import BrotherPTP710BT, capabilities, decode_status, encode_raster
 from app.printer.usb import UsbTransport
 from app.render import RenderSpec, render_document
@@ -279,4 +279,217 @@ def test_multi_page_completion_survives_empty_usb_transfers() -> None:
     transport = EmptyPacketTransport()
     assert BrotherPTP710BT(transport).print_batch([label()] * 3).consumed_mm is None
     assert transport.pages == 3
+    assert not transport.opened
+
+
+class ControlledTransport(Transport):
+    """Completion follows the terminal command, rather than the page header."""
+
+    def write(self, data: bytes) -> None:
+        super().write(data)
+        if data.startswith(b"\x1biz"):
+            self.pending.clear()
+        elif data in (b"\x0c", b"\x1a"):
+            self.pending.extend((packet(6, 1), packet(1), packet(6)))
+
+
+@pytest.mark.parametrize("mode", ["after_current", "emergency"])
+def test_stop_before_transmission_never_opens_printer(mode) -> None:
+    control = PrintControl()
+    control.request(mode)
+    transport = ControlledTransport()
+    with pytest.raises(PrintNotStarted, match="before transmission"):
+        BrotherPTP710BT(transport).print_batch_controlled([label()], control)
+    assert not transport.opened and not transport.writes
+
+
+def test_stop_after_initialization_before_first_page_has_no_raster_or_print_command() -> None:
+    control = PrintControl()
+
+    class StopOnInitialize(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data.startswith(b"\x00" * 100):
+                control.request("after_current")
+
+    transport = StopOnInitialize()
+    with pytest.raises(PrintNotStarted, match="stopped"):
+        BrotherPTP710BT(transport).print_batch_controlled([label()], control)
+    assert transport.pages == 0
+    assert transport.writes[-1] == b"\x1b@"
+    assert not transport.opened
+
+
+def test_stop_capabilities_do_not_advertise_an_unsupported_manual_cutter() -> None:
+    modes = capabilities()
+    assert modes.supports_stop_after_current and modes.supports_emergency_stop
+    assert modes.supports_cut and not modes.supports_manual_cut
+
+
+def test_emergency_during_upload_cancels_at_a_raster_command_boundary() -> None:
+    control = PrintControl()
+
+    class StopOnRaster(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data.startswith(b"G"):
+                control.request("emergency")
+
+    transport = StopOnRaster()
+    with pytest.raises(PrintInterrupted, match="Emergency stop") as interrupted:
+        BrotherPTP710BT(transport).print_batch_controlled([label()] * 3, control)
+    assert interrupted.value.confirmed_labels == 0
+    raster_writes = [data for data in transport.writes if data.startswith(b"G")]
+    assert raster_writes == [encode_raster(label())[:3200]]
+    assert len(raster_writes[0]) % 20 == 0
+    assert transport.writes[-1] == b"\x1b@"
+    assert b"\x0c" not in transport.writes and b"\x1a" not in transport.writes
+    assert transport.pages == 1 and not transport.opened
+    assert transport.writes.count(b"\x1biS") == 1
+
+
+def test_after_current_finishes_upload_and_waits_before_cancelling_chain() -> None:
+    control = PrintControl()
+
+    class StopOnRaster(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data.startswith(b"G"):
+                control.request("after_current")
+
+    transport = StopOnRaster()
+    with pytest.raises(PrintInterrupted, match="after the current label") as interrupted:
+        BrotherPTP710BT(transport).print_batch_controlled([label()] * 3, control)
+    assert interrupted.value.confirmed_labels == 0
+    assert b"".join(data for data in transport.writes if data.startswith(b"G")) == encode_raster(
+        label()
+    )
+    assert transport.writes[-2:] == [b"\x0c", b"\x1b@"]
+    assert not transport.pending  # Page completion and idle were read before cancelling.
+    assert transport.pages == 1 and not transport.opened
+
+
+def test_stopped_batch_only_preserves_certain_prefix() -> None:
+    control = PrintControl()
+
+    class StopThirdPage(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if self.pages == 3 and data.startswith(b"G"):
+                control.request("after_current")
+
+    transport = StopThirdPage()
+    with pytest.raises(PrintInterrupted) as interrupted:
+        BrotherPTP710BT(transport).print_batch_controlled([label()] * 4, control)
+    assert interrupted.value.confirmed_labels == 2
+    assert transport.pages == 3
+    assert transport.writes.count(b"\x0c") == 3
+    assert transport.writes[-1] == b"\x1b@"
+
+
+def test_emergency_upgrade_interrupts_after_current_while_waiting_for_status() -> None:
+    control = PrintControl()
+
+    class UpgradeOnWait(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data.startswith(b"G"):
+                control.request("after_current")
+            if data == b"\x0c":
+                self.pending.clear()
+
+        def read(self, size: int, timeout_seconds: float) -> bytes:
+            if self.pages and not self.pending:
+                assert timeout_seconds <= 0.1
+                control.request("emergency")
+                raise TimeoutError("No completion yet")
+            return super().read(size, timeout_seconds)
+
+    transport = UpgradeOnWait()
+    with pytest.raises(PrintInterrupted, match="Emergency stop") as interrupted:
+        BrotherPTP710BT(transport).print_batch_controlled([label()] * 2, control)
+    assert interrupted.value.confirmed_labels == 0
+    assert control.mode == "emergency"
+    assert transport.writes[-2:] == [b"\x0c", b"\x1b@"]
+    assert transport.pages == 1 and not transport.opened
+
+
+def test_controlled_status_poll_preserves_fragments_and_overall_deadline(monkeypatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr("app.printer.brother.time.monotonic", lambda: clock[0])
+    control = PrintControl()
+
+    class DelayedFragment(ControlledTransport):
+        def __init__(self):
+            super().__init__()
+            self.waits = []
+
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data == b"\x1a":
+                statuses = b"".join(self.pending)
+                self.pending.clear()
+                self.pending.extend((statuses[:5], b"wait", statuses[5:]))
+
+        def read(self, size: int, timeout_seconds: float) -> bytes:
+            if self.pages:
+                self.waits.append(timeout_seconds)
+            if self.pending and self.pending[0] == b"wait":
+                self.pending.popleft()
+                clock[0] += timeout_seconds
+                raise TimeoutError("Still printing")
+            if not self.pending:
+                clock[0] += timeout_seconds
+            return super().read(size, timeout_seconds)
+
+    transport = DelayedFragment()
+    assert (
+        BrotherPTP710BT(transport, timeout=0.3)
+        .print_batch_controlled([label()], control)
+        .consumed_mm
+        is None
+    )
+    assert max(transport.waits) <= 0.1
+    assert transport.pages == 1 and not transport.opened
+    assert b"\x1b@" not in transport.writes
+
+
+def test_controlled_status_timeouts_do_not_reset_the_completion_deadline(monkeypatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr("app.printer.brother.time.monotonic", lambda: clock[0])
+
+    class NoCompletion(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data in (b"\x0c", b"\x1a"):
+                self.pending.clear()
+
+        def read(self, size: int, timeout_seconds: float) -> bytes:
+            if not self.pending:
+                clock[0] += timeout_seconds
+            return super().read(size, timeout_seconds)
+
+    transport = NoCompletion()
+    with pytest.raises(PrintInterrupted, match="timed out"):
+        BrotherPTP710BT(transport, timeout=0.3).print_batch_controlled([label()], PrintControl())
+    assert clock[0] == pytest.approx(0.32)
+    assert transport.pages == 1 and not transport.opened
+    assert b"\x1b@" not in transport.writes  # Unknown write failures never provoke blind retries.
+
+
+def test_cancellation_write_failure_stays_uncertain_and_is_not_retried() -> None:
+    control = PrintControl()
+
+    class FailedCancellation(ControlledTransport):
+        def write(self, data: bytes) -> None:
+            super().write(data)
+            if data.startswith(b"G"):
+                control.request("emergency")
+            if data == b"\x1b@":
+                raise OSError("USB disconnected")
+
+    transport = FailedCancellation()
+    with pytest.raises(PrintInterrupted, match="cancellation could not be confirmed"):
+        BrotherPTP710BT(transport).print_batch_controlled([label()], control)
+    assert transport.writes.count(b"\x1b@") == 1
     assert not transport.opened

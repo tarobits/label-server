@@ -29,5 +29,6 @@ def schedule_request_digest(session: Session, now: float) -> None:
             "/#/requests",
             now=now,
             recipient_id="administrators",
+            kind="approval_digest",
         )
     session.delete(digest)

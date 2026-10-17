@@ -46,11 +46,11 @@ test(
     await page.getByRole('button', { name: 'Add to queue' }).click()
     await page.getByRole('link', { name: 'Review batch →', exact: true }).click()
     await expect(page.getByText('Confirmed — no action needed')).toHaveCount(1)
-    await expect(page.getByRole('button', { name: 'Save review and resume' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
     await page.getByLabel('Decision for label 2', { exact: true }).selectOption('queued')
     await page.getByLabel('Decision for label 3', { exact: true }).selectOption('cancelled')
     await page.getByLabel('Total tape consumed by this attempt (mm)').fill('70')
-    await page.getByRole('button', { name: 'Save review and resume' }).click()
+    await page.getByRole('button', { name: 'Save review', exact: true }).click()
     await expect(page.getByText('Tape consumed: 0.07 m.')).toBeVisible()
     await page.getByRole('link', { name: 'Overview', exact: true }).click()
     await page.getByRole('button', { name: 'Print direct queue' }).click()
@@ -59,7 +59,8 @@ test(
     await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
     await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
     await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
-    await expect(page.getByText('≈ 7.84 m')).toBeVisible()
+    // Tape usage changes asynchronously in the worker after the print command is accepted.
+    await expect(page.getByText('≈ 7.84 m')).toBeVisible({ timeout: 15000 })
   },
 )
 
@@ -92,6 +93,8 @@ test('profile editing, custom snooze, silence and resume survive polling', async
   await page.request.post('/api/jobs', {
     data: { tape_profile: profile.id, data: { text: 'Waiting' } },
   })
+  // API fixture writes are outside the browser store; reload the newly created catalog.
+  await page.reload()
   const waiting = page.locator('article').filter({ hasText: 'White waiting tape' })
   await waiting.getByRole('button', { name: 'Silence episode' }).click()
   await expect(waiting).toContainText('Silenced for this waiting episode.')
@@ -484,6 +487,14 @@ test('image uploads, tonal controls and saved image elements survive hiding', as
   await expect(page.getByRole('cell', { name: 'SVG', exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/image-library.png', fullPage: true })
   const [asset] = await (await page.request.get('/api/image-assets')).json()
+  // Create externally supplied assets before opening the editor's cached catalog.
+  const portrait = await (
+    await page.request.post('/api/image-assets?name=Portrait', {
+      data: '<svg viewBox="0 0 50 100"><rect width="50" height="100"/></svg>',
+      headers: { 'Content-Type': 'application/octet-stream' },
+    })
+  ).json()
+  await page.reload()
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Artwork label')
   await page.getByRole('button', { name: 'Add image', exact: true }).click()
@@ -510,12 +521,6 @@ test('image uploads, tonal controls and saved image elements survive hiding', as
   await expect(height).toHaveValue('12')
   await page.getByLabel('Preserve aspect ratio', { exact: true }).check()
   await expect(width).toHaveValue('24')
-  const portrait = await (
-    await page.request.post('/api/image-assets?name=Portrait', {
-      data: '<svg viewBox="0 0 50 100"><rect width="50" height="100"/></svg>',
-      headers: { 'Content-Type': 'application/octet-stream' },
-    })
-  ).json()
   await page.getByRole('combobox', { name: 'Image', exact: true }).selectOption(portrait.id)
   await expect(width).toHaveValue('6')
   await expect(height).toHaveValue('12')

@@ -2,6 +2,7 @@ from typing import Sequence
 
 from app.printer.base import (
     BatchPlan,
+    LabelGeometry,
     PrinterStatus,
     PrintInterrupted,
     PrintNotStarted,
@@ -22,7 +23,7 @@ class MockPrinterBackend:
     def get_status(self) -> PrinterStatus:
         return PrinterStatus(self.connected, self.width_mm)
 
-    def estimate_consumption(self, labels: Sequence[RenderedLabel]) -> float:
+    def estimate_consumption(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> float:
         return sum(label.length_mm for label in labels) + (20 if labels else 0)
 
     def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan:

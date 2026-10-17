@@ -1,3 +1,5 @@
+import { randomUUID } from './uuid'
+
 export interface TemplateField {
   name: string
   label: string
@@ -74,7 +76,7 @@ export function newDocument(): TemplateDocument {
 }
 export function newElement(kind: Element['kind']): Element {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     kind,
     x: 2,
     y: 2,

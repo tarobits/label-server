@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { auth } from '../auth'
+import { useAuthStore } from '../auth'
 import { computed, reactive, ref } from 'vue'
 import { api } from '../api'
-import { workspace as w, metres } from '../workspace'
+import { requestPrinting } from '../printing'
+import { useWorkspaceStore, metres } from '../workspace'
 import PropertySection from '../components/PropertySection.vue'
 import type { Destination, Printer } from '../types'
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const showPrinter = ref(false),
   showGroup = ref(false),
   editing = ref('')
@@ -46,23 +49,23 @@ function editPrinter(device?: Printer) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 const group = reactive({ name: '', printer_ids: [] as string[] })
-const groups = computed(() => w.destinations.value.filter((d) => d.kind === 'group'))
+const groups = computed(() => w.destinations.filter((d) => d.kind === 'group'))
 const groupChoices = computed(() => {
-  const existing = w.destinations.value.find((d) => d.id === editing.value)
+  const existing = w.destinations.find((d) => d.id === editing.value)
   return [
     ...new Set([
-      ...w.printers.value.filter((p) => auth.atLeast(p.id, 'full')).map((p) => p.id),
+      ...w.printers.filter((p) => auth.atLeast(p.id, 'full')).map((p) => p.id),
       ...(existing?.printer_ids ?? []),
     ]),
   ].map((id) => ({ id, name: existing?.member_names?.[id] ?? w.destinationName(id) }))
 })
-const state = (id: string) => w.printerStatuses.value.find((s) => s.printer_id === id)
-const cartridge = (id: string) =>
-  w.cartridges.value.find((c) => c.id === state(id)?.active_cartridge_id)
+const state = (id: string) => w.printerStatuses.find((s) => s.printer_id === id)
+const cartridge = (id: string) => w.cartridges.find((c) => c.id === state(id)?.active_cartridge_id)
 function availableCartridges(id: string) {
-  return w.cartridges.value.filter(
+  return w.cartridges.filter(
     (c) =>
-      !w.printerStatuses.value.some((s) => s.printer_id !== id && s.active_cartridge_id === c.id),
+      c.id === state(id)?.active_cartridge_id ||
+      (!c.installed && !w.printerStatuses.some((s) => s.active_cartridge_id === c.id)),
   )
 }
 async function addPrinter() {
@@ -124,7 +127,7 @@ async function hold(id: string, held: boolean) {
 }
 async function print(id: string) {
   await w.action(
-    () => api(`/destinations/${id}/print`, 'POST'),
+    () => requestPrinting(`/destinations/${id}/print`),
     'Matching labels requested on available printers.',
   )
 }
@@ -200,12 +203,12 @@ function move(index: number, offset: number) {
       USB serial is optional for one printer. Multiple printers each need a distinct serial.
     </p>
     <div class="row">
-      <button class="primary" :disabled="w.busy.value">
+      <button class="primary" :disabled="w.busy">
         {{ editingPrinter ? 'Save printer' : 'Register printer' }}</button
       ><button type="button" class="secondary" @click="showPrinter = false">Cancel</button>
     </div>
   </form>
-  <p v-if="!w.printers.value.length && !showPrinter" class="panel empty">
+  <p v-if="!w.printers.length && !showPrinter" class="panel empty">
     {{
       auth.can('printers.manage')
         ? 'No printers registered.'
@@ -213,11 +216,7 @@ function move(index: number, offset: number) {
     }}
   </p>
   <div class="printer-cards">
-    <section
-      v-for="device in w.printers.value"
-      :key="device.id"
-      class="panel form-stack printer-device"
-    >
+    <section v-for="device in w.printers" :key="device.id" class="panel form-stack printer-device">
       <div class="section-heading">
         <h2>{{ device.name }}</h2>
         <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
@@ -244,7 +243,7 @@ function move(index: number, offset: number) {
           :value="state(device.id)?.active_cartridge_id ?? ''"
           :disabled="
             !auth.atLeast(device.id, 'full') ||
-            w.busy.value ||
+            w.busy ||
             !!state(device.id)?.printing ||
             !!state(device.id)?.needs_review.length ||
             !!state(device.id)?.pending_flush
@@ -267,7 +266,7 @@ function move(index: number, offset: number) {
         <button
           v-if="auth.atLeast(device.id, 'moderator')"
           class="secondary"
-          :disabled="w.busy.value"
+          :disabled="w.busy"
           @click="cancelFlush(device.id)"
         >
           Cancel pending flush
@@ -286,7 +285,7 @@ function move(index: number, offset: number) {
         <button
           v-if="auth.atLeast(device.id, 'moderator')"
           class="secondary"
-          :disabled="w.busy.value"
+          :disabled="w.busy"
           @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
         >
           {{
@@ -298,7 +297,7 @@ function move(index: number, offset: number) {
         <button
           v-if="auth.atLeast(device.id, 'full')"
           class="secondary"
-          :disabled="w.busy.value"
+          :disabled="w.busy"
           @click="editPrinter(device)"
         >
           Configure
@@ -344,8 +343,7 @@ function move(index: number, offset: number) {
       resolution. CSV runs stay on one printer.
     </p>
     <div class="row">
-      <button class="primary" :disabled="w.busy.value || !group.printer_ids.length">
-        Save group</button
+      <button class="primary" :disabled="w.busy || !group.printer_ids.length">Save group</button
       ><button type="button" class="secondary" @click="showGroup = false">Cancel</button>
     </div>
   </form>
@@ -390,14 +388,14 @@ function move(index: number, offset: number) {
         ><button
           v-if="auth.atLeast(target.id, 'moderator')"
           class="secondary"
-          :disabled="w.busy.value"
+          :disabled="w.busy"
           @click="print(target.id)"
         >
           Print matching queue</button
         ><button
           v-if="auth.atLeast(target.id, 'moderator')"
           class="secondary"
-          :disabled="w.busy.value"
+          :disabled="w.busy"
           @click="hold(target.id, !target.automatic_printing_held)"
         >
           {{ target.automatic_printing_held ? 'Resume group' : 'Hold group' }}
@@ -409,14 +407,14 @@ function move(index: number, offset: number) {
     <h2>Notifications</h2>
     <p>
       {{
-        w.overview.value.notifications_enabled
+        w.overview.notifications_enabled
           ? 'ntfy delivery is enabled.'
           : 'ntfy delivery is not configured.'
       }}
     </p>
     <p class="help">
-      Server notification credentials are configured in the environment. Reminder intervals and
-      silence are managed per tape profile.
+      Notification endpoints are configured in Administration. Reminder intervals and silence are
+      managed per tape profile.
     </p>
     <RouterLink v-if="auth.can('inventory.manage')" class="button secondary" to="/profiles"
       >Manage tape reminders</RouterLink

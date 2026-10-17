@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { confirmAction } from '../confirmation'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, errorMessage } from '../api'
-import { auth } from '../auth'
-import { workspace as w, date } from '../workspace'
+import { useAuthStore } from '../auth'
+import { useWorkspaceStore, date } from '../workspace'
+import { useLiveRefresh } from '../live'
+import { useResourceStore } from '../stores/resources'
+import { randomUUID } from '../uuid'
 interface Row {
   source_row: number
   values: string[]
@@ -43,23 +46,24 @@ interface Preview {
   length_mm: number
   width_mm: number
 }
+const w = useWorkspaceStore()
+const auth = useAuthStore()
 const route = useRoute(),
-  router = useRouter()
+  router = useRouter(),
+  resources = useResourceStore()
 const destinationId = ref(
-  typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter.value,
+  typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter,
 )
 const csv = ref(''),
   delimiter = ref(','),
   name = ref('CSV labels'),
   templateId = ref(
-    typeof route.query.template === 'string'
-      ? route.query.template
-      : (w.templates.value[0]?.id ?? ''),
+    typeof route.query.template === 'string' ? route.query.template : (w.templates[0]?.id ?? ''),
   ),
   profileId = ref(
     typeof route.query.profile === 'string'
       ? route.query.profile
-      : (w.activeProfile.value?.id ?? w.profiles.value[0]?.id ?? ''),
+      : (w.activeProfile?.id ?? w.profiles[0]?.id ?? ''),
   )
 watch([templateId, profileId, destinationId], () => {
   if (route.path === '/runs')
@@ -95,12 +99,15 @@ const error = ref(''),
   position = ref(0),
   preview = ref<Preview | null>(null),
   pixels = ref(true)
-const template = computed(() => w.templates.value.find((t) => t.id === templateId.value))
+const template = computed(() => w.templates.find((t) => t.id === templateId.value))
 const destination = computed(() =>
-  w.destinations.value.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
+  w.destinations.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
 )
 const selected = computed(() => rows.value.filter((r) => r.selected))
 let previewTicket = 0,
+  generation = 0,
+  stopped = false,
+  previewPath = '',
   keyBody = '',
   requestKey = ''
 watch([csv, delimiter], () => {
@@ -173,8 +180,8 @@ async function prepare() {
     }
     const signature = JSON.stringify(body)
     if (keyBody !== signature) {
+      requestKey = randomUUID()
       keyBody = signature
-      requestKey = crypto.randomUUID()
     }
     const result = await api<{ valid: boolean; run: Run | null; errors: typeof rowErrors.value }>(
       '/runs/prepare',
@@ -182,42 +189,67 @@ async function prepare() {
       { ...body, request_key: requestKey },
     )
     rowErrors.value = result.errors
-    if (result.run) await router.push(`/runs/${result.run.id}`)
+    if (result.run) {
+      resources.invalidate(['/runs'])
+      await router.push(`/runs/${result.run.id}`)
+    }
   })
 }
-async function load() {
-  error.value = ''
-  run.value = null
-  preview.value = null
-  previewTicket++
+async function load(force = false) {
+  const ticket = ++generation,
+    actor = auth.user?.id,
+    id = typeof route.params.id === 'string' ? route.params.id : ''
+  const current = () => !stopped && ticket === generation && auth.user?.id === actor
   try {
-    runs.value = await api<Run[]>('/runs')
-    if (route.params.id) {
-      run.value = await api<Run>(`/runs/${route.params.id}`)
+    if (id) {
+      const detail = await resources.get<Run>(`/runs/${encodeURIComponent(id)}`, {
+        ttl: 60000,
+        force,
+      })
+      if (!current() || detail.id !== route.params.id) return
+      if (JSON.stringify(run.value) !== JSON.stringify(detail)) run.value = detail
       position.value = rowPosition()
-      await loadPreview()
+      if (!preview.value || force) await loadPreview(force)
+    } else {
+      const data = await resources.get<Run[]>('/runs', { ttl: 60000, force })
+      if (!current()) return
+      if (JSON.stringify(runs.value) !== JSON.stringify(data)) runs.value = data
     }
+    if (current()) error.value = ''
   } catch (e) {
-    error.value = errorMessage(e)
+    if (current()) error.value = errorMessage(e)
   }
 }
-async function loadPreview() {
-  const ticket = ++previewTicket
-  preview.value = null
+async function loadPreview(force = false) {
+  const ticket = ++previewTicket,
+    actor = auth.user?.id
   if (!run.value) return
+  const id = run.value.id,
+    row = position.value,
+    path = `/runs/${encodeURIComponent(id)}/rows/${row}/preview`
+  if (path !== previewPath) preview.value = null
+  previewPath = path
+  const current = () =>
+    !stopped &&
+    ticket === previewTicket &&
+    auth.user?.id === actor &&
+    route.params.id === id &&
+    position.value === row
   try {
-    const result = await api<Preview>(`/runs/${run.value.id}/rows/${position.value}/preview`)
-    if (ticket === previewTicket) preview.value = result
+    const result = await resources.get<Preview>(path, { ttl: 60000, force })
+    if (current() && JSON.stringify(preview.value) !== JSON.stringify(result))
+      preview.value = result
   } catch (e) {
-    if (ticket === previewTicket) error.value = errorMessage(e)
+    if (current()) error.value = errorMessage(e)
   }
 }
 async function deleteDraft(item: Run) {
   if (!(await confirmAction(`Delete draft “${item.name}”? This cannot be undone.`))) return
   await perform(async () => {
     await api(`/runs/${item.id}`, 'DELETE')
+    resources.invalidate(['/runs'])
     if (route.params.id === item.id) await router.push('/runs')
-    else runs.value = runs.value.filter((value) => value.id !== item.id)
+    else await load(true)
   })
 }
 async function submit() {
@@ -226,6 +258,7 @@ async function submit() {
   await perform(async () => {
     if (!auth.atLeast(run.value!.destination_id, 'print')) {
       await api('/requests', 'POST', { kind: 'run', run_id: id })
+      resources.invalidate(['/requests'])
       await router.push('/requests')
       return
     }
@@ -243,7 +276,7 @@ async function submit() {
         detail.code !== 'owner_access_discrepancy' ||
         !('override_allowed' in detail) ||
         detail.override_allowed !== true ||
-        !auth.user.value?.is_admin
+        !auth.user?.is_admin
       )
         throw failure
       if (
@@ -257,6 +290,8 @@ async function submit() {
       })
     }
     run.value = result.run
+    resources.invalidate(['/runs'])
+    await load(true)
     await w.refresh()
   })
 }
@@ -268,22 +303,40 @@ watch(position, () => {
   if (run.value) void router.replace({ query: { ...route.query, row: String(position.value + 1) } })
   void loadPreview()
 })
-watch(() => route.params.id, load)
-onMounted(load)
+watch(
+  () => route.params.id,
+  () => {
+    generation++
+    previewTicket++
+    run.value = null
+    preview.value = null
+    previewPath = ''
+    error.value = ''
+    void load()
+  },
+)
+useLiveRefresh(async () => {
+  if (!run.value || !run.value.submitted_at) await load()
+}, 60000)
+onUnmounted(() => {
+  stopped = true
+  generation++
+  previewTicket++
+})
 </script>
 <template>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <template v-if="!route.params.id">
-    <p v-if="!w.destinations.value.length" class="panel help">
+    <p v-if="!w.destinations.length" class="panel help">
       Your saved runs remain available. A role with destination access is needed to prepare or
       submit new labels.
     </p>
-    <fieldset v-if="w.destinations.value.length" :disabled="busy" class="panel form-stack csv-form">
+    <fieldset v-if="w.destinations.length" :disabled="busy" class="panel form-stack csv-form">
       <h2>Import CSV</h2>
       <label
         >Print destination<select v-model="destinationId">
           <option
-            v-for="destination in w.destinations.value"
+            v-for="destination in w.destinations"
             :key="destination.id"
             :value="destination.id"
             :disabled="destination.available === false"
@@ -301,12 +354,12 @@ onMounted(load)
         <label>Run name<input v-model="name" maxlength="100" /></label>
         <label
           >Template<select v-model="templateId">
-            <option v-for="t in w.templates.value" :key="t.id" :value="t.id">{{ t.name }}</option>
+            <option v-for="t in w.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
           </select></label
         >
         <label
           >Tape profile<select v-model="profileId">
-            <option v-for="p in w.profiles.value" :key="p.id" :value="p.id">
+            <option v-for="p in w.profiles" :key="p.id" :value="p.id">
               {{ p.name }} · {{ p.width_mm }} mm
             </option>
           </select></label

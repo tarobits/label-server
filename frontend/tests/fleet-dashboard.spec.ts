@@ -219,6 +219,8 @@ test('group-only dashboard shows authorized routing without physical printer det
       })
     })
     await member.goto('/#/')
+    // Install the mocked catalog into a fresh session cache rather than reuse its earlier read.
+    await member.reload()
     await expect(station).toContainText('Unavailable')
     await expect(
       station.getByRole('button', { name: 'Request printing', exact: true }),
@@ -238,13 +240,15 @@ test('review alerts and card controls identify the physical printer with an inte
   request,
 }) => {
   const { first, second, jobs } = await fleet(request)
-  expect(
-    (
-      await request.put(`/api/printer/mock?printer_id=${second.id}`, {
+  await expect
+    .poll(async () => {
+      const response = await request.put(`/api/printer/mock?printer_id=${second.id}`, {
         data: { connected: true, tape_width_mm: 24, fail_after: 0 },
       })
-    ).ok(),
-  ).toBeTruthy()
+      if (response.status() !== 409) expect(response.ok(), await response.text()).toBeTruthy()
+      return response.ok()
+    })
+    .toBe(true)
   await create(request, `destinations/${second.id}/print`, undefined)
   await expect
     .poll(async () => (await (await request.get(`/api/jobs/${jobs[1].id}`)).json()).status)

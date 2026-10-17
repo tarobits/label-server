@@ -21,6 +21,9 @@ export interface Printer {
     resolution_modes?: Record<string, [number, number]> | null
     printable_margin_mm: number
     printable_widths_mm?: Record<string, number> | null
+    supports_stop_after_current?: boolean
+    supports_emergency_stop?: boolean
+    supports_manual_cut?: boolean
   } | null
 }
 export interface Profile {
@@ -47,6 +50,8 @@ export type ProfileInput = Pick<
   | 'waiting_notification_interval_seconds'
 >
 export interface Cartridge {
+  installed?: boolean
+  estimate_locked?: boolean
   id: string
   profile_id: string
   name: string
@@ -81,6 +86,7 @@ export interface Status {
   needs_review: string[]
   notifications_enabled: boolean
   printing: string | null
+  stop_requested?: 'after_current' | 'emergency' | null
   pending_flush: string | null
   queues: { profile_id: string; queued_copies: number; threshold: number }[]
 }
@@ -130,6 +136,11 @@ export interface BatchTrigger {
   actor: AuditActor | null
   at: number | null
   flush_request_id: string | null
+  stop_request?: {
+    mode: 'after_current' | 'emergency'
+    actor: AuditActor | null
+    at: number
+  }
 }
 export interface Batch {
   trigger: BatchTrigger
@@ -168,6 +179,14 @@ export interface Notice {
   attempts: number
   last_error: string | null
   path: string
+  deliveries?: {
+    endpoint_name: string
+    attempts: number
+    next_attempt_at: number
+    delivered_at: number | null
+    cancelled: boolean
+    last_error: string | null
+  }[]
 }
 
 export interface Template {

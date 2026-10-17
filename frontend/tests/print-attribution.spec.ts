@@ -46,13 +46,13 @@ async function account(
   return { request, headers, user }
 }
 
-async function people(root: Locator, requester: string, approver: string) {
+async function people(root: Locator, requester: string, approver: string, timeout?: number) {
   await expect(
     root.locator('.print-attribution > div').filter({ hasText: 'Requested by' }),
-  ).toContainText(requester)
+  ).toContainText(requester, { timeout })
   await expect(
     root.locator('.print-attribution > div').filter({ hasText: 'Approved by' }),
-  ).toContainText(approver)
+  ).toContainText(approver, { timeout })
 }
 
 test('activity separates label requester, approver, release and manual batch starter', async ({
@@ -143,7 +143,8 @@ test('activity separates label requester, approver, release and manual batch sta
       .toBe('printed')
     await page.goto('/#/activity')
     const latest = page.locator('.activity-batch').first()
-    await people(latest, 'operator', 'operator')
+    // Another client printed this batch; wait for the dynamic history cache to refresh.
+    await people(latest, 'operator', 'operator', 15000)
     await expect(latest.getByText('Direct printing', { exact: false })).toBeVisible()
     await expect(latest.locator('.batch-trigger')).toContainText('Manually started by owner')
   } finally {

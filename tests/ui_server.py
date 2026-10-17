@@ -26,9 +26,6 @@ if __name__ == "__main__":
         settings = Settings(
             database_url=url,
             worker_interval_seconds=0.1,
-            ntfy_url="",
-            ntfy_topic="",
-            ntfy_token="",
             frontend_dist=root / "frontend" / "dist",
         )
         application = create_app(settings, backend_factory=browser_printer)

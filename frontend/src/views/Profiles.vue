@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { confirmAction } from '../confirmation'
 import { reactive, ref } from 'vue'
 import { api } from '../api'
-import { workspace as w, date } from '../workspace'
+import { useWorkspaceStore, date } from '../workspace'
 import type { Profile, ProfileInput } from '../types'
-const { profiles, busy, status } = w
+const w = useWorkspaceStore()
+const { profiles, busy, status } = storeToRefs(w)
 const editing = ref<string | null>(null),
   formOpen = ref(false)
 const defaults = (): ProfileInput => ({

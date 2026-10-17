@@ -18,6 +18,7 @@ import Administration from './views/Administration.vue'
 import Requests from './views/Requests.vue'
 import AccessHolds from './views/AccessHolds.vue'
 import './style.css'
+import { pinia } from './stores'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -131,4 +132,4 @@ const router = createRouter({
 router.afterEach((to) => {
   document.title = `${String(to.meta.title)} · Label room`
 })
-createApp(App).use(router).mount('#app')
+createApp(App).use(pinia).use(router).mount('#app')

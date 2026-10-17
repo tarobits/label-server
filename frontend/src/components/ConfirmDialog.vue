@@ -23,7 +23,9 @@ onUnmounted(() => resolveConfirmation(false))
       <p id="confirmation-message">{{ confirmation?.message }}</p>
       <div class="dialog-actions">
         <button class="secondary" autofocus @click="resolveConfirmation(false)">Cancel</button>
-        <button class="primary" @click="resolveConfirmation(true)">Confirm</button>
+        <button class="primary" @click="resolveConfirmation(true)">
+          {{ confirmation?.confirmLabel }}
+        </button>
       </div>
     </dialog>
   </Teleport>
@@ -47,6 +49,7 @@ onUnmounted(() => resolveConfirmation(false))
   margin: 16px 0 24px;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 .dialog-actions {
   display: flex;

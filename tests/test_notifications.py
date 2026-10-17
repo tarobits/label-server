@@ -6,7 +6,7 @@ from conftest import install, job, profile
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.models import Notification
+from app.models import Notification, NotificationEndpoint
 from app.notifications import NtfySender, deliver_pending
 
 
@@ -104,14 +104,12 @@ def test_ntfy_payload_and_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     with httpx.Client(transport=httpx.MockTransport(capture)) as http:
         monkeypatch.setattr(httpx, "post", http.post)
         settings = Settings(
-            ntfy_url="https://ntfy.example",
-            ntfy_topic="labels",
-            ntfy_token="test-token",
             public_url="https://labels.example",
         )
-        NtfySender(settings).send(
-            Notification(title="Tape swap needed", message="Yellow cassette", path="/")
-        )
+        NtfySender(
+            settings,
+            NotificationEndpoint(url="https://ntfy.example", topic="labels", token="test-token"),
+        ).send(Notification(title="Tape swap needed", message="Yellow cassette", path="/"))
     assert len(requests) == 1
     assert requests[0].headers["Authorization"] == "Bearer test-token"
     assert b'"topic":"labels"' in requests[0].content

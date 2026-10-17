@@ -44,7 +44,9 @@ it proxies `/api` to the backend. Production serves `frontend/dist` by default;
 2. Create a **Tape profile** with the tape width, ink and background colors, and
    automatic-print threshold.
 3. Register the physical cassette under **Cartridges** and assign it to the
-   printer. Each cartridge keeps its remaining-length estimate across swaps.
+   printer chosen in that page's **Printer** selector. Installed badges identify
+   each cassette's printer. This selection is separate from **Design destination**;
+   each cartridge keeps its remaining-length estimate across swaps.
 4. Create a layout under **Templates**, then open **New label**, choose the tape
    profile and **Print destination**, fill in the fields, and submit copies.
 5. Check **Overview** or **Print queue**. Compatible copies print when their
@@ -57,6 +59,25 @@ identify its colors. Different profiles do not share a threshold.
 **Hold automatic printing** lets you accumulate a larger batch. It survives
 restarts, permits manual printing, and does not interrupt a batch already started.
 Resuming can immediately start a batch that has reached its threshold.
+
+Printer cards on **Overview** also provide **Stop after current label** for direct
+Moderators and **Emergency stop** for direct Full access. Both hold automatic
+printing on that printer and cancel its pending manual requests. Emergency stop
+is processed at the next command boundary or status check; an in-progress USB
+transfer can delay it. A label already printing may finish: physical PT-P710BT
+testing, including a longer-label repeat, did not interrupt the active label.
+Treat this control as a cancellation request with no guaranteed mid-label stop.
+Interrupted copies require review, and saving review does
+not clear the hold. You can explicitly print manually or resume automatic printing.
+
+In batch review, select individual uncertain copies, select all, or use **Select
+from here** to include that row and all following uncertain copies. Choose
+Printed, Requeue, or Cancel and apply it to the selection before saving. Confirmed
+copies remain locked; total tape consumption must still be entered.
+
+The PT-P710BT USB driver has no documented standalone cutter command. **Cut tape**
+is disabled; while the printer is idle, double-press its physical power button to
+feed and cut. Automatic cuts during printing continue to use the printer settings.
 
 ## Templates and previews
 
@@ -152,6 +173,21 @@ Cartridge lengths are estimates, not sensor measurements; calibrate feed and
 leader settings and correct remaining length when the printer is idle with no
 batch awaiting review.
 
+Before manually printing a queue or selected copies, the server compares estimated
+tape use, including feed and cuts, with each chosen cartridge's remaining length.
+If it exceeds the estimate, a warning shows the affected printers and lengths.
+**Cancel** leaves the queue unchanged; **Print anyway** confirms the request.
+Printer groups show all affected cartridges in one warning. Automatic batches
+retain their shortage flag in Activity.
+
+Automatic printing waits when the installed cartridge has an estimated **0 mm**
+remaining. Its printer card explains why, and administrators receive one saved
+alert per depletion, delivered through ntfy when configured. Group routing can use
+another matching printer with tape remaining; assigned CSV runs wait for their
+printer. Replacing the cartridge or correcting its remaining length allows
+automatic printing to resume, subject to existing holds and thresholds. Manual
+printing still offers the explicit **Print anyway** override.
+
 ## CSV runs
 
 Open **CSV runs** or **Use with CSV** on a template. Upload or paste UTF-8 CSV,
@@ -198,20 +234,41 @@ access is insufficient. See [access control](docs/ACCESS_CONTROL.md) for details
 
 ## Notifications and integrations
 
-Notifications are stored in the app even when ntfy is disabled. To enable delivery,
-set these values in `.env`:
+Notifications are stored in the app even when no ntfy endpoint is configured.
+Administrators add endpoints under **Administration**, choosing a server base URL
+(for example `https://ntfy.example.com`), topic, optional access token and event types.
+Tokens stay on the server; editing an endpoint can preserve, replace or clear its token.
+Set `LABEL_PUBLIC_URL` to the browser-reachable server address for notification links.
 
-```dotenv
-LABEL_NTFY_URL=https://ntfy.example.com
-LABEL_NTFY_TOPIC=label-printer
-LABEL_NTFY_TOKEN=
-LABEL_PUBLIC_URL=http://label-server.local:8000
-```
+Each endpoint routes by event type and printer scope. Choose specific printers or
+distribution groups, use **Select all** to capture only current physical printers, or explicitly
+enable **All current and future printers**. Group scopes also receive operational
+alerts from their member printers as membership changes; select groups manually.
+With no scope selected, printer-related event
+types are disabled and cleared. General alerts remain global; pending-request
+summaries are global without a scope and narrow to selected destinations otherwise.
+Endpoint filters do not use application roles or access levels. Configure ntfy
+topic subscription permissions separately to control who can read each topic.
 
-`LABEL_NTFY_URL` is the server base URL without the topic; the token is optional.
-Use a topic restricted to administrators because it also carries request summaries.
-Delivery retries independently of printing. A notification may be delivered more
-than once after a crash; this does not duplicate a print.
+Set a severity per event type on each endpoint using ntfy's
+[message priorities](https://docs.ntfy.sh/publish/#message-priority): Min, Low,
+Normal, High, or Urgent. Empty cartridges, blocked printers and batch reviews
+default to High; general alerts, waiting tape reminders and pending requests
+default to Normal.
+
+A notification can go to several matching endpoints. Each delivery retries
+independently of other endpoints and printing. Changing, disabling or deleting an
+endpoint cancels its pending deliveries. Delivery may repeat after a crash; this
+does not duplicate a print.
+
+The endpoint migration imports an existing installation's old `LABEL_NTFY_URL`,
+`LABEL_NTFY_TOPIC` and optional `LABEL_NTFY_TOKEN` once, when those values are
+available in its environment or `.env` and accounts already exist. The imported
+endpoint includes all current and future printers. The scope migration preserves
+selected destinations and turns formerly unrestricted scopes into an explicit
+all-printers selection. It removes permission filters and cancels pending deliveries
+created under the old configuration. Fresh installations create their endpoints
+in the UI; the old variables no longer configure runtime delivery.
 
 Waiting reminders are optional per tape profile. They begin when a destination
 reaches its threshold without the required tape installed and repeat at the
@@ -242,18 +299,32 @@ frontend, and restart. For older environment-configured printers, keep the old
 
 Physical PT-P710BT testing was reported successful on 2026-10-04. Detailed
 measurements and remaining hardware checks are in the
-[verification record](docs/HARDWARE_VERIFICATION.md). Docker runtime, simultaneous
-two-device USB printing, and a live HomeBox deployment have not been verified.
+[verification record](docs/HARDWARE_VERIFICATION.md). Docker image build and isolated
+local runtime checks passed on 2026-10-17. Native Debian VM service startup, USB
+access, physical printing, VM reboot, hold persistence and printer reconnection
+without a service restart were also verified that day. The user accepted the
+consumption baseline and stopping after the current label; no repeat measurements
+or mid-label interruption are required. Simultaneous two-device USB testing is
+deferred until a second printer is available. Docker/LXC USB passthrough remains
+unverified outside the current deployment path. Live HomeBox bridge verification
+is deferred.
 
 ## Development
 
 This project was designed and directed by Tarobits, with implementation assistance from OpenAI Codex.
 AI-generated code has been developed under human direction and remains subject to review and validation.
 
-The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite; the frontend uses Vue 3,
+The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite; the frontend uses Vue 3, Pinia,
 TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
 domain code use the generic backend contract. [PLAN.md](PLAN.md) describes the
 implementation constraints and [TODO.md](TODO.md) lists remaining work.
+
+Pinia owns shared authentication, workspace, administration and request caches.
+Concurrent reads share a request; catalogs load on relevant pages and remain cached
+for a minute. Live queue and printer data refresh every five seconds, with longer
+intervals for summaries and session checks. One scheduler pauses polling in hidden
+tabs. Successful writes invalidate affected resources before the UI reloads them;
+session and permission changes clear private caches. Cached data stays in memory.
 
 Run backend and frontend checks with the development dependencies installed:
 

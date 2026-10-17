@@ -11,6 +11,7 @@ from app.authorization import visible_copy_count, visible_jobs
 from app.destinations import printer_state, resolve_destination
 from app.http import get, record
 from app.models import Batch, FlushRequest, LabelCopy, PrinterDevice, PrintJob, State, TapeProfile
+from app.notification_routing import notifications_enabled
 from app.printer.base import PrinterStatus
 
 
@@ -33,6 +34,9 @@ def status_record(
             request.app.state.fleet.configuration_errors.get(printer_id, "Printer unavailable"),
         )
     )
+    active = session.scalar(
+        select(Batch).where(Batch.printer_id == printer_id, Batch.state == State.PRINTING)
+    )
     return {
         **record(state),
         "backend": device.driver,
@@ -50,12 +54,11 @@ def status_record(
         )
         if manages
         else [],
-        "notifications_enabled": bool(request.app.state.settings.ntfy_url),
-        "printing": session.scalar(
-            select(Batch.id)
-            .where(Batch.printer_id == printer_id, Batch.state == State.PRINTING)
-            .limit(1)
-        ),
+        "notifications_enabled": notifications_enabled(session),
+        "printing": active.id if active else None,
+        "stop_requested": (active.trigger or {}).get("stop_request", {}).get("mode")
+        if active
+        else None,
         "pending_flush": session.scalar(
             select(FlushRequest.id)
             .where(

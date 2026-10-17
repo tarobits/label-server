@@ -293,6 +293,9 @@ def authorize_current_request(request: Request) -> None:
     if destination and path.endswith("/automatic-printing"):
         context.require_destination(destination, "moderator")
         action = Action.READ
+    if destination and path == "/api/printers/{identifier}/stop":
+        context.require_destination(destination, "moderator")
+        action = Action.READ  # The endpoint additionally checks Full for emergency mode.
     context.require(
         action, Resource(path, request.path_params.get("identifier"), destination_id=destination)
     )
