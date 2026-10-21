@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.1] - 2026-10-22
+
+### Fixed
+
+- Queue and activity label previews now show the selected tape profile's ink and
+  tape colors, including enlarged previews, without a mismatched border.
+- Label previews provide distinct hover and click feedback while respecting
+  reduced-motion preferences.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added
@@ -112,7 +121,8 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
-[0.3.0]: https://github.com/tarobits/label-server/compare/v0.2.1...main
+[0.3.1]: https://github.com/tarobits/label-server/compare/v0.3.0...main
+[0.3.0]: https://github.com/tarobits/label-server/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
 [0.1.0]: https://github.com/tarobits/label-server/tree/v0.1.0
