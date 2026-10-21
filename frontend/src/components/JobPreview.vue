@@ -81,9 +81,13 @@ function enlarge() {
   width: min(280px, calc(120px * var(--label-ratio)));
   max-width: 100%;
   padding: 0;
+  border: 0;
   overflow: hidden;
-  background: #fff;
+  background: transparent;
   margin-bottom: 6px;
+}
+.history-thumbnail:not(:disabled):hover {
+  background: transparent;
 }
 .history-thumbnail img,
 .label-preview-dialog img {

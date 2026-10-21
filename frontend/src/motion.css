@@ -242,6 +242,9 @@ textarea,
     color var(--motion-fast) ease-out;
 }
 @media (hover: hover) {
+  :root[data-motion='full'] .history-thumbnail:not(:disabled):hover:not(:active) {
+    transform: scale(0.99);
+  }
   input:not(:disabled):not([aria-invalid='true']):hover,
   select:not(:disabled):not([aria-invalid='true']):hover,
   textarea:not(:disabled):not([aria-invalid='true']):hover {
