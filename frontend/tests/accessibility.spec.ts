@@ -1,9 +1,160 @@
 import { test, expect } from './fixtures'
+import type { Locator } from '@playwright/test'
+
+async function expectFocusOutlineInside(control: Locator, container: Locator) {
+  await expect(control).toBeFocused()
+  const ring = await control.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    const outset = Math.max(0, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset))
+    return {
+      left: rect.left - outset,
+      right: rect.right + outset,
+      top: rect.top - outset,
+      bottom: rect.bottom + outset,
+    }
+  })
+  const clip = await container.boundingBox()
+  expect(ring.left).toBeGreaterThanOrEqual(clip!.x - 0.5)
+  expect(ring.right).toBeLessThanOrEqual(clip!.x + clip!.width + 0.5)
+  expect(ring.top).toBeGreaterThanOrEqual(clip!.y - 0.5)
+  expect(ring.bottom).toBeLessThanOrEqual(clip!.y + clip!.height + 0.5)
+}
+
+for (const viewport of [
+  { width: 1280, height: 600 },
+  { width: 390, height: 844 },
+]) {
+  test(`navigation focus outlines fit inside the scroll area at ${viewport.width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/#/templates')
+    await expect(page.getByRole('link', { name: 'Create template', exact: true })).toBeVisible()
+    await expect(page.locator('.route-surface')).not.toHaveClass(/page-enter-active/)
+    const navigation = page.getByRole('navigation', { name: 'Main navigation' })
+    await expect(navigation).toBeVisible()
+    for (const link of [
+      navigation.getByRole('link').first(),
+      navigation.getByRole('link').last(),
+    ]) {
+      await page.keyboard.press('Tab')
+      await link.focus()
+      await page.screenshot({
+        path: `test-results/navigation-focus-${viewport.width}-${await link.innerText()}.png`,
+      })
+      await expectFocusOutlineInside(link, navigation)
+    }
+  })
+}
+
+test('inspector focus outlines fit inside the scrolling settings', async ({ page }) => {
+  await page.goto('/#/templates/new')
+  await page.getByRole('button', { name: 'Add text', exact: true }).click()
+  await page.getByRole('tab', { name: 'Style', exact: true }).click()
+  await page.keyboard.press('Tab')
+  const toggle = page.getByRole('button', { name: 'Typography', exact: true })
+  await expectFocusOutlineInside(toggle, page.locator('.editor-property-sections'))
+  await page.screenshot({ path: 'test-results/inspector-focus.png' })
+})
+
+test('queue disclosure focus outlines stay visible outside the cell content', async ({
+  page,
+  request,
+}) => {
+  const [profile] = await (await request.get('/api/tape-profiles')).json()
+  expect(
+    (
+      await request.post('/api/jobs', {
+        data: { tape_profile: profile.id, data: { text: 'Keyboard label' } },
+      })
+    ).ok(),
+  ).toBe(true)
+  await page.goto('/#/queue')
+  await page.getByLabel('Select Keyboard label', { exact: true }).focus()
+  await page.keyboard.press('Tab')
+  const summary = page.locator('.queue-label-details > summary')
+  await expect(summary).toBeFocused()
+  const clipping = await summary.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    const outset = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset)
+    const clipped: string[] = []
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      const clip = parent.getBoundingClientRect()
+      const parentStyle = getComputedStyle(parent)
+      const clips = (value: string) => ['auto', 'scroll', 'hidden', 'clip'].includes(value)
+      if (
+        (clips(parentStyle.overflowX) &&
+          (rect.left - outset < clip.left || rect.right + outset > clip.right)) ||
+        (clips(parentStyle.overflowY) &&
+          (rect.top - outset < clip.top || rect.bottom + outset > clip.bottom))
+      )
+        clipped.push(parent.className)
+    }
+    return clipped
+  })
+  expect(clipping).toEqual([])
+  await page.screenshot({ path: 'test-results/queue-disclosure-focus.png' })
+})
+
+test('Tab traverses the navigation and reaches page controls in both directions', async ({
+  page,
+}) => {
+  await page.goto('/#/templates')
+  await expect(page.getByRole('link', { name: 'Create template', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Skip to content', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.locator('.brand-link')).toBeFocused()
+  const links = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link')
+  for (const link of await links.all()) {
+    await page.keyboard.press('Tab')
+    await expect(link).toBeFocused()
+  }
+  await page.keyboard.press('Tab')
+  await expect(page.locator('.account-menu > summary')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(links.last()).toBeFocused()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Create template', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
+})
+
+test('the skip link reaches account fields without entering disabled or hidden controls', async ({
+  page,
+}) => {
+  await page.goto('/#/account')
+  await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Skip to content', exact: true })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#main-content')).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
+  for (const control of [
+    page.getByLabel('Reduced motion', { exact: true }),
+    page.getByLabel('Current password', { exact: true }),
+    page.getByLabel('New password', { exact: true }),
+    page.getByLabel('Confirm new password', { exact: true }),
+    page.getByRole('button', { name: 'Change password', exact: true }),
+  ]) {
+    await page.keyboard.press('Tab')
+    await expect(control).toBeFocused()
+  }
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByLabel('Confirm new password', { exact: true })).toBeFocused()
+})
 
 test('switching authentication forms clears old validation and focuses the username', async ({
   page,
 }) => {
   await page.goto('/#/')
+  await page.locator('.account-menu > summary').click()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await page.route('**/api/auth/login', (route) =>
     route.fulfill({ status: 401, json: { detail: 'Invalid username or password.' } }),
@@ -98,7 +249,7 @@ test('mobile queue scrolls locally and compact checkbox targets work at their ed
   const box = await target.boundingBox()
   expect(box!.width).toBeGreaterThanOrEqual(44)
   expect(box!.height).toBeGreaterThanOrEqual(44)
-  expect(await checkbox.evaluate((el) => el.getBoundingClientRect().width)).toBe(17)
+  expect(await checkbox.evaluate((el) => el.getBoundingClientRect().width)).toBeCloseTo(17, 3)
   await target.click({ position: { x: 2, y: 2 } })
   await expect(checkbox).toBeChecked()
   const scroll = page.locator('.table-scroll')

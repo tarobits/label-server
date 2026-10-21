@@ -1,4 +1,9 @@
 import { test, expect } from './fixtures'
+import { readFileSync } from 'node:fs'
+
+const { version } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string }
 
 test('version display and dismissible update notice stay consistent across navigation', async ({
   page,
@@ -39,6 +44,6 @@ test('version display and dismissible update notice stay consistent across navig
 
 test('current or unavailable releases do not show a notice', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.locator('.version-number')).toHaveText('v0.2.1')
+  await expect(page.locator('.version-number')).toHaveText(`v${version}`)
   await expect(page.getByRole('status', { name: 'Software update' })).toHaveCount(0)
 })

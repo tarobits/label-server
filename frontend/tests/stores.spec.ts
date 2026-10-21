@@ -200,6 +200,7 @@ test('a delayed private queue response cannot enter the next user session or cac
   try {
     await page.goto('/#/queue')
     await captured
+    await page.locator('.account-menu > summary').click()
     await page.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     await page.getByLabel('Username', { exact: true }).fill(member.username)

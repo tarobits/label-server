@@ -11,6 +11,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from app import __version__
 from app.auth import (
     COOKIE_NAME,
     check_csrf,
@@ -24,6 +25,7 @@ from app.auth import (
 )
 from app.identity import LOCAL_OWNER_ID
 from app.models import AuthSession, AuthSettings, RegistrationCode, Role, User, UserGroup
+from app.releases import stable_version
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 Password = Annotated[str, Field(min_length=12, max_length=256)]
@@ -50,6 +52,12 @@ class RegistrationInput(Credentials):
 class LoginInput(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=256)
+
+
+class PasswordChangeInput(BaseModel):
+    model_config = {"extra": "forbid"}
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: Password
 
 
 def throttle(request: Request, username: str) -> None:
@@ -188,6 +196,55 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
             return result
     except IntegrityError as error:
         raise HTTPException(409, "That username is not available") from error
+
+
+@router.post("/password", status_code=204)
+def change_password(body: PasswordChangeInput, request: Request, response: Response) -> None:
+    with request.app.state.fleet.lock, request.app.state.factory() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        current = session_user(request, session)
+        if current is None:
+            raise HTTPException(401, "Sign in to change your password")
+        user, record = current
+        check_csrf(request, record)
+        throttle(request, user.username)
+        if not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(
+                400,
+                detail=[
+                    {
+                        "loc": ["body", "current_password"],
+                        "msg": "Current password is incorrect.",
+                    }
+                ],
+            )
+        user.password_hash = hash_password(body.new_password)
+        session.execute(
+            delete(AuthSession).where(
+                AuthSession.user_id == user.id,
+                AuthSession.token_hash != record.token_hash,
+            )
+        )
+        session.commit()
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.post("/changelog")
+def visit_release(request: Request) -> dict[str, str | None]:
+    # Claim the release atomically: another browser for this account must not
+    # receive the same unseen history. A first visit establishes the baseline.
+    with request.app.state.fleet.lock, request.app.state.factory() as session:
+        session.execute(text("BEGIN IMMEDIATE"))
+        current = session_user(request, session)
+        if current is None:
+            raise HTTPException(401, "Sign in to view your changelog")
+        user, record = current
+        check_csrf(request, record)
+        previous = user.last_seen_version
+        if previous is None or stable_version(previous) < stable_version(__version__):
+            user.last_seen_version = __version__
+        session.commit()
+        return {"current_version": __version__, "previous_version": previous}
 
 
 @router.post("/logout", status_code=204)

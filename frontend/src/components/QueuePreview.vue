@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import JobPreview from './JobPreview.vue'
+import AnimatedDetails from './AnimatedDetails.vue'
 defineProps<{
   jobId: string
   text: string
@@ -9,14 +10,14 @@ defineProps<{
   previewUrl?: string
 }>()
 const requested = ref(false)
-function toggle(event: Event) {
-  if ((event.currentTarget as HTMLDetailsElement).open) requested.value = true
+function toggle(open: boolean) {
+  if (open) requested.value = true
 }
 </script>
 
 <template>
-  <details class="queue-preview" @toggle="toggle">
-    <summary>Preview</summary>
+  <AnimatedDetails class="queue-preview" @toggle="toggle">
+    <template #summary>Preview</template>
     <JobPreview
       v-if="requested"
       :job-id="jobId"
@@ -25,7 +26,7 @@ function toggle(event: Event) {
       :length-mm="lengthMm"
       :preview-url="previewUrl"
     />
-  </details>
+  </AnimatedDetails>
 </template>
 
 <style scoped>
@@ -33,14 +34,14 @@ function toggle(event: Event) {
   margin-top: 8px;
   white-space: normal;
 }
-summary {
+:deep(summary) {
   width: fit-content;
   padding-block: 6px;
   color: var(--text-secondary);
   cursor: pointer;
 }
-summary:hover,
-details[open] > summary {
+:deep(summary:hover),
+details[data-expanded='true'] :deep(summary) {
   color: var(--ink);
 }
 </style>

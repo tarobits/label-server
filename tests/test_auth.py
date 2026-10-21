@@ -84,6 +84,79 @@ def login(client: TestClient, username: str = "admin", password: str = PASSWORD)
     return response.json()
 
 
+def test_self_password_change_checks_session_csrf_origin_and_current_password(
+    auth_client, tmp_path
+):
+    client = auth_client
+    body = {"current_password": PASSWORD, "new_password": "a different secure password"}
+    assert client.post("/api/auth/password", json=body).status_code == 401
+    setup_admin(client, tmp_path)
+    csrf = client.headers.pop("X-CSRF-Token")
+    assert client.post("/api/auth/password", json=body).status_code == 403
+    client.headers["X-CSRF-Token"] = csrf
+    assert (
+        client.post(
+            "/api/auth/password", json=body, headers={"Origin": "https://other.example"}
+        ).status_code
+        == 403
+    )
+    wrong = client.post("/api/auth/password", json={**body, "current_password": "incorrect"})
+    assert wrong.status_code == 400
+    assert wrong.json()["detail"][0]["loc"] == ["body", "current_password"]
+    assert (
+        client.post("/api/auth/password", json={**body, "new_password": "too short"}).status_code
+        == 422
+    )
+    assert client.get("/api/auth/session").json()["user"]["username"] == "admin"
+    login(client)
+
+
+def test_self_password_change_keeps_current_session_and_revokes_only_other_sessions(
+    auth_client, tmp_path
+):
+    client = auth_client
+    owner = setup_admin(client, tmp_path)["user"]["id"]
+    code = invite(client)
+    other, member = TestClient(client.app), TestClient(client.app)
+    try:
+        login(other)
+        member_record = register_member(member, code)
+        before = client.cookies.get(COOKIE_NAME)
+        changed = client.post(
+            "/api/auth/password",
+            json={"current_password": PASSWORD, "new_password": "a different secure password"},
+        )
+        assert changed.status_code == 204
+        assert client.cookies.get(COOKIE_NAME) == before
+        assert client.get("/api/auth/session").json()["user"]["id"] == owner
+        assert other.get("/api/auth/session").json()["user"] is None
+        assert member.get("/api/auth/session").json()["user"]["id"] == member_record["user"]["id"]
+        assert (
+            other.post(
+                "/api/auth/login", json={"username": "admin", "password": PASSWORD}
+            ).status_code
+            == 401
+        )
+        login(other, password="a different secure password")
+        # Changing one's own password does not require an administrative role.
+        assert (
+            member.post(
+                "/api/auth/password",
+                json={
+                    "current_password": PASSWORD,
+                    "new_password": "a member replacement password",
+                },
+            ).status_code
+            == 204
+        )
+        with client.app.state.factory() as session:
+            user = session.get(User, owner)
+            assert user.password_hash != "a different secure password"
+    finally:
+        other.close()
+        member.close()
+
+
 def preview(client, resource, method, payload=None, identifier=None):
     return client.post(
         "/api/admin/access-preview",

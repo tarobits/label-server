@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { freezeLeavingItem } from '../collectionMotion'
 import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
 import { confirmAction } from '../confirmation'
@@ -81,66 +82,69 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   <div class="section-heading">
     <button class="secondary" @click="edit()">Add tape profile</button>
   </div>
-  <form
-    v-validate-form
-    v-if="formOpen"
-    class="panel form-stack motion-reveal"
-    @submit.prevent="save"
-  >
-    <div class="section-heading">
-      <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
-      <button type="button" class="text-button" @click="formOpen = false">Close</button>
-    </div>
-    <div class="field-row">
-      <label
-        >Profile name<input
-          v-model="form.name"
-          required
-          maxlength="100"
-          placeholder="Black on Yellow 24 mm" /></label
-      ><label
-        >Tape width<select v-model.number="form.width_mm">
-          <option v-for="width in [3.5, 6, 9, 12, 18, 24]" :key="width" :value="width">
-            {{ width }} mm
-          </option>
-        </select></label
+  <Transition name="panel-expand">
+    <form v-validate-form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
+      <div class="section-heading">
+        <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
+        <button type="button" class="text-button" @click="formOpen = false">Close</button>
+      </div>
+      <div class="field-row">
+        <label
+          >Profile name<input
+            v-model="form.name"
+            required
+            maxlength="100"
+            placeholder="Black on Yellow 24 mm" /></label
+        ><label
+          >Tape width<select v-model.number="form.width_mm">
+            <option v-for="width in [3.5, 6, 9, 12, 18, 24]" :key="width" :value="width">
+              {{ width }} mm
+            </option>
+          </select></label
+        >
+      </div>
+      <div class="field-row">
+        <label>Text color<input type="color" v-model="form.foreground" /></label
+        ><label>Tape color<input type="color" v-model="form.background" /></label
+        ><label
+          >Automatic batch threshold<input
+            v-model.number="form.auto_print_threshold"
+            type="number"
+            min="1"
+            max="10000"
+            required
+        /></label>
+      </div>
+      <label class="checkbox"
+        ><input v-model="form.waiting_notification_enabled" type="checkbox" />Remind me when this
+        tape is waiting above its threshold</label
       >
-    </div>
-    <div class="field-row">
-      <label>Text color<input type="color" v-model="form.foreground" /></label
-      ><label>Tape color<input type="color" v-model="form.background" /></label
-      ><label
-        >Automatic batch threshold<input
-          v-model.number="form.auto_print_threshold"
+      <label v-if="form.waiting_notification_enabled"
+        >Repeat reminder every (hours)<input
+          v-model.number="intervalHours"
           type="number"
-          min="1"
-          max="10000"
+          min="0.017"
+          step="any"
           required
       /></label>
-    </div>
-    <label class="checkbox"
-      ><input v-model="form.waiting_notification_enabled" type="checkbox" />Remind me when this tape
-      is waiting above its threshold</label
-    >
-    <label v-if="form.waiting_notification_enabled"
-      >Repeat reminder every (hours)<input
-        v-model.number="intervalHours"
-        type="number"
-        min="0.017"
-        step="any"
-        required
-    /></label>
-    <p class="help">
-      Thresholds count physical copies. Lowering an installed tape’s threshold may start a batch
-      immediately. Width cannot change after a profile has been used.
-    </p>
-    <button class="primary" :disabled="busy" type="submit">Save tape profile</button>
-  </form>
+      <p class="help">
+        Thresholds count physical copies. Lowering an installed tape’s threshold may start a batch
+        immediately. Width cannot change after a profile has been used.
+      </p>
+      <button class="primary" :disabled="busy" type="submit">Save tape profile</button>
+    </form>
+  </Transition>
   <div v-if="!profiles.length && !formOpen" class="panel empty">
     <h2>No tape profiles</h2>
     <button class="primary" @click="edit()">Create first tape profile</button>
   </div>
-  <div v-if="profiles.length" class="card-grid">
+  <TransitionGroup
+    v-if="profiles.length"
+    tag="div"
+    class="card-grid"
+    name="collection"
+    @before-leave="freezeLeavingItem"
+  >
     <article v-for="profile in profiles" :key="profile.id" class="panel profile-card">
       <div class="section-heading">
         <span
@@ -201,5 +205,5 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         </button>
       </div>
     </article>
-  </div>
+  </TransitionGroup>
 </template>

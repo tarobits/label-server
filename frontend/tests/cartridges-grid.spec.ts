@@ -94,7 +94,7 @@ test('cartridge cards form an aligned responsive grid even while correcting an e
   ).toBeVisible()
   const registering = await cardLayout(page)
   alignedRows(registering)
-  expect(registering.map((card) => card.width)).toEqual(initial.map((card) => card.width))
+  registering.forEach((card, index) => expect(card.width).toBeCloseTo(initial[index]!.width, 3))
   await page.locator('form').getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await page.setViewportSize({ width: 390, height: 844 })

@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.3.0] - 2026-10-22
+
+### Added
+
+- Account settings with password changes and reduced-motion preferences that can
+  follow the browser or be overridden for each browser.
+- A once-per-account update dialog showing every release since the last visit,
+  plus a full changelog accessible beside the version number.
+- Separate role permissions for creating personal and global templates and for
+  editing or deleting other users' global templates. Registration codes can grant
+  independent template-group permissions.
+- Editable process names and on-demand label details and previews in the print
+  queue and activity history.
+
+### Changed
+
+- Organized the template inspector into Content, Style, and Layout tabs while
+  keeping all existing settings available.
+- Added connected page transitions, sliding tabs, animated disclosures, and
+  smoother feedback for dialogs, lists, and editor selections.
+- Moved account actions into a side-opening navigation menu that keeps the rest
+  of the navigation accessible.
+- Reorganized administration into focused sections with clearer access previews,
+  account and group management, and notification settings.
+- Permission change: Custom roles must explicitly grant template creation.
+  The Member role retains personal-template creation by default.
+- Upgrade requirement: Apply database migrations with alembic upgrade head
+  and rebuild the frontend. Accounts establish their changelog baseline on their
+  first visit after this upgrade.
+
+### Fixed
+
+- Keyboard focus outlines remain visible in scrolling navigation, editor settings,
+  and queue details. Account menus close when focus leaves and can be reopened
+  immediately with the keyboard.
+- Dialog focus indicators distinguish pointer interaction from keyboard navigation
+  while preserving screen-reader focus and returning to the opener.
+- Editor values remain intact across tab changes, interrupted gestures, and
+  expanding settings. Fields stop moving when editing begins.
+- Label previews load without blank flashes or unnecessary requests, and failed
+  submissions and previews remain recoverable.
+- Long names, form errors, and settings layouts remain usable on smaller screens.
+
+### Removed
+
+- The redundant Printers shortcut in the page header.
+
+### Security
+
+- Password changes require the current password and invalidate other sessions for
+  the account while keeping the current session signed in.
+
 ## [0.2.1] - 2026-10-21
 
 ### Fixed
@@ -60,6 +112,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
-[0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...main
+[0.3.0]: https://github.com/tarobits/label-server/compare/v0.2.1...main
+[0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
 [0.1.0]: https://github.com/tarobits/label-server/tree/v0.1.0

@@ -1,3 +1,4 @@
+import { showEditorSettings } from './editor-settings'
 import { test, expect } from './fixtures'
 
 test('batch review applies outcomes to selected following uncertain copies before saving', async ({
@@ -156,7 +157,8 @@ test('narrow tape elements fit the production printable band and print', async (
   await page.getByLabel('Template name', { exact: true }).fill('Narrow design')
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tape.id)
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
-  await page.getByLabel('Content', { exact: true }).fill('Narrow')
+  await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Narrow')
+  await showEditorSettings(page, 'Position & size')
   expect(
     Number(await page.getByLabel('Height (mm)', { exact: true }).inputValue()),
   ).toBeGreaterThan(0)

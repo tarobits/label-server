@@ -6,6 +6,7 @@ import { errorMessage } from '../api'
 import type { BatchDetail } from '../types'
 import LabelDetails from './LabelDetails.vue'
 import QueuePreview from './QueuePreview.vue'
+import AnimatedDetails from './AnimatedDetails.vue'
 const props = defineProps<{ batchId: string; state: string }>()
 const resources = useResourceStore(),
   auth = useAuthStore()
@@ -44,8 +45,8 @@ async function load(force = false) {
     if (ticket === generation) loading.value = false
   }
 }
-function toggle(event: Event) {
-  opened.value = (event.currentTarget as HTMLDetailsElement).open
+function toggle(open: boolean) {
+  opened.value = open
   if (opened.value && !detail.value && !loading.value) void load()
 }
 watch(
@@ -61,8 +62,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <details class="activity-labels" @toggle="toggle">
-    <summary>Labels</summary>
+  <AnimatedDetails class="activity-labels" @toggle="toggle">
+    <template #summary>Labels</template>
     <p v-if="error" class="alert warning" role="status">
       {{ error }} <button type="button" class="small secondary" @click="load(true)">Retry</button>
     </p>
@@ -79,21 +80,21 @@ onUnmounted(() => {
         :preview-url="`/api/batches/${batchId}/items/${entry.item.copy_id}/preview`"
       />
     </section>
-  </details>
+  </AnimatedDetails>
 </template>
 
 <style scoped>
 .activity-labels {
   margin-top: 12px;
 }
-summary {
+:deep(summary) {
   width: fit-content;
   padding-block: 6px;
   color: var(--text-secondary);
   cursor: pointer;
 }
-summary:hover,
-details[open] > summary {
+:deep(summary:hover),
+details[data-expanded='true'] :deep(summary) {
   color: var(--ink);
 }
 .activity-label {

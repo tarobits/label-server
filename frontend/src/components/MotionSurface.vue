@@ -1,27 +1,36 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { reducedMotion } from '../preferences'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
-const props = defineProps<{ identity: string }>()
+const props = withDefaults(defineProps<{ identity: string; order?: number }>(), { order: 0 })
 const surface = ref<HTMLElement | null>(null)
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 let arrival: Animation | undefined
+let lastOrder = props.order
 
 function cancelArrival() {
   arrival?.cancel()
   arrival = undefined
 }
 
-// Keep the routed view mounted: query changes, polling, and form edits must not
-// replay the arrival or discard local state. A new identity interrupts cleanly.
+// Keep panel fields mounted: polling and edits must not replay the swipe or
+// discard local state. A new selection interrupts the previous arrival.
 watch(
   [surface, () => props.identity],
   ([element], _, onCleanup) => {
     cancelArrival()
-    if (!element?.animate) return
-    const duration = parseFloat(getComputedStyle(element).getPropertyValue('--motion-state'))
+    const direction = props.order < lastOrder ? -1 : 1
+    lastOrder = props.order
+    if (!element?.animate || document.hidden) return
+    const duration = parseFloat(getComputedStyle(element).getPropertyValue('--motion-enter'))
     if (!Number.isFinite(duration) || duration <= 0) return
-    arrival = element.animate([{ opacity: reducedMotion.matches ? 0.85 : 0.6 }, { opacity: 1 }], {
-      duration,
+    const frames = reducedMotion.value
+      ? [{ opacity: 0.85 }, { opacity: 1 }]
+      : [
+          { opacity: 0.55, transform: `translateX(${direction * 24}px)` },
+          { opacity: 1, transform: 'translateX(0)' },
+        ]
+    arrival = element.animate(frames, {
+      duration: reducedMotion.value ? 100 : duration,
       easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
     })
     onCleanup(cancelArrival)
@@ -29,13 +38,12 @@ watch(
   { flush: 'post' },
 )
 
-onMounted(() => reducedMotion.addEventListener('change', cancelArrival))
+watch(reducedMotion, cancelArrival)
 onBeforeUnmount(() => {
-  reducedMotion.removeEventListener('change', cancelArrival)
   cancelArrival()
 })
 </script>
 
 <template>
-  <div ref="surface"><slot /></div>
+  <div ref="surface" @focusin="cancelArrival" @pointerdown.capture="cancelArrival"><slot /></div>
 </template>

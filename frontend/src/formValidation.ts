@@ -6,6 +6,14 @@ type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 let nextId = 0
 const forms = new WeakMap<HTMLFormElement, ReturnType<typeof createValidation>>()
 
+function controlLabel(control: Control): string {
+  const label = control.labels?.[0]?.cloneNode(true) as HTMLLabelElement | undefined
+  label
+    ?.querySelectorAll('input, select, textarea, button, .field-error')
+    .forEach((node) => node.remove())
+  return label?.textContent?.trim() ?? control.name
+}
+
 export function apiFieldErrors(error: unknown, prefix = ['body']): FieldErrors {
   if (!(error instanceof ApiError) || !Array.isArray(error.detail)) return {}
   return Object.fromEntries(
@@ -23,6 +31,10 @@ export function apiFieldErrors(error: unknown, prefix = ['body']): FieldErrors {
 
 export function focusFormErrors(form: HTMLFormElement | null) {
   if (form) forms.get(form)?.focusErrors()
+}
+
+export function resetFormValidation(form: HTMLFormElement | null) {
+  if (form) forms.get(form)?.reset()
 }
 
 function createValidation(form: HTMLFormElement) {
@@ -93,8 +105,7 @@ function createValidation(form: HTMLFormElement) {
         }
         // Keep the error out of the field's accessible name when its label wraps it.
         if (!control.hasAttribute('aria-label') && !control.hasAttribute('aria-labelledby')) {
-          const label = control.labels?.[0]
-          if (label) control.setAttribute('aria-label', label.textContent?.trim() ?? '')
+          if (control.labels?.length) control.setAttribute('aria-label', controlLabel(control))
         }
         if (!control.id) control.id = `${prefix}-field-${++nextId}`
         const label = control.closest('label')
@@ -134,10 +145,7 @@ function createValidation(form: HTMLFormElement) {
         const item = document.createElement('li')
         const link = document.createElement('a')
         link.href = `#${control.id}`
-        const label =
-          control.getAttribute('aria-label') ||
-          control.labels?.[0]?.textContent?.trim() ||
-          control.name
+        const label = control.getAttribute('aria-label') || controlLabel(control) || control.name
         link.textContent = `${label}: ${entry.message.textContent}`
         link.addEventListener('click', (event) => {
           event.preventDefault()
@@ -191,6 +199,11 @@ function createValidation(form: HTMLFormElement) {
       render()
     },
     focusErrors,
+    reset() {
+      submitted = false
+      external = {}
+      render()
+    },
     dispose() {
       disposed = true
       form.removeEventListener('invalid', invalid, true)

@@ -28,6 +28,7 @@ class User(Base):
     disabled: Mapped[bool] = mapped_column(default=False)
     role_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[float] = mapped_column(default=time.time)
+    last_seen_version: Mapped[str | None]
 
 
 class DeletedContent(Base):

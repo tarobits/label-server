@@ -9,7 +9,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { confirmAction } from '../confirmation'
 import AdminDialog from '../components/AdminDialog.vue'
 import MotionSurface from '../components/MotionSurface.vue'
+import MotionTrack from '../components/MotionTrack.vue'
 import NotificationEndpoints from '../components/NotificationEndpoints.vue'
+import AnimatedDetails from '../components/AnimatedDetails.vue'
 import {
   useAdministrationStore,
   type AdminResource,
@@ -555,7 +557,13 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 </script>
 <template>
   <div class="administration-layout">
-    <nav class="administration-nav" aria-label="Administration sections">
+    <MotionTrack
+      tag="nav"
+      class="administration-nav"
+      :identity="section.id"
+      selector="button.active"
+      aria-label="Administration sections"
+    >
       <div v-for="group in navigationGroups" :key="group.title" class="administration-nav-group">
         <h2>{{ group.title }}</h2>
         <button
@@ -568,7 +576,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           {{ item.title }}
         </button>
       </div>
-    </nav>
+    </MotionTrack>
     <label class="administration-mobile-nav">
       <span class="sr-only">Administration section</span>
       <select :value="section.id" @change="navigate(($event.target as HTMLSelectElement).value)">
@@ -579,7 +587,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </optgroup>
       </select>
     </label>
-    <MotionSurface :identity="section.id" class="administration-content" :aria-busy="loading">
+    <MotionSurface
+      :identity="section.id"
+      :order="sections.findIndex((item) => item.id === section.id)"
+      class="administration-content"
+      :aria-busy="loading"
+    >
       <p v-if="error && !editor" class="alert danger" role="alert">{{ error }}</p>
       <p v-if="success" class="alert success" role="status">{{ success }}</p>
       <p v-if="loading" class="empty" role="status">Loading administration…</p>
@@ -1161,15 +1174,15 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </tbody>
         </table>
         <p v-if="!changedUsers.length" class="empty compact">No effective access changes.</p>
-        <details v-if="unchangedUsers.length" class="unchanged-access">
-          <summary>
+        <AnimatedDetails v-if="unchangedUsers.length" class="unchanged-access">
+          <template #summary>
             {{ unchangedUsers.length }} unchanged
             {{ unchangedUsers.length === 1 ? 'account' : 'accounts' }}
-          </summary>
+          </template>
           <ul>
             <li v-for="item in unchangedUsers" :key="item.id">{{ item.username }}</li>
           </ul>
-        </details>
+        </AnimatedDetails>
       </div>
       <div class="row wrap">
         <button class="secondary" :disabled="busy" @click="cancelPreview">Cancel</button
@@ -1368,7 +1381,7 @@ h2 span {
   margin: 16px 0;
   color: var(--muted);
 }
-.unchanged-access summary {
+.unchanged-access :deep(summary) {
   cursor: pointer;
 }
 @media (max-width: 1000px) {

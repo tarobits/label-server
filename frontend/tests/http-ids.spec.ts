@@ -1,3 +1,4 @@
+import { showEditorSettings } from './editor-settings'
 import { test, expect } from './fixtures'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -60,7 +61,7 @@ test('HTTP editor creates and duplicates elements with distinct UUIDs', async ({
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('HTTP editor template')
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
-  await page.getByRole('button', { name: 'Arrange', exact: true }).click()
+  await showEditorSettings(page, 'Arrange')
   await page.getByRole('button', { name: 'Duplicate element', exact: true }).click()
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
   await expect(page).toHaveURL(/#\/templates\/[^/]+\/edit/)

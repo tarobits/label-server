@@ -84,6 +84,7 @@ test('activity loads complete label information and previews only when opened', 
   page,
   request,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   const [profile] = await (await request.get('/api/tape-profiles')).json()
   const [printer] = await (await request.get('/api/printers')).json()
   const created = await request.post('/api/jobs', {
@@ -104,14 +105,46 @@ test('activity loads complete label information and previews only when opened', 
   page.on('request', (outgoing) => {
     if (/\/api\/batches\/[^/?]+/.test(outgoing.url())) reads.push(outgoing.url())
   })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(
+    '**/api/batches/*',
+    async (route) => {
+      await gate
+      await route.continue()
+    },
+    { times: 1 },
+  )
   await page.goto('/#/activity')
+  await page.addStyleTag({ content: '.activity-labels { --motion-enter: 1000ms; }' })
   const batch = page.locator('.activity-batch').first()
   await expect(batch).toBeVisible()
   await expect(batch.locator('.grow > strong')).toHaveText('Equipment rollout')
   expect(reads).toEqual([])
   await batch.locator('.activity-labels > summary').click()
+  const body = batch.locator('.activity-labels > .disclosure-body')
+  await expect(batch.getByText('Loading labels…', { exact: true })).toBeVisible()
+  await expect(body).toHaveAttribute('data-expanding', 'false')
+  const loadingHeight = (await body.boundingBox())!.height
+  release()
   const label = batch.locator('.activity-label')
   await expect(label.locator('strong').first()).toHaveText('Equipment rollout')
+  await expect.poll(() => body.evaluate((el) => el.getAnimations().length)).toBe(1)
+  await body.evaluate((el) => {
+    const [animation] = el.getAnimations()
+    animation.pause()
+    animation.currentTime = 200
+  })
+  const partial = (await body.boundingBox())!.height
+  const full = await body
+    .locator(':scope > .disclosure-content')
+    .evaluate((el) => el.getBoundingClientRect().height)
+  expect(partial).toBeGreaterThan(loadingHeight)
+  expect(partial).toBeLessThan(full)
+  await page.screenshot({ path: 'test-results/activity-labels-expanding.png' })
+  await body.evaluate((el) => el.getAnimations().forEach((animation) => animation.finish()))
   await expect(label).toContainText('2 copies')
   await expect(label).toContainText('RACK-07')
   await expect(label).toContainText('Desk printer')

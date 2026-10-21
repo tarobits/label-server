@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { freezeLeavingItem } from '../collectionMotion'
 import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
@@ -132,60 +133,63 @@ async function correct(id: string) {
     Finish printing, resolve the pending review, or cancel the pending flush on
     {{ selectedPrinter?.name }} before swapping cartridges.
   </p>
-  <form
-    v-validate-form
-    v-if="showForm"
-    class="panel form-stack motion-reveal"
-    @submit.prevent="save"
-  >
-    <h2>Register a cartridge</h2>
-    <div class="field-row">
-      <label
-        >Cartridge name<input
-          v-model="form.name"
-          required
-          maxlength="100"
-          placeholder="Yellow cassette 1" /></label
-      ><label
-        >Tape profile<select v-model="form.profile_id" required>
-          <option disabled value="">Select a tape</option>
-          <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
-            {{ profile.name }}
-          </option>
-        </select></label
-      >
-    </div>
-    <div class="field-row">
-      <label
-        >Length on packaging (m)<input
-          v-model.number="form.nominal"
-          type="number"
-          min="0.001"
-          max="1000"
-          step="0.001"
-          required /></label
-      ><label
-        >Estimated remaining (m)<input
-          v-model.number="form.remaining"
-          type="number"
-          min="0"
-          :max="form.nominal"
-          step="0.001"
-          required
-      /></label>
-    </div>
-    <div class="row">
-      <button class="primary" :disabled="busy">Register cartridge</button
-      ><button type="button" @click="showForm = false">Cancel</button>
-    </div>
-  </form>
+  <Transition name="panel-expand">
+    <form v-validate-form v-if="showForm" class="panel form-stack" @submit.prevent="save">
+      <h2>Register a cartridge</h2>
+      <div class="field-row">
+        <label
+          >Cartridge name<input
+            v-model="form.name"
+            required
+            maxlength="100"
+            placeholder="Yellow cassette 1" /></label
+        ><label
+          >Tape profile<select v-model="form.profile_id" required>
+            <option disabled value="">Select a tape</option>
+            <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
+              {{ profile.name }}
+            </option>
+          </select></label
+        >
+      </div>
+      <div class="field-row">
+        <label
+          >Length on packaging (m)<input
+            v-model.number="form.nominal"
+            type="number"
+            min="0.001"
+            max="1000"
+            step="0.001"
+            required /></label
+        ><label
+          >Estimated remaining (m)<input
+            v-model.number="form.remaining"
+            type="number"
+            min="0"
+            :max="form.nominal"
+            step="0.001"
+            required
+        /></label>
+      </div>
+      <div class="row">
+        <button class="primary" :disabled="busy">Register cartridge</button
+        ><button type="button" @click="showForm = false">Cancel</button>
+      </div>
+    </form>
+  </Transition>
   <div v-if="!cartridges.length" class="panel empty">
     <h2>No cartridges registered yet.</h2>
     <RouterLink v-if="!profiles.length" class="button primary" to="/profiles"
       >Create a tape profile first</RouterLink
     >
   </div>
-  <div v-if="cartridges.length" class="cartridge-grid">
+  <TransitionGroup
+    v-if="cartridges.length"
+    tag="div"
+    class="cartridge-grid"
+    name="collection"
+    @before-leave="freezeLeavingItem"
+  >
     <article v-for="cartridge in cartridges" :key="cartridge.id" class="panel cartridge-card">
       <div class="section-heading">
         <span class="eyebrow">{{ w.profileName(cartridge.profile_id) }}</span
@@ -253,7 +257,7 @@ async function correct(id: string) {
         </button>
       </div>
     </article>
-  </div>
+  </TransitionGroup>
 </template>
 
 <style scoped>

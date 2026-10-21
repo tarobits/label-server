@@ -3,6 +3,7 @@ WORKDIR /ui
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+COPY CHANGELOG.md /CHANGELOG.md
 RUN npm run build
 
 FROM python:3.14-slim

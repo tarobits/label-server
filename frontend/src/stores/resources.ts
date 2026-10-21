@@ -93,6 +93,8 @@ export const useResourceStore = defineStore('resources', () => {
     return read(key, () => api<T>('/preview', 'POST', snapshot), { ttl: 60000 })
   }
   onApiMutation((path) => {
+    // Recording a release visit does not change any application resources.
+    if (path === '/auth/changelog') return
     const printing = [
       '/workspace',
       '/printers/status',

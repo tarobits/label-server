@@ -98,6 +98,7 @@ test('invite a member, request approval, and approve frozen labels without expos
     await expect.poll(async () => (await (await request.get('/api/jobs')).json()).length).toBe(1)
     await member.goto('/#/admin')
     await expect(member.getByRole('heading', { name: 'Access restricted' })).toBeVisible()
+    await member.locator('.account-menu > summary').click()
     await member.getByRole('button', { name: 'Sign out', exact: true }).click()
     await expect(member.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(member.getByRole('navigation')).toHaveCount(0)

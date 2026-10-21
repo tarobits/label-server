@@ -4,7 +4,210 @@
   --motion-state: 180ms;
   --motion-enter: 240ms;
   --motion-exit: 100ms;
+  --motion-page: 320ms;
   --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The shell stays put while pages hand over in navigation order. */
+.route-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 180px;
+  overflow-x: clip;
+  overflow-y: visible;
+  padding: 5px;
+  margin: -5px;
+}
+.route-surface {
+  display: flow-root;
+}
+.page-enter-active {
+  transition:
+    opacity var(--motion-page) ease-out,
+    transform var(--motion-page) var(--motion-ease);
+}
+.page-leave-active {
+  pointer-events: none;
+  transition:
+    opacity 140ms ease-in,
+    transform 140ms ease-in;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateX(calc(var(--page-direction, 1) * 32px));
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateX(calc(var(--page-direction, 1) * -16px));
+}
+.page-title-enter-active,
+.page-title-leave-active {
+  transition:
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-state) var(--motion-ease);
+}
+.page-header > div {
+  position: relative;
+}
+.page-title-leave-active {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+.page-title-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-title-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.navigation-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 2px;
+  overflow: hidden;
+  z-index: 100;
+  pointer-events: none;
+}
+.navigation-progress::after {
+  content: '';
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--accent-hover);
+  animation: navigation-wait 1100ms ease-in-out infinite;
+}
+@keyframes navigation-wait {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* One marker travels between selections rather than separate highlights blinking. */
+.motion-track {
+  position: relative;
+  isolation: isolate;
+}
+.motion-indicator {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+  transform-origin: top left;
+  border-radius: 6px;
+  pointer-events: none;
+  background: var(--surface-secondary);
+}
+.motion-track-ready > .motion-indicator {
+  display: block;
+}
+.sidebar .motion-indicator {
+  background: var(--surface-deepest);
+}
+.motion-track-underline > .motion-indicator {
+  background: var(--accent-hover);
+  border-radius: 0;
+}
+.sidebar nav.motion-track-ready a.selected,
+.administration-nav.motion-track-ready button.active {
+  background: transparent;
+}
+.inspector-tabs.motion-track-ready button[aria-selected='true'] {
+  border-bottom-color: transparent;
+}
+.editor-property-sections,
+.administration-content {
+  overflow-x: clip;
+}
+
+/* List changes settle around the item that was added or removed. */
+.collection-move,
+.collection-enter-active,
+.collection-leave-active {
+  transition:
+    transform var(--motion-page) var(--motion-ease),
+    opacity var(--motion-state) ease-out;
+}
+.collection-leave-active {
+  position: absolute;
+  pointer-events: none;
+}
+.collection-enter-from {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+}
+.collection-leave-to {
+  opacity: 0;
+  transform: scale(0.97);
+}
+.card-grid,
+.cartridge-grid,
+.printer-cards {
+  position: relative;
+}
+.panel-expand-enter-active {
+  transition:
+    opacity var(--motion-enter) ease-out,
+    transform var(--motion-enter) var(--motion-ease),
+    clip-path var(--motion-enter) var(--motion-ease);
+}
+.panel-expand-leave-active {
+  pointer-events: none;
+  transition:
+    opacity var(--motion-exit) ease-in,
+    transform var(--motion-exit) ease-in;
+}
+.panel-expand-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+  clip-path: inset(0 0 12% 0);
+}
+.panel-expand-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+tbody tr {
+  transition: background-color var(--motion-fast) ease-out;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  transition:
+    filter var(--motion-fast) ease-out,
+    transform var(--motion-press) var(--motion-ease);
+}
+input[type='checkbox']:active,
+input[type='radio']:active {
+  transform: scale(0.86);
+}
+input[type='range']::-webkit-slider-thumb {
+  transition: box-shadow var(--motion-fast) ease-out;
+}
+input[type='range']:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 5px var(--overlay);
+}
+summary {
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform var(--motion-state) var(--motion-ease);
+}
+details[open]:not([data-expanded='false']) > summary::before {
+  transform: translateY(-3px) rotate(45deg);
 }
 
 /* Feedback stays local to the control; the editor canvas follows the pointer
@@ -53,38 +256,6 @@ textarea,
 .motion-reveal {
   animation: feedback-arrive var(--motion-state) var(--motion-ease);
 }
-/* Native disclosures retain their keyboard behavior and lazy-loaded content.
-   Older browsers get the same opening feedback without size interpolation. */
-details[open] > :not(summary) {
-  animation: feedback-arrive var(--motion-state) var(--motion-ease);
-}
-@supports (interpolate-size: allow-keywords) and (transition-behavior: allow-discrete) and
-  selector(details::details-content) {
-  details::details-content {
-    interpolate-size: allow-keywords;
-    block-size: 0;
-    opacity: 0;
-    overflow: clip;
-    overflow-clip-margin: 6px;
-    transition:
-      block-size var(--motion-exit) var(--motion-ease),
-      opacity var(--motion-exit) ease-out,
-      content-visibility var(--motion-exit) allow-discrete;
-  }
-  details[open]::details-content {
-    block-size: auto;
-    opacity: 1;
-    transition-duration: var(--motion-state);
-  }
-  details[open] > :not(summary) {
-    animation: none;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    details::details-content {
-      transition-property: opacity, content-visibility;
-    }
-  }
-}
 .notice-leave-active {
   transition: opacity var(--motion-exit) ease-out;
 }
@@ -110,13 +281,40 @@ details[open] > :not(summary) {
     clip-path: inset(0);
   }
 }
+.ruler-selection {
+  animation: feedback-arrive var(--motion-state) var(--motion-ease);
+}
+.object-boundary {
+  transition:
+    fill var(--motion-fast) ease-out,
+    stroke var(--motion-fast) ease-out;
+}
 
 /* Native dialog focus and close behavior stay immediate. Every dialog uses the
    same depth cue, including image, history, and access previews. */
+dialog {
+  opacity: 0;
+  transform: translateY(6px) scale(0.99);
+  transition:
+    opacity var(--motion-exit) ease-out,
+    transform var(--motion-exit) ease-out,
+    display var(--motion-exit) allow-discrete,
+    overlay var(--motion-exit) allow-discrete;
+}
 dialog[open] {
+  opacity: 1;
+  transform: none;
   animation: dialog-arrive var(--motion-enter) var(--motion-ease);
 }
+dialog::backdrop {
+  opacity: 0;
+  transition:
+    opacity var(--motion-exit) ease-out,
+    display var(--motion-exit) allow-discrete,
+    overlay var(--motion-exit) allow-discrete;
+}
 dialog[open]::backdrop {
+  opacity: 1;
   animation: backdrop-arrive var(--motion-state) ease-out;
 }
 @keyframes dialog-arrive {
@@ -138,18 +336,51 @@ dialog[open]::backdrop {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --motion-fast: 100ms;
-    --motion-state: 100ms;
-    --motion-enter: 100ms;
-  }
-  button:not(:disabled):active,
-  .button:not([aria-disabled='true']):active {
-    transform: none;
-  }
-  dialog[open],
-  .label-stage > .raster-preview {
-    animation-name: feedback-arrive;
-  }
+:root[data-motion='reduce'] {
+  --motion-fast: 100ms;
+  --motion-state: 100ms;
+  --motion-enter: 100ms;
+}
+:root[data-motion='reduce'] button:not(:disabled):active,
+:root[data-motion='reduce'] .button:not([aria-disabled='true']):active,
+:root[data-motion='reduce'] input[type='checkbox']:active,
+:root[data-motion='reduce'] input[type='radio']:active {
+  transform: none;
+}
+:root[data-motion='reduce'] .page-enter-active,
+:root[data-motion='reduce'] .page-leave-active,
+:root[data-motion='reduce'] .page-title-enter-active,
+:root[data-motion='reduce'] .page-title-leave-active,
+:root[data-motion='reduce'] .collection-move,
+:root[data-motion='reduce'] .collection-enter-active,
+:root[data-motion='reduce'] .collection-leave-active,
+:root[data-motion='reduce'] .panel-expand-enter-active,
+:root[data-motion='reduce'] .panel-expand-leave-active {
+  transition: opacity 100ms ease-out;
+}
+:root[data-motion='reduce'] .page-enter-from,
+:root[data-motion='reduce'] .page-leave-to,
+:root[data-motion='reduce'] .page-title-enter-from,
+:root[data-motion='reduce'] .page-title-leave-to,
+:root[data-motion='reduce'] .collection-enter-from,
+:root[data-motion='reduce'] .collection-leave-to,
+:root[data-motion='reduce'] .panel-expand-enter-from,
+:root[data-motion='reduce'] .panel-expand-leave-to {
+  transform: none;
+  clip-path: none;
+}
+:root[data-motion='reduce'] summary::before {
+  transition: none;
+}
+:root[data-motion='reduce'] dialog {
+  transform: none;
+}
+:root[data-motion='reduce'] .navigation-progress::after {
+  animation: none;
+  width: 100%;
+  opacity: 0.6;
+}
+:root[data-motion='reduce'] dialog[open],
+:root[data-motion='reduce'] .label-stage > .raster-preview {
+  animation-name: feedback-arrive;
 }

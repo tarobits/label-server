@@ -10,6 +10,7 @@ import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
+import { decodeLabel } from '../labelPreview'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -181,6 +182,8 @@ async function render() {
       },
       w.destinationPrinter(form.destination_id)?.capabilities,
     )
+    if (ticket !== serial || stopped) return
+    await decodeLabel(result)
     if (ticket === serial && !stopped) {
       preview.value = result
       error.value = ''
@@ -194,6 +197,7 @@ async function render() {
     if (ticket === serial) rendering.value = false
   }
 }
+let initialRender = true
 watch(
   [document, data, selected, destination],
   () => {
@@ -201,7 +205,8 @@ watch(
     previewFieldErrors.value = {}
     clearTimeout(timer)
     rendering.value = true
-    timer = setTimeout(render, 300)
+    timer = setTimeout(render, initialRender ? 0 : 300)
+    initialRender = false
   },
   { deep: true, immediate: true },
 )
@@ -223,6 +228,7 @@ async function submit() {
     data: data.value,
   }
   const signature = JSON.stringify(body)
+  const direct = auth.atLeast(body.destination_id, 'print')
   if (signature !== submissionBody) {
     submissionKey = randomUUID()
     submissionBody = signature
@@ -230,16 +236,10 @@ async function submit() {
   if (
     await w.action(
       () =>
-        api(
-          auth.atLeast(form.destination_id, 'print') ? '/jobs' : '/requests',
-          'POST',
-          auth.atLeast(form.destination_id, 'print') ? body : { kind: 'job', input: body },
-          { 'Idempotency-Key': submissionKey },
-        ).catch(async (issue: unknown) => {
-          const errors = apiFieldErrors(
-            issue,
-            auth.atLeast(form.destination_id, 'print') ? ['body'] : ['body', 'job', 'input'],
-          )
+        api(direct ? '/jobs' : '/requests', 'POST', direct ? body : { kind: 'job', input: body }, {
+          'Idempotency-Key': submissionKey,
+        }).catch(async (issue: unknown) => {
+          const errors = apiFieldErrors(issue, direct ? ['body'] : ['body', 'job', 'input'])
           const entries = Object.entries(errors)
           submissionFieldErrors.value = Object.fromEntries(
             entries.filter(([name]) => labelForm.value?.elements.namedItem(name)),
@@ -250,15 +250,14 @@ async function submit() {
           focusFormErrors(labelForm.value)
           throw issue
         }),
-      auth.atLeast(form.destination_id, 'print')
-        ? `${form.copies} copies added to the queue.`
+      direct
+        ? `${body.copies} ${body.copies === 1 ? 'copy' : 'copies'} added to the queue.`
         : 'Label sent for approval. Nothing has been queued yet.',
     )
   ) {
     submissionBody = ''
     submissionKey = ''
-    if (route.path === '/new')
-      await router.push(auth.atLeast(form.destination_id, 'print') ? '/queue' : '/requests')
+    if (route.path === '/new') await router.push(direct ? '/queue' : '/requests')
   } else if (fieldErrorsHandled) w.actionError = ''
 }
 </script>

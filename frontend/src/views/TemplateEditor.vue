@@ -2,6 +2,9 @@
 import { confirmAction } from '../confirmation'
 import EditorRuler from '../components/EditorRuler.vue'
 import PropertySection from '../components/PropertySection.vue'
+import MotionSurface from '../components/MotionSurface.vue'
+import MotionTrack from '../components/MotionTrack.vue'
+import { decodeLabel } from '../labelPreview'
 import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroicons/vue/24/outline'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
@@ -90,6 +93,59 @@ const verticalMargin = computed(() => {
   return band ? (document.value.width_mm - band) / 2 : margin.value
 })
 const selected = computed(() => document.value.elements.find((e) => e.id === selectedId.value))
+const elementTitles = {
+  text: 'Text',
+  qr: 'QR code',
+  image: 'Image',
+  rectangle: 'Rectangle',
+  line: 'Line',
+}
+type InspectorTab = 'content' | 'style' | 'layout'
+const activeInspector = ref<InspectorTab>('content')
+const inspectorRoot = ref<HTMLElement | null>(null)
+watch(
+  [selectedId, activeInspector],
+  () => {
+    inspectorRoot.value?.querySelector('.editor-property-sections')?.scrollTo({ top: 0 })
+  },
+  { flush: 'post' },
+)
+const inspectorTabs = computed(() =>
+  [
+    { id: 'content' as const, label: 'Content' },
+    { id: 'style' as const, label: 'Style' },
+    { id: 'layout' as const, label: 'Layout' },
+  ].filter((tab) =>
+    tab.id === 'content'
+      ? ['text', 'qr', 'image'].includes(selected.value?.kind ?? '')
+      : tab.id === 'style'
+        ? selected.value?.kind !== 'qr'
+        : true,
+  ),
+)
+watch(
+  inspectorTabs,
+  (tabs) => {
+    if (!selected.value) return
+    if (!tabs.some((tab) => tab.id === activeInspector.value)) activeInspector.value = tabs[0]!.id
+  },
+  { immediate: true },
+)
+function moveInspectorTab(event: KeyboardEvent) {
+  const tabs = inspectorTabs.value
+  const index = tabs.findIndex((tab) => tab.id === activeInspector.value)
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+  else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = tabs.length - 1
+  else return
+  event.preventDefault()
+  activeInspector.value = tabs[next]!.id
+  ;(event.currentTarget as HTMLElement).parentElement
+    ?.querySelector<HTMLButtonElement>(`#inspector-${activeInspector.value}-tab`)
+    ?.focus()
+}
 const snapshot = () =>
   JSON.stringify({
     name: name.value,
@@ -298,6 +354,8 @@ async function updatePreview() {
       },
       w.destinationPrinter(w.selectedPrinter)?.capabilities,
     )
+    if (ticket !== serial || stopped) return
+    await decodeLabel(result)
     if (ticket === serial && !stopped) {
       preview.value = result
       error.value = ''
@@ -352,6 +410,7 @@ function add(kind: Element['kind']) {
   if (kind === 'qr') element.width = element.height
   document.value.elements.push(element)
   selectedId.value = element.id
+  activeInspector.value = ['text', 'qr', 'image'].includes(kind) ? 'content' : 'style'
   record()
 }
 function remove() {
@@ -835,6 +894,7 @@ onUnmounted(() => {
         <div class="editor-board">
           <div class="ruler-corner">mm</div>
           <EditorRuler
+            :selection-key="selectedId"
             :length="canvasLength"
             :scale="scale"
             :position="pointer?.x ?? null"
@@ -845,6 +905,7 @@ onUnmounted(() => {
             "
           />
           <EditorRuler
+            :selection-key="selectedId"
             vertical
             :length="document.width_mm"
             :scale="scale"
@@ -920,6 +981,7 @@ onUnmounted(() => {
                 :height="element.height"
                 :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
                 class="object-boundary"
+                :class="{ selected: selectedId === element.id }"
                 :stroke="
                   selectedId === element.id ? '#6366f1' : showBounds ? '#64748b' : 'transparent'
                 "
@@ -983,64 +1045,46 @@ onUnmounted(() => {
     </section>
     <section
       v-if="selected"
+      ref="inspectorRoot"
       class="panel editor-properties"
       aria-labelledby="element-properties-heading"
     >
-      <h2 id="element-properties-heading">Element properties</h2>
-      <div class="editor-property-sections">
-        <PropertySection title="Position &amp; size" initially-open>
-          <div class="field-row">
-            <label
-              >X (mm)<input
-                :value="positionLocked('x') ? positionedElement(selected).x : selected.x"
-                :disabled="positionLocked('x')"
-                @input="setPosition('x', $event)"
-                type="number"
-                min="-1000"
-                step="0.5"
-                @change="record" /></label
-            ><label
-              >Y (mm)<input
-                :value="positionLocked('y') ? positionedElement(selected).y : selected.y"
-                :disabled="positionLocked('y')"
-                @input="setPosition('y', $event)"
-                type="number"
-                min="-100"
-                step="0.5"
-                @change="record"
-            /></label>
-          </div>
-          <div class="field-row">
-            <label
-              >Width (mm)<input
-                :value="selected.width"
-                :disabled="selected.kind === 'text' && selected.auto_width"
-                type="number"
-                min="1"
-                step="0.5"
-                @input="resize('width', $event)"
-                @change="record" /></label
-            ><label
-              >Height (mm)<input
-                :value="selected.height"
-                :disabled="selected.kind === 'qr'"
-                type="number"
-                min="1"
-                step="0.5"
-                @input="resize('height', $event)"
-                @change="record"
-            /></label>
-          </div>
-          <label
-            >Rotation<select v-model.number="selected.rotation" @change="record">
-              <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
-            </select></label
-          >
-        </PropertySection>
-        <PropertySection
-          v-if="['text', 'qr', 'image'].includes(selected.kind)"
-          title="Content"
-          initially-open
+      <h2 id="element-properties-heading">{{ elementTitles[selected.kind] }}</h2>
+      <MotionTrack
+        class="inspector-tabs"
+        :identity="`${selected.kind}:${activeInspector}`"
+        selector="[aria-selected='true']"
+        underline
+        role="tablist"
+        aria-label="Element settings"
+      >
+        <button
+          v-for="tab in inspectorTabs"
+          :key="tab.id"
+          :id="`inspector-${tab.id}-tab`"
+          type="button"
+          role="tab"
+          :aria-selected="activeInspector === tab.id"
+          :aria-controls="`inspector-${tab.id}-panel`"
+          :tabindex="activeInspector === tab.id ? 0 : -1"
+          @click="activeInspector = tab.id"
+          @keydown="moveInspectorTab"
+        >
+          {{ tab.label }}
+        </button>
+      </MotionTrack>
+      <MotionSurface
+        :order="['content', 'style', 'layout'].indexOf(activeInspector)"
+        :identity="`${selected.id}:${activeInspector}`"
+        class="editor-property-sections"
+      >
+        <div
+          v-show="activeInspector === 'content'"
+          id="inspector-content-panel"
+          role="tabpanel"
+          aria-labelledby="inspector-content-tab"
+          :inert="activeInspector !== 'content'"
+          class="inspector-panel"
         >
           <label v-if="selected.kind === 'text' || selected.kind === 'qr'"
             >Content<textarea
@@ -1092,259 +1136,343 @@ onUnmounted(() => {
             >
               Upload and use image
             </button>
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                v-model="selected.preserve_aspect"
-                @change="setPreserveAspect"
-              />Preserve aspect ratio</label
-            >
           </template>
-          <template v-if="selected.kind === 'qr'">
-            <label class="checkbox">
-              <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
-              Scale up to bounding box
-            </label>
-            <template v-if="selected.qr_fill_box">
-              <label
-                >QR margin (mm)<input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  :value="selected.qr_margin_mm ?? ''"
-                  placeholder="Auto (4 modules)"
-                  @change="setQrMargin"
-              /></label>
-              <p class="help">
-                Inset on each side: 0 fills the box; blank adds a four-module border. Leave clear
-                space around the code for scanning.
-              </p>
-            </template>
-          </template>
-        </PropertySection>
-        <PropertySection v-if="selected.kind === 'image'" title="Image adjustments">
-          <label
-            >Brightness<input
-              type="number"
-              min="0"
-              max="3"
-              step="0.1"
-              v-model.number="selected.brightness"
-              @change="record"
-          /></label>
-          <label
-            >Contrast<input
-              type="number"
-              min="0"
-              max="3"
-              step="0.1"
-              v-model.number="selected.contrast"
-              @change="record"
-          /></label>
-          <label
-            >Image conversion<select v-model="selected.image_mode" @change="record">
-              <option value="threshold">Black and white (threshold)</option>
-              <option value="dither">Dithered shading</option>
-            </select></label
-          >
-          <label v-if="selected.image_mode !== 'dither'"
-            >Threshold<input
-              type="number"
-              min="1"
-              max="255"
-              step="1"
-              v-model.number="selected.image_threshold"
-              @change="record"
-          /></label>
-          <p class="help">
-            Brightness and contrast: 1 keeps the original. Dithering creates shading with ink dots.
-          </p>
-        </PropertySection>
-        <PropertySection v-if="selected.kind === 'text'" title="Typography">
-          <template v-if="selected.kind === 'text'"
-            ><label class="checkbox"
-              ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text box
-              width to content</label
+        </div>
+        <div
+          v-show="activeInspector === 'style'"
+          id="inspector-style-panel"
+          role="tabpanel"
+          aria-labelledby="inspector-style-tab"
+          :inert="activeInspector !== 'style'"
+          class="inspector-panel"
+        >
+          <PropertySection v-if="selected.kind === 'text'" title="Typography" initially-open>
+            <template v-if="selected.kind === 'text'">
+              <div class="field-row typography-fonts">
+                <label
+                  >Font<select v-model="selected.font" @change="record">
+                    <option>Noto Sans</option>
+                    <option
+                      v-if="preview?.missing_assets?.[selected.id] === 'font'"
+                      :value="selected.font"
+                      disabled
+                    >
+                      Missing font — choose a replacement
+                    </option>
+                    <option
+                      v-for="font in w.fonts.filter((f) => !f.archived || f.id === selected?.font)"
+                      :key="font.id"
+                      :value="font.id"
+                    >
+                      {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
+                    </option>
+                  </select></label
+                ><label
+                  >Font size (mm)<input
+                    v-model.number="selected.font_size"
+                    type="number"
+                    min="1"
+                    max="24"
+                    step="0.1"
+                    @change="record"
+                /></label>
+              </div>
+              <p class="help">Text shrinks to fit; this is its maximum size.</p>
+              <div class="row">
+                <label class="checkbox"
+                  ><input
+                    v-model="selected.bold"
+                    :disabled="selected.font !== 'Noto Sans'"
+                    type="checkbox"
+                    @change="record"
+                  />Bold</label
+                ><label class="checkbox"
+                  ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap
+                  text</label
+                >
+              </div></template
             >
-            <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
-            <label
-              >Font<select v-model="selected.font" @change="record">
-                <option>Noto Sans</option>
-                <option
-                  v-if="preview?.missing_assets?.[selected.id] === 'font'"
-                  :value="selected.font"
-                  disabled
-                >
-                  Missing font — choose a replacement
-                </option>
-                <option
-                  v-for="font in w.fonts.filter((f) => !f.archived || f.id === selected?.font)"
-                  :key="font.id"
-                  :value="font.id"
-                >
-                  {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
-                </option>
-              </select></label
-            ><label
-              >Font size (mm)<input
-                v-model.number="selected.font_size"
-                type="number"
-                min="1"
-                max="24"
-                step="0.1"
-                @change="record"
-            /></label>
-            <p class="help">Text shrinks to fit; this is its maximum size.</p>
-            <div class="row">
-              <label class="checkbox"
-                ><input
-                  v-model="selected.bold"
-                  :disabled="selected.font !== 'Noto Sans'"
-                  type="checkbox"
-                  @change="record"
-                />Bold</label
-              ><label class="checkbox"
-                ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap text</label
-              >
-            </div></template
-          >
-          <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
-            For bold text, select an uploaded bold face.
-          </p>
-        </PropertySection>
-        <PropertySection v-if="selected.kind === 'text'" title="Spacing &amp; alignment">
-          <fieldset class="text-padding">
-            <legend>Text spacing (mm)</legend>
+            <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
+              For bold text, select an uploaded bold face.
+            </p>
             <div class="field-row">
               <label
-                >Horizontal<input
-                  aria-label="Horizontal character spacing (mm)"
-                  :value="selected.character_spacing ?? 0"
-                  type="number"
-                  min="0"
-                  max="20"
-                  step="0.1"
-                  @input="setTextSpacing('character_spacing', $event)"
-              /></label>
+                >Horizontal text alignment<select v-model="selected.align" @change="record">
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </select></label
+              >
               <label
-                >Vertical<input
-                  aria-label="Vertical line spacing (mm)"
-                  :value="selected.line_spacing ?? 0"
-                  type="number"
-                  min="0"
-                  max="20"
-                  step="0.1"
-                  @input="setTextSpacing('line_spacing', $event)"
-              /></label>
+                >Vertical text alignment<select
+                  :value="selected.vertical_align ?? 'top'"
+                  @change="setVerticalAlign"
+                >
+                  <option value="top">Top</option>
+                  <option value="center">Center</option>
+                  <option value="bottom">Bottom</option>
+                </select></label
+              >
             </div>
-          </fieldset>
-          <p class="help">Zero uses normal spacing; gaps shrink with text.</p>
-          <fieldset class="text-padding">
-            <legend>Text padding (mm)</legend>
-            <div
-              class="field-row"
-              v-for="pair in [paddingSides.slice(0, 2), paddingSides.slice(2)]"
-              :key="pair[0]"
-            >
-              <label v-for="side in pair" :key="side"
-                >{{ side[0].toUpperCase() + side.slice(1) }}
-                <input
-                  :aria-label="`${side[0].toUpperCase() + side.slice(1)} padding (mm)`"
-                  :value="selected[`padding_${side}`] ?? 0"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  @input="setPadding(side, $event)"
-                />
-              </label>
-            </div>
-          </fieldset>
-          <label
-            >Horizontal text alignment<select v-model="selected.align" @change="record">
-              <option value="left">Left</option>
-              <option value="center">Center</option>
-              <option value="right">Right</option>
-            </select></label
+          </PropertySection>
+          <PropertySection v-if="selected.kind === 'text'" title="Spacing &amp; padding">
+            <fieldset class="text-padding">
+              <legend>Text spacing (mm)</legend>
+              <div class="field-row">
+                <label
+                  >Horizontal<input
+                    aria-label="Horizontal character spacing (mm)"
+                    :value="selected.character_spacing ?? 0"
+                    type="number"
+                    min="0"
+                    max="20"
+                    step="0.1"
+                    @input="setTextSpacing('character_spacing', $event)"
+                /></label>
+                <label
+                  >Vertical<input
+                    aria-label="Vertical line spacing (mm)"
+                    :value="selected.line_spacing ?? 0"
+                    type="number"
+                    min="0"
+                    max="20"
+                    step="0.1"
+                    @input="setTextSpacing('line_spacing', $event)"
+                /></label>
+              </div>
+            </fieldset>
+            <p class="help">Zero uses normal spacing; gaps shrink with text.</p>
+            <fieldset class="text-padding">
+              <legend>Text padding (mm)</legend>
+              <div
+                class="field-row"
+                v-for="pair in [paddingSides.slice(0, 2), paddingSides.slice(2)]"
+                :key="pair[0]"
+              >
+                <label v-for="side in pair" :key="side"
+                  >{{ side[0].toUpperCase() + side.slice(1) }}
+                  <input
+                    :aria-label="`${side[0].toUpperCase() + side.slice(1)} padding (mm)`"
+                    :value="selected[`padding_${side}`] ?? 0"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    @input="setPadding(side, $event)"
+                  />
+                </label>
+              </div>
+            </fieldset>
+          </PropertySection>
+          <PropertySection
+            v-if="selected.kind === 'image'"
+            title="Image adjustments"
+            initially-open
           >
-          <label
-            >Vertical text alignment<select
-              :value="selected.vertical_align ?? 'top'"
-              @change="setVerticalAlign"
-            >
-              <option value="top">Top</option>
-              <option value="center">Center</option>
-              <option value="bottom">Bottom</option>
-            </select></label
-          >
-        </PropertySection>
-        <PropertySection
-          v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
-          title="Appearance"
-          initially-open
-        >
-          <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
-            ><label
-              >Stroke (mm)<input
-                v-model.number="selected.stroke"
-                type="number"
-                min="0.1"
-                max="3"
-                step="0.1"
-                @change="record" /></label
-            ><label v-if="selected.kind === 'rectangle'" class="checkbox"
-              ><input v-model="selected.filled" type="checkbox" @change="record" />Filled
-              rectangle</label
-            ></template
-          >
-        </PropertySection>
-        <PropertySection title="Distance holder">
-          <label
-            >Follow element
-            <select :value="selected.distance_holder?.element_id ?? ''" @change="setDistanceTarget">
-              <option value="">None (free position)</option>
-              <option v-for="element in distanceTargets" :key="element.id" :value="element.id">
-                {{ document.elements.indexOf(element) + 1 }}. {{ element.kind
-                }}{{ element.content ? ` · ${element.content.slice(0, 40)}` : '' }}
-              </option>
-            </select>
-          </label>
-          <template v-if="selected.distance_holder">
             <label
-              >Placement<select v-model="selected.distance_holder.axis" @change="record">
-                <option value="horizontal">Right of element</option>
-                <option value="vertical">Below element</option>
-              </select></label
-            >
-            <label
-              >Gap (mm)<input
-                v-model.number="selected.distance_holder.gap_mm"
+              >Brightness<input
                 type="number"
                 min="0"
-                max="300"
-                step="0.5"
+                max="3"
+                step="0.1"
+                v-model.number="selected.brightness"
                 @change="record"
             /></label>
-          </template>
-          <p class="help">
-            Gap between element bounds, including rotation and padding. Deleting the anchor detaches
-            this element at its current position.
-          </p>
-        </PropertySection>
-        <PropertySection title="Arrange">
-          <div class="row wrap">
-            <button class="small" @click="align('left')">Align left</button
-            ><button class="small" @click="align('center')">Center horizontally</button
-            ><button class="small" @click="align('right')">Align right</button
-            ><button class="small" @click="align('middle')">Center vertically</button>
-          </div>
-          <div class="row wrap">
-            <button class="small" @click="order(-1)">Send backward</button
-            ><button class="small" @click="order(1)">Bring forward</button
-            ><button class="small" @click="duplicate">Duplicate element</button
-            ><button class="small danger-text" @click="remove">Delete element</button>
-          </div>
-        </PropertySection>
-      </div>
+            <label
+              >Contrast<input
+                type="number"
+                min="0"
+                max="3"
+                step="0.1"
+                v-model.number="selected.contrast"
+                @change="record"
+            /></label>
+            <label
+              >Image conversion<select v-model="selected.image_mode" @change="record">
+                <option value="threshold">Black and white (threshold)</option>
+                <option value="dither">Dithered shading</option>
+              </select></label
+            >
+            <label v-if="selected.image_mode !== 'dither'"
+              >Threshold<input
+                type="number"
+                min="1"
+                max="255"
+                step="1"
+                v-model.number="selected.image_threshold"
+                @change="record"
+            /></label>
+            <p class="help">
+              Brightness and contrast: 1 keeps the original. Dithering creates shading with ink
+              dots.
+            </p>
+          </PropertySection>
+          <PropertySection
+            v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
+            title="Appearance"
+            initially-open
+          >
+            <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
+              ><label
+                >Stroke (mm)<input
+                  v-model.number="selected.stroke"
+                  type="number"
+                  min="0.1"
+                  max="3"
+                  step="0.1"
+                  @change="record" /></label
+              ><label v-if="selected.kind === 'rectangle'" class="checkbox"
+                ><input v-model="selected.filled" type="checkbox" @change="record" />Filled
+                rectangle</label
+              ></template
+            >
+          </PropertySection>
+        </div>
+        <div
+          v-show="activeInspector === 'layout'"
+          id="inspector-layout-panel"
+          role="tabpanel"
+          aria-labelledby="inspector-layout-tab"
+          :inert="activeInspector !== 'layout'"
+          class="inspector-panel"
+        >
+          <PropertySection title="Position &amp; size" initially-open>
+            <div class="field-row">
+              <label
+                >X (mm)<input
+                  :value="positionLocked('x') ? positionedElement(selected).x : selected.x"
+                  :disabled="positionLocked('x')"
+                  @input="setPosition('x', $event)"
+                  type="number"
+                  min="-1000"
+                  step="0.5"
+                  @change="record" /></label
+              ><label
+                >Y (mm)<input
+                  :value="positionLocked('y') ? positionedElement(selected).y : selected.y"
+                  :disabled="positionLocked('y')"
+                  @input="setPosition('y', $event)"
+                  type="number"
+                  min="-100"
+                  step="0.5"
+                  @change="record"
+              /></label>
+            </div>
+            <div class="field-row">
+              <label
+                >Width (mm)<input
+                  :value="selected.width"
+                  :disabled="selected.kind === 'text' && selected.auto_width"
+                  type="number"
+                  min="1"
+                  step="0.5"
+                  @input="resize('width', $event)"
+                  @change="record" /></label
+              ><label
+                >Height (mm)<input
+                  :value="selected.height"
+                  :disabled="selected.kind === 'qr'"
+                  type="number"
+                  min="1"
+                  step="0.5"
+                  @input="resize('height', $event)"
+                  @change="record"
+              /></label>
+            </div>
+            <label
+              >Rotation<select v-model.number="selected.rotation" @change="record">
+                <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
+              </select></label
+            >
+            <template v-if="selected.kind === 'image'">
+              <label class="checkbox"
+                ><input
+                  type="checkbox"
+                  v-model="selected.preserve_aspect"
+                  @change="setPreserveAspect"
+                />Preserve aspect ratio</label
+              >
+            </template>
+            <template v-if="selected.kind === 'text'">
+              <label class="checkbox"
+                ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text
+                box width to content</label
+              >
+              <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
+            </template>
+            <template v-if="selected.kind === 'qr'">
+              <label class="checkbox">
+                <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
+                Scale up to bounding box
+              </label>
+              <template v-if="selected.qr_fill_box">
+                <label
+                  >QR margin (mm)<input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    :value="selected.qr_margin_mm ?? ''"
+                    placeholder="Auto (4 modules)"
+                    @change="setQrMargin"
+                /></label>
+                <p class="help">
+                  Inset on each side: 0 fills the box; blank adds a four-module border. Leave clear
+                  space around the code for scanning.
+                </p>
+              </template>
+            </template>
+          </PropertySection>
+          <PropertySection title="Distance holder">
+            <label
+              >Follow element
+              <select
+                :value="selected.distance_holder?.element_id ?? ''"
+                @change="setDistanceTarget"
+              >
+                <option value="">None (free position)</option>
+                <option v-for="element in distanceTargets" :key="element.id" :value="element.id">
+                  {{ document.elements.indexOf(element) + 1 }}. {{ element.kind
+                  }}{{ element.content ? ` · ${element.content.slice(0, 40)}` : '' }}
+                </option>
+              </select>
+            </label>
+            <template v-if="selected.distance_holder">
+              <label
+                >Placement<select v-model="selected.distance_holder.axis" @change="record">
+                  <option value="horizontal">Right of element</option>
+                  <option value="vertical">Below element</option>
+                </select></label
+              >
+              <label
+                >Gap (mm)<input
+                  v-model.number="selected.distance_holder.gap_mm"
+                  type="number"
+                  min="0"
+                  max="300"
+                  step="0.5"
+                  @change="record"
+              /></label>
+            </template>
+            <p class="help">
+              Gap between element bounds, including rotation and padding. Deleting the anchor
+              detaches this element at its current position.
+            </p>
+          </PropertySection>
+          <PropertySection title="Arrange">
+            <div class="row wrap">
+              <button class="small" @click="align('left')">Align left</button
+              ><button class="small" @click="align('center')">Center horizontally</button
+              ><button class="small" @click="align('right')">Align right</button
+              ><button class="small" @click="align('middle')">Center vertically</button>
+            </div>
+            <div class="row wrap">
+              <button class="small" @click="order(-1)">Send backward</button
+              ><button class="small" @click="order(1)">Bring forward</button
+              ><button class="small" @click="duplicate">Duplicate element</button
+              ><button class="small danger-text" @click="remove">Delete element</button>
+            </div>
+          </PropertySection>
+        </div>
+      </MotionSurface>
     </section>
   </div>
   <section v-if="ready && w.profiles.length" class="panel variable-fields">

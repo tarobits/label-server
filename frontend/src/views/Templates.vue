@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { freezeLeavingItem } from '../collectionMotion'
 import { confirmAction } from '../confirmation'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
@@ -46,7 +47,7 @@ async function remove(template: Template) {
   <div v-if="auth.canCreateTemplates" class="section-heading">
     <RouterLink class="button primary" to="/templates/new">Create template</RouterLink>
   </div>
-  <div class="card-grid">
+  <TransitionGroup tag="div" class="card-grid" name="collection" @before-leave="freezeLeavingItem">
     <article v-for="template in w.templates" :key="template.id" class="panel">
       <TemplatePreview :template="template" />
       <div class="section-heading">
@@ -122,5 +123,5 @@ async function remove(template: Template) {
         </button>
       </div>
     </article>
-  </div>
+  </TransitionGroup>
 </template>

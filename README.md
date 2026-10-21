@@ -331,8 +331,11 @@ For the private repository, set `LABEL_GITHUB_TOKEN` in the installation's `.env
 and restrict that file with `chmod 600 .env`. Use a fine-grained GitHub token for
 this repository with **Contents: read-only** permission. The token authenticates
 both release lookup and Git clone/fetch, and is shared with the server's cached
-update check. The footer displays the running version and a bottom-right notice
-links to newer releases. See [private repository access](docs/DEPLOYMENT.md#private-github-repository-access)
+update check. The footer displays the running version and opens the full changelog;
+a bottom-right notice links to newer releases. After an upgrade, each account sees
+the releases since its last visit once, across browsers. The first visit establishes
+a baseline. Account settings provide password changes and per-browser reduced-motion
+preferences. See [private repository access](docs/DEPLOYMENT.md#private-github-repository-access)
 for token-file configuration and credential handling.
 
 ```sh

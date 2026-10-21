@@ -333,10 +333,17 @@ small {
   height: 24px;
 }
 .sidebar nav {
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: 5px;
   margin-top: 32px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 6px;
+  margin-inline: -6px;
+  scroll-padding: 6px;
 }
 .sidebar nav a {
   display: flex;
@@ -346,6 +353,7 @@ small {
   color: var(--text-secondary);
   font-size: 13px;
   border-radius: 6px;
+  scroll-margin: 6px;
 }
 .sidebar nav a:hover {
   background: var(--overlay);
@@ -388,33 +396,6 @@ small {
   margin-left: 242px;
   min-width: 0;
   flex: 1;
-}
-.topbar {
-  min-height: 63px;
-  border-bottom: 1px solid var(--line);
-  padding: 0 42px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  background: var(--surface-dense);
-}
-.topbar .row {
-  min-width: 0;
-  max-width: 100%;
-  padding-block: 12px;
-}
-.topbar .row > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.printer-pill {
-  font-size: 9px;
-  letter-spacing: 1.1px;
-  background: var(--overlay);
-  color: var(--text-secondary);
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
 }
 main {
   max-width: 1470px;
@@ -1143,9 +1124,6 @@ dd {
   main {
     padding: 28px 24px;
   }
-  .topbar {
-    padding: 0 24px;
-  }
   .stat {
     padding: 18px;
   }
@@ -1182,6 +1160,20 @@ dd {
     position: static;
     padding: 18px 20px;
     overflow: visible;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .sidebar > .brand-link {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .sidebar > .account-menu {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .sidebar > .printer-picker {
+    grid-column: 1 / -1;
   }
   .app-shell {
     display: block;
@@ -1194,10 +1186,12 @@ dd {
     font-size: 18px;
   }
   .sidebar nav {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    min-width: 0;
     display: flex;
     overflow: auto;
     margin-top: 18px;
-    padding-bottom: 3px;
     gap: 4px;
   }
   .sidebar nav a {
@@ -1214,12 +1208,6 @@ dd {
   }
   .main-wrap {
     margin: 0;
-  }
-  .topbar {
-    min-height: 44px;
-  }
-  .topbar .row {
-    padding-block: 8px;
   }
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
@@ -1324,12 +1312,11 @@ dd {
     width: 100%;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-  }
+
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  scroll-behavior: auto !important;
 }
 
 @font-face {
@@ -1415,6 +1402,60 @@ dd {
 .editor-workspace {
   min-width: 0;
 }
+.editor-properties {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 20px;
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+}
+.editor-properties > h2 {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+.inspector-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.editor-properties .editor-property-sections {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 6px;
+  margin: -6px;
+  scroll-padding: 6px;
+}
+.editor-layout .typography-fonts {
+  grid-template-columns: minmax(0, 1fr) 100px;
+}
+.inspector-tabs button {
+  flex: 1;
+  padding: 10px 4px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.inspector-tabs button[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent-hover);
+}
+.inspector-panel {
+  display: grid;
+  gap: 16px;
+}
+.inspector-panel > .property-section:first-child {
+  border-top: 0;
+}
+.inspector-panel > .property-section:first-child h3 button {
+  padding-top: 3px;
+}
 .editor-tools,
 .editor-add-buttons,
 .editor-options {
@@ -1486,15 +1527,6 @@ dd {
 .property-section h3 svg.collapsed {
   transform: rotate(-90deg);
 }
-.property-section-body {
-  display: grid;
-  grid-template-rows: 1fr;
-  opacity: 1;
-}
-.property-section-clip {
-  min-height: 0;
-  overflow: hidden;
-}
 .property-section-content {
   display: grid;
   gap: 16px;
@@ -1503,24 +1535,10 @@ dd {
 .property-section-content p {
   margin: 0;
 }
-.property-expand-enter-active,
-.property-expand-leave-active {
-  transition:
-    grid-template-rows var(--motion-state) var(--motion-ease),
-    opacity var(--motion-fast) ease-out;
+:root[data-motion='reduce'] .property-section h3 svg {
+  transition: none;
 }
-.property-expand-enter-from,
-.property-expand-leave-to {
-  grid-template-rows: 0fr;
-  opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .property-section h3 svg,
-  .property-expand-enter-active,
-  .property-expand-leave-active {
-    transition: none;
-  }
-}
+
 .editor-canvas-scroll {
   overflow: auto;
   min-height: 260px;
@@ -1631,6 +1649,14 @@ button[aria-pressed='true'] {
   .editor-layout {
     grid-template-columns: 1fr;
   }
+  .editor-properties {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .editor-properties .editor-property-sections {
+    overflow: visible;
+  }
 }
 
 .csv-form {
@@ -1711,6 +1737,9 @@ button[aria-pressed='true'] {
 }
 .queue-cell-content {
   min-height: 0;
+}
+.queue-expand-enter-active .queue-cell-content,
+.queue-expand-leave-active .queue-cell-content {
   overflow: hidden;
 }
 .queue-expand-enter-active,
@@ -1737,15 +1766,14 @@ button[aria-pressed='true'] {
 .queue-expand-leave-to .queue-cell {
   grid-template-rows: 0fr;
 }
-@media (prefers-reduced-motion: reduce) {
-  .queue-disclosure svg,
-  .queue-cell,
-  .queue-expand-enter-active,
-  .queue-expand-leave-active,
-  .queue-expand-enter-active > td,
-  .queue-expand-leave-active > td {
-    transition: none;
-  }
+
+:root[data-motion='reduce'] .queue-disclosure svg,
+:root[data-motion='reduce'] .queue-cell,
+:root[data-motion='reduce'] .queue-expand-enter-active,
+:root[data-motion='reduce'] .queue-expand-leave-active,
+:root[data-motion='reduce'] .queue-expand-enter-active > td,
+:root[data-motion='reduce'] .queue-expand-leave-active > td {
+  transition: none;
 }
 
 .queue-table {

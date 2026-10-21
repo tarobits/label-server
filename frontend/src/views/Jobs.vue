@@ -12,6 +12,7 @@ import { useWorkspaceStore, date } from '../workspace'
 import Badge from '../components/Badge.vue'
 import QueuePreview from '../components/QueuePreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
+import AnimatedDetails from '../components/AnimatedDetails.vue'
 interface QueueGroup {
   id: string
   run_id: string | null
@@ -384,10 +385,10 @@ async function cancel(job: Job) {
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
                         >CSV record {{ job.source_row }}</RouterLink
                       >
-                      <details class="queue-label-details">
-                        <summary>Details</summary>
+                      <AnimatedDetails class="queue-label-details">
+                        <template #summary>Details</template>
                         <LabelDetails :label="job" :attribution="job.attribution" />
-                      </details>
+                      </AnimatedDetails>
                       <QueuePreview
                         :job-id="job.id"
                         :text="labelName(job)"
@@ -469,14 +470,14 @@ async function cancel(job: Job) {
   margin-top: 8px;
   white-space: normal;
 }
-summary {
+.queue-label-details :deep(summary) {
   width: fit-content;
   padding-block: 6px;
   color: var(--text-secondary);
   cursor: pointer;
 }
-summary:hover,
-details[open] > summary {
+.queue-label-details :deep(summary:hover),
+.queue-label-details[data-expanded='true'] :deep(summary) {
   color: var(--ink);
 }
 </style>

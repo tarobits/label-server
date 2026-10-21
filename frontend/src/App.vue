@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 import Icon from './components/Icon.vue'
 import BrandLogo from './components/BrandLogo.vue'
+import AccountMenu from './components/AccountMenu.vue'
+import { reducedMotion } from './preferences'
 import ConfirmDialog from './components/ConfirmDialog.vue'
-import MotionSurface from './components/MotionSurface.vue'
+import MotionTrack from './components/MotionTrack.vue'
+import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
+import ChangelogNotice from './components/ChangelogNotice.vue'
 import SignIn from './views/SignIn.vue'
 import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
@@ -14,7 +18,81 @@ import { useLiveRefresh } from './live'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
-const navigation = ref<HTMLElement | null>(null)
+const router = useRouter()
+const navigation = ref<InstanceType<typeof MotionTrack> | null>(null)
+const navigationPending = ref(false)
+const pageDirection = ref(1)
+const routeStage = ref<HTMLElement | null>(null)
+let previousHeight = 0
+let resize: Animation | undefined
+let navigationSequence = 0
+const removeGuard = router.beforeResolve(async (to, from) => {
+  if (!auth.user) return
+  const ticket = ++navigationSequence
+  if (to.path === from.path && !navigationPending.value) return
+  navigationPending.value = true
+  try {
+    // Fetch before committing the route so the current page stays mounted.
+    await w.setRoute(to.path)
+    if (ticket !== navigationSequence) return
+    const index = (path: string) =>
+      links.value.findIndex(([link]) => link === `/${path.split('/')[1]}`)
+    const next = index(to.path),
+      previous = index(from.path)
+    pageDirection.value = next >= 0 && previous >= 0 && next < previous ? -1 : 1
+  } finally {
+    if (ticket === navigationSequence) navigationPending.value = false
+  }
+})
+onBeforeUnmount(removeGuard)
+const removeAfter = router.afterEach((_to, _from, failure) => {
+  // Selecting the current page cancels an outstanding navigation too.
+  if (navigationPending.value && isNavigationFailure(failure, NavigationFailureType.duplicated)) {
+    navigationSequence++
+    navigationPending.value = false
+    void w.setRoute(route.path)
+  }
+})
+onBeforeUnmount(removeAfter)
+function lockOutgoing(element: Element) {
+  ;(element as HTMLElement).inert = true
+  element.querySelectorAll<HTMLInputElement>('input, select, textarea, button').forEach((field) => {
+    if (!field.disabled) {
+      field.disabled = true
+      field.setAttribute('data-motion-disabled', '')
+    }
+  })
+  resize?.cancel()
+  previousHeight = routeStage.value?.getBoundingClientRect().height ?? 0
+  if (routeStage.value) routeStage.value.style.minHeight = `${previousHeight}px`
+}
+function unlockPage(element: Element) {
+  ;(element as HTMLElement).inert = false
+  element.querySelectorAll<HTMLInputElement>('[data-motion-disabled]').forEach((field) => {
+    field.disabled = false
+    field.removeAttribute('data-motion-disabled')
+  })
+}
+function settlePage(event: Event) {
+  ;(event.currentTarget as HTMLElement).getAnimations().forEach((animation) => animation.finish())
+  resize?.finish()
+}
+function fitIncoming(element: Element) {
+  const stage = routeStage.value
+  if (!stage) return
+  stage.style.minHeight = ''
+  if (!previousHeight || reducedMotion.value) return
+  resize = stage.animate(
+    [
+      { height: `${previousHeight}px` },
+      { height: `${Math.max(180, element.getBoundingClientRect().height)}px` },
+    ],
+    { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+  )
+  previousHeight = 0
+}
+onBeforeUnmount(() => resize?.cancel())
+watch(reducedMotion, () => resize?.cancel())
 const activeSection = computed(() => {
   if (route.path.startsWith('/batches/')) return '/activity'
   if (route.path === '/access-holds') return '/admin'
@@ -24,7 +102,7 @@ watch(
   () => [auth.user?.id, activeSection.value],
   async () => {
     await nextTick()
-    const nav = navigation.value
+    const nav = navigation.value?.element
     const selected = nav?.querySelector<HTMLElement>('.selected')
     if (!nav || !selected || nav.scrollWidth <= nav.clientWidth) return
     const item = selected.getBoundingClientRect()
@@ -109,13 +187,6 @@ watch(
   { immediate: true },
 )
 onMounted(auth.refresh)
-async function logout() {
-  try {
-    await auth.logout()
-  } catch {
-    w.actionError = 'Could not sign out. Please try again.'
-  }
-}
 </script>
 <template>
   <ConfirmDialog />
@@ -125,11 +196,18 @@ async function logout() {
   </main>
   <SignIn v-else-if="!auth.user" />
   <template v-else>
+    <ChangelogNotice v-if="loaded" :key="auth.user.id" />
     <a class="skip" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
     <div class="app-shell">
       <aside class="sidebar">
         <RouterLink class="brand-link" to="/"><BrandLogo /></RouterLink>
-        <nav ref="navigation" aria-label="Main navigation">
+        <MotionTrack
+          ref="navigation"
+          tag="nav"
+          :identity="activeSection"
+          selector="a.selected"
+          aria-label="Main navigation"
+        >
           <RouterLink
             v-for="[path, label, icon] in links"
             :key="path"
@@ -143,7 +221,7 @@ async function logout() {
               w.totalQueued
             }}</span></RouterLink
           >
-        </nav>
+        </MotionTrack>
         <div v-if="designPage && w.destinations.length > 1" class="printer-picker">
           <label
             >Design destination<select v-model="w.selectedPrinter">
@@ -153,6 +231,7 @@ async function logout() {
             </select></label
           >
         </div>
+        <AccountMenu />
         <div class="sidebar-footer">
           <span
             v-if="connectionError || w.printers.length"
@@ -165,19 +244,23 @@ async function logout() {
         </div>
       </aside>
       <div class="main-wrap">
-        <div class="topbar">
-          <div class="row">
-            <span>{{ auth.user.username }}</span
-            ><button class="text-button sign-out" @click="logout">Sign out</button
-            ><RouterLink v-if="auth.can('printers.manage')" to="/printers" class="printer-pill">{{
-              !w.printers.length ? 'ADD PRINTER' : 'PRINTERS'
-            }}</RouterLink>
-          </div>
-        </div>
-        <main id="main-content" tabindex="-1">
+        <main id="main-content" tabindex="-1" :style="{ '--page-direction': pageDirection }">
+          <Transition name="notice">
+            <div
+              v-if="navigationPending"
+              class="navigation-progress"
+              role="progressbar"
+              aria-label="Loading page"
+            />
+          </Transition>
           <header class="page-header">
             <div>
-              <h1>{{ route.meta.title }}</h1>
+              <Transition
+                name="page-title"
+                @before-leave="(element) => ((element as HTMLElement).inert = true)"
+              >
+                <h1 :key="String(route.meta.title)">{{ route.meta.title }}</h1>
+              </Transition>
             </div>
             <RouterLink
               v-if="route.path !== '/new' && auth.any('request')"
@@ -249,13 +332,32 @@ async function logout() {
             <h2>Access restricted</h2>
             <RouterLink to="/">Back to overview</RouterLink>
           </div>
-          <MotionSurface
-            v-else-if="loaded && w.routeReady && (w.destinations.length || !needsPrinter)"
-            :identity="route.path"
-            class="route-surface"
+          <div
+            v-else-if="loaded && (w.destinations.length || !needsPrinter)"
+            ref="routeStage"
+            class="route-stage"
           >
-            <RouterView :key="auth.user.id" />
-          </MotionSurface>
+            <RouterView :key="auth.user.id" v-slot="{ Component }">
+              <Transition
+                name="page"
+                mode="out-in"
+                appear
+                @before-leave="lockOutgoing"
+                @enter="fitIncoming"
+                @leave-cancelled="unlockPage"
+              >
+                <RouteSurface
+                  v-if="w.routeReady || navigationPending"
+                  :key="route.path"
+                  :location="{ ...route }"
+                  @focusin="settlePage"
+                  @pointerdown.capture="settlePage"
+                >
+                  <component :is="Component" />
+                </RouteSurface>
+              </Transition>
+            </RouterView>
+          </div>
           <footer class="page-footer">
             <VersionStatus />
             <span
@@ -270,9 +372,6 @@ async function logout() {
 </template>
 
 <style scoped>
-.sign-out {
-  white-space: nowrap;
-}
 .printer-picker {
   padding: 12px 20px;
 }

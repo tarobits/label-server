@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { freezeLeavingItem } from '../collectionMotion'
 import { vValidateForm } from '../formValidation'
 import { useAuthStore } from '../auth'
 import { computed, reactive, ref } from 'vue'
@@ -149,71 +150,68 @@ function move(index: number, offset: number) {
       </button>
     </div>
   </div>
-  <form
-    v-validate-form
-    v-if="showPrinter"
-    class="panel form-stack motion-reveal"
-    @submit.prevent="addPrinter"
-  >
-    <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
-    <div class="field-row">
-      <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
-      <label
-        >Driver<select v-model="printer.driver">
-          <option value="brother-pt-p710bt">Brother PT-P710BT (USB)</option>
-        </select></label
-      >
-      <label>USB serial number<input v-model="printer.usb_serial" maxlength="128" /></label>
-      <label
-        >Default print resolution<select v-model="printer.resolution">
-          <option value="normal">180 × 180 dpi</option>
-          <option value="high">180 × 360 dpi</option>
-        </select></label
-      >
-    </div>
-    <PropertySection title="Feed & cut settings">
+  <Transition name="panel-expand">
+    <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
+      <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
       <div class="field-row">
+        <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
         <label
-          >Feed (mm)<input
-            v-model.number="printer.feed_mm"
-            type="number"
-            min="2"
-            max="127"
-            step="0.1"
-            required
-        /></label>
+          >Driver<select v-model="printer.driver">
+            <option value="brother-pt-p710bt">Brother PT-P710BT (USB)</option>
+          </select></label
+        >
+        <label>USB serial number<input v-model="printer.usb_serial" maxlength="128" /></label>
         <label
-          >Leader estimate (mm)<input
-            v-model.number="printer.leader_mm"
-            type="number"
-            min="0"
-            max="200"
-            step="0.1"
-            required
-        /></label>
-        <label
-          >Page timeout (seconds)<input
-            v-model.number="printer.timeout_seconds"
-            type="number"
-            min="5"
-            max="600"
-            required
-        /></label>
+          >Default print resolution<select v-model="printer.resolution">
+            <option value="normal">180 × 180 dpi</option>
+            <option value="high">180 × 360 dpi</option>
+          </select></label
+        >
       </div>
-      <label class="checkbox"
-        ><input v-model="printer.cut_each" type="checkbox" />Cut each label</label
-      >
-    </PropertySection>
+      <PropertySection title="Feed & cut settings">
+        <div class="field-row">
+          <label
+            >Feed (mm)<input
+              v-model.number="printer.feed_mm"
+              type="number"
+              min="2"
+              max="127"
+              step="0.1"
+              required
+          /></label>
+          <label
+            >Leader estimate (mm)<input
+              v-model.number="printer.leader_mm"
+              type="number"
+              min="0"
+              max="200"
+              step="0.1"
+              required
+          /></label>
+          <label
+            >Page timeout (seconds)<input
+              v-model.number="printer.timeout_seconds"
+              type="number"
+              min="5"
+              max="600"
+              required
+          /></label>
+        </div>
+        <label class="checkbox"
+          ><input v-model="printer.cut_each" type="checkbox" />Cut each label</label
+        >
+      </PropertySection>
 
-    <p class="help">
-      USB serial is optional for one printer. Multiple printers each need a distinct serial.
-    </p>
-    <div class="row">
-      <button class="primary" :disabled="w.busy">
-        {{ editingPrinter ? 'Save printer' : 'Register printer' }}</button
-      ><button type="button" class="secondary" @click="showPrinter = false">Cancel</button>
-    </div>
-  </form>
+      <p class="help">
+        USB serial is optional for one printer. Multiple printers each need a distinct serial.
+      </p>
+      <div class="row">
+        <button class="primary" :disabled="w.busy">
+          {{ editingPrinter ? 'Save printer' : 'Register printer' }}</button
+        ><button type="button" class="secondary" @click="showPrinter = false">Cancel</button>
+      </div>
+    </form>
+  </Transition>
   <p v-if="!w.printers.length && !showPrinter" class="panel empty">
     {{
       auth.can('printers.manage')
@@ -221,7 +219,12 @@ function move(index: number, offset: number) {
         : 'No direct printer access. Available groups are listed below.'
     }}
   </p>
-  <div class="printer-cards">
+  <TransitionGroup
+    tag="div"
+    class="printer-cards"
+    name="collection"
+    @before-leave="freezeLeavingItem"
+  >
     <section v-for="device in w.printers" :key="device.id" class="panel form-stack printer-device">
       <div class="section-heading">
         <h2>{{ device.name }}</h2>
@@ -310,54 +313,51 @@ function move(index: number, offset: number) {
         </button>
       </div>
     </section>
-  </div>
-  <form
-    v-validate-form
-    v-if="showGroup"
-    class="panel form-stack motion-reveal"
-    @submit.prevent="saveGroup"
-  >
-    <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
-    <label>Group name<input v-model="group.name" required maxlength="100" /></label>
-    <fieldset>
-      <legend>Member printers</legend>
-      <label v-for="device in groupChoices" :key="device.id" class="checkbox"
-        ><input v-model="group.printer_ids" type="checkbox" :value="device.id" />{{
-          device.name
-        }}</label
-      >
-    </fieldset>
-    <ol class="preference-list">
-      <li v-for="(id, index) in group.printer_ids" :key="id">
-        <span>{{ groupChoices.find((p) => p.id === id)?.name ?? id }}</span
-        ><button
-          type="button"
-          class="small secondary"
-          :disabled="index === 0"
-          :aria-label="`Prefer ${w.destinationName(id)} earlier`"
-          @click="move(index, -1)"
+  </TransitionGroup>
+  <Transition name="panel-expand">
+    <form v-validate-form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
+      <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
+      <label>Group name<input v-model="group.name" required maxlength="100" /></label>
+      <fieldset>
+        <legend>Member printers</legend>
+        <label v-for="device in groupChoices" :key="device.id" class="checkbox"
+          ><input v-model="group.printer_ids" type="checkbox" :value="device.id" />{{
+            device.name
+          }}</label
         >
-          ↑</button
-        ><button
-          type="button"
-          class="small secondary"
-          :disabled="index === group.printer_ids.length - 1"
-          :aria-label="`Prefer ${w.destinationName(id)} later`"
-          @click="move(index, 1)"
-        >
-          ↓
-        </button>
-      </li>
-    </ol>
-    <p class="help">
-      The first ready member with matching tape is used. Members need matching geometry and
-      resolution. CSV runs stay on one printer.
-    </p>
-    <div class="row">
-      <button class="primary" :disabled="w.busy || !group.printer_ids.length">Save group</button
-      ><button type="button" class="secondary" @click="showGroup = false">Cancel</button>
-    </div>
-  </form>
+      </fieldset>
+      <ol class="preference-list">
+        <li v-for="(id, index) in group.printer_ids" :key="id">
+          <span>{{ groupChoices.find((p) => p.id === id)?.name ?? id }}</span
+          ><button
+            type="button"
+            class="small secondary"
+            :disabled="index === 0"
+            :aria-label="`Prefer ${w.destinationName(id)} earlier`"
+            @click="move(index, -1)"
+          >
+            ↑</button
+          ><button
+            type="button"
+            class="small secondary"
+            :disabled="index === group.printer_ids.length - 1"
+            :aria-label="`Prefer ${w.destinationName(id)} later`"
+            @click="move(index, 1)"
+          >
+            ↓
+          </button>
+        </li>
+      </ol>
+      <p class="help">
+        The first ready member with matching tape is used. Members need matching geometry and
+        resolution. CSV runs stay on one printer.
+      </p>
+      <div class="row">
+        <button class="primary" :disabled="w.busy || !group.printer_ids.length">Save group</button
+        ><button type="button" class="secondary" @click="showGroup = false">Cancel</button>
+      </div>
+    </form>
+  </Transition>
   <section v-if="groups.length" class="panel form-stack">
     <h2>Printer groups</h2>
     <article v-for="target in groups" :key="target.id" class="printer-group">

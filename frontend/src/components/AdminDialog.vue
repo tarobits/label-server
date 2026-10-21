@@ -18,8 +18,9 @@ function restoreFocus() {
   )
   const fallback = navigation?.getClientRects().length
     ? navigation
-    : document.querySelector<HTMLElement>('.administration-mobile-nav select')
-  const target = opener?.isConnected ? opener : fallback
+    : (document.querySelector<HTMLElement>('.administration-mobile-nav select') ??
+      document.getElementById('main-content'))
+  const target = opener?.isConnected && opener !== document.body ? opener : fallback
   target?.focus()
 }
 function containFocus(event: KeyboardEvent) {
@@ -51,7 +52,7 @@ watch(
         '[autofocus], input:not([disabled]), select:not([disabled]), textarea',
       )
       ;(target ?? dialog.value.querySelector<HTMLElement>('h2'))?.focus()
-    } else {
+    } else if (dialog.value?.open) {
       dialog.value?.close()
       restoreFocus()
     }
@@ -109,6 +110,13 @@ onBeforeUnmount(() => {
 }
 .admin-dialog.wide {
   width: min(940px, calc(100% - 32px));
+}
+:global(
+  :root[data-input-method='pointer']
+    .admin-dialog
+    :focus-visible:not(input, select, textarea, [contenteditable])
+) {
+  outline: none;
 }
 .admin-dialog::backdrop {
   background: #030712b3;

@@ -1,3 +1,4 @@
+import { showEditorSettings } from './editor-settings'
 import { test, expect } from './fixtures'
 
 for (const mode of ['blocked', 'quota'] as const) {
@@ -44,6 +45,7 @@ test('editor drags ignore other pointers and recover after cancellation, capture
   expect(created.ok()).toBe(true)
   const template = await created.json()
   await page.goto(`/#/templates/${template.id}/edit?element=box`)
+  await showEditorSettings(page, 'Position & size')
   const canvas = page.locator('.editor-canvas')
   const boundary = page.locator('.object-boundary')
   const x = page.getByLabel('X (mm)', { exact: true })
@@ -127,6 +129,7 @@ test('long names and multilingual content wrap within mobile cards and account c
   })
   expect(await card.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.locator('.account-menu > summary').click()
   await expect(page.getByRole('button', { name: 'Sign out', exact: true })).toBeInViewport()
 })
 

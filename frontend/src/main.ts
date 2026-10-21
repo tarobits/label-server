@@ -17,13 +17,16 @@ import TemplateEditor from './views/TemplateEditor.vue'
 import Administration from './views/Administration.vue'
 import Requests from './views/Requests.vue'
 import AccessHolds from './views/AccessHolds.vue'
+import AccountSettings from './views/AccountSettings.vue'
 import './style.css'
 import './motion.css'
+import './focusVisibility'
 import { pinia } from './stores'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    { path: '/account', component: AccountSettings, meta: { title: 'Account settings' } },
     {
       path: '/access-holds',
       component: AccessHolds,

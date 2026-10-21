@@ -33,13 +33,18 @@ def migration(tmp_path, monkeypatch):
 def existing_user(url):
     engine = make_engine(url)
     try:
-        with session_factory(engine).begin() as session:
-            session.add(
-                User(
+        # Seed the historical schema rather than today's User mapping, which
+        # includes columns deliberately absent before later migrations run.
+        with engine.begin() as connection:
+            users = Table("users", MetaData(), autoload_with=connection)
+            connection.execute(
+                users.insert().values(
                     id="legacy-administrator",
                     username="Legacy administrator",
                     password_hash="unused-test-password",
                     role_ids=["administrator"],
+                    disabled=False,
+                    created_at=1,
                 )
             )
     finally:
@@ -144,7 +149,9 @@ def test_notification_tables_downgrade_and_upgrade_without_reimporting_config(
         }
         assert endpoints(url) == []
         with session_factory(engine)() as session:
-            assert session.get(User, "legacy-administrator") is not None
+            user = session.get(User, "legacy-administrator")
+            assert user is not None
+            assert user.last_seen_version is None
     finally:
         engine.dispose()
 

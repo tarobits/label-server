@@ -6,6 +6,7 @@ const props = defineProps<{
   vertical?: boolean
   position: number | null
   selection?: { start: number; end: number } | null
+  selectionKey?: string
 }>()
 const major = computed(() => (props.scale < 6 ? 10 : 5))
 const ticks = computed(() => {
@@ -32,6 +33,7 @@ const range = computed(() =>
   >
     <rect
       v-if="range"
+      :key="selectionKey"
       class="ruler-selection"
       :x="vertical ? 0 : range.start"
       :y="vertical ? range.start : 0"
