@@ -1,11 +1,77 @@
 import io
 
+import pytest
 from conftest import install, profile
 from PIL import Image, ImageOps
 from test_access import Policy
 
 from app.access import Action
 from app.models import PrintJob
+
+
+@pytest.mark.parametrize(
+    ("foreground", "background"),
+    [("#000000", "#ffcc00"), ("#ffffff", "#003399"), ("#cc0000", "#ffffff")],
+)
+def test_queue_and_history_previews_use_the_job_tape_colors(client, foreground, background):
+    tape = client.post(
+        "/api/tape-profiles",
+        json={
+            "name": "Colored tape",
+            "width_mm": 24,
+            "foreground": foreground,
+            "background": background,
+            "auto_print_threshold": 1,
+        },
+    ).json()
+    install(client, tape["id"])
+    template = client.post(
+        "/api/templates",
+        json={
+            "name": "Different preview tape",
+            "document": {
+                "preview_tape": {
+                    "id": "other-tape",
+                    "name": "Template tape",
+                    "foreground": "#000000",
+                    "background": "#ffffff",
+                },
+                "elements": [
+                    {
+                        "id": "text",
+                        "kind": "text",
+                        "x": 2,
+                        "y": 2,
+                        "width": 40,
+                        "height": 12,
+                        "content": "Colored label",
+                    }
+                ],
+            },
+        },
+    ).json()
+    response = client.post(
+        "/api/jobs", json={"template": template["id"], "tape_profile": tape["id"], "data": {}}
+    )
+    assert response.status_code == 201, response.text
+    job = response.json()
+    queued_preview = client.get(f"/api/jobs/{job['id']}/preview")
+    assert queued_preview.status_code == 200
+
+    client.app.state.fleet.workers["main"].tick()
+    printed = client.app.state.fleet.workers["main"].backend.batches[0][0]
+    ink = Image.frombytes("1", (printed.pixel_width, printed.pixel_height), printed.raster)
+    expected = ImageOps.colorize(ink.convert("L"), black=background, white=foreground)
+    preview = Image.open(io.BytesIO(queued_preview.content)).convert("RGB")
+    assert preview.size == expected.size
+    assert preview.tobytes() == expected.tobytes()
+    assert len(preview.getcolors()) == 2
+
+    batch = client.get("/api/batches").json()[0]
+    item = client.get(f"/api/batches/{batch['id']}").json()["items"][0]
+    history_preview = client.get(f"/api/batches/{batch['id']}/items/{item['copy_id']}/preview")
+    assert history_preview.status_code == 200
+    assert history_preview.content == queued_preview.content
 
 
 def test_history_preview_matches_printed_pixels_and_survives_template_edits(client):

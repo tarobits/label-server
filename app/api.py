@@ -766,10 +766,12 @@ def job_preview(
     label = session.scalar(select(LabelCopy).where(LabelCopy.job_id == identifier).limit(1))
     if label is None:
         raise HTTPException(404, "Label copy not found")
-    return label_preview_response(request, item, label)
+    return label_preview_response(request, session, item, label)
 
 
-def label_preview_response(request: Request, item: PrintJob, label: LabelCopy) -> Response:
+def label_preview_response(
+    request: Request, session: Session, item: PrintJob, label: LabelCopy
+) -> Response:
     try:
         rendered = render_job(
             item,
@@ -782,8 +784,11 @@ def label_preview_response(request: Request, item: PrintJob, label: LabelCopy) -
         raise HTTPException(422, "Saved label preview is unavailable") from error
     # Use the same packed ink raster as printing, including legacy fixture jobs.
     ink = Image.frombytes("1", (rendered.pixel_width, rendered.pixel_height), rendered.raster)
+    profile = get(session, TapeProfile, item.profile_id)
     output = io.BytesIO()
-    ImageOps.invert(ink.convert("L")).save(output, format="PNG")
+    ImageOps.colorize(ink.convert("L"), black=profile.background, white=profile.foreground).save(
+        output, format="PNG"
+    )
     return Response(
         output.getvalue(),
         media_type="image/png",
@@ -947,7 +952,7 @@ def batch_item_preview(
     label = get(session, LabelCopy, copy_id)
     item = session.get(PrintJob, label.job_id)
     assert item is not None
-    return label_preview_response(request, item, label)
+    return label_preview_response(request, session, item, label)
 
 
 @router.get("/notifications")
