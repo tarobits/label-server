@@ -58,22 +58,22 @@ const sampleProfile = computed({
   get: () => document.value.preview_tape?.id ?? '',
   set: (id: string) => {
     const profile = w.profiles.find((p) => p.id === id)
-    document.value.preview_tape = profile
-      ? {
-          id: profile.id,
-          name: profile.name,
-          foreground: profile.foreground,
-          background: profile.background,
-        }
-      : null
+    if (!profile) return
+    document.value.preview_tape = {
+      id: profile.id,
+      name: profile.name,
+      foreground: profile.foreground,
+      background: profile.background,
+    }
+    document.value.width_mm = profile.width_mm
     record()
   },
 })
+const selectedProfile = computed(() => w.profiles.find((p) => p.id === sampleProfile.value))
 const saved = ref(''),
   history = ref<string[]>([]),
   cursor = ref(0),
   margin = ref(1)
-const supportedWidths = ref([3.5, 6, 9, 12, 18, 24])
 const printableWidths = ref<Record<string, number>>({})
 const verticalMargin = computed(() => {
   const band = printableWidths.value[String(document.value.width_mm)]
@@ -159,7 +159,6 @@ watch(
     const capabilities = w.destinationPrinter(w.selectedPrinter)?.capabilities
     if (!capabilities) return
     if (!capabilities) return
-    supportedWidths.value = capabilities.supported_widths_mm
     margin.value = capabilities.printable_margin_mm
     printableWidths.value = capabilities.printable_widths_mm ?? {}
     resolutionModes.value = capabilities.resolution_modes ?? {}
@@ -205,12 +204,12 @@ async function load() {
     auth.user?.id === actor &&
     route.params.id === identifier
   ready.value = false
+  if (!w.profiles.length) return
   try {
     const groups = await resources.get<{ id: string; name: string }[]>('/user-groups')
     if (!current()) return
     userGroups.value = [...groups]
     const capabilities = w.destinationPrinter(w.selectedPrinter)?.capabilities
-    supportedWidths.value = capabilities?.supported_widths_mm ?? [3.5, 6, 9, 12, 18, 24]
     margin.value = capabilities?.printable_margin_mm ?? 1
     printableWidths.value = capabilities?.printable_widths_mm ?? {}
     resolutionModes.value = capabilities?.resolution_modes ?? {}
@@ -236,7 +235,15 @@ async function load() {
       groupId.value = null
       editable.value = true
       document.value = newDocument()
-      if (typeof route.query.profile === 'string') sampleProfile.value = route.query.profile
+    }
+    if (!document.value.preview_tape) {
+      const profile =
+        (!id.value && (w.profiles.find((p) => p.id === route.query.profile) || w.activeProfile)) ||
+        w.profiles.find((p) => p.width_mm === document.value.width_mm) ||
+        w.profiles[0]
+      if (profile) sampleProfile.value = profile.id
+    } else if (selectedProfile.value) {
+      document.value.width_mm = selectedProfile.value.width_mm
     }
     saved.value = snapshot()
     history.value = [snapshot()]
@@ -254,6 +261,7 @@ async function load() {
   }
 }
 async function updatePreview() {
+  if (!w.profiles.length) return
   const ticket = ++serial
   rendering.value = true
   try {
@@ -545,7 +553,8 @@ function key(event: KeyboardEvent) {
   }
 }
 async function save() {
-  if (!editable.value || (scope.value === 'group' && !groupId.value)) return
+  if (!editable.value || !selectedProfile.value || (scope.value === 'group' && !groupId.value))
+    return
   let result: Template | undefined
   const ok = await w.action(async () => {
     result = await api<Template>(
@@ -604,11 +613,18 @@ onUnmounted(() => {
 })
 </script>
 <template>
-  <div v-if="!editable" class="alert warning">
+  <div v-if="!w.profiles.length" class="panel empty">
+    <h2>No tape profiles</h2>
+    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
+      >Create tape profile</RouterLink
+    >
+    <p v-else class="help">Ask an administrator to create a tape profile.</p>
+  </div>
+  <div v-if="w.profiles.length && !editable" class="alert warning">
     This shared template is read-only. Duplicate it in the template library to create your own
     version.
   </div>
-  <section class="panel editor-toolbar">
+  <section v-if="w.profiles.length" class="panel editor-toolbar">
     <div class="editor-settings-fields">
       <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
       <label class="resolution-choice"
@@ -622,8 +638,17 @@ onUnmounted(() => {
         </select></label
       >
       <label
-        >Tape width (mm)<select v-model.number="document.width_mm" @change="record">
-          <option v-for="width in supportedWidths" :key="width">{{ width }}</option>
+        >Tape profile<select v-model="sampleProfile" :disabled="!editable" required>
+          <option v-if="!selectedProfile" :value="sampleProfile" disabled>
+            {{
+              document.preview_tape
+                ? `Saved: ${document.preview_tape.name}`
+                : 'Choose a tape profile'
+            }}
+          </option>
+          <option v-for="p in w.profiles" :key="p.id" :value="p.id">
+            {{ p.name }} · {{ p.width_mm }} mm
+          </option>
         </select></label
       >
       <label
@@ -687,6 +712,7 @@ onUnmounted(() => {
             !!error ||
             !name.trim() ||
             !editable ||
+            !selectedProfile ||
             (scope === 'group' && !groupId)
           "
           @click="save"
@@ -699,7 +725,7 @@ onUnmounted(() => {
       </div>
     </div>
   </section>
-  <div class="editor-layout" :class="{ 'no-selection': !selected }">
+  <div v-if="w.profiles.length" class="editor-layout" :class="{ 'no-selection': !selected }">
     <section class="panel editor-workspace">
       <div class="editor-tools">
         <div class="editor-add-buttons" role="group" aria-label="Add elements">
@@ -731,19 +757,6 @@ onUnmounted(() => {
             step="10"
           />
           <output>{{ zoom }}%</output>
-        </label>
-        <label class="editor-preview-tape"
-          >Preview tape
-          <select v-model="sampleProfile">
-            <option value="">Black on white</option>
-            <option
-              v-if="document.preview_tape && !w.profiles.some((p) => p.id === sampleProfile)"
-              :value="sampleProfile"
-            >
-              Saved: {{ document.preview_tape.name }}
-            </option>
-            <option v-for="p in w.profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
         </label>
       </div>
       <div class="editor-canvas-scroll">
@@ -1256,7 +1269,7 @@ onUnmounted(() => {
       </div>
     </section>
   </div>
-  <section class="panel variable-fields">
+  <section v-if="w.profiles.length" class="panel variable-fields">
     <div class="section-heading">
       <h2>Variable fields</h2>
       <button @click="addField">Add variable</button>

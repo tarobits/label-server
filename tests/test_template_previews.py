@@ -4,6 +4,7 @@ import base64
 import io
 import time
 
+from conftest import install
 from PIL import Image
 from sqlalchemy import select
 from test_access_security import accounts as accounts
@@ -66,6 +67,7 @@ def test_tape_snapshot_is_saved_in_revisions_but_printing_can_choose_another_pro
             "width_mm": 24,
             "foreground": "#0000ff",
             "background": "#ffffff",
+            "auto_print_threshold": 1,
         },
     ).json()
     queued = client.post(
@@ -78,6 +80,11 @@ def test_tape_snapshot_is_saved_in_revisions_but_printing_can_choose_another_pro
     )
     assert queued.status_code == 201, queued.text
     assert queued.json()["profile_id"] == other["id"]
+    install(client, other["id"])
+    worker = client.app.state.fleet.workers["main"]
+    worker.tick()
+    assert len(worker.backend.batches) == 1
+    assert client.get(f"/api/jobs/{queued.json()['id']}").json()["status"] == "printed"
     actual = client.post(
         "/api/preview",
         json={

@@ -48,12 +48,12 @@ test('templates save preview tape, display stored WebP cards and allow other pri
   expect(created.ok(), await created.text()).toBeTruthy()
   const template = await created.json()
   await page.goto(`/#/templates/${template.id}/edit`)
-  await page.getByRole('combobox', { name: 'Preview tape', exact: true }).selectOption(tape.id)
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tape.id)
   await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
   await expect(page.getByText('Revision 2', { exact: true })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('combobox', { name: 'Preview tape', exact: true })).toHaveValue(
+  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
     tape.id,
   )
   const saved = await (await request.get(`/api/templates/${template.id}`)).json()
@@ -84,7 +84,7 @@ test('templates save preview tape, display stored WebP cards and allow other pri
   )
   await card.getByRole('button', { name: 'Duplicate template', exact: true }).click()
   await expect(page).toHaveURL(/templates\/[^/]+\/edit/)
-  await expect(page.getByRole('combobox', { name: 'Preview tape', exact: true })).toHaveValue(
+  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
     tape.id,
   )
   const copyId = page.url().split('/templates/')[1].split('/')[0]

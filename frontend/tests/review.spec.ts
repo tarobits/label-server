@@ -154,7 +154,7 @@ test('narrow tape elements fit the production printable band and print', async (
   await page.request.put('/api/printer/mock', { data: { tape_width_mm: 3.5, connected: true } })
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Narrow design')
-  await page.getByRole('combobox', { name: 'Tape width (mm)', exact: true }).selectOption('3.5')
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tape.id)
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
   await page.getByLabel('Content', { exact: true }).fill('Narrow')
   expect(

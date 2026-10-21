@@ -65,6 +65,16 @@ const csv = ref(''),
       ? route.query.profile
       : (w.activeProfile?.id ?? w.profiles[0]?.id ?? ''),
   )
+const template = computed(() => w.templates.find((t) => t.id === templateId.value))
+watch(
+  templateId,
+  (_, previous) => {
+    if (previous === undefined && typeof route.query.profile === 'string') return
+    const profile = w.profiles.find((p) => p.id === template.value?.document.preview_tape?.id)
+    if (profile) profileId.value = profile.id
+  },
+  { immediate: true, flush: 'sync' },
+)
 watch([templateId, profileId, destinationId], () => {
   if (route.path === '/runs')
     void router.replace({
@@ -99,7 +109,6 @@ const error = ref(''),
   position = ref(0),
   preview = ref<Preview | null>(null),
   pixels = ref(true)
-const template = computed(() => w.templates.find((t) => t.id === templateId.value))
 const destination = computed(() =>
   w.destinations.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
 )

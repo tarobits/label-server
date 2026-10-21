@@ -39,6 +39,6 @@ test('version display and dismissible update notice stay consistent across navig
 
 test('current or unavailable releases do not show a notice', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.locator('.version-number')).toHaveText('v0.2.0')
+  await expect(page.locator('.version-number')).toHaveText('v0.2.1')
   await expect(page.getByRole('status', { name: 'Software update' })).toHaveCount(0)
 })

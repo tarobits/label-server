@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1] - 2026-10-21
+
+### Fixed
+
+- Using a template automatically selects its saved tape profile for labels and
+  CSV runs, while preserving explicitly chosen profiles when reopening a form.
+- The template editor requires a tape profile and matches the label height to
+  its tape width, replacing the separate width control and default preview tape.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added
@@ -51,5 +60,6 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...main
 [0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
 [0.1.0]: https://github.com/tarobits/label-server/tree/v0.1.0

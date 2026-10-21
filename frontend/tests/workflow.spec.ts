@@ -155,6 +155,7 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   ).json()
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Asset labels')
+  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
   await page.getByRole('button', { name: 'Add variable', exact: true }).click()
   await page.getByLabel('Variable name', { exact: true }).fill('asset')
   await page.getByLabel('Field label', { exact: true }).fill('Asset name')
@@ -201,7 +202,9 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await expect(page.locator('svg image')).toHaveAttribute('href', smoothPreview!)
   await page.screenshot({ path: 'test-results/template-editor.png', fullPage: true })
   await page.goto(`/#/new?template=${id}`)
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
+    profile.id,
+  )
 
   await page.getByLabel('Asset name', { exact: true }).fill('ASSET-99')
   await expect(page.getByAltText('Rendered label preview')).toBeVisible()

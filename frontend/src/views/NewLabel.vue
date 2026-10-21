@@ -28,6 +28,16 @@ const form = reactive({
       ? route.query.template
       : (templates.value[0]?.id ?? ''),
 })
+const template = computed(() => templates.value.find((t) => t.id === form.template))
+watch(
+  () => form.template,
+  (_, previous) => {
+    if (previous === undefined && typeof route.query.profile === 'string') return
+    const profile = profiles.value.find((p) => p.id === template.value?.document.preview_tape?.id)
+    if (profile) form.tape_profile = profile.id
+  },
+  { immediate: true, flush: 'sync' },
+)
 watch(
   () => [form.template, form.tape_profile, form.destination_id],
   () => {
@@ -100,7 +110,6 @@ const routingHint = computed(() => {
     return 'Matching printers are held. Print manually or resume to print these copies.'
   return 'Tape installed. Automatic printing starts when a matching printer is ready and the threshold is reached.'
 })
-const template = computed(() => templates.value.find((t) => t.id === form.template))
 const adaptiveText = computed(() => template.value?.id === 'text' && template.value.revision === 2)
 const document = computed(() => {
   if (!template.value) return null
