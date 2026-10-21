@@ -48,6 +48,7 @@ export interface TemplateDocument {
   auto_length?: boolean
   out_of_bounds?: 'error' | 'clip'
   print_resolution?: 'printer' | 'normal' | 'high'
+  preview_tape?: { id: string; name: string; foreground: string; background: string } | null
   elements: Element[]
   fields: TemplateField[]
 }
@@ -72,6 +73,7 @@ export function newDocument(): TemplateDocument {
     auto_length: true,
     out_of_bounds: 'clip',
     print_resolution: 'printer',
+    preview_tape: null,
     fields: [],
     elements: [],
   }

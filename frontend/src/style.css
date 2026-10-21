@@ -1025,29 +1025,6 @@ dd {
   font-size: 13px;
   line-height: 1.8;
 }
-.template-placeholder {
-  height: 150px;
-  background: var(--surface-dense);
-  border-radius: 6px;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 15px;
-}
-.template-placeholder span {
-  font-size: 36px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-.template-placeholder i {
-  width: 35px;
-  height: 35px;
-  background: repeating-conic-gradient(var(--muted) 0 25%, transparent 0 50%) 0 0/10px 10px;
-}
-.template-placeholder i:last-child {
-  display: none;
-}
 .card-grid .button {
   margin-top: 20px;
 }

@@ -27,6 +27,7 @@ from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
 from app.releases import ReleaseChecker
 from app.render import FONT_DIR
+from app.template_previews import TemplatePreviews
 from app.templates import seed_templates
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ def create_app(
     app.state.auth_limiter = AuthRateLimiter()
     app.state.fonts = fonts
     app.state.images = images
+    app.state.template_previews = TemplatePreviews(fonts.root.parent / "template-previews")
     app.state.registry = registry
     app.state.settings = settings
     app.state.factory = factory

@@ -109,6 +109,13 @@ Saving creates a template revision. Concurrent edits require a reload. Archiving
 hides a template from new submissions; existing jobs and saved drafts retain
 their layout, values, assets, dimensions, and resolution.
 
+The editor's **Preview tape** choice and display colors are saved with the template.
+Printing may use another compatible tape profile. Template cards load WebP
+thumbnails stored under `data/assets/template-previews`, generated on first view
+and reused across requests and restarts. Saving a new revision invalidates its
+thumbnail; missing or restored assets also refresh it. Retention cleanup purges
+derived previews with deleted content. Older templates default to black on white.
+
 Labels support up to 50 elements and 20 variable fields. Invalid layouts, missing
 required values, unsupported glyphs, and QR modules smaller than two device pixels
 are rejected. QR codes have a four-module quiet zone by default. **Scale up to

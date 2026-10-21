@@ -54,8 +54,22 @@ const preview = ref<Preview | null>(null),
   error = ref(''),
   rendering = ref(false),
   ready = ref(false)
-const sampleProfile = ref(typeof route.query.profile === 'string' ? route.query.profile : ''),
-  saved = ref(''),
+const sampleProfile = computed({
+  get: () => document.value.preview_tape?.id ?? '',
+  set: (id: string) => {
+    const profile = w.profiles.find((p) => p.id === id)
+    document.value.preview_tape = profile
+      ? {
+          id: profile.id,
+          name: profile.name,
+          foreground: profile.foreground,
+          background: profile.background,
+        }
+      : null
+    record()
+  },
+})
+const saved = ref(''),
   history = ref<string[]>([]),
   cursor = ref(0),
   margin = ref(1)
@@ -222,6 +236,7 @@ async function load() {
       groupId.value = null
       editable.value = true
       document.value = newDocument()
+      if (typeof route.query.profile === 'string') sampleProfile.value = route.query.profile
     }
     saved.value = snapshot()
     history.value = [snapshot()]
@@ -242,14 +257,11 @@ async function updatePreview() {
   const ticket = ++serial
   rendering.value = true
   try {
-    const profile = w.profiles.find((p) => p.id === sampleProfile.value)
     const result = await resources.preview<Preview>(
       {
         destination_id: w.selectedPrinter || undefined,
         document: document.value,
         use_samples: true,
-        foreground: profile?.foreground ?? '#000000',
-        background: profile?.background ?? '#ffffff',
       },
       w.destinationPrinter(w.selectedPrinter)?.capabilities,
     )
@@ -291,7 +303,6 @@ watch(
   () => route.query,
   (query) => {
     selectedId.value = typeof query.element === 'string' ? query.element : ''
-    sampleProfile.value = typeof query.profile === 'string' ? query.profile : ''
   },
 )
 function add(kind: Element['kind']) {
@@ -733,6 +744,12 @@ onUnmounted(() => {
           >Preview tape
           <select v-model="sampleProfile">
             <option value="">Black on white</option>
+            <option
+              v-if="document.preview_tape && !w.profiles.some((p) => p.id === sampleProfile)"
+              :value="sampleProfile"
+            >
+              Saved: {{ document.preview_tape.name }}
+            </option>
             <option v-for="p in w.profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
           </select>
         </label>

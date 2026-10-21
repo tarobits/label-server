@@ -157,6 +157,11 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
         .where(DeletedContent.purge_after <= now, DeletedContent.purged_at.is_(None))
         .order_by(DeletedContent.kind)
     ):
+        from app.template_previews import invalidate_deleted_previews
+
+        invalidate_deleted_previews(
+            session, fonts.root.parent / "template-previews", item.kind, item.identifier
+        )
         if item.kind in ("images", "fonts"):
             (images if item.kind == "images" else fonts).purge(item.identifier)
         elif item.kind == "templates":

@@ -371,6 +371,24 @@ def template(
     }
 
 
+@router.get("/templates/{identifier}/preview.webp")
+def template_thumbnail(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> Response:
+    # Serialize with deletion so a cached thumbnail cannot bypass removed dependencies.
+    with request.app.state.fleet.lock:
+        value = get(session, LabelTemplate, identifier)
+        require_document_assets(request, session, value.document, allow_missing=True)
+        notices = document_notices(session, value.document)
+        try:
+            content = request.app.state.template_previews.get(
+                value, notices, request.app.state.fonts, request.app.state.images
+            )
+        except (ValueError, OSError) as error:
+            raise HTTPException(422, "Template preview is unavailable") from error
+    return Response(content, media_type="image/webp")
+
+
 def validate_layout(
     document: TemplateDocument, request: Request, destination_id: str | None = None
 ) -> None:
@@ -438,6 +456,9 @@ def update_template(
     value.name, value.document = body.name, body.document.model_dump()
     value.scope, value.group_id = body.scope, body.group_id
     value.revision += 1
+    request.state.after_commit.append(
+        lambda identifier=value.id: request.app.state.template_previews.invalidate(identifier)
+    )
     session.add(
         TemplateRevision(
             template_id=value.id, revision=value.revision, name=value.name, document=value.document
@@ -499,6 +520,12 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         get(session, LabelTemplate, body.template_id or "").document
     )
     require_document_assets(request, session, document.model_dump(), allow_missing=True)
+    foreground = body.foreground or (
+        document.preview_tape.foreground if document.preview_tape else "#000000"
+    )
+    background = body.background or (
+        document.preview_tape.background if document.preview_tape else "#ffffff"
+    )
     try:
         output = render_document(
             document,
@@ -512,8 +539,8 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     return {
-        "png": output.preview(body.foreground, body.background),
-        "design_png": output.preview(body.foreground, body.background, smooth=True),
+        "png": output.preview(foreground, background),
+        "design_png": output.preview(foreground, background, smooth=True),
         "svg": output.svg,
         "pixel_width": output.image.width,
         "pixel_height": output.image.height,

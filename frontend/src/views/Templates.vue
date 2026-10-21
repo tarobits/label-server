@@ -5,6 +5,7 @@ import { api } from '../api'
 import { useAuthStore } from '../auth'
 import type { Template } from '../types'
 import { useWorkspaceStore } from '../workspace'
+import TemplatePreview from '../components/TemplatePreview.vue'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const router = useRouter()
@@ -47,7 +48,7 @@ async function remove(template: Template) {
   </div>
   <div class="card-grid">
     <article v-for="template in w.templates" :key="template.id" class="panel">
-      <div class="template-placeholder" aria-hidden="true"><span>Aa</span><i></i></div>
+      <TemplatePreview :template="template" />
       <div class="section-heading">
         <h2>{{ template.name }}</h2>
         <span class="badge">{{ template.document.width_mm }} mm</span>

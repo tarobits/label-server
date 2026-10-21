@@ -60,6 +60,13 @@ class Element(Input):
     qr_margin_mm: float | None = Field(default=None, ge=0, le=50)
 
 
+class PreviewTape(Input):
+    id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
+    foreground: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    background: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
 class TemplateDocument(Input):
     version: Literal[1] = 1
     width_mm: float = Field(default=24, gt=0, le=100)
@@ -67,6 +74,7 @@ class TemplateDocument(Input):
     auto_length: bool = False
     out_of_bounds: Literal["error", "clip"] = "error"
     print_resolution: Literal["printer", "normal", "high"] = "printer"
+    preview_tape: PreviewTape | None = None
     elements: list[Element] = Field(default_factory=list, max_length=50)
     fields: list[TemplateField] = Field(default_factory=list, max_length=20)
 
@@ -124,8 +132,8 @@ class PreviewInput(Input):
     template_id: str | None = None
     data: dict[str, str] = Field(default_factory=dict)
     use_samples: bool = False
-    foreground: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")
-    background: str = Field(default="#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
+    foreground: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    background: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
     @model_validator(mode="after")
     def exactly_one_source(self) -> "PreviewInput":
