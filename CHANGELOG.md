@@ -1,20 +1,36 @@
 # Changelog
 
-## 0.2.0
+## [0.2.0] - 2026-10-21
 
-- Rename the product to Taro's Label Room and add shared branding to sign-in,
+### Added
+
+- Templates remember their preview tape and colors when reopened or duplicated.
+- Template cards show label previews that are reused across visits and server
+  restarts.
+- Inline form validation with linked field errors and keyboard focus for
+  correcting invalid input.
+
+### Changed
+
+- Renamed the product to Taro's Label Room, with shared branding on sign-in,
   registration, and first-run setup.
-- Simplify UI copy and polish forms, editor layouts, and responsive navigation.
-- Add accessible inline form validation, keyboard recovery, and larger checkbox
-  targets for queue selection, CSV runs, and batch review.
-- Fix mobile overflow with long cartridge names, preserve navigation context on
-  nested pages, and keep sidebar controls reachable in short windows.
-- Improve placeholder contrast, disabled-button feedback, and authentication form
-  transitions.
+- Simplified UI copy and expanded the editor workspace when no element is selected.
+- Enlarged checkbox targets for queue selection, CSV runs, and batch review.
+- Improved placeholder contrast, form spacing, and disabled-button feedback.
 
-## 0.1.0
+### Fixed
+
+- Sidebar controls remain reachable in short windows, and navigation keeps the
+  current section highlighted and visible on nested pages and mobile screens.
+- Long cartridge names no longer overflow mobile layouts.
+- Switching between sign-in and registration clears previous validation and
+  focuses the username field.
+
+## [0.1.0] - 2026-10-21
 
 Initial release of Label Printer Server.
+
+### Added
 
 - Persistent label queues, tape profiles and cartridge consumption tracking.
 - USB printer management and distribution groups, with print review and durable
@@ -34,3 +50,6 @@ Initial release of Label Printer Server.
 PT-P710BT printing has been verified with one physical printer. Multiple physical
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
+
+[0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
+[0.1.0]: https://github.com/tarobits/label-server/tree/v0.1.0
