@@ -1,7 +1,7 @@
 """Administrator-managed notification destinations; never publish during configuration."""
 
 import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException, Response
@@ -18,12 +18,13 @@ from app.models import (
     PrinterGroup,
 )
 from app.notification_routing import refresh_summary
-from app.notification_types import DEFAULT_NOTIFICATION_PRIORITIES, PRINTER_NOTIFICATION_KINDS
+from app.notification_types import (
+    DEFAULT_NOTIFICATION_PRIORITIES,
+    PRINTER_NOTIFICATION_KINDS,
+    NotificationKind,
+)
 
 router = APIRouter(prefix="/api/admin/notification-endpoints", tags=["administration"])
-NotificationKind = Literal[
-    "general", "empty_tape", "printer_blocked", "batch_review", "tape_waiting", "approval_digest"
-]
 Priority = Annotated[int, Field(strict=True, ge=1, le=5)]
 
 

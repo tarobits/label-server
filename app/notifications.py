@@ -1,7 +1,7 @@
 """Durable outbox and profile reminder episodes, independent of print outcomes."""
 
 import time
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import httpx
 from sqlalchemy import func, select, true
@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.notification_types import (
     DEFAULT_NOTIFICATION_PRIORITIES,
+    NotificationKind,
 )
 
 
@@ -282,7 +283,10 @@ class NtfySender:
                 "title": notification.title,
                 "message": notification.message,
                 "priority": (self.endpoint.priorities or {}).get(
-                    notification.kind, DEFAULT_NOTIFICATION_PRIORITIES.get(notification.kind, 3)
+                    notification.kind,
+                    DEFAULT_NOTIFICATION_PRIORITIES.get(
+                        cast(NotificationKind, notification.kind), 3
+                    ),
                 ),
                 "click": self.settings.public_url.rstrip("/") + notification.path,
             },
