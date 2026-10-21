@@ -4,6 +4,7 @@ import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './components/Icon.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import VersionStatus from './components/VersionStatus.vue'
 import SignIn from './views/SignIn.vue'
 import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
@@ -234,6 +235,7 @@ async function logout() {
             :key="auth.user.id"
           />
           <footer class="page-footer">
+            <VersionStatus />
             <span
               >Made with ♥ by
               <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span

@@ -11,9 +11,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
 
+from app import __version__
 from app.access import authorize_request
 from app.api import router
-from app.auth import AuthRateLimiter, initialize_auth
+from app.auth import AuthRateLimiter, initialize_auth, session_user
 from app.config import Settings
 from app.db import make_engine, session_factory
 from app.deletion import is_deleted, purge_expired
@@ -24,6 +25,7 @@ from app.notification_routing import deliver_routed_pending
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
+from app.releases import ReleaseChecker
 from app.render import FONT_DIR
 from app.templates import seed_templates
 
@@ -120,7 +122,9 @@ def create_app(
             engine.dispose()
             lock_file.close()
 
-    app = FastAPI(title="Label Printer Server", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Label Printer Server", version=__version__, lifespan=lifespan)
+    releases = ReleaseChecker(settings)
+    app.state.releases = releases
     app.state.access_policy = None
     app.state.auth_limiter = AuthRateLimiter()
     app.state.fonts = fonts
@@ -165,6 +169,15 @@ def create_app(
     @app.get("/api/health")
     def health() -> dict[str, bool]:
         return {"healthy": True}
+
+    @app.get("/api/version")
+    def version(request: Request) -> dict[str, Any]:
+        from fastapi import HTTPException
+
+        with factory() as session:
+            if session_user(request, session) is None:
+                raise HTTPException(401, "Sign in to view version information")
+        return releases.status()
 
     app.mount("/fonts", StaticFiles(directory=FONT_DIR), name="fonts")
     if (settings.frontend_dist / "assets").is_dir():

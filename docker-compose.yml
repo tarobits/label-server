@@ -7,6 +7,8 @@ services:
       LABEL_WORKER_INTERVAL_SECONDS: ${LABEL_WORKER_INTERVAL_SECONDS:-2}
       LABEL_DATABASE_URL: sqlite:////srv/labels/data/labels.db
       LABEL_PUBLIC_URL: ${LABEL_PUBLIC_URL:-http://localhost:8000}
+      LABEL_CHECK_FOR_UPDATES: ${LABEL_CHECK_FOR_UPDATES:-true}
+      LABEL_GITHUB_TOKEN: ${LABEL_GITHUB_TOKEN:-}
     volumes:
       - label-data:/srv/labels/data
     restart: unless-stopped

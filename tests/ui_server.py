@@ -24,6 +24,7 @@ if __name__ == "__main__":
         config.attributes["database_url"] = url
         command.upgrade(config, "head")
         settings = Settings(
+            check_for_updates=False,
             database_url=url,
             worker_interval_seconds=0.1,
             frontend_dist=root / "frontend" / "dist",

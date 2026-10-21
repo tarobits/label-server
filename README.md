@@ -312,6 +312,38 @@ server, reinstall dependencies, run `.venv/bin/alembic upgrade head`, rebuild th
 frontend, and restart. For older environment-configured printers, keep the old
 `.env` available during migration so their settings can be imported once.
 
+The release updater automates these steps for native systemd and Docker Compose
+installations. It selects GitHub's latest published stable release, updates a local
+`release` branch, backs up code/configuration/data, installs or builds dependencies,
+migrates, restarts and checks health. It refuses local changes and preserves `main`.
+
+For the private repository, set `LABEL_GITHUB_TOKEN` in the installation's `.env`
+and restrict that file with `chmod 600 .env`. Use a fine-grained GitHub token for
+this repository with **Contents: read-only** permission. The token authenticates
+both release lookup and Git clone/fetch, and is shared with the server's cached
+update check. The footer displays the running version and a bottom-right notice
+links to newer releases. See [private repository access](docs/DEPLOYMENT.md#private-github-repository-access)
+for token-file configuration and credential handling.
+
+```sh
+# Preview without changing the checkout or service:
+python3 scripts/update.py --mode native --check
+
+# Native installation in this Git checkout:
+sudo python3 scripts/update.py --mode native
+
+# Compose; keep your existing USB override/project name when applicable:
+python3 scripts/update.py --mode docker \
+  --compose-file docker-compose.yml --compose-file docker-compose.usb.yml
+```
+
+For the VM's copied `/opt/labels` installation, use a separate managed source
+checkout: `sudo python3 /path/to/scripts/update.py --mode native
+--checkout /opt/labels-source --install-dir /opt/labels`. The missing source checkout
+is cloned automatically. Native updates require Git, Node/npm and, with a separate
+source checkout, rsync. See [automated release updates](docs/DEPLOYMENT.md#automated-release-updates)
+for prerequisites, backups and failure recovery.
+
 Physical PT-P710BT testing was reported successful on 2026-10-04. Detailed
 measurements and remaining hardware checks are in the
 [verification record](docs/HARDWARE_VERIFICATION.md). Docker image build and isolated

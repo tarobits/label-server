@@ -207,6 +207,152 @@ then restart. Treat printing interrupted by any shutdown as requiring review.
 Never delete a review record or reissue a job with a new retry key merely to clear
 an uncertain physical result. Reconcile copies and tape consumption in the UI.
 
+## Automated release updates
+
+`scripts/update.py` supports both the native systemd service and the `labels`
+Docker Compose service. Run it with Python 3.12+ on the deployment host. It uses
+GitHub's [latest release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release),
+which selects a published full release. It does not fall back to `main`, draft
+releases, prereleases, or unassociated Git tags. A missing/inaccessible release
+aborts before the application is stopped.
+
+### Private GitHub repository access
+
+Create a [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
+restricted to `tarobits/label-server`, with **Contents: read-only** repository
+permission. Add it to the installation's `.env` (not the source checkout's `.env`
+when `--install-dir` is separate):
+
+```dotenv
+LABEL_GITHUB_TOKEN=github_pat_your_token_here
+```
+
+Use an editor to enter the token so it does not enter shell history, and run
+`chmod 600 .env`. For native installations the file must be owned by the `labels`
+service user; root can still read it when running the updater with sudo. Docker
+Compose forwards the token from this file to the application. Restart the native
+service or recreate the Compose container after changing credentials.
+
+Both the in-app release check and the updater use this setting. The updater uses
+it for the GitHub API **and** Git HTTPS clone/fetch, including checkouts whose
+origin uses SSH. It does not change origin, save credentials in Git configuration,
+or include the token in command arguments, logs, or browser responses. Without a
+token, Git continues to use its configured SSH keys or credential helper.
+
+For native installations, a separate file containing only the raw token is also
+supported via `LABEL_GITHUB_TOKEN_FILE=/etc/label-server/github-token` in `.env`.
+Make that file readable by `labels` and root only (for example, owner `root`, group
+`labels`, mode `640`). Relative token-file paths resolve from the installation.
+The updater additionally accepts `--github-token-file /path/to/token`, useful
+when keeping host credentials outside a Compose installation. To use a token file
+inside Docker for the in-app check, mount it read-only with a local Compose
+override and set the container's `LABEL_GITHUB_TOKEN_FILE` to its mounted path;
+the base Compose setup uses the `.env` token above.
+
+Updater precedence is `--github-token-file`, environment
+`LABEL_GITHUB_TOKEN_FILE`, environment `LABEL_GITHUB_TOKEN`/`GITHUB_TOKEN`, then
+the installation's `.env` (file setting before inline token). The application
+uses `LABEL_GITHUB_TOKEN_FILE` or `LABEL_GITHUB_TOKEN`; it does not read the
+updater-only `GITHUB_TOKEN` alias. Avoid configuring multiple credential sources.
+Backups include `.env` and resolved Compose configuration, so keep the restricted
+backup directory private too. Rotate the token in its original file when it
+expires.
+
+The UI footer shows the running version. A dismissible notice in the bottom right
+links to a newer stable release. GitHub checks are shared by all clients and cached
+for an hour; failed checks retry after 15 minutes without interrupting printing.
+Dismissal lasts for the browser tab's session and applies only to that release.
+Set `LABEL_CHECK_FOR_UPDATES=false` in `.env` to disable automatic checks (the
+version display and manual updater still work). An inaccessible repository or no
+published release leaves the version visible without an update notice.
+
+### Running an update
+
+The checkout must have a GitHub `origin` and no tracked or untracked local changes.
+Use `.env` for deployment settings. The updater fetches the release's exact tag
+and switches a local `release` branch to that commit, leaving `main` intact. If
+the existing `release` branch has diverged, it refuses to discard those commits.
+Finish current printing and review before scheduling an upgrade.
+
+Preview the selected release and plan without cloning, fetching, changing files,
+backing up, or managing the service:
+
+```sh
+python3 scripts/update.py --mode native --check
+python3 scripts/update.py --mode docker --check
+```
+
+For a native Git installation at `/opt/labels`, run:
+
+```sh
+cd /opt/labels
+sudo python3 scripts/update.py --mode native
+```
+
+The existing VM was installed from a copied bundle. Place the updater on that VM
+and give it a separate, initially absent source checkout:
+
+```sh
+sudo python3 /path/to/scripts/update.py --mode native \
+  --checkout /opt/labels-source --install-dir /opt/labels
+```
+
+It clones `tarobits/label-server` automatically in that case. `--repository OWNER/REPO`
+selects another repository for a new checkout and must match `origin` for an
+existing one. Separate source and installation directories must not be nested.
+Subsequent runs can use `/opt/labels-source/scripts/update.py` once a release
+includes the updater. No Git metadata is required in the copied installation.
+
+Native prerequisites are the existing virtual environment, Git, Node 22.12+/npm,
+systemd/runuser, and rsync for separate source/install directories. Run as root.
+`--service` defaults to `labels.service`; its WorkingDirectory must match the
+installation. The supported layout uses `.env`, `.venv`, `frontend/dist`, and a
+dedicated SQLite data directory. Database/assets outside the installation are
+discovered from its settings. An alternate systemd EnvironmentFile or frontend
+output path requires a tailored deployment process. Existing service-unit and
+udev customizations are preserved. Migrations run as the configured service user.
+
+For Docker, run from the existing Compose checkout and keep its usual files:
+
+```sh
+python3 scripts/update.py --mode docker \
+  --compose-file docker-compose.yml --compose-file docker-compose.usb.yml
+```
+
+Omit the USB override when not using it. Repeat `--compose-file` for local overrides
+and provide `--project-name` if the existing deployment used one. The updater
+inspects the existing container and preserves the actual project and persistent
+data mount, avoiding a replacement empty volume. One volume or directory bind mount
+must contain the database and its sibling assets; nested data mounts require a
+separate backup strategy. Docker Engine and Compose must already work. The updater
+builds the new image, runs an explicit migration with the old `.env` available,
+then recreates `labels`; other Compose services are not restarted.
+
+Both modes stop the application before copying its complete data. Backups go to
+a new timestamped, restricted directory beside the installation by default
+(`/opt/labels-backups` for the VM). `--backup-dir` changes the parent; it must stay
+outside the source, installation and data directories. Each backup contains
+`source.tar.gz`, `data.tar.gz`, `.env` as `environment.env` when present, and an
+`update.json` recovery record with old/new commits and Docker image/mount details.
+Backups contain credentials and should retain restricted permissions. Docker
+data backups use the old image with networking disabled and a read-only data mount.
+No backup or old Docker image is automatically pruned.
+
+The default final check is `http://127.0.0.1:8000/api/health`; use `--health-url`
+for a different local port and `--health-timeout` for a slower startup. This proves
+application startup, without submitting or printing a label.
+
+If backup, installation, migration or health validation fails after shutdown, the
+updater stops the application and exits unsuccessfully. Inspect the reported
+backup and logs, fix the cause, then rerun. There is no automatic database downgrade
+or restoration that could replay uncertain print work. To roll back manually,
+keep the application stopped, restore the matching source, `.env` and **complete**
+data archive together, reinstall the old dependencies/rebuild the UI for native
+deployments or restore the saved old image for Docker, then start one service.
+For a native data archive, its `data/` prefix maps to the original `data_dir` in
+`update.json`. For Docker it maps to the recorded entire data mount. Reconcile any
+interrupted physical output in the application after restart.
+
 ## Multiple USB printers
 
 The application runs one physical worker per registered device, inside one server
