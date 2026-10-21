@@ -36,7 +36,7 @@ test(
     await page.getByLabel('Cartridge name').fill('Yellow cassette 1')
     await page.locator('form').getByRole('button', { name: 'Register cartridge' }).click()
     await page.getByRole('button', { name: 'Install cartridge' }).click()
-    await expect(page.getByText('Installed', { exact: true })).toBeVisible()
+    await expect(page.getByText('Installed in Desk printer', { exact: true })).toBeVisible()
     await page.request.put('/api/printer/mock', {
       data: { connected: true, tape_width_mm: 24, fail_after: 1 },
     })
