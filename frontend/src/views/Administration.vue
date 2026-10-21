@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api, ApiError, errorMessage } from '../api'
 import { useAuthStore, accessLevels, type AccessLevel, type Membership } from '../auth'
@@ -14,6 +14,7 @@ import {
   type Role,
   type Member,
   type Group,
+  type DeletedItem,
 } from '../stores/administration'
 interface Effective {
   is_admin: boolean
@@ -35,7 +36,7 @@ interface Impact {
 interface Change {
   resource: 'users' | 'roles' | 'groups'
   identifier?: string
-  method: 'POST' | 'PUT' | 'DELETE'
+  method: 'POST' | 'PUT' | 'DELETE' | 'RESTORE'
   payload: unknown
   message: string
   done?: () => void
@@ -43,7 +44,7 @@ interface Change {
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const administration = useAdministrationStore()
-const { users, roles, groups, codes, permissions } = storeToRefs(administration)
+const { users, roles, groups, codes, permissions, trash } = storeToRefs(administration)
 const busy = ref(false),
   error = ref(''),
   success = ref(''),
@@ -73,6 +74,9 @@ const selectedUser = ref<Person | null>(null),
   change = ref<Change | null>(null),
   previewError = ref(''),
   previewDialog = ref<HTMLDialogElement | null>(null)
+const deletingAccount = computed(
+  () => change.value?.resource === 'users' && change.value.method === 'DELETE',
+)
 const levelName = (level: AccessLevel) =>
   accessLevels.find((item) => item.value === level)?.label ?? level
 async function load(keys?: AdminResource[]) {
@@ -132,8 +136,8 @@ async function applyChange() {
   previewError.value = ''
   try {
     await api(
-      `/admin/${value.resource}${value.identifier ? '/' + value.identifier : ''}`,
-      value.method,
+      `/admin/${value.resource}${value.identifier ? '/' + value.identifier : ''}${value.method === 'RESTORE' ? '/restore' : ''}`,
+      value.method === 'RESTORE' ? 'POST' : value.method,
       value.payload,
       { 'X-Access-Confirmation': confirmation.confirmation_token },
     )
@@ -143,11 +147,12 @@ async function applyChange() {
     change.value = null
     await auth.refresh(true)
     if (auth.user?.is_admin) {
-      const reload: AdminResource[] = [value.resource]
+      const reload: AdminResource[] = [value.resource, 'trash']
       if (value.resource === 'groups') reload.push('users')
-      if (value.method === 'DELETE') {
+      if (value.method === 'DELETE' || value.method === 'RESTORE') {
         reload.push('codes')
         if (value.resource === 'roles') reload.push('users')
+        if (value.resource === 'users') reload.push('groups')
       }
       await load(reload)
     }
@@ -175,6 +180,36 @@ function editUser(user: Person) {
 function cancelUser() {
   selectedUser.value = null
   password.value = ''
+}
+function deleteUser(user: Person) {
+  void preview({
+    resource: 'users',
+    identifier: user.id,
+    method: 'DELETE',
+    payload: {},
+    message: 'Account deleted.',
+    done: () => {
+      if (selectedUser.value?.id === user.id) cancelUser()
+      groupForm.members = groupForm.members.filter((member) => member.user_id !== user.id)
+    },
+  })
+}
+function restoreDeleted(item: DeletedItem) {
+  if (item.kind === 'users') {
+    void preview({
+      resource: 'users',
+      identifier: item.identifier,
+      method: 'RESTORE',
+      payload: {},
+      message: 'Account and its content restored. Previously paused labels still need review.',
+    })
+  } else {
+    void perform(
+      () => api(`/admin/trash/${item.kind}/${item.identifier}/restore`, 'POST', {}),
+      'Content restored. Previously paused labels still need review.',
+      ['trash'],
+    )
+  }
 }
 function editRole(role?: Role) {
   Object.assign(roleForm, {
@@ -296,7 +331,7 @@ function describe(value: Effective | null) {
 function refreshAccess() {
   if (!auth.user?.is_admin) return
   // Preserve the local settings form while replacing shared, authorized records.
-  void load(['users', 'roles', 'groups', 'codes', 'permissions']).catch((issue) => {
+  void load(['users', 'roles', 'groups', 'codes', 'permissions', 'trash']).catch((issue) => {
     error.value = errorMessage(issue)
   })
 }
@@ -338,9 +373,14 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               </td>
               <td>{{ user.disabled ? 'Disabled' : 'Active' }}</td>
               <td>
-                <button class="small secondary" @click="editUser(user)">
-                  Edit {{ user.username }}
-                </button>
+                <div class="row record-actions">
+                  <button class="small secondary" @click="editUser(user)">
+                    Edit {{ user.username }}
+                  </button>
+                  <button class="small danger-text" :disabled="busy" @click="deleteUser(user)">
+                    Delete account {{ user.username }}
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -419,7 +459,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               : `${role.permissions.length} permission objects`
           }}</small>
         </div>
-        <div v-if="!role.protected" class="row">
+        <div v-if="!role.protected" class="row record-actions">
           <button class="small" @click="editRole(role)">Edit role {{ role.name }}</button
           ><button class="small danger-text" :disabled="busy" @click="remove('roles', role.id)">
             Delete role {{ role.name }}
@@ -478,7 +518,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           <strong>{{ group.name }}</strong
           ><small>{{ group.members.length }} members</small>
         </div>
-        <div class="row">
+        <div class="row record-actions">
           <button class="small" @click="editGroup(group)">Edit group {{ group.name }}</button
           ><button class="small danger-text" :disabled="busy" @click="remove('groups', group.id)">
             Delete group {{ group.name }}
@@ -632,6 +672,33 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     >
   </section>
   <NotificationEndpoints v-if="auth.user?.is_admin" />
+  <section class="panel">
+    <PropertySection title="Deleted accounts and content">
+      <p class="help">
+        Deleted accounts and content are unavailable immediately. Administrators can restore them
+        for 30 days. After that, their retained data is permanently purged. Restore an account to
+        recover the content deleted with it.
+      </p>
+      <p v-if="!trash.length" class="empty">No deleted accounts or content awaiting purge.</p>
+      <div v-for="item in trash" :key="`${item.kind}:${item.identifier}`" class="list-row">
+        <div>
+          <strong>{{ item.name }}</strong>
+          <small>{{ item.kind }} · Purge after {{ date(item.purge_after) }}</small>
+        </div>
+        <button
+          class="small secondary"
+          :disabled="
+            busy ||
+            item.purge_after * 1000 <= Date.now() ||
+            (!!item.account_id && item.kind !== 'users')
+          "
+          @click="restoreDeleted(item)"
+        >
+          Restore {{ item.name }}
+        </button>
+      </div>
+    </PropertySection>
+  </section>
   <Teleport to="body"
     ><dialog
       ref="previewDialog"
@@ -639,8 +706,21 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       aria-labelledby="access-preview-title"
       @cancel.prevent="cancelPreview"
     >
-      <h2 id="access-preview-title">Review effective access</h2>
-      <p>Review each user’s access before applying this change.</p>
+      <h2 id="access-preview-title">
+        {{ deletingAccount ? 'Delete account' : 'Review effective access' }}
+      </h2>
+      <template v-if="deletingAccount">
+        <p>
+          Delete this account, end its sessions, and remove all its templates, images and fonts from
+          use, including shared content. Administrators can restore the account and its content for
+          30 days before permanent purging. Other templates using its assets will show missing-asset
+          placeholders. Affected queued work is paused. Print history is retained.
+        </p>
+        <p v-if="change?.identifier === auth.user?.id" class="alert warning">
+          You are deleting your own account and will be signed out.
+        </p>
+      </template>
+      <p v-else>Review each user’s access before applying this change.</p>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
       <div v-if="impact" class="table-scroll">
         <table>
@@ -675,7 +755,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       <div class="row wrap">
         <button class="secondary" :disabled="busy" @click="cancelPreview">Cancel</button
         ><button class="primary" :disabled="busy || !impact" @click="applyChange">
-          Confirm access changes
+          {{ deletingAccount ? 'Delete account' : 'Confirm access changes' }}
         </button>
       </div>
     </dialog></Teleport
@@ -702,6 +782,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 }
 .list-row small {
   overflow-wrap: anywhere;
+}
+.record-actions {
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-wrap: wrap;
 }
 .member-permissions {
   padding: 12px 0;

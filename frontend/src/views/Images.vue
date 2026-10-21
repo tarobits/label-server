@@ -42,14 +42,14 @@ async function rename(asset: ImageAsset) {
 async function remove(asset: ImageAsset) {
   if (
     !(await confirmAction(
-      `Permanently delete “${asset.name}”? This removes its files and cannot be undone. Images used by saved labels cannot be deleted.`,
+      `Delete “${asset.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. ${auth.user?.is_admin ? 'Templates using it will show a missing-image placeholder, and affected queued work is paused.' : 'Images used by saved labels cannot be deleted.'}`,
     ))
   )
     return
   if (
     await w.action(
       () => api(`/image-assets/${asset.id}/permanent`, 'DELETE'),
-      'Image permanently deleted.',
+      'Image deleted. Administrators can restore it within 30 days.',
     )
   ) {
     if (editing.value === asset.id) editing.value = null
@@ -113,7 +113,8 @@ async function visibility(asset: ImageAsset) {
   <section class="panel">
     <h2>Image library</h2>
     <p class="help">
-      Hidden images remain available to saved labels. Only unused images can be permanently deleted.
+      Hidden images remain available to saved labels. Administrators can delete images even when
+      used by saved labels; deleted images are held for restoration for 30 days before purging.
     </p>
     <p v-if="!w.images.length" class="empty">No images uploaded.</p>
     <div v-else class="table-scroll">

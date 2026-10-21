@@ -275,6 +275,7 @@ async function submit() {
           rendering ||
           !!error ||
           !preview ||
+          preview.printable === false ||
           destination?.available === false ||
           !auth.atLeast(form.destination_id, 'request')
         "

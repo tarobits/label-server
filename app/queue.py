@@ -188,6 +188,15 @@ class QueueWorker:
                     raise PrintNotStarted(f"Could not prepare labels: {error}") from error
                 with self.lock, self.factory.begin() as session:
                     batch = required(session, Batch, batch_id)
+                    from app.deletion import content_hold_reason
+
+                    for item in session.scalars(
+                        select(BatchItem).where(BatchItem.batch_id == batch_id)
+                    ):
+                        copy = required(session, LabelCopy, item.copy_id)
+                        job = required(session, PrintJob, copy.job_id)
+                        if reason := content_hold_reason(session, job):
+                            raise PrintNotStarted(reason)
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     batch.estimated_mm = estimate
                     batch.shortage_warning = estimate > cartridge.remaining_mm

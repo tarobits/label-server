@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session
 from app.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
 from app.auth_api import Credentials, Password
+from app.deletion import delete_account, is_deleted, restore_account, restore_content
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,
     AuthSettings,
+    DeletedContent,
     PrinterDevice,
     PrinterGroup,
     RegistrationCode,
@@ -119,7 +121,7 @@ class SettingsInput(AdminInput):
 class PreviewInput(AdminInput):
     resource: Literal["roles", "users", "groups"]
     identifier: str | None = None
-    method: Literal["POST", "PUT", "DELETE"]
+    method: Literal["POST", "PUT", "DELETE", "RESTORE"]
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -138,6 +140,8 @@ def require_ids(session: Session, model: Any, identifiers: list[str]) -> None:
     if len(set(identifiers)) != len(identifiers):
         raise HTTPException(422, "Duplicate identifiers are not permitted")
     known: set[str] = set(session.scalars(select(model.id).where(model.id.in_(identifiers))))
+    if model is User:
+        known = {identifier for identifier in known if not is_deleted(session, "users", identifier)}
     if known != set(identifiers):
         raise HTTPException(422, "One or more referenced records do not exist")
 
@@ -154,6 +158,8 @@ def user_record(session: Session, user: User) -> dict[str, Any]:
 def effective_users(session: Session) -> dict[str, dict[str, Any]]:
     result = {}
     for user in session.scalars(select(User).order_by(User.username)):
+        if is_deleted(session, "users", user.id):
+            continue
         actor = actor_for_user(session, user)
         result[user.id] = {
             "id": user.id,
@@ -185,16 +191,22 @@ def state_hash(session: Session) -> str:
         (UserGroup, "id name members"),
         (PrinterDevice, "id name driver config"),
         (PrinterGroup, "id name printer_ids"),
+        (DeletedContent, "kind identifier deleted_at purge_after purged_at account_id"),
     ):
         state[model.__tablename__] = [
-            record(value, fields) for value in session.scalars(select(model).order_by(model.id))
+            record(value, fields)
+            for value in session.scalars(select(model).order_by(*model.__mapper__.primary_key))
         ]
     return token_hash(json.dumps(state, sort_keys=True, separators=(",", ":")))
 
 
 def normalized_payload(change: PreviewInput) -> dict[str, Any]:
-    if change.method == "DELETE":
-        if change.payload or not change.identifier or change.resource == "users":
+    if change.method in ("DELETE", "RESTORE"):
+        if (
+            change.payload
+            or not change.identifier
+            or (change.method == "RESTORE" and change.resource != "users")
+        ):
             raise HTTPException(422, "Invalid access change")
         return {}
     if (
@@ -263,7 +275,7 @@ def ensure_administrator_remains(session: Session) -> None:
 
 
 def apply_change(
-    session: Session, change: PreviewInput, *, preview: bool = False
+    session: Session, change: PreviewInput, request: Request, *, preview: bool = False
 ) -> dict[str, Any] | None:
     payload = normalized_payload(change)
     if change.resource == "roles":
@@ -315,6 +327,19 @@ def apply_change(
             group.name, group.members = group_body.name, group_body.model_dump()["members"]
         session.flush()
         return record(group, "id name members")
+    if change.method == "DELETE":
+        user = get(session, User, change.identifier)
+        delete_account(
+            session,
+            user,
+            access_context(request).actor.id,
+            request.app.state.fonts,
+            request.app.state.images,
+        )
+        ensure_administrator_remains(session)
+        return None
+    if change.method == "RESTORE":
+        return user_record(session, restore_account(session, change.identifier or ""))
     if change.method == "POST":
         user_body = CreateUserInput.model_validate(payload)
         require_ids(session, Role, user_body.role_ids)
@@ -325,13 +350,15 @@ def apply_change(
         )
         session.add(user)
     else:
-        update = UserInput.model_validate(payload)
+        user_update = UserInput.model_validate(payload)
         user = get(session, User, change.identifier)
-        require_ids(session, Role, update.role_ids)
-        user.disabled, user.role_ids = update.disabled, update.role_ids
-        if update.password is not None:
-            user.password_hash = "preview-only" if preview else hash_password(update.password)
-        if update.disabled or update.password is not None:
+        if is_deleted(session, "users", user.id):
+            raise HTTPException(404, "Account has been deleted")
+        require_ids(session, Role, user_update.role_ids)
+        user.disabled, user.role_ids = user_update.disabled, user_update.role_ids
+        if user_update.password is not None:
+            user.password_hash = "preview-only" if preview else hash_password(user_update.password)
+        if user_update.disabled or user_update.password is not None:
             session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
     ensure_administrator_remains(session)
     return user_record(session, user)
@@ -355,9 +382,10 @@ def confirmed_change(
         raise HTTPException(
             409, "Access configuration changed; recalculate the preview before confirming"
         )
-    result = apply_change(session, change)
+    # Consume first: deleting the acting account also removes its other receipts.
     session.delete(confirmation)
-    return result
+    session.flush()
+    return apply_change(session, change, request)
 
 
 @router.post("/access-preview")
@@ -366,7 +394,7 @@ def preview_access(body: PreviewInput, request: Request, session: DB) -> dict[st
     request_hash = change_hash(body)
     before = effective_users(session)
     with session.begin_nested() as savepoint:
-        apply_change(session, body, preview=True)
+        apply_change(session, body, request, preview=True)
         after = effective_users(session)
         savepoint.rollback()
     token = secrets.token_urlsafe(32)
@@ -404,7 +432,9 @@ def permissions(session: DB) -> list[dict[str, str]]:
 @router.get("/users")
 def users(session: DB) -> list[dict[str, Any]]:
     return [
-        user_record(session, user) for user in session.scalars(select(User).order_by(User.username))
+        user_record(session, user)
+        for user in session.scalars(select(User).order_by(User.username))
+        if not is_deleted(session, "users", user.id)
     ]
 
 
@@ -424,6 +454,39 @@ def update_user(identifier: str, body: UserInput, request: Request, session: DB)
             resource="users", identifier=identifier, method="PUT", payload=body.model_dump()
         ),
     )
+
+
+@router.delete("/users/{identifier}", status_code=204)
+def delete_user(identifier: str, request: Request, session: DB) -> None:
+    confirmed_change(
+        request, session, PreviewInput(resource="users", identifier=identifier, method="DELETE")
+    )
+
+
+@router.post("/users/{identifier}/restore")
+def restore_user(identifier: str, request: Request, session: DB) -> Any:
+    return confirmed_change(
+        request, session, PreviewInput(resource="users", identifier=identifier, method="RESTORE")
+    )
+
+
+@router.get("/trash")
+def deleted_content(session: DB) -> list[dict[str, Any]]:
+    return [
+        record(item, "kind identifier name owner_id deleted_at purge_after account_id")
+        for item in session.scalars(
+            select(DeletedContent)
+            .where(DeletedContent.purged_at.is_(None))
+            .order_by(DeletedContent.deleted_at.desc())
+        )
+    ]
+
+
+@router.post("/trash/{kind}/{identifier}/restore", status_code=204)
+def restore_deleted_content(kind: str, identifier: str, session: DB) -> None:
+    if kind not in ("images", "fonts", "templates"):
+        raise HTTPException(422, "Restore accounts using the account access preview")
+    restore_content(session, kind, identifier)
 
 
 @router.get("/roles")

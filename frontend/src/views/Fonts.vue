@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { api } from '../api'
 import { useAuthStore } from '../auth'
+import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
 import type { FontAsset } from '../types'
 const w = useWorkspaceStore()
@@ -33,6 +34,17 @@ async function visibility(font: FontAsset) {
       ? 'Font restored to the picker.'
       : 'Font hidden from the picker. Saved layouts and queued jobs retain it.',
   )
+}
+async function remove(font: FontAsset) {
+  if (
+    await confirmAction(
+      `Delete “${font.family}”? It becomes unavailable immediately, including in saved templates. Administrators can restore it for 30 days before permanent purging. Affected queued work is paused.`,
+    )
+  )
+    await w.action(
+      () => api(`/font-assets/${font.id}/permanent`, 'DELETE'),
+      'Font deleted. Administrators can restore it within 30 days.',
+    )
 }
 </script>
 <template>
@@ -94,6 +106,14 @@ async function visibility(font: FontAsset) {
                 @click="visibility(font)"
               >
                 {{ font.archived ? 'Restore' : 'Hide' }}
+              </button>
+              <button
+                v-if="auth.user?.is_admin"
+                class="text-button danger-text"
+                :disabled="w.busy"
+                @click="remove(font)"
+              >
+                Delete font
               </button>
             </td>
           </tr>

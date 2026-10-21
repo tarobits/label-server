@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.authorization import rendering_destination
 from app.destinations import members
 from app.http import record
-from app.models import Base, PrinterDevice, PrinterGroup
+from app.models import Base, LabelTemplate, PrinterDevice, PrinterGroup
 
 
 def image_references(value: Any) -> set[str]:
@@ -38,6 +38,7 @@ def rendering(
     from app.access import access_context, authorize_current_request
     from app.asset_access import require_document_assets
 
+    editing_template = request.url.path.startswith("/api/templates")
     actor_before = access_context(request).actor
     require_document_assets(request, session, list(documents))
     destination_id = rendering_destination(
@@ -59,7 +60,9 @@ def rendering(
         for value in session.identity_map.values()
         if isinstance(value, Base)
     ]
-    require_document_assets(request, session, [values for _, values in inputs])
+    require_document_assets(
+        request, session, [values for _, values in inputs], allow_missing=editing_template
+    )
     assets = image_references([*documents, *[values for _, values in inputs]])
     definitions = request.app.state.registry.definitions()
     session.commit()
@@ -84,6 +87,11 @@ def rendering(
         if session.get(type(value), identity, populate_existing=True) is None:
             raise HTTPException(409, "Inputs changed during preparation; retry the request")
         session.refresh(value)
+        if isinstance(value, LabelTemplate):
+            from app.deletion import is_deleted
+
+            if is_deleted(session, "templates", value.id):
+                raise HTTPException(409, "Template was deleted during preparation")
         if record(value) != values:
             raise HTTPException(409, "Inputs changed during preparation; retry the request")
     if request.app.state.registry.definitions() != definitions:
@@ -92,9 +100,16 @@ def rendering(
         )
     try:
         for identifier in assets:
+            from app.deletion import is_deleted
+
+            if editing_template and is_deleted(session, "images", identifier):
+                continue
             request.app.state.images.metadata(identifier)
     except ValueError as error:
         raise HTTPException(
             409, "An image was removed during preparation; choose it again"
         ) from error
-    require_document_assets(request, session, [*documents, *[values for _, values in inputs]])
+    require_document_assets(request, session, list(documents))
+    require_document_assets(
+        request, session, [values for _, values in inputs], allow_missing=editing_template
+    )

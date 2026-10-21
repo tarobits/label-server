@@ -10,6 +10,15 @@ export interface Person {
   disabled: boolean
   role_ids: string[]
 }
+export interface DeletedItem {
+  kind: 'users' | 'templates' | 'images' | 'fonts'
+  identifier: string
+  name: string
+  owner_id: string
+  deleted_at: number
+  purge_after: number
+  account_id: string | null
+}
 export type Permission =
   | { kind: 'application'; permission: string }
   | { kind: 'destination'; destination_id: string; level: AccessLevel }
@@ -60,6 +69,7 @@ const paths = {
   permissions: '/admin/permissions',
   settings: '/admin/settings',
   endpoints: '/admin/notification-endpoints',
+  trash: '/admin/trash',
 } as const
 export type AdminResource = keyof typeof paths
 const initialResources: AdminResource[] = [
@@ -69,6 +79,7 @@ const initialResources: AdminResource[] = [
   'codes',
   'permissions',
   'settings',
+  'trash',
 ]
 
 export const useAdministrationStore = defineStore('administration', () => {
@@ -80,6 +91,7 @@ export const useAdministrationStore = defineStore('administration', () => {
   const permissions = shallowRef<{ id: string; label: string }[]>([])
   const settings = shallowRef<AccountSettings | null>(null)
   const endpoints = shallowRef<NotificationEndpoint[]>([])
+  const trash = shallowRef<DeletedItem[]>([])
   let generation = 0
   const loadedKeys = new Set<AdminResource>()
 
@@ -123,6 +135,9 @@ export const useAdministrationStore = defineStore('administration', () => {
         case 'endpoints':
           endpoints.value = value as NotificationEndpoint[]
           break
+        case 'trash':
+          trash.value = value as DeletedItem[]
+          break
       }
     }
     return true
@@ -138,8 +153,9 @@ export const useAdministrationStore = defineStore('administration', () => {
     permissions.value = []
     settings.value = null
     endpoints.value = []
+    trash.value = []
   }
   window.addEventListener('session-ended', reset)
   window.addEventListener('access-changed', reset)
-  return { users, roles, groups, codes, permissions, settings, endpoints, load, reset }
+  return { users, roles, groups, codes, permissions, settings, endpoints, trash, load, reset }
 })

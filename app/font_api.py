@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
 from app.asset_access import library_asset_visible, require_asset
+from app.deletion import retain
 from app.font_assets import MAX_FONT_BYTES
 from app.http import db
 
@@ -53,6 +54,21 @@ def hide_font(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     return change_visibility(identifier, True, request, session)
+
+
+@router.delete("/{identifier}/permanent")
+def delete_font(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, bool]:
+    actor = access_context(request).actor
+    if not actor.is_admin:
+        raise HTTPException(403, "Administrator access is required")
+    metadata = require_asset(request, session, "font_asset", identifier, Action.WRITE)
+    retain(session, "fonts", identifier, metadata["family"], metadata["owner_id"], actor.id)
+    from app.job_access import reconcile_access_holds
+
+    reconcile_access_holds(session)
+    return {"deleted": True}
 
 
 @router.post("/{identifier}/restore")

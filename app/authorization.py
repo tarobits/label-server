@@ -25,6 +25,11 @@ from app.models import (
 def require_record(request: Request, value: Base, action: Action = Action.READ) -> None:
     context = access_context(request)
     if isinstance(value, LabelTemplate):
+        from app.deletion import is_deleted
+
+        with request.app.state.factory() as session:
+            if is_deleted(session, "templates", value.id):
+                raise HTTPException(410, "Template has been deleted")
         context.require(
             action,
             Resource(
@@ -124,6 +129,11 @@ def visible_jobs(request: Request, session: Session, query: Select[Any]) -> Sele
 def template_access(
     request: Request, template: LabelTemplate, action: Action = Action.READ
 ) -> bool:
+    from app.deletion import is_deleted
+
+    with request.app.state.factory() as session:
+        if is_deleted(session, "templates", template.id):
+            return False
     context = access_context(request)
     return context.policy.allows(
         context.actor,

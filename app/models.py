@@ -30,6 +30,20 @@ class User(Base):
     created_at: Mapped[float] = mapped_column(default=time.time)
 
 
+class DeletedContent(Base):
+    __tablename__ = "deleted_content"
+    kind: Mapped[str] = mapped_column(String, primary_key=True)
+    identifier: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str]
+    owner_id: Mapped[str]
+    deleted_by: Mapped[str]
+    deleted_at: Mapped[float]
+    purge_after: Mapped[float] = mapped_column(index=True)
+    purged_at: Mapped[float | None]
+    account_id: Mapped[str | None] = mapped_column(index=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
 class Role(Base):
     __tablename__ = "roles"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)

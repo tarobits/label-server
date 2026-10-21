@@ -29,6 +29,17 @@ async function archive(template: Template) {
       'Template archived. Existing queued labels are unchanged.',
     )
 }
+async function remove(template: Template) {
+  if (
+    await confirmAction(
+      `Delete “${template.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. Queued work using it is paused.`,
+    )
+  )
+    await w.action(
+      () => api(`/templates/${template.id}/permanent`, 'DELETE'),
+      'Template deleted. Administrators can restore it within 30 days.',
+    )
+}
 </script>
 <template>
   <div class="section-heading">
@@ -46,6 +57,13 @@ async function archive(template: Template) {
         {{ template.document.elements.length }} elements
       </p>
       <p class="help">Fields: {{ template.fields.join(', ') || 'No variable fields' }}</p>
+      <p
+        v-for="notice in template.asset_notices ?? []"
+        :key="notice.kind + notice.id"
+        class="alert warning"
+      >
+        {{ notice.message }}
+      </p>
       <p class="help">
         {{
           template.scope === 'personal'
@@ -84,6 +102,14 @@ async function archive(template: Template) {
           @click="archive(template)"
         >
           Archive
+        </button>
+        <button
+          v-if="auth.user?.is_admin"
+          :disabled="w.busy"
+          class="text-button danger-text"
+          @click="remove(template)"
+        >
+          Delete template
         </button>
       </div>
     </article>

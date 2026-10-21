@@ -240,7 +240,11 @@ def request_preview(
         raise HTTPException(404, "Label not found")
     job = PrintJob(**value.labels[position])
     rendered = render_job(
-        job, LabelCopy(id="preview"), request.app.state.fonts, request.app.state.images
+        job,
+        LabelCopy(id="preview"),
+        request.app.state.fonts,
+        request.app.state.images,
+        allow_missing_assets=True,
     )
     ink = Image.frombytes("1", (rendered.pixel_width, rendered.pixel_height), rendered.raster)
     output = io.BytesIO()

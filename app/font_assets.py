@@ -1,6 +1,5 @@
 """Immutable, content-addressed font files alongside the application's data."""
 
-import hashlib
 import io
 import json
 from typing import Any
@@ -22,7 +21,7 @@ class FontStore(AssetStore):
             raise ValueError("Upload a font of at most 5 MB")
         if data[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
             raise ValueError("Upload a static TTF or OTF font (not a collection or web font)")
-        identifier = hashlib.sha256(owner_id.encode() + b"\0" + data).hexdigest()
+        identifier = self.identifier(data, owner_id)
         if (self.root / f"{identifier}.json").exists():
             return self.metadata(identifier)
         alias = f"LabelFont_{identifier[:48]}"

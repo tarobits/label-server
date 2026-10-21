@@ -190,6 +190,7 @@ export interface Notice {
 }
 
 export interface Template {
+  asset_notices?: { kind: string; id: string; message: string }[]
   can_delete?: boolean
   scope?: 'personal' | 'group' | 'global'
   group_id?: string | null
@@ -204,6 +205,7 @@ export interface Template {
   renderer: string
 }
 export interface AccessHold {
+  can_release?: boolean
   job_id: string
   reason: string
   held_at: number

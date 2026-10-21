@@ -52,6 +52,8 @@ export interface TemplateDocument {
   fields: TemplateField[]
 }
 export interface Preview {
+  printable?: boolean
+  missing_assets?: Record<string, 'image' | 'font'>
   png: string
   design_png: string
   svg: string

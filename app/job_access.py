@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.access import LEVELS
 from app.auth import actor_for_user
+from app.deletion import content_hold_reason
 from app.job_access_models import JobAccessHold
 from app.models import FlushRequest, LabelCopy, PrinterDevice, PrinterGroup, PrintJob, State, User
 
@@ -46,6 +47,8 @@ def principal_access_reason(
 
 
 def access_hold_reason(session: Session, job: PrintJob) -> str | None:
+    if reason := content_hold_reason(session, job):
+        return reason
     if job.authorization_basis == "override":
         authorization = (job.attribution or {}).get("authorization", {})
         actor = authorization.get("actor") or {}
@@ -57,6 +60,8 @@ def access_hold_reason(session: Session, job: PrintJob) -> str | None:
 
 
 def job_eligible(session: Session, job: PrintJob) -> bool:
+    if content_hold_reason(session, job):
+        return False
     hold = session.get(JobAccessHold, job.id)
     if hold is not None:
         return hold.status == "released"
@@ -73,10 +78,11 @@ def reconcile_access_holds(session: Session, now: float | None = None) -> int:
     for job in jobs:
         existing = session.get(JobAccessHold, job.id)
         if existing is not None:
-            if existing.status == "cancelled":
+            reason = content_hold_reason(session, job)
+            if existing.status == "cancelled" or (existing.status == "released" and reason):
                 # Review can requeue uncertain copies after an earlier access-hold cancellation.
                 existing.status = "held"
-                existing.reason = "Copies were requeued after an access-hold cancellation"
+                existing.reason = reason or "Copies were requeued after an access-hold cancellation"
                 existing.held_at = stamp
                 existing.resolved_at = existing.resolved_by = None
                 existing.resolved_by_snapshot = None

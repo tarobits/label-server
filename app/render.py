@@ -48,6 +48,7 @@ class RenderOutput:
     warnings: list[str]
     document: TemplateDocument
     font_files: list[str]
+    missing_assets: dict[str, str]
 
     def preview(self, foreground: str, background: str, *, smooth: bool = False) -> str:
         source = self.image.convert("L")
@@ -359,6 +360,24 @@ def resolve_layout(
     return resolved
 
 
+def missing_asset_svg(element: Element, kind: str) -> str:
+    if kind == "image":
+        icon = (
+            '<path d="M8 1h11l6 6v16H8zM19 1v6h6" fill="white" '
+            'stroke="black" stroke-width="1.2"/>'
+            '<text x="16.5" y="19" text-anchor="middle" font-size="13">?</text>'
+        )
+    else:
+        icon = (
+            '<text x="1" y="21" font-size="20">Aa</text>'
+            '<text x="30" y="8" text-anchor="end" font-size="10">?</text>'
+        )
+    return (
+        f'<svg width="{element.width}" height="{element.height}" viewBox="0 0 32 24" '
+        f'font-family="Noto Sans" aria-label="Missing {kind}">{icon}</svg>'
+    )
+
+
 def render_document(
     document: TemplateDocument,
     data: dict[str, str],
@@ -366,7 +385,25 @@ def render_document(
     samples: bool = False,
     fonts: FontStore | None = None,
     images: ImageStore | None = None,
+    allow_missing_assets: bool = False,
 ) -> RenderOutput:
+    missing: dict[str, str] = {}
+    if allow_missing_assets:
+        document = document.model_copy(deep=True)
+        for element in document.elements:
+            try:
+                if element.kind == "text":
+                    font_path(element, fonts)
+                elif element.kind == "image" and element.image_asset:
+                    if images is None:
+                        raise ValueError("Image library unavailable")
+                    images.path(element.image_asset)
+            except ValueError:
+                missing[element.id] = "font" if element.kind == "text" else "image"
+                # Resolve placement using the original box, without substituting font metrics.
+                element.kind = "rectangle"
+                element.auto_width = False
+                element.font = "Noto Sans"
     if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
         raise ValueError("The selected printer does not support this physical tape width")
     band = (spec.printable_widths_mm or {}).get(f"{document.width_mm:g}")
@@ -396,7 +433,10 @@ def render_document(
     ]
     qr_boxes: list[tuple[float, float, float, float, str]] = []
     boxes: list[tuple[float, float, float, float, str]] = []
-    warnings: list[str] = []
+    warnings: list[str] = [
+        f"Missing {kind} in element {identifier}. Restore or replace it before printing."
+        for identifier, kind in missing.items()
+    ]
     clipping = document.out_of_bounds == "clip"
     if clipping:
         parts.append(
@@ -432,7 +472,9 @@ def render_document(
         box = (x, y, right, bottom, element.id)
         boxes.append(box)
         content = TOKEN.sub(lambda match: values[match.group(1)], element.content)
-        if element.kind == "text":
+        if element.id in missing:
+            body = missing_asset_svg(element, missing[element.id])
+        elif element.kind == "text":
             body = text_svg(element, content, fonts)
         elif element.kind == "qr":
             qr_boxes.append(box)
@@ -472,11 +514,16 @@ def render_document(
     )
     source = Image.open(io.BytesIO(png)).convert("L")
     image = source.point(lambda value: 255 if value >= 128 else 0, mode="1")
-    return RenderOutput(svg, image, warnings, document, font_files)
+    return RenderOutput(svg, image, warnings, document, font_files, missing)
 
 
 def render_job(
-    job: PrintJob, copy: LabelCopy, fonts: FontStore | None = None, images: ImageStore | None = None
+    job: PrintJob,
+    copy: LabelCopy,
+    fonts: FontStore | None = None,
+    images: ImageStore | None = None,
+    *,
+    allow_missing_assets: bool = False,
 ) -> RenderedLabel:
     snapshot = job.template_snapshot
     if snapshot.get("renderer") == "mock":
@@ -489,6 +536,7 @@ def render_job(
         spec,
         fonts=fonts,
         images=images,
+        allow_missing_assets=allow_missing_assets,
     )
     # Public raster contract: a set bit means ink; Pillow uses a set bit for white.
     ink = ImageOps.invert(output.image.convert("L")).convert("1")

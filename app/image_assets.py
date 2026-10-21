@@ -1,7 +1,6 @@
 """Bounded bitmap uploads and a data-only SVG subset, rendered at device resolution."""
 
 import base64
-import hashlib
 import io
 import json
 import math
@@ -118,14 +117,6 @@ class ImageStore(AssetStore):
         self._write(cached, result)
         return result
 
-    def delete(self, identifier: str) -> None:
-        # Callers must first check persisted references while holding the worker lock.
-        self.metadata(identifier)
-        # Remove the listing first; interruption can leave unused files, never a broken listing.
-        (self.root / f"{identifier}.json").unlink()
-        for suffix in ("source", "image", "thumbnail.png", "large.png"):
-            (self.root / f"{identifier}.{suffix}").unlink(missing_ok=True)
-
     def add(
         self, data: bytes, name: str = "Uploaded image", *, owner_id: str = LOCAL_OWNER_ID
     ) -> dict[str, Any]:
@@ -133,7 +124,7 @@ class ImageStore(AssetStore):
             raise ValueError("Upload an image of at most 5 MB")
         # Identical uploads by different accounts must not disclose metadata or
         # acquire control of another account's library entry. Existing IDs stay valid.
-        identifier = hashlib.sha256(owner_id.encode() + b"\0" + data).hexdigest()
+        identifier = self.identifier(data, owner_id)
         if (self.root / f"{identifier}.json").exists():
             return self.metadata(identifier)
         try:

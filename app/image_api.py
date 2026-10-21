@@ -12,6 +12,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.access import Action, Resource, access_context
 from app.asset_access import library_asset_visible, require_asset
+from app.deletion import retain
 from app.http import db
 from app.image_assets import MAX_IMAGE_BYTES
 from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision
@@ -78,7 +79,14 @@ def references_image(value: Any, identifier: str) -> bool:
 def delete_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
-    image_metadata(identifier, request, Action.WRITE, session)
+    metadata = image_metadata(identifier, request, Action.WRITE, session)
+    actor = access_context(request).actor
+    if actor.is_admin:
+        retain(session, "images", identifier, metadata["name"], metadata["owner_id"], actor.id)
+        from app.job_access import reconcile_access_holds
+
+        reconcile_access_holds(session)
+        return {"deleted": True}
     # Hold the mutation lock across reference checks and deletion.
     columns: tuple[InstrumentedAttribute[Any], ...] = (
         LabelTemplate.document,
@@ -95,7 +103,7 @@ def delete_image(
                 "Image is used by a saved template, template revision, job, CSV run or print request. "
                 "Hide it instead to preserve existing labels.",
             )
-    request.app.state.images.delete(identifier)
+    retain(session, "images", identifier, metadata["name"], metadata["owner_id"], actor.id)
     return {"deleted": True}
 
 

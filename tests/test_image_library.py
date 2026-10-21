@@ -54,22 +54,23 @@ def test_rename_is_persistent_without_changing_artwork_or_content_identity(clien
     assert client.put("/api/image-assets/missing", json={"name": "Valid"}).status_code == 404
 
 
-def test_unused_image_deletion_removes_files_and_previews_and_allows_reupload(client):
+def test_unused_image_deletion_holds_files_and_reupload_gets_a_new_identity(client):
     identifier = upload(client)
     assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 200
     assert client.get(f"/api/image-assets/{identifier}/preview?size=large").status_code == 200
     response = client.delete(f"/api/image-assets/{identifier}/permanent")
     assert response.json() == {"deleted": True}
     assert client.get("/api/image-assets").json() == []
-    assert not list(client.app.state.images.root.glob(f"{identifier}.*"))
+    assert list(client.app.state.images.root.glob(f"{identifier}.*"))
     assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 404
     assert client.post(f"/api/image-assets/{identifier}/restore").status_code == 404
-    assert upload(client, SVG) == identifier
-    assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 200
+    replacement = upload(client, SVG)
+    assert replacement != identifier
+    assert client.get(f"/api/image-assets/{replacement}/preview").status_code == 200
 
 
 @pytest.mark.parametrize("reference", ["template", "revision", "job", "run"])
-def test_deletion_protects_each_kind_of_saved_reference_including_history(client, reference):
+def test_admin_can_delete_each_kind_of_saved_reference_including_history(client, reference):
     identifier = upload(client)
     doc = document(identifier)
     tape = profile(client)
@@ -105,13 +106,12 @@ def test_deletion_protects_each_kind_of_saved_reference_including_history(client
                     manifest={"rows": [{"template_snapshot": {"document": doc}}]},
                 )
             )
-    response = client.delete(f"/api/image-assets/{identifier}/permanent")
-    assert response.status_code == 409
-    assert "Hide it instead" in response.json()["detail"]
-    assert client.app.state.images.path(identifier).is_file()
     assert client.delete(f"/api/image-assets/{identifier}").json()["archived"]
     assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 200
-    assert client.delete(f"/api/image-assets/{identifier}/permanent").status_code == 409
+    response = client.delete(f"/api/image-assets/{identifier}/permanent")
+    assert response.status_code == 200
+    assert client.app.state.images.path(identifier, include_deleted=True).is_file()
+    assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 404
 
 
 def test_library_changes_and_previews_respect_access_policy(client):

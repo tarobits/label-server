@@ -135,9 +135,17 @@ artwork. Threshold conversion suits logos; dithering provides tonal shading.
 Transparent areas preserve content behind them.
 
 Hiding assets removes them from new selections while keeping saved labels usable.
-Images can be renamed without changing their ID. Permanent deletion is allowed
-only when no template, revision, job, or CSV run references the image. Back up
-`data/assets` together with the database.
+Images can be renamed without changing their ID. Administrators can delete images,
+fonts and templates even when saved work references them. Deletion removes them
+from use immediately and retains their data for 30 days. Restore them under
+**Administration → Deleted accounts and content** before the deadline; afterward,
+maintenance permanently purges the retained data. Other users may delete unused
+images, but cannot override saved references. Back up `data/assets` with the database.
+
+Templates that reference deleted assets show a notice and placeholders: a file
+with a question mark for images, or **Aa** with a question mark in the top right
+for fonts. Replace the missing assets or restore them before printing. Affected
+queued jobs are paused; restoration does not automatically release their holds.
 
 ## Queue, printer groups, and recovery
 
@@ -212,6 +220,13 @@ submitted runs remain in history, with queued copies cancellable from the queue.
 Manage users, roles, template groups, and registration codes under
 **Administration**. Registration requires a code by default. Roles are assigned
 directly to users; the highest applicable permission wins.
+
+Only administrators can delete accounts, after reviewing and confirming the impact.
+Deletion ends all sessions and removes the user's templates, images and fonts from
+use, including shared content. The account and content can be restored together
+for 30 days. Items deleted independently beforehand stay deleted. The last enabled
+administrator cannot be deleted. Print history and its saved attribution remain;
+restored users must sign in again. A print already underway may finish.
 
 | Destination access | Allowed actions |
 | --- | --- |

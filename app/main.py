@@ -16,6 +16,7 @@ from app.api import router
 from app.auth import AuthRateLimiter, initialize_auth
 from app.config import Settings
 from app.db import make_engine, session_factory
+from app.deletion import is_deleted, purge_expired
 from app.fleet import PrinterFleet
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
@@ -46,6 +47,13 @@ def create_app(
         / "fonts"
     )
     images = ImageStore(fonts.root.parent / "images")
+
+    def asset_deleted(kind: str, identifier: str) -> bool:
+        with factory() as session:
+            return is_deleted(session, kind, identifier)
+
+    fonts.unavailable = lambda identifier: asset_deleted("fonts", identifier)
+    images.unavailable = lambda identifier: asset_deleted("images", identifier)
     registry = PrinterRegistry()
     fleet = PrinterFleet(factory, settings, fonts, images, registry, backends, backend_factory)
     stop, wake = fleet.stop, fleet.wake
@@ -53,11 +61,15 @@ def create_app(
     def run_notifications() -> None:
         import time
 
+        next_cleanup = 0.0
         while not stop.is_set():
             try:
                 from app.request_notifications import schedule_request_digest
 
                 with fleet.lock, factory.begin() as session:
+                    if time.time() >= next_cleanup:
+                        purge_expired(session, fonts, images, time.time())
+                        next_cleanup = time.time() + 3600
                     schedule_request_digest(session, time.time())
                 deliver_routed_pending(factory, settings, time.time())
             except Exception:
@@ -79,6 +91,9 @@ def create_app(
                     "Another server owns this database; run exactly one process"
                 ) from error
             with factory.begin() as session:
+                import time
+
+                purge_expired(session, fonts, images, time.time())
                 seed_templates(session)
             initialize_auth(factory, Path(db_path).resolve().parent)
             fleet.enforce_job_access = app.state.access_policy is None

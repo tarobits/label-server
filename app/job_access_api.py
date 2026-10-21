@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import access_context
+from app.deletion import content_hold_reason
 from app.http import db, job_record, record
 from app.job_access_models import JobAccessHold
 from app.models import LabelCopy, PrintJob, State, User
@@ -31,6 +32,7 @@ def hold_record(session: Session, hold: JobAccessHold) -> dict[str, Any]:
         **record(hold),
         "owner_name": owner.username if owner else job.owner_id,
         "job": job_record(session, job),
+        "can_release": content_hold_reason(session, job) is None,
     }
 
 
@@ -58,6 +60,10 @@ def resolve_hold(
     request: Request, session: Session, identifier: str, decision: str
 ) -> dict[str, Any]:
     reviewer = administrator(request)
+    if decision == "released":
+        job = session.get(PrintJob, identifier)
+        if job is not None and (reason := content_hold_reason(session, job)):
+            raise HTTPException(409, reason)
     hold = session.get(JobAccessHold, identifier)
     if hold is None:
         raise HTTPException(404, "Access hold not found")

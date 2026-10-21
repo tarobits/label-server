@@ -956,6 +956,13 @@ onUnmounted(() => {
               >Image<select v-model="selected.image_asset" @change="fitImageBox">
                 <option :value="null" disabled>Select an uploaded image</option>
                 <option
+                  v-if="preview?.missing_assets?.[selected.id] === 'image'"
+                  :value="selected.image_asset"
+                  disabled
+                >
+                  Missing image — choose a replacement
+                </option>
+                <option
                   v-for="asset in w.images.filter(
                     (a) => !a.archived || a.id === selected?.image_asset,
                   )"
@@ -1063,6 +1070,13 @@ onUnmounted(() => {
             <label
               >Font<select v-model="selected.font" @change="record">
                 <option>Noto Sans</option>
+                <option
+                  v-if="preview?.missing_assets?.[selected.id] === 'font'"
+                  :value="selected.font"
+                  disabled
+                >
+                  Missing font — choose a replacement
+                </option>
                 <option
                   v-for="font in w.fonts.filter((f) => !f.archived || f.id === selected?.font)"
                   :key="font.id"

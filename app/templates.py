@@ -9,6 +9,10 @@ from app.template_schema import TemplateDocument
 
 
 def seed_templates(session: Session) -> None:
+    from app.deletion import is_deleted
+
+    if is_deleted(session, "templates", "text"):
+        return
     if session.get(LabelTemplate, "text"):
         return
     document = TemplateDocument.model_validate(

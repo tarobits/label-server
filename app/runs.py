@@ -306,6 +306,7 @@ def preview_run_row(
         RenderSpec(**snapshot["render_spec"]),
         fonts=request.app.state.fonts,
         images=request.app.state.images,
+        allow_missing_assets=True,
     )
     return {
         "png": output.preview(run.manifest["foreground"], run.manifest["background"]),

@@ -23,8 +23,9 @@ async function resolve(hold: AccessHold, release: boolean) {
 <template>
   <div class="panel">
     <p>
-      These queued labels were paused because an account was disabled or lost the access needed to
-      print them. Restoring access alone does not release this hold.
+      These queued labels were paused because an account lost access or required content was
+      deleted. Restore deleted content before releasing affected labels. Restoring access or content
+      alone does not release a hold.
     </p>
   </div>
   <p v-if="!w.accessHolds.length" class="panel empty">No labels are paused for access review.</p>
@@ -45,7 +46,12 @@ async function resolve(hold: AccessHold, release: boolean) {
       :length-mm="hold.job.length_mm"
     />
     <div class="row wrap">
-      <button class="primary" :disabled="w.busy" @click="resolve(hold, true)">Release copies</button
+      <button
+        class="primary"
+        :disabled="w.busy || hold.can_release === false"
+        @click="resolve(hold, true)"
+      >
+        Release copies</button
       ><button class="secondary danger-text" :disabled="w.busy" @click="resolve(hold, false)">
         Cancel copies
       </button>

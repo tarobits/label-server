@@ -99,8 +99,10 @@ def change(client, resource, method, payload=None, identifier=None):
     reviewed = preview(client, resource, method, payload, identifier)
     assert reviewed.status_code == 200, reviewed.text
     endpoint = f"/api/admin/{resource}" + (f"/{identifier}" if identifier else "")
+    if method == "RESTORE":
+        endpoint += "/restore"
     response = client.request(
-        method,
+        "POST" if method == "RESTORE" else method,
         endpoint,
         json=payload or {},
         headers={

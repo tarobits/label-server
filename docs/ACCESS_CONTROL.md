@@ -88,6 +88,37 @@ the impact if the underlying configuration changes before confirmation.
 
 ## Requests and revoked access
 
+Administrators can delete accounts through the effective-access preview and
+confirmation flow. Deletion immediately disables login, revokes sessions and
+preview receipts, removes template-group memberships, and removes all owned
+templates, images and fonts from use, including shared content. The last enabled
+administrator is protected. Retained account and content data can be restored for
+30 days under **Administration → Deleted accounts and content**. Account restoration
+also restores its associated content and memberships in groups that still exist;
+independently deleted content stays deleted. Roles removed during retention are
+not recreated. Sessions are never restored.
+
+Administrators may also delete individual images, fonts and templates regardless
+of saved references. Deleted assets cannot be read, rendered for printing, or
+re-enabled by the ordinary Hide/Restore controls. Dependent templates display a
+notice, a file-and-question-mark image placeholder, or an Aa placeholder with a
+question mark at the top right for missing fonts. Preview placeholders cannot be
+printed. Other users' permanent-image-deletion operations still require the image
+to be unused and use the same 30-day retention period.
+
+Queued jobs affected by deletion enter durable holds. Deleted dependencies must
+be restored before those jobs can be released; replacing a template's asset does
+not rewrite a frozen job. New jobs can use the repaired template. Restoring content
+or an account never silently releases an existing hold. Printing already underway
+may finish. Historical jobs and attribution remain, while their asset previews
+show placeholders for removed data.
+
+Restoration is rejected at the 30-day deadline even if cleanup has not run yet.
+Cleanup runs at startup and hourly while the server is running, removes retained
+asset files and template revisions, and removes expired account records. Used
+registration codes remain spent. Minimal deletion records remain to identify
+broken references; re-uploading the same file creates a new asset identity.
+
 New registrations require an administrator-issued code by default; administrators
 can enable registration without a code. Registration never grants administration.
 Request only access requires approval; Print and higher permit direct submission.

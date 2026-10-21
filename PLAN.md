@@ -124,8 +124,13 @@ changing ink placement. QR codes retain their quiet zone and a minimum of two
 device pixels per module, including when scaled to their bounding box.
 
 Fonts and images have immutable content references and bounded uploads. Hiding
-assets must preserve saved labels. Permanent image deletion checks templates,
-historical revisions, jobs, and runs under the mutation lock. Dithering is
+assets must preserve saved labels. Administrator deletion overrides references,
+immediately removes content from use, and retains it for restoration for 30 days
+before purging. Account deletion includes owned templates, images and fonts;
+restoration recovers associated content without reviving sessions or releasing
+queued-work holds. Dependent templates show notices and image/font placeholders,
+which cannot be printed. Non-administrator image deletion still checks saved
+references under the mutation lock. Dithering is
 monochrome output; expose native grayscale only after verifying adapter support.
 
 ## CSV and integration requirements

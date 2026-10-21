@@ -17,6 +17,7 @@ from app.authorization import (
     visible_destinations,
     visible_jobs,
 )
+from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.http import db, get, idle, job_record, record
 from app.image_jobs import image_document
@@ -344,6 +345,7 @@ def templates(
     return [
         {
             **template_record(t),
+            "asset_notices": document_notices(session, t.document),
             "can_edit": template_access(request, t, Action.WRITE),
             "can_delete": template_access(request, t, Action.DELETE),
         }
@@ -363,6 +365,7 @@ def template(
     value = get(session, LabelTemplate, identifier)
     return {
         **template_record(value),
+        "asset_notices": document_notices(session, value.document),
         "can_edit": template_access(request, value, Action.WRITE),
         "can_delete": template_access(request, value, Action.DELETE),
     }
@@ -454,6 +457,21 @@ def archive_template(
     return {"archived": True}
 
 
+@router.delete("/templates/{identifier}/permanent")
+def delete_template(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, bool]:
+    actor = access_context(request).actor
+    if not actor.is_admin:
+        raise HTTPException(403, "Administrator access is required")
+    value = get(session, LabelTemplate, identifier)
+    retain(session, "templates", identifier, value.name, value.owner_id, actor.id)
+    from app.job_access import reconcile_access_holds
+
+    reconcile_access_holds(session)
+    return {"deleted": True}
+
+
 @router.get("/templates/{identifier}/revisions")
 def revisions(
     identifier: str, session: Session = Depends(db, scope="function")
@@ -480,7 +498,7 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
     document = body.document or TemplateDocument.model_validate(
         get(session, LabelTemplate, body.template_id or "").document
     )
-    require_document_assets(request, session, document.model_dump())
+    require_document_assets(request, session, document.model_dump(), allow_missing=True)
     try:
         output = render_document(
             document,
@@ -489,6 +507,7 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
             body.use_samples,
             fonts=request.app.state.fonts,
             images=request.app.state.images,
+            allow_missing_assets=True,
         )
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
@@ -499,6 +518,8 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         "pixel_width": output.image.width,
         "pixel_height": output.image.height,
         "warnings": output.warnings,
+        "missing_assets": output.missing_assets,
+        "printable": not output.missing_assets,
         "length_mm": output.document.length_mm,
         "width_mm": output.document.width_mm,
         "resolved_elements": [e.model_dump() for e in output.document.elements],
@@ -718,7 +739,13 @@ def job_preview(
 
 def label_preview_response(request: Request, item: PrintJob, label: LabelCopy) -> Response:
     try:
-        rendered = render_job(item, label, request.app.state.fonts, request.app.state.images)
+        rendered = render_job(
+            item,
+            label,
+            request.app.state.fonts,
+            request.app.state.images,
+            allow_missing_assets=True,
+        )
     except (ValueError, OSError) as error:
         raise HTTPException(422, "Saved label preview is unavailable") from error
     # Use the same packed ink raster as printing, including legacy fixture jobs.

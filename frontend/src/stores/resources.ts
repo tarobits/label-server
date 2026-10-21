@@ -113,12 +113,22 @@ export const useResourceStore = defineStore('resources', () => {
         affected.push(...printing)
       if (collection === '/admin/roles' || collection === '/admin/groups')
         affected.push('/admin/users', '/admin/registration-codes')
+      if (collection === '/admin/users') affected.push('/admin/groups', '/admin/registration-codes')
+      if (collection === '/admin/users' || collection === '/admin/trash')
+        affected.push('/admin/trash', '/templates', '/image-assets', '/font-assets', ...printing)
       if (collection === '/admin/notification-endpoints')
         affected.push('/notifications', '/workspace')
       invalidate(affected)
-    } else if (path.startsWith('/templates')) invalidate(['/templates', '/preview'])
+    } else if (path.startsWith('/templates'))
+      invalidate(['/templates', '/preview', '/admin/trash', ...printing])
     else if (path.startsWith('/image-assets') || path.startsWith('/font-assets'))
-      invalidate([path.split('/').slice(0, 2).join('/'), '/templates', '/preview'])
+      invalidate([
+        path.split('/').slice(0, 2).join('/'),
+        '/templates',
+        '/preview',
+        '/admin/trash',
+        ...printing,
+      ])
     else if (path.startsWith('/tape-profiles')) invalidate(['/tape-profiles', ...printing])
     else if (
       path.startsWith('/printers') ||

@@ -48,6 +48,10 @@ def referenced_by_readable_document(
     context = access_context(request)
     reference = (kind, identifier)
     for template in session.scalars(select(LabelTemplate)):
+        from app.deletion import is_deleted
+
+        if is_deleted(session, "templates", template.id):
+            continue
         if reference not in asset_references(template.document):
             continue
         resource = Resource(
@@ -105,11 +109,19 @@ def require_asset(
     return metadata
 
 
-def require_document_assets(request: Request, session: Session, document: Any) -> None:
+def require_document_assets(
+    request: Request, session: Session, document: Any, *, allow_missing: bool = False
+) -> None:
     for kind, identifier in asset_references(document):
         try:
             require_asset(request, session, kind, identifier)
         except HTTPException as error:
             if error.status_code == 404:
+                from app.deletion import is_deleted
+
+                if allow_missing and is_deleted(
+                    session, "images" if kind == "image_asset" else "fonts", identifier
+                ):
+                    continue
                 raise HTTPException(422, "A referenced image or font is missing") from error
             raise
