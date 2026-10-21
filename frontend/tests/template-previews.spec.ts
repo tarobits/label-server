@@ -35,7 +35,6 @@ test('templates save preview tape, display stored WebP cards and allow other pri
           {
             id: 'text',
             kind: 'text',
-            kind: 'text',
             x: 2,
             y: 4,
             width: 50,

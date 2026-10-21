@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { useAuthStore } from '../auth'
 import { computed, reactive, ref } from 'vue'
 import { api } from '../api'
@@ -148,7 +149,7 @@ function move(index: number, offset: number) {
       </button>
     </div>
   </div>
-  <form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
+  <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
     <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
     <div class="field-row">
       <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
@@ -305,7 +306,7 @@ function move(index: number, offset: number) {
       </div>
     </section>
   </div>
-  <form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
+  <form v-validate-form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
     <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
     <label>Group name<input v-model="group.name" required maxlength="100" /></label>
     <fieldset>
@@ -347,11 +348,8 @@ function move(index: number, offset: number) {
       ><button type="button" class="secondary" @click="showGroup = false">Cancel</button>
     </div>
   </form>
-  <section class="panel form-stack">
+  <section v-if="groups.length" class="panel form-stack">
     <h2>Printer groups</h2>
-    <p v-if="!groups.length" class="help">
-      Create a group, then choose it as the print destination on New label or CSV runs.
-    </p>
     <article v-for="target in groups" :key="target.id" class="printer-group">
       <div class="section-heading">
         <h3>{{ target.name }}</h3>
@@ -412,10 +410,7 @@ function move(index: number, offset: number) {
           : 'ntfy delivery is not configured.'
       }}
     </p>
-    <p class="help">
-      Notification endpoints are configured in Administration. Reminder intervals and silence are
-      managed per tape profile.
-    </p>
+    <p class="help">Notification endpoints are configured in Administration.</p>
     <RouterLink v-if="auth.can('inventory.manage')" class="button secondary" to="/profiles"
       >Manage tape reminders</RouterLink
     >

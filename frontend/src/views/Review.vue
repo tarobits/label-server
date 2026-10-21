@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
@@ -118,11 +119,10 @@ async function resolve() {
     </div>
     <BatchTrigger :trigger="batch.trigger" />
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
-    <form @submit.prevent="resolve">
+    <form v-validate-form @submit.prevent="resolve">
       <p v-if="batch.state === 'needs_review'" class="help">
-        Inspect the output and choose an outcome for each uncertain copy. Confirmed copies are
-        locked. Select from a row to include that copy and all following uncertain copies. Changes
-        are saved only when you save the review.
+        Inspect the output and choose an outcome for each uncertain copy. Select from a row to
+        include that copy and all following uncertain copies.
       </p>
       <div v-if="batch.state === 'needs_review'" class="review-bulk">
         <label
@@ -151,13 +151,15 @@ async function resolve() {
           <thead>
             <tr>
               <th v-if="batch.state === 'needs_review'" class="review-selection">
-                <input
-                  type="checkbox"
-                  :checked="allSelected"
-                  :indeterminate="selected.length > 0 && !allSelected"
-                  aria-label="Select all uncertain copies"
-                  @change="selectAll"
-                />
+                <label class="checkbox-target">
+                  <input
+                    type="checkbox"
+                    :checked="allSelected"
+                    :indeterminate="selected.length > 0 && !allSelected"
+                    aria-label="Select all uncertain copies"
+                    @change="selectAll"
+                  />
+                </label>
               </th>
               <th>Label</th>
               <th>People</th>
@@ -169,13 +171,13 @@ async function resolve() {
           <tbody>
             <tr v-for="item in batch.items" :key="item.copy_id">
               <td v-if="batch.state === 'needs_review'" class="review-selection">
-                <input
-                  v-if="item.outcome === 'needs_review'"
-                  v-model="selected"
-                  type="checkbox"
-                  :value="item.copy_id"
-                  :aria-label="`Select label ${item.position + 1}`"
-                />
+                <label class="checkbox-target" v-if="item.outcome === 'needs_review'"
+                  ><input
+                    v-model="selected"
+                    type="checkbox"
+                    :value="item.copy_id"
+                    :aria-label="`Select label ${item.position + 1}`"
+                /></label>
               </td>
               <td class="review-text">
                 <JobPreview
@@ -227,7 +229,6 @@ async function resolve() {
             min="0"
             step="0.1"
             required
-            placeholder="Include printed copies and waste"
         /></label>
         <p class="help">
           Include confirmed labels, partial labels, and feed waste. This total is deducted once from

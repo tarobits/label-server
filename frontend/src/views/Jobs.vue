@@ -208,7 +208,6 @@ async function cancel(job: Job) {
 </script>
 <template>
   <section class="panel">
-    <h2>Labels</h2>
     <div class="queue-toolbar">
       <div class="queue-filters">
         <label for="queue-filter"
@@ -258,9 +257,8 @@ async function cancel(job: Job) {
       </div>
     </div>
     <p v-if="auth.any('moderator')" class="help">
-      Select queued items to print or remove. Printing requires the installed tape. Printing a
-      selection holds automatic printing so unselected items stay queued. Each item selects its
-      remaining queued copies.
+      Printing requires the installed tape. Printing a selection holds automatic printing so
+      unselected items stay queued. Each item selects its remaining queued copies.
     </p>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <div class="table-scroll">
@@ -276,14 +274,15 @@ async function cancel(job: Job) {
         <thead>
           <tr>
             <th>
-              <input
-                type="checkbox"
-                aria-label="Select all queued items on this page"
-                :checked="checked(jobs)"
-                :indeterminate="partial(jobs)"
-                :disabled="!selectable(jobs).length || loading"
-                @change="toggle(jobs, $event)"
-              />
+              <label class="checkbox-target"
+                ><input
+                  type="checkbox"
+                  aria-label="Select all queued items on this page"
+                  :checked="checked(jobs)"
+                  :indeterminate="partial(jobs)"
+                  :disabled="!selectable(jobs).length || loading"
+                  @change="toggle(jobs, $event)"
+              /></label>
             </th>
             <th>Label</th>
             <th>Tape</th>
@@ -297,14 +296,15 @@ async function cancel(job: Job) {
             <tr v-if="group.run_id" class="queue-run-row">
               <td>
                 <div class="queue-run-controls">
-                  <input
-                    type="checkbox"
-                    :aria-label="`Select run ${group.name}`"
-                    :checked="checked(group.jobs)"
-                    :indeterminate="partial(group.jobs)"
-                    :disabled="!selectable(group.jobs).length || loading"
-                    @change="toggle(group.jobs, $event)"
-                  />
+                  <label class="checkbox-target"
+                    ><input
+                      type="checkbox"
+                      :aria-label="`Select run ${group.name}`"
+                      :checked="checked(group.jobs)"
+                      :indeterminate="partial(group.jobs)"
+                      :disabled="!selectable(group.jobs).length || loading"
+                      @change="toggle(group.jobs, $event)"
+                  /></label>
                   <button
                     class="queue-disclosure"
                     :aria-label="`Toggle ${group.name}`"
@@ -360,14 +360,15 @@ async function cancel(job: Job) {
                 <td>
                   <div class="queue-cell">
                     <div class="queue-cell-content">
-                      <input
-                        type="checkbox"
-                        :aria-label="`Select ${job.payload.text || (job.source_row ? 'CSV record ' + job.source_row : job.template_id)}`"
-                        :checked="checked([job])"
-                        :indeterminate="partial([job])"
-                        :disabled="!selectable([job]).length || loading"
-                        @change="toggle([job], $event)"
-                      />
+                      <label class="checkbox-target"
+                        ><input
+                          type="checkbox"
+                          :aria-label="`Select ${job.payload.text || (job.source_row ? 'CSV record ' + job.source_row : job.template_id)}`"
+                          :checked="checked([job])"
+                          :indeterminate="partial([job])"
+                          :disabled="!selectable([job]).length || loading"
+                          @change="toggle([job], $event)"
+                      /></label>
                     </div>
                   </div>
                 </td>

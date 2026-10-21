@@ -1,4 +1,4 @@
-# Label Printer Server
+# Taro's Label Room
 
 A self-hosted label editor and persistent print queue for Brother PT-P710BT USB
 printers. Design reusable templates, fill in variable fields, import CSV runs,

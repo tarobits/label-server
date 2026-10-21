@@ -48,7 +48,13 @@ test('batch review applies outcomes to selected following uncertain copies befor
       'printed',
     )
   await page.getByLabel('Decision for label 4', { exact: true }).selectOption('queued')
-  await page.getByLabel('Select all uncertain copies', { exact: true }).check()
+  const selectAllTarget = page
+    .getByLabel('Select all uncertain copies', { exact: true })
+    .locator('..')
+  const targetBounds = await selectAllTarget.boundingBox()
+  expect(targetBounds!.width).toBeGreaterThanOrEqual(44)
+  expect(targetBounds!.height).toBeGreaterThanOrEqual(44)
+  await selectAllTarget.click({ position: { x: 2, y: 2 } })
   await expect(page.getByRole('status', { name: '', exact: true })).toHaveText('4 selected')
   await page.getByLabel('Select all uncertain copies', { exact: true }).uncheck()
   await expect(page.getByRole('status', { name: '', exact: true })).toHaveText('0 selected')

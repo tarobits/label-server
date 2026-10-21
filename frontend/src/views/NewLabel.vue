@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { vValidateForm, apiFieldErrors, focusFormErrors, type FieldErrors } from '../formValidation'
 import { storeToRefs } from 'pinia'
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { useAuthStore } from '../auth'
@@ -54,6 +55,20 @@ const data = ref<Record<string, string>>({}),
   error = ref(''),
   rendering = ref(false),
   showPrintPixels = ref(true)
+const labelForm = ref<HTMLFormElement | null>(null)
+const previewFieldErrors = ref<FieldErrors>({})
+const submissionFieldErrors = ref<FieldErrors>({})
+const fieldErrors = computed(() => ({
+  ...previewFieldErrors.value,
+  ...submissionFieldErrors.value,
+}))
+function clearSubmissionError(event: Event) {
+  const name = (event.target as HTMLInputElement).name
+  if (!(name in submissionFieldErrors.value)) return
+  const errors = { ...submissionFieldErrors.value }
+  delete errors[name]
+  submissionFieldErrors.value = errors
+}
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
 const destination = computed(() => w.destinations.find((d) => d.id === form.destination_id))
 const matchingPrinters = computed(() =>
@@ -132,12 +147,19 @@ async function render() {
   if (!document.value) return
   rendering.value = true
   try {
+    const errors: FieldErrors = {}
     if (document.value.width_mm !== selected.value?.width_mm)
-      throw new Error('Template and tape widths do not match.')
-    const missing = document.value.fields.find(
+      errors.tape_profile = 'Template and tape widths do not match.'
+    const missing = document.value.fields.filter(
       (field) => field.required && !(data.value[field.name] ?? field.default).trim(),
     )
-    if (missing) throw new Error(`${missing.label} is required`)
+    for (const field of missing) errors[`data.${field.name}`] = `${field.label} is required`
+    previewFieldErrors.value = errors
+    if (Object.keys(errors).length) {
+      preview.value = null
+      error.value = ''
+      return
+    }
     const result = await resources.preview<Preview>(
       {
         destination_id: form.destination_id,
@@ -165,6 +187,7 @@ watch(
   [document, data, selected, destination],
   () => {
     serial++
+    previewFieldErrors.value = {}
     clearTimeout(timer)
     rendering.value = true
     timer = setTimeout(render, 300)
@@ -179,6 +202,7 @@ onUnmounted(() => {
 let submissionBody = '',
   submissionKey = ''
 async function submit() {
+  let fieldErrorsHandled = false
   const body = {
     destination_id: form.destination_id,
     template: form.template,
@@ -199,7 +223,21 @@ async function submit() {
           'POST',
           auth.atLeast(form.destination_id, 'print') ? body : { kind: 'job', input: body },
           { 'Idempotency-Key': submissionKey },
-        ),
+        ).catch(async (issue: unknown) => {
+          const errors = apiFieldErrors(
+            issue,
+            auth.atLeast(form.destination_id, 'print') ? ['body'] : ['body', 'job', 'input'],
+          )
+          const entries = Object.entries(errors)
+          submissionFieldErrors.value = Object.fromEntries(
+            entries.filter(([name]) => labelForm.value?.elements.namedItem(name)),
+          )
+          fieldErrorsHandled =
+            entries.length > 0 && entries.length === Object.keys(submissionFieldErrors.value).length
+          await nextTick()
+          focusFormErrors(labelForm.value)
+          throw issue
+        }),
       auth.atLeast(form.destination_id, 'print')
         ? `${form.copies} copies added to the queue.`
         : 'Label sent for approval. Nothing has been queued yet.',
@@ -209,13 +247,12 @@ async function submit() {
     submissionKey = ''
     if (route.path === '/new')
       await router.push(auth.atLeast(form.destination_id, 'print') ? '/queue' : '/requests')
-  }
+  } else if (fieldErrorsHandled) w.actionError = ''
 }
 </script>
 <template>
   <div v-if="!profiles.length" class="panel empty">
     <h2>No tape profiles</h2>
-    <p>Add a tape profile before submitting a label.</p>
     <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
       >Create tape profile</RouterLink
     >
@@ -226,10 +263,17 @@ async function submit() {
     <RouterLink class="button primary" to="/templates/new">Open visual editor</RouterLink>
   </div>
   <div v-else class="two-column">
-    <form class="panel form-stack" @submit.prevent="submit">
+    <form
+      ref="labelForm"
+      v-validate-form="fieldErrors"
+      class="panel form-stack"
+      @input="clearSubmissionError"
+      @change="clearSubmissionError"
+      @submit.prevent="submit"
+    >
       <h2>Label details</h2>
       <label
-        >Print destination<select v-model="form.destination_id">
+        >Print destination<select v-model="form.destination_id" name="destination_id">
           <option
             v-for="destination in w.destinations"
             :key="destination.id"
@@ -242,13 +286,13 @@ async function submit() {
         </select></label
       >
       <label
-        >Template<select v-model="form.template">
+        >Template<select v-model="form.template" name="template">
           <option v-for="item in templates" :key="item.id" :value="item.id">
             {{ item.name }} · revision {{ item.revision }}
           </option>
         </select></label
       ><label
-        >Tape profile<select v-model="form.tape_profile" required>
+        >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>
           <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
             {{ profile.name }} · {{ profile.width_mm }} mm
           </option>
@@ -257,6 +301,7 @@ async function submit() {
         >{{ field.label
         }}<textarea
           v-model="data[field.name]"
+          :name="`data.${field.name}`"
           :required="field.required"
           maxlength="2000"
           rows="2"
@@ -264,10 +309,17 @@ async function submit() {
       </label>
       <div class="field-row">
         <label
-          >Copies<input v-model.number="form.copies" type="number" min="1" max="1000" required
+          >Copies<input
+            v-model.number="form.copies"
+            name="copies"
+            type="number"
+            min="1"
+            max="1000"
+            required
         /></label>
       </div>
       <p class="help">{{ routingHint }}</p>
+      <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <button
         class="primary"
         :disabled="
@@ -303,15 +355,12 @@ async function submit() {
           }"
           alt="Rendered label preview"
         />
-        <p v-else class="help">
-          {{ rendering ? 'Rendering…' : 'Enter valid label values to preview.' }}
-        </p>
+        <p v-else-if="rendering" class="help">Rendering…</p>
         <span
           >{{ selected?.width_mm }} mm tape ·
           {{ preview?.length_mm ?? template?.document.length_mm }} mm label</span
         >
       </div>
-      <p v-if="error" class="inline-warning">{{ error }}</p>
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
         {{ warning }}
       </p>

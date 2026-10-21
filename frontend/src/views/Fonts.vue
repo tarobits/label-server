@@ -66,9 +66,7 @@ async function remove(font: FontAsset) {
   </section>
   <section class="panel">
     <h2>Font library</h2>
-    <p class="help">
-      Noto Sans regular and bold are bundled. Hidden fonts remain available to saved labels.
-    </p>
+    <p class="help">Hidden fonts remain available to saved labels.</p>
     <div class="table-scroll">
       <table>
         <thead>

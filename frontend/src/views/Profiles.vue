@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
 import { confirmAction } from '../confirmation'
 import { reactive, ref } from 'vue'
@@ -78,10 +79,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
 </script>
 <template>
   <div class="section-heading">
-    <p class="muted">A profile describes the tape. A cartridge tracks a physical cassette.</p>
     <button class="secondary" @click="edit()">Add tape profile</button>
   </div>
-  <form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
+  <form v-validate-form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
     <div class="section-heading">
       <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
       <button type="button" class="text-button" @click="formOpen = false">Close</button>
@@ -133,10 +133,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   </form>
   <div v-if="!profiles.length && !formOpen" class="panel empty">
     <h2>No tape profiles</h2>
-    <p>Create a profile with your tape’s width and colors.</p>
     <button class="primary" @click="edit()">Create first tape profile</button>
   </div>
-  <div class="card-grid">
+  <div v-if="profiles.length" class="card-grid">
     <article v-for="profile in profiles" :key="profile.id" class="panel profile-card">
       <div class="section-heading">
         <span
@@ -178,6 +177,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         </button>
       </div>
       <form
+        v-validate-form
         v-if="snoozeProfile === profile.id"
         class="form-stack inset"
         @submit.prevent="reminder(profile.id, 'snooze')"

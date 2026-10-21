@@ -398,10 +398,7 @@ onUnmounted(() => {
             </select></label
           >
         </div>
-        <p class="help">
-          Missing required values will be reported for each selected record. Row order below is
-          print order.
-        </p>
+        <p class="help">Row order below is print order.</p>
         <div class="row wrap">
           <button @click="rows.forEach((r) => (r.selected = true))">Select all</button
           ><button @click="rows.forEach((r) => (r.selected = false))">Select none</button
@@ -424,11 +421,12 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="(row, index) in rows" :key="row.source_row">
                 <td>
-                  <input
-                    v-model="row.selected"
-                    type="checkbox"
-                    :aria-label="`Select record ${row.source_row}`"
-                  />
+                  <label class="checkbox-target"
+                    ><input
+                      v-model="row.selected"
+                      type="checkbox"
+                      :aria-label="`Select record ${row.source_row}`"
+                  /></label>
                 </td>
                 <td>{{ row.source_row }}</td>
                 <td class="csv-values">{{ row.values.join(' · ') }}</td>
@@ -566,7 +564,10 @@ onUnmounted(() => {
     <section class="panel form-stack">
       <div class="section-heading">
         <h2>Run preview</h2>
-        <label class="checkbox"><input v-model="pixels" type="checkbox" />Show print pixels</label>
+        <label class="checkbox"
+          ><span class="checkbox-target"><input v-model="pixels" type="checkbox" /></span>Show print
+          pixels</label
+        >
       </div>
       <div class="row wrap">
         <button :disabled="position === 0" @click="position--">Previous label</button

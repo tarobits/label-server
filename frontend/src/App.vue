@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Icon from './components/Icon.vue'
+import BrandLogo from './components/BrandLogo.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import SignIn from './views/SignIn.vue'
@@ -12,6 +13,24 @@ import { useLiveRefresh } from './live'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
+const navigation = ref<HTMLElement | null>(null)
+const activeSection = computed(() => {
+  if (route.path.startsWith('/batches/')) return '/activity'
+  if (route.path === '/access-holds') return '/admin'
+  return `/${route.path.split('/')[1]}`
+})
+watch(
+  () => [auth.user?.id, activeSection.value],
+  async () => {
+    await nextTick()
+    const nav = navigation.value
+    const selected = nav?.querySelector<HTMLElement>('.selected')
+    if (!nav || !selected || nav.scrollWidth <= nav.clientWidth) return
+    const item = selected.getBoundingClientRect()
+    const bounds = nav.getBoundingClientRect()
+    nav.scrollLeft += item.left - bounds.left - (bounds.width - item.width) / 2
+  },
+)
 const needsPrinter = computed(() => route.path === '/new')
 const designPage = computed(
   () =>
@@ -107,17 +126,16 @@ async function logout() {
     <a class="skip" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
     <div class="app-shell">
       <aside class="sidebar">
-        <RouterLink class="brand" to="/"
-          ><span class="brand-icon"><Icon name="printer" /></span
-          ><span>Label room</span></RouterLink
-        >
-        <div class="nav-label">WORKSPACE</div>
-        <nav aria-label="Main navigation">
+        <RouterLink class="brand-link" to="/"><BrandLogo /></RouterLink>
+        <nav ref="navigation" aria-label="Main navigation">
           <RouterLink
             v-for="[path, label, icon] in links"
             :key="path"
             :to="path!"
-            :class="{ selected: route.path === path }"
+            :class="{ selected: activeSection === path }"
+            :aria-current="
+              route.path === path ? 'page' : activeSection === path ? 'location' : undefined
+            "
             ><Icon :name="icon!" />{{ label
             }}<span v-if="path === '/queue' && w.totalQueued" class="nav-count">{{
               w.totalQueued
@@ -141,13 +159,11 @@ async function logout() {
               off: connectionError || !connectedPrinters,
             }"
           ></span
-          >{{ connectionError ? 'Server unavailable' : fleetSummary
-          }}<small>Your printer fleet</small>
+          >{{ connectionError ? 'Server unavailable' : fleetSummary }}
         </div>
       </aside>
       <div class="main-wrap">
         <div class="topbar">
-          <span>YOUR LABEL WORKSPACE</span>
           <div class="row">
             <span>{{ auth.user.username }}</span
             ><button class="text-button sign-out" @click="logout">Sign out</button
@@ -204,8 +220,7 @@ async function logout() {
           >
             <span
               ><strong>{{ w.accessHolds.length }} labels paused after an access change.</strong>
-              Review and release or cancel their queued copies.</span
-            >
+            </span>
             <RouterLink to="/access-holds">Review paused labels</RouterLink>
           </div>
           <div v-if="loaded && !w.destinations.length && needsPrinter" class="panel empty">
@@ -214,12 +229,9 @@ async function logout() {
                 auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet'
               }}
             </h2>
-            <p>
-              {{
-                auth.can('printers.manage')
-                  ? 'Set up a Brother PT-P710BT to start designing and printing labels.'
-                  : 'Ask your administrator to assign you a role with access to a printer or distribution group.'
-              }}
+            <p v-if="!auth.can('printers.manage')">
+              Ask your administrator to assign you a role with access to a printer or distribution
+              group.
             </p>
             <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers"
               >Set up printers</RouterLink
@@ -227,7 +239,6 @@ async function logout() {
           </div>
           <div v-if="!allowed" class="panel empty">
             <h2>Access restricted</h2>
-            <p>Your account does not have permission to open this page.</p>
             <RouterLink to="/">Back to overview</RouterLink>
           </div>
           <RouterView

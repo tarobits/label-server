@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Rename the product to Taro's Label Room and add shared branding to sign-in,
+  registration, and first-run setup.
+- Simplify UI copy and polish forms, editor layouts, and responsive navigation.
+- Add accessible inline form validation, keyboard recovery, and larger checkbox
+  targets for queue selection, CSV runs, and batch review.
+- Fix mobile overflow with long cartridge names, preserve navigation context on
+  nested pages, and keep sidebar controls reachable in short windows.
+- Improve placeholder contrast, disabled-button feedback, and authentication form
+  transitions.
+
 ## 0.1.0
 
 Initial release of Label Printer Server.

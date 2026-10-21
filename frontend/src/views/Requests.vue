@@ -142,12 +142,7 @@ onUnmounted(() => {
     <template
       v-if="selected.status === 'pending' && auth.atLeast(selected.destination_id, 'moderator')"
     >
-      <label
-        >Reason for rejection<input
-          v-model="reason"
-          maxlength="1000"
-          placeholder="Explain what needs to change"
-      /></label>
+      <label>Reason for rejection<input v-model="reason" maxlength="1000" /></label>
       <div class="row wrap">
         <button class="primary" :disabled="busy" @click="decide(true)">Approve and queue</button
         ><button

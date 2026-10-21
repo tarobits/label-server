@@ -130,6 +130,6 @@ const router = createRouter({
   ],
 })
 router.afterEach((to) => {
-  document.title = `${String(to.meta.title)} · Label room`
+  document.title = `${String(to.meta.title)} · Taro's Label Room`
 })
 createApp(App).use(pinia).use(router).mount('#app')

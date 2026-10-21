@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api, errorMessage } from '../api'
@@ -175,7 +176,6 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 <template>
   <section v-if="auth.user?.is_admin" class="panel notification-endpoints">
     <PropertySection title="Notification endpoints">
-      <p class="help">Send matching alerts to one or more ntfy topics.</p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <p v-if="success" class="alert success" role="status">{{ success }}</p>
       <div class="section-heading">
@@ -222,7 +222,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </button>
         </div>
       </article>
-      <form v-if="showForm" class="form-stack endpoint-form" @submit.prevent="save">
+      <form v-validate-form v-if="showForm" class="form-stack endpoint-form" @submit.prevent="save">
         <h3>{{ editing ? 'Edit notification endpoint' : 'New notification endpoint' }}</h3>
         <label>Endpoint name<input v-model="form.name" required maxlength="100" /></label>
         <div class="field-row">
@@ -310,8 +310,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </p>
         <p class="help">
           Select all chooses only current physical printers. Select groups individually to include
-          their member printers’ operational alerts as membership changes. The all-printers option
-          also includes future printers.
+          their member printers’ operational alerts as membership changes.
         </p>
         <fieldset class="event-types">
           <legend>Event types</legend>

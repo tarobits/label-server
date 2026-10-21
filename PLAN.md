@@ -2,7 +2,7 @@
 
 ## Current scope
 
-Label Printer Server provides a visual editor, persistent queue, Brother PT-P710BT
+Taro's Label Room provides a visual editor, persistent queue, Brother PT-P710BT
 USB printing, printer groups, CSV runs, REST integrations, and accounts with
 approval workflows. These features are implemented. See [README.md](README.md)
 for usage and [TODO.md](TODO.md) for remaining work.

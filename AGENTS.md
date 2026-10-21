@@ -1,4 +1,4 @@
-# Label Printer Server
+# Taro's Label Room
 
 ## Hard Rules
 

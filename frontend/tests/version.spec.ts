@@ -3,11 +3,11 @@ import { test, expect } from './fixtures'
 test('version display and dismissible update notice stay consistent across navigation', async ({
   page,
 }) => {
-  let latest = '0.1.1'
+  let latest = '0.2.1'
   await page.route('**/api/version', (route) =>
     route.fulfill({
       json: {
-        current_version: '0.1.0',
+        current_version: '0.2.0',
         latest_version: latest,
         update_available: true,
         release_url: `https://github.com/tarobits/label-server/releases/tag/v${latest}`,
@@ -15,12 +15,12 @@ test('version display and dismissible update notice stay consistent across navig
     }),
   )
   await page.goto('/#/')
-  await expect(page.locator('.version-number')).toHaveText('v0.1.0')
+  await expect(page.locator('.version-number')).toHaveText('v0.2.0')
   const notice = page.getByRole('status', { name: 'Software update' })
-  await expect(notice).toContainText('0.1.1')
+  await expect(notice).toContainText('0.2.1')
   await expect(notice.getByRole('link', { name: 'View release' })).toHaveAttribute(
     'href',
-    /v0\.1\.1$/,
+    /v0\.2\.1$/,
   )
   const position = await notice.boundingBox()
   const viewport = page.viewportSize()!
@@ -30,15 +30,15 @@ test('version display and dismissible update notice stay consistent across navig
   await expect(notice).toHaveCount(0)
   await page.goto('/#/templates')
   await page.reload()
-  await expect(page.locator('.version-number')).toHaveText('v0.1.0')
+  await expect(page.locator('.version-number')).toHaveText('v0.2.0')
   await expect(notice).toHaveCount(0)
-  latest = '0.2.0'
-  await expect(notice).toContainText('0.2.0', { timeout: 10000 })
+  latest = '0.3.0'
+  await expect(notice).toContainText('0.3.0', { timeout: 10000 })
   await page.screenshot({ path: 'test-results/version-notice.png' })
 })
 
 test('current or unavailable releases do not show a notice', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.locator('.version-number')).toHaveText('v0.1.0')
+  await expect(page.locator('.version-number')).toHaveText('v0.2.0')
   await expect(page.getByRole('status', { name: 'Software update' })).toHaveCount(0)
 })

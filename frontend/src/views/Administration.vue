@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api, ApiError, errorMessage } from '../api'
@@ -386,7 +387,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </tbody>
         </table>
       </div>
-      <form v-if="selectedUser" class="form-stack admin-form" @submit.prevent="saveUser">
+      <form
+        v-validate-form
+        v-if="selectedUser"
+        class="form-stack admin-form"
+        @submit.prevent="saveUser"
+      >
         <h3>Edit {{ selectedUser.username }}</h3>
         <label class="checkbox"
           ><input v-model="selectedUser.disabled" type="checkbox" />Disable account</label
@@ -416,7 +422,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </div>
       </form>
       <PropertySection title="Create an account"
-        ><form class="form-stack" @submit.prevent="createUser">
+        ><form v-validate-form class="form-stack" @submit.prevent="createUser">
           <div class="field-row">
             <label
               >New username<input
@@ -466,7 +472,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </button>
         </div>
       </div>
-      <form class="form-stack admin-form" @submit.prevent="saveRole">
+      <form v-validate-form class="form-stack admin-form" @submit.prevent="saveRole">
         <h3>{{ roleForm.id ? 'Edit role' : 'New role' }}</h3>
         <label>Role name<input v-model="roleForm.name" required maxlength="100" /></label>
         <fieldset class="choice-grid">
@@ -525,7 +531,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </button>
         </div>
       </div>
-      <form class="form-stack admin-form" @submit.prevent="saveGroup">
+      <form v-validate-form class="form-stack admin-form" @submit.prevent="saveGroup">
         <h3>{{ groupForm.id ? 'Edit template group' : 'New template group' }}</h3>
         <label>Group name<input v-model="groupForm.name" required maxlength="100" /></label>
         <fieldset>
@@ -584,10 +590,10 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             readonly
             @focus="($event.target as HTMLInputElement).select()"
         /></label>
-        <p>Shown once. Share this code with the intended new member.</p>
+        <p>Shown once.</p>
         <button class="secondary" @click="issuedCode = ''">Dismiss code</button>
       </div>
-      <form class="form-stack" @submit.prevent="issueCode">
+      <form v-validate-form class="form-stack" @submit.prevent="issueCode">
         <div class="field-row">
           <label>Code label<input v-model="codeForm.name" required maxlength="100" /></label
           ><label
@@ -643,6 +649,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
   <section class="panel">
     <PropertySection title="Account settings"
       ><form
+        v-validate-form
         class="form-stack"
         @submit.prevent="
           perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.', [
@@ -720,7 +727,6 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           You are deleting your own account and will be signed out.
         </p>
       </template>
-      <p v-else>Review each user’s access before applying this change.</p>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
       <div v-if="impact" class="table-scroll">
         <table>

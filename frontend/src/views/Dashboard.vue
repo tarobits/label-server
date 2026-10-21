@@ -72,12 +72,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
     <h2>
       {{ auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet' }}
     </h2>
-    <p>
-      {{
-        auth.can('printers.manage')
-          ? 'Set up a printer to start printing labels.'
-          : 'Ask your administrator to assign you a role with access to a printer or distribution group.'
-      }}
+    <p v-if="!auth.can('printers.manage')">
+      Ask your administrator to assign you a role with access to a printer or distribution group.
     </p>
     <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers"
       >Set up printers</RouterLink
@@ -86,7 +82,6 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
   <div class="stats-grid fleet-stats" :class="{ 'groups-only': !w.printers.length }">
     <article class="stat" aria-label="Queued labels">
       <span>QUEUED LABELS</span><strong>{{ w.totalQueued }}<small>copies</small></strong>
-      <p>Copies in accessible queues</p>
     </article>
     <template v-if="w.printers.length">
       <article class="stat" aria-label="Connected printers">
@@ -94,7 +89,6 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         ><strong
           >{{ connected }}<small>/ {{ w.printers.length }}</small></strong
         >
-        <p>Printers you can access directly</p>
       </article>
       <article class="stat" aria-label="Printing now">
         <span>PRINTING NOW</span><strong>{{ printing }}<small>printers</small></strong>
@@ -276,7 +270,6 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                   !state(device.id)?.printing ||
                   state(device.id)?.stop_requested === 'emergency'
                 "
-                title="Requests cancellation immediately. The current label may finish."
                 @click="stopPrinter(device.id, 'emergency')"
               >
                 Emergency stop
@@ -285,7 +278,6 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 v-if="auth.atLeast(device.id, 'full') && device.driver === 'brother-pt-p710bt'"
                 class="secondary"
                 disabled
-                title="Standalone cutting is not supported by this printer’s USB driver."
               >
                 Cut tape
               </button>

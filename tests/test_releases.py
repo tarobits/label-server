@@ -35,7 +35,14 @@ def test_version_numbers_match_release_metadata():
 
 
 @pytest.mark.parametrize(
-    "tag,newer", [("v0.1.1", True), ("v0.10.0", True), ("0.1.0", False), ("v0.0.9", False)]
+    "tag,newer",
+    [
+        ("v0.2.1", True),
+        ("v0.10.0", True),
+        ("0.2.0", False),
+        ("v0.1.1", False),
+        ("v0.0.9", False),
+    ],
 )
 def test_only_newer_versions_notify_and_success_is_cached(tag, newer):
     calls = []
@@ -69,7 +76,7 @@ def test_failures_are_cached_and_do_not_leak_credentials():
     assert checker.status() == result
     assert calls == [True]
     checker.next_check = 0
-    checker.fetch = lambda: "v0.1.1"
+    checker.fetch = lambda: "v0.2.1"
     assert complete(checker)["update_available"]
 
 
@@ -79,7 +86,7 @@ def test_concurrent_status_calls_return_immediately_and_share_one_check():
     def fetch():
         started.set()
         assert finish.wait(2)
-        return "v0.1.1"
+        return "v0.2.1"
 
     checker = ReleaseChecker(Settings(), fetch)
     try:

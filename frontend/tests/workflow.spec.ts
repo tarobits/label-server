@@ -303,6 +303,11 @@ test('CSV runs map columns, preview reordered rows, survive reload and submit on
   const id = page.url().split('/runs/')[1]
   await expect(page.getByAltText('CSV label preview')).toBeVisible()
   await expect(page.getByText('Label 1 of 2 · CSV record 3', { exact: true })).toBeVisible()
+  const pixels = page.getByRole('checkbox', { name: 'Show print pixels', exact: true })
+  await expect(pixels).toBeChecked()
+  await page.getByText('Show print pixels', { exact: true }).click()
+  await expect(pixels).not.toBeChecked()
+  await pixels.check()
   await page.getByRole('button', { name: 'Next label', exact: true }).click()
   await expect(page.getByText('Label 2 of 2 · CSV record 2', { exact: true })).toBeVisible()
   await expect(page).toHaveURL(/row=2/)

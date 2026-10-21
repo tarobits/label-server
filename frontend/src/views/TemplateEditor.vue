@@ -699,25 +699,17 @@ onUnmounted(() => {
       </div>
     </div>
   </section>
-  <div class="editor-layout">
+  <div class="editor-layout" :class="{ 'no-selection': !selected }">
     <section class="panel editor-workspace">
       <div class="editor-tools">
         <div class="editor-add-buttons" role="group" aria-label="Add elements">
-          <button aria-label="Add image" title="Add image" @click="add('image')">
-            <PhotoIcon />Image
-          </button>
-          <button aria-label="Add text" title="Add text" @click="add('text')">
-            <LanguageIcon />Text
-          </button>
-          <button aria-label="Add QR code" title="Add QR code" @click="add('qr')">
-            <QrCodeIcon />QR code
-          </button>
-          <button aria-label="Add rectangle" title="Add rectangle" @click="add('rectangle')">
+          <button aria-label="Add image" @click="add('image')"><PhotoIcon />Image</button>
+          <button aria-label="Add text" @click="add('text')"><LanguageIcon />Text</button>
+          <button aria-label="Add QR code" @click="add('qr')"><QrCodeIcon />QR code</button>
+          <button aria-label="Add rectangle" @click="add('rectangle')">
             <StopIcon />Rectangle
           </button>
-          <button aria-label="Add line" title="Add line" @click="add('line')">
-            <MinusIcon />Line
-          </button>
+          <button aria-label="Add line" @click="add('line')"><MinusIcon />Line</button>
         </div>
       </div>
       <div class="editor-options">
@@ -879,14 +871,14 @@ onUnmounted(() => {
       <p v-if="document.auto_length || document.out_of_bounds === 'clip'" class="help">
         <span v-if="document.auto_length">Automatic length: 10–300 mm.</span>
         <span v-if="document.out_of_bounds === 'clip'">
-          Objects outside the guides are clipped but remain editable.
+          Objects outside the guides are clipped.
         </span>
       </p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
         {{ warning }}
       </p>
-      <div class="row wrap">
+      <div v-if="document.elements.length" class="row wrap">
         <button
           v-for="(element, index) in document.elements"
           :key="element.id"
@@ -898,10 +890,13 @@ onUnmounted(() => {
         </button>
       </div>
     </section>
-    <section class="panel editor-properties" aria-labelledby="element-properties-heading">
+    <section
+      v-if="selected"
+      class="panel editor-properties"
+      aria-labelledby="element-properties-heading"
+    >
       <h2 id="element-properties-heading">Element properties</h2>
-      <p v-if="!selected" class="help">Add or select an element to edit it.</p>
-      <div v-else class="editor-property-sections">
+      <div class="editor-property-sections">
         <PropertySection title="Position &amp; size" initially-open>
           <div class="field-row">
             <label
@@ -1080,10 +1075,7 @@ onUnmounted(() => {
               ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text box
               width to content</label
             >
-            <p class="help" v-if="selected.auto_width">
-              Fits each value without wrapping. Combine with automatic label length for
-              variable-length labels.
-            </p>
+            <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
             <label
               >Font<select v-model="selected.font" @change="record">
                 <option>Noto Sans</option>
@@ -1155,10 +1147,7 @@ onUnmounted(() => {
               /></label>
             </div>
           </fieldset>
-          <p class="help">
-            Extra gaps between characters and lines. Zero uses normal spacing; gaps shrink with
-            text.
-          </p>
+          <p class="help">Zero uses normal spacing; gaps shrink with text.</p>
           <fieldset class="text-padding">
             <legend>Text padding (mm)</legend>
             <div
@@ -1267,12 +1256,14 @@ onUnmounted(() => {
       </div>
     </section>
   </div>
-  <section class="panel">
+  <section class="panel variable-fields">
     <div class="section-heading">
       <h2>Variable fields</h2>
       <button @click="addField">Add variable</button>
     </div>
-    <p class="help">Samples are used in the editor. Defaults prefill the label submission form.</p>
+    <p v-if="document.fields.length" class="help">
+      Samples are used in the editor. Defaults prefill the label submission form.
+    </p>
     <div v-for="(field, index) in document.fields" :key="index" class="variable-row">
       <label
         >Variable name<input
@@ -1291,5 +1282,8 @@ onUnmounted(() => {
 <style scoped>
 .template-sharing {
   max-width: 600px;
+}
+.variable-fields > .section-heading:last-child {
+  margin-bottom: 0;
 }
 </style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -131,7 +132,7 @@ async function correct(id: string) {
     Finish printing, resolve the pending review, or cancel the pending flush on
     {{ selectedPrinter?.name }} before swapping cartridges.
   </p>
-  <form v-if="showForm" class="panel form-stack" @submit.prevent="save">
+  <form v-validate-form v-if="showForm" class="panel form-stack" @submit.prevent="save">
     <h2>Register a cartridge</h2>
     <div class="field-row">
       <label
@@ -175,12 +176,11 @@ async function correct(id: string) {
   </form>
   <div v-if="!cartridges.length" class="panel empty">
     <h2>No cartridges registered yet.</h2>
-    <p>Each cassette keeps its own remaining-tape estimate when you swap it out.</p>
     <RouterLink v-if="!profiles.length" class="button primary" to="/profiles"
       >Create a tape profile first</RouterLink
     >
   </div>
-  <div class="cartridge-grid">
+  <div v-if="cartridges.length" class="cartridge-grid">
     <article v-for="cartridge in cartridges" :key="cartridge.id" class="panel cartridge-card">
       <div class="section-heading">
         <span class="eyebrow">{{ w.profileName(cartridge.profile_id) }}</span
@@ -203,8 +203,8 @@ async function correct(id: string) {
       <p v-if="cartridge.consumption_uncertain" class="inline-warning">
         Consumption uncertain. Reconcile it during batch review.
       </p>
-      <p v-else class="help">An estimate, including labels and batch overhead.</p>
       <form
+        v-validate-form
         v-if="correcting === cartridge.id"
         class="form-stack inset"
         @submit.prevent="correct(cartridge.id)"
@@ -288,6 +288,7 @@ async function correct(id: string) {
   flex-shrink: 1;
   text-align: right;
   overflow-wrap: anywhere;
+  white-space: normal;
 }
 .cartridge-card h2,
 .cartridge-card p,
@@ -308,7 +309,6 @@ async function correct(id: string) {
 .cartridge-card .remaining small {
   margin-left: 0;
 }
-.cartridge-card .help,
 .cartridge-card .inline-warning {
   font-size: 12px;
 }

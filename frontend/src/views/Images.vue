@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vValidateForm } from '../formValidation'
 import { nextTick, ref } from 'vue'
 import { api } from '../api'
 import { useAuthStore } from '../auth'
@@ -69,7 +70,7 @@ async function upload() {
     await w.action(
       () =>
         api<ImageAsset>(`/image-assets?name=${encodeURIComponent(chosen.name)}`, 'POST', chosen),
-      'Image added to the library. Choose it in an image element in the template editor.',
+      'Image added to the library.',
     )
   ) {
     file.value = null
@@ -112,10 +113,7 @@ async function visibility(asset: ImageAsset) {
   </section>
   <section class="panel">
     <h2>Image library</h2>
-    <p class="help">
-      Hidden images remain available to saved labels. Administrators can delete images even when
-      used by saved labels; deleted images are held for restoration for 30 days before purging.
-    </p>
+    <p class="help">Hidden images remain available to saved labels.</p>
     <p v-if="!w.images.length" class="empty">No images uploaded.</p>
     <div v-else class="table-scroll">
       <table class="image-library-table">
@@ -148,6 +146,7 @@ async function visibility(asset: ImageAsset) {
             </td>
             <td>
               <form
+                v-validate-form
                 v-if="editing === asset.id"
                 class="image-rename"
                 @submit.prevent="rename(asset)"
@@ -236,7 +235,7 @@ async function visibility(asset: ImageAsset) {
           :alt="preview.name"
           @error="previewFailed = true"
         />
-        <p class="help">{{ preview.width }} × {{ preview.height }} px · Original artwork</p>
+        <p class="help">{{ preview.width }} × {{ preview.height }} px</p>
       </template>
     </dialog>
   </Teleport>

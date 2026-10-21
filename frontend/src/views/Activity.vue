@@ -76,9 +76,7 @@ function noticeState(notice: (typeof notices.value)[number]) {
     <p v-if="!overview.notifications_enabled" class="help">
       Alerts are saved here. Configure ntfy to deliver them to your devices.
     </p>
-    <div v-if="!notices.length" class="empty compact">
-      All quiet. Alerts and tape reminders will appear here.
-    </div>
+    <div v-if="!notices.length" class="empty compact">All quiet.</div>
     <article v-for="notice in notices" :key="notice.id" class="notification">
       <div class="row spread">
         <strong>{{ notice.title }}</strong

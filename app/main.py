@@ -123,7 +123,7 @@ def create_app(
             engine.dispose()
             lock_file.close()
 
-    app = FastAPI(title="Label Printer Server", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="Taro's Label Room", version=__version__, lifespan=lifespan)
     releases = ReleaseChecker(settings)
     app.state.releases = releases
     app.state.access_policy = None
