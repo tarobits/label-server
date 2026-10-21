@@ -79,6 +79,7 @@ test('account deletion confirms content removal, shows placeholders and restores
     expect(queued.ok()).toBeTruthy()
 
     await page.goto('/#/admin')
+    await page.getByRole('button', { name: 'Edit author', exact: true }).click()
     await page.getByRole('button', { name: 'Delete account author', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Delete account', exact: true })
     await expect(dialog).toContainText('30 days')
@@ -112,6 +113,7 @@ test('account deletion confirms content removal, shows placeholders and restores
     await page.getByRole('button', { name: 'Deleted accounts and content', exact: true }).click()
     await page.getByRole('button', { name: 'Restore author', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm access changes', exact: true }).click()
+    await page.getByRole('button', { name: 'Users', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Edit author', exact: true })).toBeVisible()
     expect((await (await request.get('/api/image-assets')).json()).length).toBe(1)
     expect((await (await request.get('/api/font-assets')).json()).length).toBe(1)

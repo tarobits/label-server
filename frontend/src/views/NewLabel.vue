@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../workspace'
 import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
+import ProcessNameInput from '../components/ProcessNameInput.vue'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -29,6 +30,7 @@ const form = reactive({
       : (templates.value[0]?.id ?? ''),
 })
 const template = computed(() => templates.value.find((t) => t.id === form.template))
+const processName = ref('')
 watch(
   () => form.template,
   (_, previous) => {
@@ -213,6 +215,7 @@ let submissionBody = '',
 async function submit() {
   let fieldErrorsHandled = false
   const body = {
+    process_name: processName.value.trim(),
     destination_id: form.destination_id,
     template: form.template,
     tape_profile: form.tape_profile,
@@ -300,7 +303,9 @@ async function submit() {
             {{ item.name }} · revision {{ item.revision }}
           </option>
         </select></label
-      ><label
+      >
+      <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
+      <label
         >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>
           <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
             {{ profile.name }} · {{ profile.width_mm }} mm

@@ -57,22 +57,4 @@ onUnmounted(() => resolveConfirmation(false))
   justify-content: flex-end;
   gap: 10px;
 }
-.confirm-dialog[open] {
-  animation: dialog-enter 150ms ease-out;
-}
-@keyframes dialog-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .confirm-dialog[open] {
-    animation: none;
-  }
-}
 </style>

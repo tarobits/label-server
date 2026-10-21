@@ -42,11 +42,14 @@ test('invite a member, request approval, and approve frozen labels without expos
   })
   await page.goto('/#/admin')
   await page.getByRole('button', { name: 'Registration codes', exact: true }).click()
+  await page.getByRole('button', { name: 'New registration code', exact: true }).click()
   await page.getByLabel('Code label', { exact: true }).fill('Cable team invitation')
   await page.getByLabel('Cable team', { exact: true }).check()
   await page.getByRole('checkbox', { name: 'Cable requests', exact: true }).check()
   await page.getByRole('button', { name: 'Create registration code', exact: true }).click()
-  const code = await page.getByLabel('New registration code', { exact: true }).inputValue()
+  const code = await page
+    .getByRole('textbox', { name: 'New registration code', exact: true })
+    .inputValue()
   expect(code).not.toBe('')
 
   const memberContext = await browser.newContext({
@@ -114,6 +117,7 @@ test('administration saves roles, account access, and notification settings', as
 }) => {
   await page.goto('/#/admin')
   await page.getByRole('button', { name: 'Roles', exact: true }).click()
+  await page.getByRole('button', { name: 'New role', exact: true }).click()
   await page.getByLabel('Role name', exact()).fill('Trusted printers')
   const printers = await (await request.get('/api/printers')).json()
   await page
@@ -183,8 +187,9 @@ test('revoked access pauses queued labels while their owner can cancel and an ad
     for (const text of ['Keep for administrator', 'Cancel myself']) {
       await member.goto('/#/new')
       await member.getByLabel('Label text').fill(text)
+      await member.getByLabel('Process name', exact()).fill(text)
       await member.getByRole('button', { name: 'Add to queue', exact: true }).click()
-      await expect(member.getByText(text, exact())).toBeVisible()
+      await expect(member.locator('.queue-label-name').filter({ hasText: text })).toBeVisible()
     }
     await member.goto('/#/runs')
     await member.getByLabel('Run name', exact()).fill('Draft before revocation')

@@ -38,7 +38,13 @@ function enlarge() {
       :aria-label="`Enlarge label preview: ${text}`"
       @click="enlarge"
     >
-      <img :src="source" :alt="`Label preview: ${text}`" loading="lazy" @error="failed = true" />
+      <img
+        :src="source"
+        :alt="`Label preview: ${text}`"
+        loading="lazy"
+        decoding="async"
+        @error="failed = true"
+      />
     </button>
     <small>{{ lengthMm }} × {{ widthMm }} mm</small>
   </div>

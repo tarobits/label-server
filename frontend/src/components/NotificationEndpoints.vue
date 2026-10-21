@@ -6,7 +6,7 @@ import { api, errorMessage } from '../api'
 import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
-import PropertySection from './PropertySection.vue'
+import AdminDialog from './AdminDialog.vue'
 import {
   useAdministrationStore,
   type NotificationEndpoint as Endpoint,
@@ -52,6 +52,14 @@ const defaults = () => ({
   >,
 })
 const form = reactive(defaults())
+const search = ref('')
+const filteredEndpoints = computed(() =>
+  endpoints.value.filter((endpoint) =>
+    `${endpoint.name} ${endpoint.url} ${endpoint.topic}`
+      .toLowerCase()
+      .includes(search.value.trim().toLowerCase()),
+  ),
+)
 const currentPrinters = computed(() =>
   w.destinations.filter((destination) => destination.kind === 'printer'),
 )
@@ -174,56 +182,60 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 </script>
 
 <template>
-  <section v-if="auth.user?.is_admin" class="panel notification-endpoints">
-    <PropertySection title="Notification endpoints">
-      <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <p v-if="success" class="alert success" role="status">{{ success }}</p>
-      <div class="section-heading">
-        <span class="muted">{{ endpoints.length }} configured</span>
-        <button class="secondary" :disabled="busy" @click="edit()">
-          Add notification endpoint
+  <section v-if="auth.user?.is_admin" class="notification-endpoints">
+    <p v-if="error && !showForm" class="alert danger" role="alert">{{ error }}</p>
+    <p v-if="success" class="alert success" role="status">{{ success }}</p>
+    <header class="admin-section-heading">
+      <h2>
+        Notification endpoints <span>{{ endpoints.length }}</span>
+      </h2>
+      <button class="secondary" :disabled="busy" @click="edit()">Add notification endpoint</button>
+    </header>
+    <label v-if="endpoints.length" class="admin-search"
+      >Search notification endpoints<input v-model="search" type="search"
+    /></label>
+    <p v-if="endpoints.length && !filteredEndpoints.length" class="empty compact">
+      No notification endpoints found.
+    </p>
+    <p v-if="!endpoints.length" class="empty compact">No notification endpoints configured.</p>
+    <article v-for="endpoint in filteredEndpoints" :key="endpoint.id" class="endpoint-row">
+      <div class="grow">
+        <strong>{{ endpoint.name }}</strong>
+        <small>{{ endpoint.url }} / {{ endpoint.topic }}</small>
+        <small
+          >{{ endpoint.has_token ? 'Token stored' : 'No token stored' }} ·
+          {{
+            endpoint.all_printers
+              ? 'All current and future printers'
+              : endpoint.destination_ids.length
+                ? endpoint.destination_ids.map(w.destinationName).join(', ')
+                : 'No printers or groups selected'
+          }}</small
+        >
+      </div>
+      <span class="badge" :class="endpoint.enabled ? 'printed' : 'cancelled'">{{
+        endpoint.enabled ? 'Enabled' : 'Disabled'
+      }}</span>
+      <div class="row wrap">
+        <button
+          class="secondary"
+          :disabled="busy"
+          :aria-label="`Edit endpoint ${endpoint.name}`"
+          @click="edit(endpoint)"
+        >
+          Edit
         </button>
       </div>
-      <p v-if="!endpoints.length" class="empty compact">No notification endpoints configured.</p>
-      <article v-for="endpoint in endpoints" :key="endpoint.id" class="endpoint-row">
-        <div class="grow">
-          <strong>{{ endpoint.name }}</strong>
-          <small>{{ endpoint.url }} / {{ endpoint.topic }}</small>
-          <small
-            >{{ endpoint.has_token ? 'Token stored' : 'No token stored' }} ·
-            {{
-              endpoint.all_printers
-                ? 'All current and future printers'
-                : endpoint.destination_ids.length
-                  ? endpoint.destination_ids.map(w.destinationName).join(', ')
-                  : 'No printers or groups selected'
-            }}</small
-          >
-        </div>
-        <span class="badge" :class="endpoint.enabled ? 'printed' : 'cancelled'">{{
-          endpoint.enabled ? 'Enabled' : 'Disabled'
-        }}</span>
-        <div class="row wrap">
-          <button
-            class="small secondary"
-            :disabled="busy"
-            :aria-label="`Edit endpoint ${endpoint.name}`"
-            @click="edit(endpoint)"
-          >
-            Edit
-          </button>
-          <button
-            class="small danger-text"
-            :disabled="busy"
-            :aria-label="`Delete endpoint ${endpoint.name}`"
-            @click="remove(endpoint)"
-          >
-            Delete
-          </button>
-        </div>
-      </article>
-      <form v-validate-form v-if="showForm" class="form-stack endpoint-form" @submit.prevent="save">
-        <h3>{{ editing ? 'Edit notification endpoint' : 'New notification endpoint' }}</h3>
+    </article>
+    <AdminDialog
+      :open="showForm"
+      :title="editing ? 'Edit notification endpoint' : 'New notification endpoint'"
+      :busy="busy"
+      wide
+      @close="cancel"
+    >
+      <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+      <form v-validate-form class="form-stack" @submit.prevent="save">
         <label>Endpoint name<input v-model="form.name" required maxlength="100" /></label>
         <div class="field-row">
           <label
@@ -346,7 +358,17 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           alerts. General alerts and pending print requests can be sent without a printer selection.
         </p>
         <p v-if="!form.kinds.length" class="help">Select at least one event type.</p>
-        <div class="row wrap">
+        <div class="admin-actions">
+          <button
+            v-if="editing"
+            type="button"
+            class="secondary danger-text"
+            :disabled="busy"
+            :aria-label="`Delete endpoint ${editing.name}`"
+            @click="remove(editing)"
+          >
+            Delete endpoint
+          </button>
           <button
             class="primary"
             :disabled="busy || !form.kinds.length || !!unavailableDestinations.length"
@@ -356,7 +378,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           <button type="button" :disabled="busy" @click="cancel">Cancel</button>
         </div>
       </form>
-    </PropertySection>
+    </AdminDialog>
   </section>
 </template>
 
@@ -375,8 +397,29 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.endpoint-form {
-  margin-top: 24px;
+.admin-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+h2 {
+  margin: 0;
+  font-size: 20px;
+}
+h2 span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.admin-search {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+  margin-bottom: 24px;
 }
 .choice-grid {
   display: grid;

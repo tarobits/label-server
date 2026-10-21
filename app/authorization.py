@@ -171,8 +171,10 @@ def template_scope(request: Request, session: Session, scope: str, group_id: str
     from app.models import UserGroup
 
     context = access_context(request)
-    if scope == "global" and not context.actor.is_admin:
-        raise HTTPException(403, "Only administrators can publish global templates")
+    if scope == "global" and not context.has_permission("templates.create_global"):
+        raise HTTPException(403, "You cannot create global templates")
+    if scope == "personal" and not context.has_permission("templates.create_personal"):
+        raise HTTPException(403, "You cannot create personal templates")
     if scope == "group":
         if not group_id or session.get(UserGroup, group_id) is None:
             raise HTTPException(422, "Choose a user group")

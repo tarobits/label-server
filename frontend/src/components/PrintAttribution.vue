@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { PrintAttribution } from '../types'
 import { date } from '../workspace'
-defineProps<{ attribution?: PrintAttribution | null }>()
+defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
 </script>
 
 <template>
   <dl class="print-attribution">
     <div>
-      <dt>Requested by</dt>
+      <dt>
+        {{ queue && attribution?.authorization.kind !== 'approval' ? 'Queued by' : 'Requested by' }}
+      </dt>
       <dd>
         {{ attribution?.requested_by?.name ?? 'Not recorded'
         }}<span
@@ -23,8 +25,18 @@ defineProps<{ attribution?: PrintAttribution | null }>()
         {{ date(attribution.requested_at) }}
       </dd>
     </div>
-    <div>
-      <dt>Approved by</dt>
+    <div
+      v-if="
+        !queue ||
+        attribution?.authorization.kind === 'approval' ||
+        attribution?.authorization.kind === 'override'
+      "
+    >
+      <dt>
+        {{
+          queue && attribution?.authorization.kind === 'override' ? 'Authorized by' : 'Approved by'
+        }}
+      </dt>
       <dd>{{ attribution?.authorization.actor?.name ?? 'Not recorded' }}</dd>
       <dd class="attribution-detail">
         <template v-if="attribution?.authorization.kind === 'direct'">Direct printing</template>

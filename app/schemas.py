@@ -1,6 +1,8 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+ProcessName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
 
 class Input(BaseModel):
@@ -39,6 +41,7 @@ class ActiveTapeInput(Input):
 
 
 class JobInput(Input):
+    process_name: ProcessName | None = None
     destination_id: str | None = None
     template: str = Field(default="text", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
     tape_profile: str
@@ -48,6 +51,7 @@ class JobInput(Input):
 
 
 class ImageJobInput(Input):
+    process_name: ProcessName | None = None
     destination_id: str | None = None
     image_asset: str = Field(pattern=r"^[a-f0-9]{64}$")
     tape_profile: str

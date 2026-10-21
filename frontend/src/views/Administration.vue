@@ -5,7 +5,10 @@ import { storeToRefs } from 'pinia'
 import { api, ApiError, errorMessage } from '../api'
 import { useAuthStore, accessLevels, type AccessLevel, type Membership } from '../auth'
 import { useWorkspaceStore, date } from '../workspace'
-import PropertySection from '../components/PropertySection.vue'
+import { useRoute, useRouter } from 'vue-router'
+import { confirmAction } from '../confirmation'
+import AdminDialog from '../components/AdminDialog.vue'
+import MotionSurface from '../components/MotionSurface.vue'
 import NotificationEndpoints from '../components/NotificationEndpoints.vue'
 import {
   useAdministrationStore,
@@ -42,6 +45,48 @@ interface Change {
   message: string
   done?: () => void
 }
+const route = useRoute()
+const router = useRouter()
+const sections = [
+  { id: 'users', title: 'Users' },
+  { id: 'roles', title: 'Roles' },
+  { id: 'groups', title: 'Template groups' },
+  { id: 'codes', title: 'Registration codes' },
+  { id: 'settings', title: 'Account settings' },
+  { id: 'notifications', title: 'Notification endpoints' },
+  { id: 'trash', title: 'Deleted accounts and content' },
+] as const
+const navigationGroups = [
+  { title: 'Accounts', sections: sections.slice(0, 4) },
+  { title: 'General', sections: sections.slice(4) },
+]
+const section = computed(
+  () => sections.find((item) => item.id === route.query.section) ?? sections[0],
+)
+const search = ref('')
+function navigate(id: string) {
+  search.value = ''
+  error.value = ''
+  success.value = ''
+  void router.replace({ query: { ...route.query, section: id } })
+}
+const editor = ref<'user' | 'new-user' | 'role' | 'group' | 'code' | null>(null)
+const editorTitle = computed(() =>
+  editor.value === 'user'
+    ? `Edit ${selectedUser.value?.username}`
+    : editor.value === 'new-user'
+      ? 'Create an account'
+      : editor.value === 'role'
+        ? roleForm.id
+          ? `Edit ${roleForm.name}`
+          : 'New role'
+        : editor.value === 'group'
+          ? groupForm.id
+            ? `Edit ${groupForm.name}`
+            : 'New template group'
+          : 'New registration code',
+)
+const loading = ref(true)
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const administration = useAdministrationStore()
@@ -67,6 +112,7 @@ const codeForm = reactive({
   expires_in_days: 7,
   role_ids: ['member'],
   group_ids: [] as string[],
+  group_permissions: {} as Record<string, Membership>,
 })
 const userForm = reactive({ username: '', password: '', role_ids: ['member'] })
 const selectedUser = ref<Person | null>(null),
@@ -100,6 +146,127 @@ async function perform(task: () => Promise<unknown>, message: string, reload: Ad
   } finally {
     busy.value = false
   }
+}
+const matches = (value: string) => value.toLowerCase().includes(search.value.trim().toLowerCase())
+const filteredUsers = computed(() =>
+  users.value.filter((user) => matches(user.username + ' ' + roleNames(user.role_ids))),
+)
+const filteredRoles = computed(() =>
+  roles.value.filter((role) => matches(role.name + ' ' + roleSummary(role))),
+)
+const filteredGroups = computed(() => groups.value.filter((group) => matches(group.name)))
+const filteredCodes = computed(() => codes.value.filter((code) => matches(code.name)))
+const filteredTrash = computed(() => trash.value.filter((item) => matches(item.name)))
+const roleNames = (ids: string[]) =>
+  ids.map((id) => roles.value.find((role) => role.id === id)?.name ?? id).join(', ') || 'No roles'
+function roleSummary(role: Role) {
+  if (role.protected) return 'Universal access'
+  return (
+    role.permissions
+      .filter((permission) => permission.kind !== 'destination' || permission.level !== 'none')
+      .map((permission) =>
+        permission.kind === 'application'
+          ? (permissions.value.find((item) => item.id === permission.permission)?.label ??
+            permission.permission)
+          : `${w.destinationName(permission.destination_id)} · ${levelName(permission.level)}`,
+      )
+      .join('; ') || 'No additional access'
+  )
+}
+const normalized = (value: unknown) => JSON.stringify(value)
+const sorted = (values: string[]) => [...values].sort()
+const rolePermissions = () => [
+  ...roleForm.applications.map((permission) => ({ kind: 'application' as const, permission })),
+  ...Object.entries(roleForm.levels)
+    .filter(([, level]) => level !== 'none')
+    .map(([destination_id, level]) => ({ kind: 'destination' as const, destination_id, level })),
+]
+const permissionGroups = computed(() => [
+  {
+    title: 'Template permissions',
+    options: permissions.value.filter((permission) => permission.id.startsWith('templates.')),
+  },
+  {
+    title: 'Application permissions',
+    options: permissions.value.filter((permission) => !permission.id.startsWith('templates.')),
+  },
+])
+const sortedPermissions = (values: Permission[]) =>
+  values
+    .filter((p) => p.kind !== 'destination' || p.level !== 'none')
+    .map((p) =>
+      p.kind === 'application'
+        ? `application:${p.permission}`
+        : `destination:${p.destination_id}:${p.level}`,
+    )
+    .sort()
+const sortedMembers = (values: Member[]) =>
+  [...values]
+    .sort((a, b) => a.user_id.localeCompare(b.user_id))
+    .map((member) => [
+      member.user_id,
+      member.can_create,
+      member.can_edit_others,
+      member.can_delete_others,
+    ])
+const editorChanged = computed(() => {
+  if (editor.value === 'user') {
+    const current = users.value.find((user) => user.id === selectedUser.value?.id)
+    return (
+      !!current &&
+      !!selectedUser.value &&
+      (password.value !== '' ||
+        current.disabled !== selectedUser.value.disabled ||
+        normalized(sorted(current.role_ids)) !== normalized(sorted(selectedUser.value.role_ids)))
+    )
+  }
+  if (editor.value === 'role' && roleForm.id) {
+    const current = roles.value.find((role) => role.id === roleForm.id)
+    return (
+      !!current &&
+      (roleForm.name !== current.name ||
+        normalized(sortedPermissions(rolePermissions())) !==
+          normalized(sortedPermissions(current.permissions)))
+    )
+  }
+  if (editor.value === 'group' && groupForm.id) {
+    const current = groups.value.find((group) => group.id === groupForm.id)
+    return (
+      !!current &&
+      (groupForm.name !== current.name ||
+        normalized(sortedMembers(groupForm.members)) !== normalized(sortedMembers(current.members)))
+    )
+  }
+  return true
+})
+const changedUsers = computed(
+  () => impact.value?.affected_users.filter((item) => item.changed) ?? [],
+)
+const unchangedUsers = computed(
+  () => impact.value?.affected_users.filter((item) => !item.changed) ?? [],
+)
+function closeEditor() {
+  if (busy.value) return
+  editor.value = null
+  selectedUser.value = null
+  password.value = ''
+  error.value = ''
+}
+function newUser() {
+  Object.assign(userForm, { username: '', password: '', role_ids: ['member'] })
+  error.value = ''
+  editor.value = 'new-user'
+}
+function newCode() {
+  Object.assign(codeForm, {
+    name: '',
+    expires_in_days: 7,
+    role_ids: ['member'],
+    group_ids: [],
+    group_permissions: {},
+  })
+  error.value = ''
+  editor.value = 'code'
 }
 const previewBody = (value: Change) => ({
   resource: value.resource,
@@ -142,8 +309,11 @@ async function applyChange() {
       value.payload,
       { 'X-Access-Confirmation': confirmation.confirmation_token },
     )
-    value.done?.()
     previewDialog.value?.close()
+    value.done?.()
+    editor.value = null
+    selectedUser.value = null
+    password.value = ''
     impact.value = null
     change.value = null
     await auth.refresh(true)
@@ -177,6 +347,8 @@ async function applyChange() {
 function editUser(user: Person) {
   selectedUser.value = { ...user, role_ids: [...user.role_ids] }
   password.value = ''
+  error.value = ''
+  editor.value = 'user'
 }
 function cancelUser() {
   selectedUser.value = null
@@ -213,6 +385,8 @@ function restoreDeleted(item: DeletedItem) {
   }
 }
 function editRole(role?: Role) {
+  editor.value = 'role'
+  error.value = ''
   Object.assign(roleForm, {
     id: role?.id ?? '',
     name: role?.name ?? '',
@@ -226,11 +400,47 @@ function editRole(role?: Role) {
   })
 }
 function editGroup(group?: Group) {
+  editor.value = 'group'
+  error.value = ''
   Object.assign(groupForm, {
     id: group?.id ?? '',
     name: group?.name ?? '',
     members: group?.members.map((m) => ({ ...m })) ?? [],
   })
+}
+const collaborationRights = [
+  { key: 'can_create', label: 'Create templates', action: 'create group templates' },
+  { key: 'can_edit_others', label: 'Edit others’ templates', action: 'edit others’ templates' },
+  {
+    key: 'can_delete_others',
+    label: 'Delete others’ templates',
+    action: 'delete others’ templates',
+  },
+] as const
+function toggleCodeGroup(id: string, event: Event) {
+  if ((event.target as HTMLInputElement).checked) {
+    codeForm.group_ids.push(id)
+    codeForm.group_permissions[id] = {
+      can_create: true,
+      can_edit_others: false,
+      can_delete_others: false,
+    }
+  } else {
+    codeForm.group_ids = codeForm.group_ids.filter((identifier) => identifier !== id)
+    delete codeForm.group_permissions[id]
+  }
+}
+function setMemberRight(
+  userId: string,
+  key: 'can_create' | 'can_edit_others' | 'can_delete_others',
+  event: Event,
+) {
+  const member = groupForm.members.find((item) => item.user_id === userId)
+  if (member) member[key] = (event.target as HTMLInputElement).checked
+}
+async function revokeCode(id: string) {
+  if (!(await confirmAction('Revoke this registration code?'))) return
+  await perform(() => api('/admin/registration-codes/' + id, 'DELETE'), 'Code revoked.', ['codes'])
 }
 function toggleMember(userId: string, event: Event) {
   if ((event.target as HTMLInputElement).checked)
@@ -243,6 +453,7 @@ function toggleMember(userId: string, event: Event) {
   else groupForm.members = groupForm.members.filter((m) => m.user_id !== userId)
 }
 function saveUser() {
+  if (!editorChanged.value) return
   const user = selectedUser.value
   if (user)
     void preview({
@@ -271,31 +482,24 @@ function createUser() {
   })
 }
 function saveRole() {
-  const permissions: Permission[] = [
-    ...roleForm.applications.map((permission) => ({ kind: 'application' as const, permission })),
-    ...Object.entries(roleForm.levels).map(([destination_id, level]) => ({
-      kind: 'destination' as const,
-      destination_id,
-      level,
-    })),
-  ]
+  if (!editorChanged.value) return
+  const permissions = rolePermissions()
   void preview({
     resource: 'roles',
     identifier: roleForm.id || undefined,
     method: roleForm.id ? 'PUT' : 'POST',
     payload: { name: roleForm.name, permissions },
     message: 'Role saved.',
-    done: () => editRole(),
   })
 }
 function saveGroup() {
+  if (!editorChanged.value) return
   void preview({
     resource: 'groups',
     identifier: groupForm.id || undefined,
     method: groupForm.id ? 'PUT' : 'POST',
     payload: { name: groupForm.name, members: groupForm.members.map((m) => ({ ...m })) },
     message: 'Template group saved.',
-    done: () => editGroup(),
   })
 }
 function remove(resource: 'roles' | 'groups', identifier: string) {
@@ -307,6 +511,7 @@ async function issueCode() {
       const result = await api<{ code: string }>('/admin/registration-codes', 'POST', codeForm)
       issuedCode.value = result.code
       codeForm.name = ''
+      editor.value = null
     },
     'Registration code created. Copy it before leaving this page.',
     ['codes'],
@@ -338,71 +543,318 @@ function refreshAccess() {
 }
 onMounted(() => {
   window.addEventListener('access-changed', refreshAccess)
-  void load().catch((e) => {
-    error.value = errorMessage(e)
-  })
+  void load()
+    .catch((e) => {
+      error.value = errorMessage(e)
+    })
+    .finally(() => {
+      loading.value = false
+    })
 })
 onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
 </script>
 <template>
-  <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-  <p v-if="success" class="alert success" role="status">{{ success }}</p>
-  <div class="panel">
-    <p>Roles grant printer and application access. Template groups control sharing and editing.</p>
-  </div>
-  <section class="panel">
-    <PropertySection title="Users" initially-open>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Account</th>
-              <th>Roles</th>
-              <th>State</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="user in users" :key="user.id">
-              <td>{{ user.username }}</td>
-              <td>
-                {{
-                  user.role_ids
-                    .map((id) => roles.find((r) => r.id === id)?.name ?? id)
-                    .join(', ') || 'No roles'
-                }}
-              </td>
-              <td>{{ user.disabled ? 'Disabled' : 'Active' }}</td>
-              <td>
-                <div class="row record-actions">
-                  <button class="small secondary" @click="editUser(user)">
-                    Edit {{ user.username }}
-                  </button>
-                  <button class="small danger-text" :disabled="busy" @click="deleteUser(user)">
-                    Delete account {{ user.username }}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+  <div class="administration-layout">
+    <nav class="administration-nav" aria-label="Administration sections">
+      <div v-for="group in navigationGroups" :key="group.title" class="administration-nav-group">
+        <h2>{{ group.title }}</h2>
+        <button
+          v-for="item in group.sections"
+          :key="item.id"
+          :class="{ active: section.id === item.id }"
+          :aria-current="section.id === item.id ? 'page' : undefined"
+          @click="navigate(item.id)"
+        >
+          {{ item.title }}
+        </button>
       </div>
-      <form
-        v-validate-form
-        v-if="selectedUser"
-        class="form-stack admin-form"
-        @submit.prevent="saveUser"
-      >
-        <h3>Edit {{ selectedUser.username }}</h3>
+    </nav>
+    <label class="administration-mobile-nav">
+      <span class="sr-only">Administration section</span>
+      <select :value="section.id" @change="navigate(($event.target as HTMLSelectElement).value)">
+        <optgroup v-for="group in navigationGroups" :key="group.title" :label="group.title">
+          <option v-for="item in group.sections" :key="item.id" :value="item.id">
+            {{ item.title }}
+          </option>
+        </optgroup>
+      </select>
+    </label>
+    <MotionSurface :identity="section.id" class="administration-content" :aria-busy="loading">
+      <p v-if="error && !editor" class="alert danger" role="alert">{{ error }}</p>
+      <p v-if="success" class="alert success" role="status">{{ success }}</p>
+      <p v-if="loading" class="empty" role="status">Loading administration…</p>
+      <template v-else>
+        <section
+          v-if="section.id === 'users'"
+          class="admin-section"
+          aria-labelledby="users-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="users-heading">
+              Users <span>{{ users.length }}</span>
+            </h2>
+            <button class="primary" @click="newUser">Create an account</button>
+          </header>
+          <label class="admin-search">Search users<input v-model="search" type="search" /></label>
+          <div class="table-scroll">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Roles</th>
+                  <th>State</th>
+                  <th><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="user in filteredUsers" :key="user.id">
+                  <td>
+                    <strong>{{ user.username }}</strong>
+                  </td>
+                  <td>{{ roleNames(user.role_ids) }}</td>
+                  <td>
+                    <span class="badge" :class="user.disabled ? 'cancelled' : 'printed'">{{
+                      user.disabled ? 'Disabled' : 'Active'
+                    }}</span>
+                  </td>
+                  <td class="action-cell">
+                    <button
+                      class="secondary"
+                      :disabled="busy"
+                      :aria-label="`Edit ${user.username}`"
+                      @click="editUser(user)"
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="!filteredUsers.length" class="empty">No users found.</p>
+        </section>
+        <section
+          v-if="section.id === 'roles'"
+          class="admin-section"
+          aria-labelledby="roles-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="roles-heading">
+              Roles <span>{{ roles.length }}</span>
+            </h2>
+            <button class="primary" @click="editRole()">New role</button>
+          </header>
+          <label class="admin-search">Search roles<input v-model="search" type="search" /></label>
+          <div v-for="role in filteredRoles" :key="role.id" class="admin-record">
+            <div>
+              <strong>{{ role.name }}</strong
+              ><small>{{ roleSummary(role) }}</small>
+            </div>
+            <span v-if="role.protected" class="muted">Protected</span
+            ><button
+              v-else
+              class="secondary"
+              :disabled="busy"
+              :aria-label="`Edit role ${role.name}`"
+              @click="editRole(role)"
+            >
+              Edit
+            </button>
+          </div>
+          <p v-if="!filteredRoles.length" class="empty">No roles found.</p>
+        </section>
+        <section
+          v-if="section.id === 'groups'"
+          class="admin-section"
+          aria-labelledby="groups-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="groups-heading">
+              Template groups <span>{{ groups.length }}</span>
+            </h2>
+            <button class="primary" @click="editGroup()">New template group</button>
+          </header>
+          <label v-if="groups.length" class="admin-search"
+            >Search template groups<input v-model="search" type="search"
+          /></label>
+          <div v-for="group in filteredGroups" :key="group.id" class="admin-record">
+            <div>
+              <strong>{{ group.name }}</strong
+              ><small
+                >{{ group.members.length }}
+                {{ group.members.length === 1 ? 'member' : 'members' }}</small
+              >
+            </div>
+            <button
+              class="secondary"
+              :disabled="busy"
+              :aria-label="`Edit group ${group.name}`"
+              @click="editGroup(group)"
+            >
+              Edit
+            </button>
+          </div>
+          <p v-if="!filteredGroups.length" class="empty">
+            {{ groups.length ? 'No template groups found.' : 'No template groups.' }}
+          </p>
+        </section>
+        <section
+          v-if="section.id === 'codes'"
+          class="admin-section"
+          aria-labelledby="codes-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="codes-heading">Registration codes</h2>
+            <button class="primary" @click="newCode">New registration code</button>
+          </header>
+          <div v-if="issuedCode" class="alert success code-result">
+            <label
+              >New registration code<input
+                :value="issuedCode"
+                readonly
+                @focus="($event.target as HTMLInputElement).select()"
+            /></label>
+            <p>Shown once.</p>
+            <button class="secondary" @click="issuedCode = ''">Dismiss code</button>
+          </div>
+          <label v-if="codes.length" class="admin-search"
+            >Search registration codes<input v-model="search" type="search"
+          /></label>
+          <div v-for="code in filteredCodes" :key="code.id" class="admin-record">
+            <div>
+              <strong>{{ code.name }}</strong
+              ><small
+                >{{ code.revoked ? 'Revoked' : code.redeemed_at ? 'Redeemed' : 'Unused' }} ·
+                {{ code.expires_at ? 'Expires ' + date(code.expires_at) : 'No expiry' }}</small
+              >
+            </div>
+            <button
+              v-if="!code.revoked && !code.redeemed_at"
+              class="secondary"
+              :disabled="busy"
+              :aria-label="`Revoke code ${code.name}`"
+              @click="revokeCode(code.id)"
+            >
+              Revoke
+            </button>
+          </div>
+          <p v-if="!filteredCodes.length" class="empty">
+            {{ codes.length ? 'No registration codes found.' : 'No registration codes.' }}
+          </p>
+        </section>
+        <section
+          v-show="section.id === 'settings'"
+          class="admin-section settings-section"
+          aria-labelledby="settings-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="settings-heading">Account settings</h2>
+          </header>
+          <form
+            v-validate-form
+            class="form-stack"
+            @submit.prevent="
+              perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.', [
+                'settings',
+              ])
+            "
+          >
+            <label class="checkbox"
+              ><input v-model="settings.registration_code_required" type="checkbox" />Require an
+              administrator-issued registration code</label
+            ><label class="checkbox"
+              ><input v-model="settings.approval_notifications_enabled" type="checkbox" />Notify
+              administrators about pending print requests</label
+            ><label
+              >Approval notification delay (seconds)<input
+                v-model.number="settings.approval_notification_debounce_seconds"
+                type="number"
+                min="0"
+                max="86400"
+                required
+              /><span class="help"
+                >Combine pending requests during a fixed interval beginning with the first
+                request.</span
+              ></label
+            ><button class="primary" :disabled="busy">Save account settings</button>
+          </form>
+        </section>
+        <NotificationEndpoints v-show="section.id === 'notifications'" />
+        <section
+          v-if="section.id === 'trash'"
+          class="admin-section"
+          aria-labelledby="trash-heading"
+        >
+          <header class="admin-section-heading">
+            <h2 id="trash-heading">Deleted accounts and content</h2>
+          </header>
+          <p class="help">
+            Restore deleted accounts and content within 30 days. Restoring an account also restores
+            the content deleted with it.
+          </p>
+          <label v-if="trash.length" class="admin-search"
+            >Search deleted content<input v-model="search" type="search"
+          /></label>
+          <div
+            v-for="item in filteredTrash"
+            :key="`${item.kind}:${item.identifier}`"
+            class="admin-record"
+          >
+            <div>
+              <strong>{{ item.name }}</strong
+              ><small>{{ item.kind }} · Purge after {{ date(item.purge_after) }}</small>
+            </div>
+            <button
+              class="secondary"
+              :disabled="
+                busy ||
+                item.purge_after * 1000 <= Date.now() ||
+                (!!item.account_id && item.kind !== 'users')
+              "
+              :aria-label="`Restore ${item.name}`"
+              @click="restoreDeleted(item)"
+            >
+              Restore
+            </button>
+          </div>
+          <p v-if="!filteredTrash.length" class="empty">
+            {{
+              trash.length
+                ? 'No deleted content found.'
+                : 'No deleted accounts or content awaiting purge.'
+            }}
+          </p>
+        </section>
+      </template>
+    </MotionSurface>
+  </div>
+  <AdminDialog
+    :open="!!editor"
+    :title="editorTitle"
+    :busy="busy"
+    :wide="editor === 'group' || editor === 'code'"
+    @close="closeEditor"
+    ><p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+    <template v-if="editor === 'user'">
+      <form v-validate-form v-if="selectedUser" class="form-stack" @submit.prevent="saveUser">
         <label class="checkbox"
           ><input v-model="selectedUser.disabled" type="checkbox" />Disable account</label
         >
         <fieldset class="choice-grid">
           <legend>Assigned roles</legend>
           <label v-for="role in roles" :key="role.id" class="checkbox"
-            ><input v-model="selectedUser.role_ids" type="checkbox" :value="role.id" />{{
-              role.name
-            }}</label
+            ><input
+              v-model="selectedUser.role_ids"
+              type="checkbox"
+              :value="role.id"
+              :aria-label="role.name"
+              :aria-describedby="`role-summary-${role.id}`"
+            /><span
+              >{{ role.name
+              }}<small class="role-summary" :id="`role-summary-${role.id}`">{{
+                roleSummary(role)
+              }}</small></span
+            ></label
           >
         </fieldset>
         <label
@@ -416,68 +868,67 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           Disabling an account ends its sessions. Queued work affected by lost access waits for an
           administrator.
         </p>
-        <div class="row">
-          <button class="primary" :disabled="busy">Review account changes</button
-          ><button type="button" @click="cancelUser">Cancel</button>
+        <div class="admin-actions">
+          <button
+            type="button"
+            class="danger-text secondary"
+            :disabled="busy"
+            :aria-label="`Delete account ${selectedUser.username}`"
+            @click="deleteUser(selectedUser)"
+          >
+            Delete account</button
+          ><button class="primary" :disabled="busy || !editorChanged">Review account changes</button
+          ><button type="button" @click="closeEditor">Cancel</button>
         </div>
-      </form>
-      <PropertySection title="Create an account"
-        ><form v-validate-form class="form-stack" @submit.prevent="createUser">
-          <div class="field-row">
-            <label
-              >New username<input
-                v-model="userForm.username"
-                required
-                minlength="3"
-                maxlength="64"
-                pattern="[A-Za-z0-9_.-]+"
-                autocomplete="off" /></label
-            ><label
-              >Initial password<input
-                v-model="userForm.password"
-                type="password"
-                required
-                minlength="12"
-                autocomplete="new-password"
-            /></label>
-          </div>
-          <fieldset class="choice-grid">
-            <legend>Initial roles</legend>
-            <label v-for="role in roles" :key="role.id" class="checkbox"
-              ><input v-model="userForm.role_ids" type="checkbox" :value="role.id" />{{
-                role.name
-              }}</label
-            >
-          </fieldset>
-          <button class="primary" :disabled="busy">Review new account</button>
-        </form></PropertySection
-      >
-    </PropertySection>
-  </section>
-  <section class="panel">
-    <PropertySection title="Roles">
-      <div v-for="role in roles" :key="role.id" class="list-row">
-        <div>
-          <strong>{{ role.name }}</strong
-          ><small>{{
-            role.protected
-              ? 'Universal access · protected role'
-              : `${role.permissions.length} permission objects`
-          }}</small>
+      </form> </template
+    ><template v-if="editor === 'new-user'"
+      ><form v-validate-form class="form-stack" @submit.prevent="createUser">
+        <div class="field-row">
+          <label
+            >New username<input
+              v-model="userForm.username"
+              required
+              minlength="3"
+              maxlength="64"
+              pattern="[A-Za-z0-9_.-]+"
+              autocomplete="off" /></label
+          ><label
+            >Initial password<input
+              v-model="userForm.password"
+              type="password"
+              required
+              minlength="12"
+              autocomplete="new-password"
+          /></label>
         </div>
-        <div v-if="!role.protected" class="row record-actions">
-          <button class="small" @click="editRole(role)">Edit role {{ role.name }}</button
-          ><button class="small danger-text" :disabled="busy" @click="remove('roles', role.id)">
-            Delete role {{ role.name }}
-          </button>
-        </div>
-      </div>
-      <form v-validate-form class="form-stack admin-form" @submit.prevent="saveRole">
-        <h3>{{ roleForm.id ? 'Edit role' : 'New role' }}</h3>
-        <label>Role name<input v-model="roleForm.name" required maxlength="100" /></label>
         <fieldset class="choice-grid">
-          <legend>Application permissions</legend>
-          <label v-for="permission in permissions" :key="permission.id" class="checkbox"
+          <legend>Initial roles</legend>
+          <label v-for="role in roles" :key="role.id" class="checkbox"
+            ><input
+              v-model="userForm.role_ids"
+              type="checkbox"
+              :value="role.id"
+              :aria-label="role.name"
+              :aria-describedby="`role-summary-${role.id}`"
+            /><span
+              >{{ role.name
+              }}<small class="role-summary" :id="`role-summary-${role.id}`">{{
+                roleSummary(role)
+              }}</small></span
+            ></label
+          >
+        </fieldset>
+        <div class="admin-actions">
+          <button type="button" class="secondary" @click="closeEditor">Cancel</button
+          ><button class="primary" :disabled="busy">Review new account</button>
+        </div>
+      </form></template
+    ><template v-if="editor === 'role'">
+      <form v-validate-form class="form-stack" @submit.prevent="saveRole">
+        <label>Role name<input v-model="roleForm.name" required maxlength="100" /></label>
+        <fieldset v-for="category in permissionGroups" :key="category.title" class="choice-grid">
+          <legend>{{ category.title }}</legend>
+          <label v-for="permission in category.options" :key="permission.id" class="checkbox"
             ><input v-model="roleForm.applications" type="checkbox" :value="permission.id" />{{
               permission.label
             }}</label
@@ -510,89 +961,79 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           Highest applicable access wins. Group access permits use through that group only. Full
           group access does not configure its physical printers.
         </p>
-        <div class="row">
-          <button class="primary" :disabled="busy">Review role changes</button
-          ><button v-if="roleForm.id" type="button" @click="editRole()">Cancel</button>
+        <div class="admin-actions">
+          <button
+            v-if="roleForm.id"
+            type="button"
+            class="danger-text secondary"
+            :disabled="busy"
+            @click="remove('roles', roleForm.id)"
+          >
+            Delete role</button
+          ><button class="primary" :disabled="busy || !editorChanged">Review role changes</button
+          ><button type="button" class="secondary" @click="closeEditor">Cancel</button>
         </div>
-      </form>
-    </PropertySection>
-  </section>
-  <section class="panel">
-    <PropertySection title="Template groups">
-      <div v-for="group in groups" :key="group.id" class="list-row">
-        <div>
-          <strong>{{ group.name }}</strong
-          ><small>{{ group.members.length }} members</small>
-        </div>
-        <div class="row record-actions">
-          <button class="small" @click="editGroup(group)">Edit group {{ group.name }}</button
-          ><button class="small danger-text" :disabled="busy" @click="remove('groups', group.id)">
-            Delete group {{ group.name }}
-          </button>
-        </div>
-      </div>
-      <form v-validate-form class="form-stack admin-form" @submit.prevent="saveGroup">
-        <h3>{{ groupForm.id ? 'Edit template group' : 'New template group' }}</h3>
+      </form> </template
+    ><template v-if="editor === 'group'"
+      ><form v-validate-form class="form-stack" @submit.prevent="saveGroup">
         <label>Group name<input v-model="groupForm.name" required maxlength="100" /></label>
         <fieldset>
           <legend>Membership and collaboration</legend>
-          <div v-for="user in users" :key="user.id" class="member-permissions">
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                :checked="groupForm.members.some((m) => m.user_id === user.id)"
-                @change="toggleMember(user.id, $event)"
-              />{{ user.username }}</label
-            ><template
-              v-for="member in groupForm.members.filter((m) => m.user_id === user.id)"
-              :key="member.user_id"
-              ><div class="member-options">
-                <label class="checkbox"
+          <div class="member-matrix">
+            <div class="matrix-heading" aria-hidden="true">
+              <span>Member</span><span>Create</span><span>Edit others</span
+              ><span>Delete others</span>
+            </div>
+            <div v-for="user in users" :key="user.id" class="member-row">
+              <label class="checkbox member-name"
+                ><input
+                  type="checkbox"
+                  :checked="groupForm.members.some((m) => m.user_id === user.id)"
+                  @change="toggleMember(user.id, $event)"
+                />{{ user.username }}</label
+              >
+              <template v-if="groupForm.members.find((m) => m.user_id === user.id)">
+                <label
+                  v-for="right in collaborationRights"
+                  :key="right.key"
+                  class="checkbox member-right"
                   ><input
-                    v-model="member.can_create"
                     type="checkbox"
-                    :aria-label="`Allow ${user.username} to create group templates`"
-                  />Create templates</label
-                ><label class="checkbox"
-                  ><input
-                    v-model="member.can_edit_others"
-                    type="checkbox"
-                    :aria-label="`Allow ${user.username} to edit others’ templates`"
-                  />Edit others’ templates</label
-                ><label class="checkbox"
-                  ><input
-                    v-model="member.can_delete_others"
-                    type="checkbox"
-                    :aria-label="`Allow ${user.username} to delete others’ templates`"
-                  />Delete others’ templates</label
-                >
-              </div></template
-            >
+                    :checked="groupForm.members.find((m) => m.user_id === user.id)?.[right.key]"
+                    :aria-label="`Allow ${user.username} to ${right.action}`"
+                    @change="setMemberRight(user.id, right.key, $event)"
+                  /><span>{{ right.label }}</span></label
+                > </template
+              ><template v-else
+                ><span
+                  v-for="right in collaborationRights"
+                  :key="right.key"
+                  class="unassigned"
+                  aria-hidden="true"
+                  >—</span
+                ></template
+              >
+            </div>
           </div>
         </fieldset>
         <p class="help">
-          Members can view this group’s templates. Each collaboration permission is independent.
-          Owners always retain editing and deletion rights to their own templates.
+          Members can view this group’s templates. Collaboration permissions are independent; owners
+          retain editing and deletion rights to their own templates.
         </p>
-        <div class="row">
-          <button class="primary" :disabled="busy">Review group changes</button
-          ><button v-if="groupForm.id" type="button" @click="editGroup()">Cancel</button>
+        <div class="admin-actions">
+          <button
+            v-if="groupForm.id"
+            type="button"
+            class="danger-text secondary"
+            :disabled="busy"
+            @click="remove('groups', groupForm.id)"
+          >
+            Delete group</button
+          ><button type="button" class="secondary" @click="closeEditor">Cancel</button
+          ><button class="primary" :disabled="busy || !editorChanged">Review group changes</button>
         </div>
-      </form>
-    </PropertySection>
-  </section>
-  <section class="panel">
-    <PropertySection title="Registration codes"
-      ><div v-if="issuedCode" class="alert success code-result">
-        <label
-          >New registration code<input
-            :value="issuedCode"
-            readonly
-            @focus="($event.target as HTMLInputElement).select()"
-        /></label>
-        <p>Shown once.</p>
-        <button class="secondary" @click="issuedCode = ''">Dismiss code</button>
-      </div>
+      </form></template
+    ><template v-if="editor === 'code'">
       <form v-validate-form class="form-stack" @submit.prevent="issueCode">
         <div class="field-row">
           <label>Code label<input v-model="codeForm.name" required maxlength="100" /></label
@@ -608,104 +1049,67 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         <fieldset class="choice-grid">
           <legend>Initial roles</legend>
           <label v-for="role in roles.filter((r) => !r.protected)" :key="role.id" class="checkbox"
-            ><input v-model="codeForm.role_ids" type="checkbox" :value="role.id" />{{
-              role.name
-            }}</label
+            ><input
+              v-model="codeForm.role_ids"
+              type="checkbox"
+              :value="role.id"
+              :aria-label="role.name"
+              :aria-describedby="`role-summary-${role.id}`"
+            /><span
+              >{{ role.name
+              }}<small class="role-summary" :id="`role-summary-${role.id}`">{{
+                roleSummary(role)
+              }}</small></span
+            ></label
           >
         </fieldset>
-        <fieldset class="choice-grid">
+        <fieldset v-if="groups.length">
           <legend>Join template groups</legend>
-          <label v-for="group in groups" :key="group.id" class="checkbox"
-            ><input v-model="codeForm.group_ids" type="checkbox" :value="group.id" />{{
-              group.name
-            }}</label
-          >
+          <div class="member-matrix">
+            <div class="matrix-heading" aria-hidden="true">
+              <span>Template group</span><span>Create</span><span>Edit others</span
+              ><span>Delete others</span>
+            </div>
+            <div v-for="group in groups" :key="group.id" class="member-row">
+              <label class="checkbox member-name"
+                ><input
+                  type="checkbox"
+                  :checked="codeForm.group_ids.includes(group.id)"
+                  @change="toggleCodeGroup(group.id, $event)"
+                />{{ group.name }}</label
+              >
+              <template v-if="codeForm.group_permissions[group.id]">
+                <label
+                  v-for="right in collaborationRights"
+                  :key="right.key"
+                  class="checkbox member-right"
+                >
+                  <input
+                    v-model="codeForm.group_permissions[group.id]![right.key]"
+                    type="checkbox"
+                    :aria-label="`${right.label} in ${group.name}`"
+                  /><span>{{ right.label }}</span>
+                </label>
+              </template>
+              <template v-else
+                ><span
+                  v-for="right in collaborationRights"
+                  :key="right.key"
+                  class="unassigned"
+                  aria-hidden="true"
+                  >—</span
+                ></template
+              >
+            </div>
+          </div>
         </fieldset>
-        <button class="primary" :disabled="busy">Create registration code</button>
+        <div class="admin-actions">
+          <button type="button" class="secondary" @click="closeEditor">Cancel</button
+          ><button class="primary" :disabled="busy">Create registration code</button>
+        </div>
       </form>
-      <div v-for="code in codes" :key="code.id" class="list-row">
-        <div>
-          <strong>{{ code.name }}</strong
-          ><small
-            >{{ code.revoked ? 'Revoked' : code.redeemed_at ? 'Redeemed' : 'Unused' }} ·
-            {{ code.expires_at ? 'Expires ' + date(code.expires_at) : 'No expiry' }}</small
-          >
-        </div>
-        <button
-          v-if="!code.revoked && !code.redeemed_at"
-          class="small danger-text"
-          :disabled="busy"
-          @click="
-            perform(() => api('/admin/registration-codes/' + code.id, 'DELETE'), 'Code revoked.', [
-              'codes',
-            ])
-          "
-        >
-          Revoke code
-        </button>
-      </div>
-    </PropertySection>
-  </section>
-  <section class="panel">
-    <PropertySection title="Account settings"
-      ><form
-        v-validate-form
-        class="form-stack"
-        @submit.prevent="
-          perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.', [
-            'settings',
-          ])
-        "
-      >
-        <label class="checkbox"
-          ><input v-model="settings.registration_code_required" type="checkbox" />Require an
-          administrator-issued registration code</label
-        ><label class="checkbox"
-          ><input v-model="settings.approval_notifications_enabled" type="checkbox" />Notify
-          administrators about pending print requests</label
-        ><label
-          >Approval notification delay (seconds)<input
-            v-model.number="settings.approval_notification_debounce_seconds"
-            type="number"
-            min="0"
-            max="86400"
-            required
-          /><span class="help"
-            >Combine pending requests during a fixed interval beginning with the first
-            request.</span
-          ></label
-        ><button class="primary" :disabled="busy">Save account settings</button>
-      </form></PropertySection
-    >
-  </section>
-  <NotificationEndpoints v-if="auth.user?.is_admin" />
-  <section class="panel">
-    <PropertySection title="Deleted accounts and content">
-      <p class="help">
-        Deleted accounts and content are unavailable immediately. Administrators can restore them
-        for 30 days. After that, their retained data is permanently purged. Restore an account to
-        recover the content deleted with it.
-      </p>
-      <p v-if="!trash.length" class="empty">No deleted accounts or content awaiting purge.</p>
-      <div v-for="item in trash" :key="`${item.kind}:${item.identifier}`" class="list-row">
-        <div>
-          <strong>{{ item.name }}</strong>
-          <small>{{ item.kind }} · Purge after {{ date(item.purge_after) }}</small>
-        </div>
-        <button
-          class="small secondary"
-          :disabled="
-            busy ||
-            item.purge_after * 1000 <= Date.now() ||
-            (!!item.account_id && item.kind !== 'users')
-          "
-          @click="restoreDeleted(item)"
-        >
-          Restore {{ item.name }}
-        </button>
-      </div>
-    </PropertySection>
-  </section>
+    </template></AdminDialog
+  >
   <Teleport to="body"
     ><dialog
       ref="previewDialog"
@@ -729,7 +1133,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       </template>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
       <div v-if="impact" class="table-scroll">
-        <table>
+        <table v-if="changedUsers.length">
           <thead>
             <tr>
               <th>User</th>
@@ -738,7 +1142,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in impact.affected_users" :key="item.id">
+            <tr v-for="item in changedUsers" :key="item.id">
               <td>
                 <strong>{{ item.username }}</strong
                 ><small>{{ item.changed ? 'Changed' : 'Unchanged' }}</small>
@@ -756,7 +1160,16 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             </tr>
           </tbody>
         </table>
-        <p v-if="!impact.affected_users.length">No existing accounts are affected.</p>
+        <p v-if="!changedUsers.length" class="empty compact">No effective access changes.</p>
+        <details v-if="unchangedUsers.length" class="unchanged-access">
+          <summary>
+            {{ unchangedUsers.length }} unchanged
+            {{ unchangedUsers.length === 1 ? 'account' : 'accounts' }}
+          </summary>
+          <ul>
+            <li v-for="item in unchangedUsers" :key="item.id">{{ item.username }}</li>
+          </ul>
+        </details>
       </div>
       <div class="row wrap">
         <button class="secondary" :disabled="busy" @click="cancelPreview">Cancel</button
@@ -768,66 +1181,241 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
   >
 </template>
 <style scoped>
-.admin-form {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
+.administration-layout {
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+.administration-nav {
+  display: grid;
+  gap: 24px;
+  position: sticky;
+  top: 24px;
+}
+.administration-nav-group {
+  display: grid;
+  gap: 4px;
+}
+.administration-nav h2 {
+  margin: 0 12px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.administration-nav button {
+  text-align: left;
+  justify-content: flex-start;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 12px;
+}
+.administration-nav button.active {
+  background: var(--surface-secondary);
+  color: var(--ink);
+}
+.administration-content {
+  min-width: 0;
+}
+.administration-mobile-nav {
+  display: none;
+}
+.admin-section,
+:deep(.notification-endpoints) {
+  min-width: 0;
+}
+.admin-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+h2 {
+  font-size: 20px;
+  margin: 0;
+}
+h2 span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.admin-search {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+  margin-bottom: 24px;
+}
+.admin-record {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.admin-record > div {
+  min-width: 0;
+}
+.admin-record strong,
+.admin-table strong {
+  overflow-wrap: anywhere;
+}
+.admin-record small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+.admin-record button {
+  flex-shrink: 0;
+}
+.admin-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+}
+.admin-table .action-cell {
+  text-align: right;
+}
+.settings-section form {
+  max-width: 600px;
 }
 .choice-grid,
 .destination-grants {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 12px;
+}
+.role-summary {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
 }
 .code-result {
   display: block;
 }
-.list-row {
-  gap: 16px;
-  flex-wrap: wrap;
+.member-matrix {
+  margin-top: 8px;
 }
-.list-row small {
-  overflow-wrap: anywhere;
-}
-.record-actions {
-  justify-content: flex-end;
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-.member-permissions {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-}
-.member-options {
+.matrix-heading,
+.member-row {
   display: grid;
-  gap: 10px;
-  margin: 12px 0 0 30px;
+  grid-template-columns: minmax(140px, 1fr) repeat(3, minmax(100px, 120px));
+  gap: 12px;
+  align-items: center;
+}
+.matrix-heading {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 0 12px;
+}
+.matrix-heading span:not(:first-child) {
+  text-align: center;
+}
+.member-row {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.member-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.member-right {
+  justify-content: center;
+  min-height: 32px;
+}
+.member-right span {
+  display: none;
+}
+.unassigned {
+  color: var(--muted);
+  text-align: center;
 }
 .access-preview-dialog {
-  width: min(1100px, calc(100vw - 32px));
-  max-height: calc(100dvh - 48px);
+  width: min(940px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
   padding: 24px;
-  background: var(--surface);
+  background: var(--surface-dense);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
+  box-shadow: 0 24px 64px var(--shadow);
 }
 .access-preview-dialog::backdrop {
   background: #030712b3;
-  backdrop-filter: blur(3px);
-}
-.access-preview-dialog table {
-  min-width: 620px;
 }
 .access-preview-dialog td {
   white-space: normal;
   vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.access-preview-dialog td:first-child {
+  min-width: 100px;
 }
 .access-preview-dialog li {
   margin-bottom: 8px;
 }
 .access-preview-dialog .row {
   justify-content: flex-end;
-  margin-top: 20px;
+  margin-top: 24px;
+}
+.unchanged-access {
+  margin: 16px 0;
+  color: var(--muted);
+}
+.unchanged-access summary {
+  cursor: pointer;
+}
+@media (max-width: 1000px) {
+  .administration-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 20px;
+  }
+}
+@media (max-width: 700px) {
+  .administration-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .administration-nav {
+    display: none;
+  }
+  .administration-mobile-nav {
+    display: block;
+  }
+  .admin-table th,
+  .admin-table td {
+    padding: 12px 8px;
+  }
+}
+@media (max-width: 600px) {
+  .matrix-heading {
+    display: none;
+  }
+  .member-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .member-right {
+    justify-content: flex-start;
+    margin-left: 28px;
+  }
+  .member-right span {
+    display: inline;
+  }
+  .unassigned {
+    display: none;
+  }
+  .admin-record {
+    gap: 12px;
+  }
+  .access-preview-dialog {
+    padding: 16px;
+  }
 }
 </style>

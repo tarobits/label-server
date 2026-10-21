@@ -43,7 +43,7 @@ async function remove(template: Template) {
 }
 </script>
 <template>
-  <div class="section-heading">
+  <div v-if="auth.canCreateTemplates" class="section-heading">
     <RouterLink class="button primary" to="/templates/new">Create template</RouterLink>
   </div>
   <div class="card-grid">
@@ -94,7 +94,12 @@ async function remove(template: Template) {
         >
       </div>
       <div class="card-actions">
-        <button :disabled="w.busy" class="text-button" @click="duplicate(template)">
+        <button
+          v-if="auth.can('templates.create_personal')"
+          :disabled="w.busy"
+          class="text-button"
+          @click="duplicate(template)"
+        >
           Duplicate template</button
         ><button
           v-if="template.can_delete ?? (auth.user?.is_admin || template.owner_id === auth.user?.id)"
@@ -105,7 +110,10 @@ async function remove(template: Template) {
           Archive
         </button>
         <button
-          v-if="auth.user?.is_admin"
+          v-if="
+            auth.user?.is_admin ||
+            (template.scope === 'global' && auth.can('templates.delete_global'))
+          "
           :disabled="w.busy"
           class="text-button danger-text"
           @click="remove(template)"

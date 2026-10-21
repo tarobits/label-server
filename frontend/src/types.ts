@@ -90,7 +90,16 @@ export interface Status {
   pending_flush: string | null
   queues: { profile_id: string; queued_copies: number; threshold: number }[]
 }
-export interface Job {
+export interface LabelInformation {
+  process_name: string
+  template_name: string
+  template_revision: number | null
+  profile_name: string
+  destination_name: string
+  printer_name: string | null
+  fields: { name: string; label: string; value: string }[]
+}
+export interface Job extends LabelInformation {
   attribution: PrintAttribution
   owner_id: string
   can_print?: boolean
@@ -107,6 +116,7 @@ export interface Job {
   id: string
   profile_id: string
   template_id: string
+  template_name: string
   payload: Record<string, string>
   width_mm: number
   length_mm: number
@@ -143,6 +153,7 @@ export interface BatchTrigger {
   }
 }
 export interface Batch {
+  process_names?: string[]
   trigger: BatchTrigger
   attribution_summary: { attribution: PrintAttribution; copies: number }[]
   printer_id: string
@@ -157,7 +168,7 @@ export interface Batch {
   shortage_warning: boolean
 }
 export interface BatchDetail extends Batch {
-  items: {
+  items: (LabelInformation & {
     attribution: PrintAttribution
     copy_id: string
     position: number
@@ -167,7 +178,7 @@ export interface BatchDetail extends Batch {
     text: string
     width_mm: number
     length_mm: number
-  }[]
+  })[]
 }
 export interface Notice {
   id: string

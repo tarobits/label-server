@@ -5,6 +5,7 @@ import Badge from '../components/Badge.vue'
 import { useAuthStore } from '../auth'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
+import ActivityLabels from '../components/ActivityLabels.vue'
 import type { Notice } from '../types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
@@ -38,9 +39,14 @@ function noticeState(notice: (typeof notices.value)[number]) {
     <article v-for="batch in batches" :key="batch.id" class="activity-batch">
       <div class="list-row">
         <div class="grow">
-          <strong>{{ w.cartridgeName(batch.cartridge_id) }}</strong
+          <strong
+            >{{ batch.process_names?.[0] ?? w.cartridgeName(batch.cartridge_id)
+            }}<span v-if="(batch.process_names?.length ?? 0) > 1">
+              +{{ batch.process_names!.length - 1 }}</span
+            ></strong
           ><small
-            >{{ w.destinationName(batch.printer_id) }} · {{ date(batch.created_at) }} ·
+            >{{ w.cartridgeName(batch.cartridge_id) }} · {{ w.destinationName(batch.printer_id) }} ·
+            {{ date(batch.created_at) }} ·
             {{ batch.consumed_mm === null ? 'Estimated' : 'Consumed' }}
             {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</small
           ><small v-if="batch.shortage_warning" class="danger-text"
@@ -61,9 +67,10 @@ function noticeState(notice: (typeof notices.value)[number]) {
           <p class="attribution-count">
             {{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}
           </p>
-          <PrintAttribution :attribution="entry.attribution" />
+          <PrintAttribution :attribution="entry.attribution" queue />
         </section>
       </div>
+      <ActivityLabels :batch-id="batch.id" :state="batch.state" />
     </article>
   </section>
   <section v-if="auth.user?.is_admin" class="panel">

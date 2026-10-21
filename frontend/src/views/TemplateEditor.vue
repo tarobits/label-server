@@ -29,12 +29,22 @@ const document = ref<TemplateDocument>(newDocument()),
   revision = ref(0)
 const scope = ref<'personal' | 'group' | 'global'>('personal'),
   groupId = ref<string | null>(null)
+const ownerId = ref<string | null>(null)
+const originalSharing = ref<{ scope: string; group_id: string | null }>({
+  scope: 'personal',
+  group_id: null,
+})
+const canChangeSharing = computed(
+  () => !id.value || auth.user?.is_admin || ownerId.value === auth.user?.id,
+)
 const userGroups = ref<{ id: string; name: string }[]>([])
 const availableGroups = computed(() =>
   userGroups.value.filter(
     (group) =>
       auth.user?.is_admin ||
-      group.id === groupId.value ||
+      (id.value &&
+        originalSharing.value.scope === 'group' &&
+        group.id === originalSharing.value.group_id) ||
       auth.user?.group_memberships?.[group.id]?.can_create,
   ),
 )
@@ -170,7 +180,13 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   loadGeneration = 0,
   stopped = false
 const canvas = ref<SVGSVGElement | null>(null)
-let drag: { mode: 'move' | 'size'; x: number; y: number; element: Element } | null = null
+let drag: {
+  mode: 'move' | 'size'
+  pointerId: number
+  x: number
+  y: number
+  element: Element
+} | null = null
 function record() {
   const state = snapshot()
   if (history.value[cursor.value] === state) return
@@ -204,6 +220,7 @@ async function load() {
     auth.user?.id === actor &&
     route.params.id === identifier
   ready.value = false
+  error.value = ''
   if (!w.profiles.length) return
   try {
     const groups = await resources.get<{ id: string; name: string }[]>('/user-groups')
@@ -220,8 +237,10 @@ async function load() {
       id.value = template.id
       revision.value = template.revision
       name.value = template.name
+      ownerId.value = template.owner_id ?? null
       scope.value = template.scope ?? 'global'
       groupId.value = template.group_id ?? null
+      originalSharing.value = { scope: scope.value, group_id: groupId.value }
       if (groupId.value && !userGroups.value.some((g) => g.id === groupId.value))
         userGroups.value.push({ id: groupId.value, name: 'Current template group' })
       editable.value =
@@ -231,9 +250,15 @@ async function load() {
       id.value = null
       revision.value = 0
       name.value = 'Untitled label'
-      scope.value = 'personal'
-      groupId.value = null
-      editable.value = true
+      ownerId.value = auth.user?.id ?? null
+      scope.value = auth.can('templates.create_personal')
+        ? 'personal'
+        : auth.can('templates.create_global')
+          ? 'global'
+          : 'group'
+      groupId.value = scope.value === 'group' ? (availableGroups.value[0]?.id ?? null) : null
+      originalSharing.value = { scope: scope.value, group_id: groupId.value }
+      editable.value = auth.canCreateTemplates
       document.value = newDocument()
     }
     if (!document.value.preview_tape) {
@@ -296,7 +321,12 @@ watch(
   },
   { deep: true },
 )
-watch(() => route.params.id, load)
+watch(
+  () => route.params.id,
+  (identifier) => {
+    if (identifier !== id.value) void load()
+  },
+)
 watch([selectedId, sampleProfile], () => {
   if (ready.value && route.path.startsWith('/templates/'))
     void router.replace({
@@ -375,16 +405,18 @@ function point(event: PointerEvent) {
   return { x: (event.clientX - box.left) / scale.value, y: (event.clientY - box.top) / scale.value }
 }
 function start(event: PointerEvent, element: Element, mode: 'move' | 'size') {
+  if (drag || !event.isPrimary || event.button !== 0) return
   event.preventDefault()
   selectedId.value = element.id
-  drag = { mode, ...point(event), element: { ...element } }
+  drag = { mode, pointerId: event.pointerId, ...point(event), element: { ...element } }
   canvas.value?.setPointerCapture(event.pointerId)
 }
 function move(event: PointerEvent) {
+  if (drag && event.pointerId !== drag.pointerId) return
   const p = point(event)
   pointer.value =
     p.x >= 0 && p.x <= canvasLength.value && p.y >= 0 && p.y <= document.value.width_mm ? p : null
-  if (!drag || !selected.value) return
+  if (!drag || !selected.value || selected.value.id !== drag.element.id) return
   const dx = p.x - drag.x,
     dy = p.y - drag.y
   const round = (value: number) =>
@@ -431,11 +463,16 @@ function move(event: PointerEvent) {
       selected.value.y = Math.max(-100, drag.element.y + (sin * dw + (cos - 1) * dh) / 2)
   }
 }
-function finish() {
-  if (drag) {
-    drag = null
-    record()
-  }
+function finish(event?: PointerEvent) {
+  if (!drag || (event && event.pointerId !== drag.pointerId)) return
+  const pointerId = drag.pointerId
+  drag = null
+  if (canvas.value?.hasPointerCapture(pointerId)) canvas.value.releasePointerCapture(pointerId)
+  record()
+}
+function interruptDrag() {
+  finish()
+  pointer.value = null
 }
 function setManualLength(event: Event) {
   if (!document.value.auto_length)
@@ -555,6 +592,7 @@ function key(event: KeyboardEvent) {
 async function save() {
   if (!editable.value || !selectedProfile.value || (scope.value === 'group' && !groupId.value))
     return
+  const submitted = snapshot()
   let result: Template | undefined
   const ok = await w.action(async () => {
     result = await api<Template>(
@@ -571,10 +609,16 @@ async function save() {
     )
   }, 'Template revision saved. Existing queued labels keep their original layout.')
   if (ok && result) {
-    saved.value = snapshot()
+    saved.value = submitted
     revision.value = result.revision
     id.value = result.id
-    await router.replace({ path: `/templates/${result.id}/edit`, query: route.query })
+    ownerId.value = result.owner_id ?? null
+    originalSharing.value = {
+      scope: result.scope ?? scope.value,
+      group_id: result.group_id ?? null,
+    }
+    if (!dirty.value)
+      await router.replace({ path: `/templates/${result.id}/edit`, query: route.query })
   }
 }
 function removeField(index: number) {
@@ -603,13 +647,16 @@ onBeforeRouteLeave(() => !dirty.value || confirmAction('Discard unsaved template
 onMounted(() => {
   void load()
   window.addEventListener('beforeunload', beforeUnload)
+  window.addEventListener('blur', interruptDrag)
 })
 onUnmounted(() => {
+  interruptDrag()
   stopped = true
   loadGeneration++
   serial++
   clearTimeout(timer)
   window.removeEventListener('beforeunload', beforeUnload)
+  window.removeEventListener('blur', interruptDrag)
 })
 </script>
 <template>
@@ -620,11 +667,17 @@ onUnmounted(() => {
     >
     <p v-else class="help">Ask an administrator to create a tape profile.</p>
   </div>
-  <div v-if="w.profiles.length && !editable" class="alert warning">
-    This shared template is read-only. Duplicate it in the template library to create your own
-    version.
+  <div v-if="w.profiles.length && !ready" class="panel empty">
+    <template v-if="error"
+      ><p class="alert danger" role="alert">{{ error }}</p>
+      <button class="secondary" @click="load">Retry</button></template
+    >
+    <p v-else role="status">Loading template…</p>
   </div>
-  <section v-if="w.profiles.length" class="panel editor-toolbar">
+  <div v-if="ready && w.profiles.length && !editable" class="alert warning">
+    {{ id ? 'This template is read-only.' : 'You do not have permission to create templates.' }}
+  </div>
+  <section v-if="ready && w.profiles.length" class="panel editor-toolbar">
     <div class="editor-settings-fields">
       <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
       <label class="resolution-choice"
@@ -664,20 +717,35 @@ onUnmounted(() => {
     </div>
     <div class="template-sharing field-row">
       <label
-        >Template visibility<select v-model="scope" :disabled="!editable" @change="record">
-          <option value="personal">Personal</option>
+        >Template visibility<select
+          v-model="scope"
+          :disabled="!editable || !canChangeSharing"
+          @change="record"
+        >
+          <option
+            v-if="
+              auth.can('templates.create_personal') || (id && originalSharing.scope === 'personal')
+            "
+            value="personal"
+          >
+            Personal
+          </option>
           <option v-if="availableGroups.length" value="group">User group</option>
           <option
-            v-if="auth.user?.is_admin || scope === 'global'"
+            v-if="auth.can('templates.create_global') || (id && originalSharing.scope === 'global')"
             value="global"
-            :disabled="!auth.user?.is_admin"
           >
             Global
           </option>
         </select></label
       >
       <label v-if="scope === 'group'"
-        >User group<select v-model="groupId" :disabled="!editable" required @change="record">
+        >User group<select
+          v-model="groupId"
+          :disabled="!editable || !canChangeSharing"
+          required
+          @change="record"
+        >
           <option :value="null" disabled>Choose a group</option>
           <option v-for="group in availableGroups" :key="group.id" :value="group.id">
             {{ group.name }}
@@ -725,7 +793,11 @@ onUnmounted(() => {
       </div>
     </div>
   </section>
-  <div v-if="w.profiles.length" class="editor-layout" :class="{ 'no-selection': !selected }">
+  <div
+    v-if="ready && w.profiles.length"
+    class="editor-layout"
+    :class="{ 'no-selection': !selected }"
+  >
     <section class="panel editor-workspace">
       <div class="editor-tools">
         <div class="editor-add-buttons" role="group" aria-label="Add elements">
@@ -795,6 +867,7 @@ onUnmounted(() => {
             @pointermove="move"
             @pointerup="finish"
             @pointercancel="finish"
+            @lostpointercapture="finish"
             @pointerleave="pointer = null"
             @keydown="key"
           >
@@ -803,7 +876,12 @@ onUnmounted(() => {
                 <path d="M1 0H0V1" fill="none" stroke="#818cf8" stroke-width="0.03" />
               </pattern>
             </defs>
-            <rect width="100%" height="100%" fill="white" @pointerdown="selectedId = ''" />
+            <rect
+              width="100%"
+              height="100%"
+              fill="white"
+              @pointerdown="!drag && $event.isPrimary && $event.button === 0 && (selectedId = '')"
+            />
             <image
               v-if="preview"
               :href="showPrintPixels ? preview.png : preview.design_png"
@@ -1269,7 +1347,7 @@ onUnmounted(() => {
       </div>
     </section>
   </div>
-  <section v-if="w.profiles.length" class="panel variable-fields">
+  <section v-if="ready && w.profiles.length" class="panel variable-fields">
     <div class="section-heading">
       <h2>Variable fields</h2>
       <button @click="addField">Add variable</button>

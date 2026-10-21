@@ -140,6 +140,7 @@ def create_request(
                 owner_id=context.actor.id,
             )
             job_input = JobInput(
+                process_name=source.process_name,
                 template="image",
                 tape_profile=profile.id,
                 copies=source.copies,

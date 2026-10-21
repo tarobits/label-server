@@ -19,7 +19,7 @@ from app.authorization import (
 )
 from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
-from app.http import db, get, idle, job_record, record
+from app.http import db, get, idle, job_information, job_record, job_template_name, record
 from app.image_jobs import image_document
 from app.models import (
     Batch,
@@ -482,10 +482,14 @@ def archive_template(
 def delete_template(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
-    actor = access_context(request).actor
-    if not actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
     value = get(session, LabelTemplate, identifier)
+    context = access_context(request)
+    actor = context.actor
+    if not actor.is_admin and not (
+        value.scope == "global" and context.has_permission("templates.delete_global")
+    ):
+        raise HTTPException(403, "You cannot delete this template")
+    require_record(request, value, Action.DELETE)
     retain(session, "templates", identifier, value.name, value.owner_id, actor.id)
     from app.job_access import reconcile_access_holds
 
@@ -643,6 +647,7 @@ def create_image_job(
         job = build_job(
             JobInput(
                 template="image",
+                process_name=body.process_name,
                 tape_profile=profile.id,
                 copies=body.copies,
                 data={},
@@ -840,6 +845,22 @@ def cancel_flush(
     return {"cancelled": True}
 
 
+def batch_process_names(session: Session, batch: Batch) -> list[str]:
+    names = []
+    jobs = session.scalars(
+        select(PrintJob)
+        .join(LabelCopy, LabelCopy.job_id == PrintJob.id)
+        .join(BatchItem, BatchItem.copy_id == LabelCopy.id)
+        .where(BatchItem.batch_id == batch.id)
+        .order_by(BatchItem.position)
+    ).unique()
+    for job in jobs:
+        name = job.template_snapshot.get("process_name") or job_template_name(session, job)
+        if name not in names:
+            names.append(name)
+    return names
+
+
 @router.get("/batches")
 def batches(
     request: Request, session: Session = Depends(db, scope="function")
@@ -850,7 +871,11 @@ def batches(
             Batch.printer_id.in_(visible_destinations(request, session, "moderator"))
         )
     return [
-        {**record(batch), **batch_audit(session, batch)}
+        {
+            **record(batch),
+            **batch_audit(session, batch),
+            "process_names": batch_process_names(session, batch),
+        }
         for batch in session.scalars(query.order_by(Batch.created_at.desc()).limit(100))
     ]
 
@@ -872,6 +897,7 @@ def batch_detail(
         items.append(
             {
                 **record(item),
+                **job_information(session, job, printer_id=batch.printer_id),
                 "attribution": item.attribution or unknown_attribution(),
                 "job_id": job.id,
                 "copy_number": label.ordinal + 1,

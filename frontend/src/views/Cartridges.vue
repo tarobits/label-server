@@ -132,7 +132,12 @@ async function correct(id: string) {
     Finish printing, resolve the pending review, or cancel the pending flush on
     {{ selectedPrinter?.name }} before swapping cartridges.
   </p>
-  <form v-validate-form v-if="showForm" class="panel form-stack" @submit.prevent="save">
+  <form
+    v-validate-form
+    v-if="showForm"
+    class="panel form-stack motion-reveal"
+    @submit.prevent="save"
+  >
     <h2>Register a cartridge</h2>
     <div class="field-row">
       <label

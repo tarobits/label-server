@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import Icon from './components/Icon.vue'
 import BrandLogo from './components/BrandLogo.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import MotionSurface from './components/MotionSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import SignIn from './views/SignIn.vue'
 import { useAuthStore } from './auth'
@@ -89,7 +90,8 @@ const allowed = computed(() => {
   if (['/profiles', '/cartridges'].includes(route.path)) return auth.can('inventory.manage')
   if (route.path === '/activity' || route.path.startsWith('/batches/'))
     return w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
-  if (route.path.endsWith('/edit') || route.path === '/templates/new') return true
+  if (route.path === '/templates/new') return auth.canCreateTemplates
+  if (route.path.endsWith('/edit')) return true
   if (route.path === '/new') return auth.any('request')
   return true
 })
@@ -184,22 +186,28 @@ async function logout() {
               ><Icon name="plus" />New label</RouterLink
             >
           </header>
-          <div v-if="connectionError" class="alert danger" role="alert">
-            {{ connectionError }}
-            <button class="text-button" @click="w.refresh(true)">Retry</button>
-          </div>
-          <div v-if="actionError" class="alert danger" role="alert">
-            {{ actionError
-            }}<button class="text-button" aria-label="Dismiss error" @click="actionError = ''">
-              Dismiss
-            </button>
-          </div>
-          <div v-if="success" class="alert success" role="status">
-            {{ success
-            }}<button class="text-button" aria-label="Dismiss message" @click="success = ''">
-              Dismiss
-            </button>
-          </div>
+          <Transition name="notice">
+            <div v-if="connectionError" class="alert danger" role="alert">
+              {{ connectionError }}
+              <button class="text-button" @click="w.refresh(true)">Retry</button>
+            </div>
+          </Transition>
+          <Transition name="notice">
+            <div v-if="actionError" class="alert danger" role="alert">
+              {{ actionError
+              }}<button class="text-button" aria-label="Dismiss error" @click="actionError = ''">
+                Dismiss
+              </button>
+            </div>
+          </Transition>
+          <Transition name="notice">
+            <div v-if="success" class="alert success" role="status">
+              {{ success
+              }}<button class="text-button" aria-label="Dismiss message" @click="success = ''">
+                Dismiss
+              </button>
+            </div>
+          </Transition>
           <div
             v-for="printer in route.path.startsWith('/batches/') ? [] : reviewPrinters"
             :key="printer.printer_id"
@@ -241,10 +249,13 @@ async function logout() {
             <h2>Access restricted</h2>
             <RouterLink to="/">Back to overview</RouterLink>
           </div>
-          <RouterView
+          <MotionSurface
             v-else-if="loaded && w.routeReady && (w.destinations.length || !needsPrinter)"
-            :key="auth.user.id"
-          />
+            :identity="route.path"
+            class="route-surface"
+          >
+            <RouterView :key="auth.user.id" />
+          </MotionSurface>
           <footer class="page-footer">
             <VersionStatus />
             <span

@@ -18,6 +18,7 @@ import Administration from './views/Administration.vue'
 import Requests from './views/Requests.vue'
 import AccessHolds from './views/AccessHolds.vue'
 import './style.css'
+import './motion.css'
 import { pinia } from './stores'
 
 const router = createRouter({

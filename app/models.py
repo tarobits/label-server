@@ -84,6 +84,9 @@ class RegistrationCode(Base):
     name: Mapped[str]
     role_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     group_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    group_permissions: Mapped[dict[str, dict[str, bool]]] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
     created_at: Mapped[float] = mapped_column(default=time.time)
     expires_at: Mapped[float]
     redeemed_at: Mapped[float | None]

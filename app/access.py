@@ -100,6 +100,13 @@ class AccountPolicy:
                 return (
                     resource.scope == "global" or resource.scope == "group" and member is not None
                 )
+            if resource.scope == "global":
+                permission = (
+                    "templates.delete_global"
+                    if action == Action.DELETE
+                    else "templates.edit_global"
+                )
+                return permission in actor.permissions
             if resource.scope == "group" and member is not None:
                 return (
                     member.can_delete_others if action == Action.DELETE else member.can_edit_others

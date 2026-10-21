@@ -82,7 +82,10 @@ test('administrators manage scoped notification endpoints without exposing store
   await expect(
     panel.getByText('Leave blank to keep the stored token.', { exact: true }),
   ).toBeVisible()
-  await panel.screenshot({ path: 'test-results/notification-endpoints-desktop.png' })
+  await page.screenshot({
+    path: 'test-results/notification-endpoints-desktop.png',
+    animations: 'disabled',
+  })
   await panel.getByLabel('Endpoint name', { exact: true }).fill('Renamed workshop alerts')
   await panel.getByRole('button', { name: 'Save notification endpoint', exact: true }).click()
   await expect(
@@ -123,20 +126,32 @@ test('administrators manage scoped notification endpoints without exposing store
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
-  await panel.screenshot({ path: 'test-results/notification-endpoints-mobile.png' })
+  await page.screenshot({
+    path: 'test-results/notification-endpoints-mobile.png',
+    animations: 'disabled',
+  })
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
 
   await panel
+    .getByRole('button', { name: 'Edit endpoint Renamed workshop alerts', exact: true })
+    .click()
+  await panel
     .getByRole('button', { name: 'Delete endpoint Renamed workshop alerts', exact: true })
     .click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: 'Confirm action', exact: true })
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click()
   await expect(
-    panel.getByRole('button', { name: 'Edit endpoint Renamed workshop alerts', exact: true }),
+    panel.getByRole('dialog', { name: 'Edit notification endpoint', exact: true }),
   ).toBeVisible()
   await panel
     .getByRole('button', { name: 'Delete endpoint Renamed workshop alerts', exact: true })
     .click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: 'Confirm action', exact: true })
+    .getByRole('button', { name: 'Confirm', exact: true })
+    .click()
   await expect(
     panel.getByText('No notification endpoints configured.', { exact: true }),
   ).toBeVisible()

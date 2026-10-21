@@ -126,6 +126,9 @@ def build_job(
         profile_id=profile.id,
         template_id=body.template,
         template_snapshot={
+            "name": template.name,
+            "process_name": body.process_name or template.name,
+            "profile_name": profile.name,
             "renderer": "svg",
             "revision": template.revision,
             "document": document,
@@ -141,6 +144,12 @@ def build_job(
 def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> str:
     # Keep retries of pre-multi-printer requests valid after upgrading.
     values = dict(values)
+    if values.get("process_name") is None:
+        values.pop("process_name", None)
+    if isinstance(values.get("input"), dict):
+        values["input"] = dict(values["input"])
+        if values["input"].get("process_name") is None:
+            values["input"].pop("process_name", None)
     if values.get("destination_id") == "main":
         values.pop("destination_id")
     payload = {namespace: values} if namespace else values

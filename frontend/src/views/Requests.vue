@@ -30,12 +30,26 @@ const requests = ref<PrintRequest[]>([]),
 const filter = ref('pending'),
   error = ref(''),
   busy = ref(false),
+  loading = ref(true),
   reason = ref(''),
-  position = ref(0)
+  position = ref(0),
+  previewFailed = ref(false),
+  previewAttempt = ref(0)
 const visible = computed(() =>
   requests.value.filter((r) => !filter.value || r.status === filter.value),
 )
 const label = computed(() => selected.value?.labels[position.value])
+const copies = computed(
+  () => selected.value?.labels.reduce((total, item) => total + item.copies, 0) ?? 0,
+)
+watch([() => selected.value?.id, position], () => {
+  previewFailed.value = false
+  previewAttempt.value = 0
+})
+function retryPreview() {
+  previewAttempt.value++
+  previewFailed.value = false
+}
 let stopped = false,
   generation = 0
 async function load(force = false) {
@@ -43,6 +57,7 @@ async function load(force = false) {
     actor = auth.user?.id,
     id = typeof route.params.id === 'string' ? route.params.id : ''
   const current = () => !stopped && ticket === generation && auth.user?.id === actor
+  loading.value = true
   try {
     if (id) {
       const detail = await resources.get<PrintRequest>(`/requests/${encodeURIComponent(id)}`, {
@@ -60,6 +75,8 @@ async function load(force = false) {
     error.value = ''
   } catch (e) {
     if (current()) error.value = errorMessage(e)
+  } finally {
+    if (current()) loading.value = false
   }
 }
 useLiveRefresh(async () => {
@@ -98,6 +115,7 @@ watch(
   () => {
     generation++
     selected.value = null
+    error.value = ''
     position.value = 0
     reason.value = ''
     void load()
@@ -109,7 +127,10 @@ onUnmounted(() => {
 })
 </script>
 <template>
-  <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+  <p v-if="error" class="alert danger" role="alert">
+    {{ error }}
+    <button class="text-button" :disabled="loading" @click="load(true)">Retry</button>
+  </p>
   <section v-if="selected" class="panel form-stack">
     <div class="section-heading">
       <h2>{{ selected.owner_name || 'Print request' }}</h2>
@@ -117,19 +138,28 @@ onUnmounted(() => {
     </div>
     <p>
       {{ w.destinationName(selected.destination_id) }} · {{ date(selected.created_at) }} ·
-      {{ selected.labels.reduce((total, item) => total + item.copies, 0) }} copies
+      {{ copies }} {{ copies === 1 ? 'copy' : 'copies' }}
     </p>
     <p v-if="selected.status === 'pending'" class="help">
       These labels are saved for review and have not entered the print queue.
     </p>
     <div v-if="label" class="request-preview">
+      <p v-if="previewFailed" class="help" role="status">
+        Preview unavailable.
+        <button type="button" class="small secondary" @click="retryPreview">Retry preview</button>
+      </p>
       <img
-        :key="`${selected.id}-${position}`"
-        :src="`/api/requests/${selected.id}/labels/${position}/preview`"
+        v-else
+        :key="`${selected.id}-${position}-${previewAttempt}`"
+        :src="`/api/requests/${selected.id}/labels/${position}/preview${previewAttempt ? `?retry=${previewAttempt}` : ''}`"
         :alt="`Requested label ${position + 1}`"
         :style="{ aspectRatio: `${label.length_mm} / ${label.width_mm}` }"
+        @error="previewFailed = true"
       />
-      <p>{{ label.length_mm }} × {{ label.width_mm }} mm · {{ label.copies }} copies</p>
+      <p>
+        {{ label.length_mm }} × {{ label.width_mm }} mm · {{ label.copies }}
+        {{ label.copies === 1 ? 'copy' : 'copies' }}
+      </p>
       <div class="row">
         <button :disabled="!position" @click="position--">Previous label</button
         ><span>{{ position + 1 }} / {{ selected.labels.length }}</span
@@ -159,7 +189,7 @@ onUnmounted(() => {
     >
     <button class="text-button" @click="router.push('/requests')">Back to requests</button>
   </section>
-  <section v-else class="panel">
+  <section v-else-if="!route.params.id" class="panel">
     <div class="section-heading">
       <h2>{{ auth.any('moderator') ? 'Print requests' : 'Your print requests' }}</h2>
       <label
@@ -171,7 +201,8 @@ onUnmounted(() => {
         </select></label
       >
     </div>
-    <p v-if="!visible.length" class="empty">No {{ filter || 'print' }} requests.</p>
+    <p v-if="loading && !requests.length" class="empty" role="status">Loading requests…</p>
+    <p v-else-if="!visible.length && !error" class="empty">No {{ filter || 'print' }} requests.</p>
     <div v-for="request in visible" :key="request.id" class="list-row">
       <div>
         <strong>{{
@@ -190,6 +221,7 @@ onUnmounted(() => {
       >
     </div>
   </section>
+  <p v-else-if="loading" class="panel empty" role="status">Loading request…</p>
 </template>
 <style scoped>
 .request-preview {

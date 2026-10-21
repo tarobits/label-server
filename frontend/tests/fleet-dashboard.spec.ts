@@ -125,6 +125,7 @@ test('fleet overview separates direct and group queues and targets card actions 
   await expect(page.getByRole('combobox', { name: 'Destination', exact: true })).toHaveValue(
     group.id,
   )
+  await page.locator('.queue-label-details > summary').click()
   await expect(page.getByText('Group labels', { exact: true })).toBeVisible()
   await expect(page.getByText('Workshop labels', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Print compatible queue now' })).toHaveCount(0)

@@ -81,7 +81,12 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   <div class="section-heading">
     <button class="secondary" @click="edit()">Add tape profile</button>
   </div>
-  <form v-validate-form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
+  <form
+    v-validate-form
+    v-if="formOpen"
+    class="panel form-stack motion-reveal"
+    @submit.prevent="save"
+  >
     <div class="section-heading">
       <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
       <button type="button" class="text-button" @click="formOpen = false">Close</button>

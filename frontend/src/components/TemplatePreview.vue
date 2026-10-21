@@ -4,12 +4,13 @@ import type { Template } from '../types'
 
 const props = defineProps<{ template: Template }>()
 const failed = ref('')
+const attempt = ref(0)
 const source = computed(() => {
   const missing = (props.template.asset_notices ?? [])
     .map((notice) => `${notice.kind}:${notice.id}`)
     .sort()
     .join(',')
-  return `/api/templates/${encodeURIComponent(props.template.id)}/preview.webp?revision=${props.template.revision}&missing=${encodeURIComponent(missing)}`
+  return `/api/templates/${encodeURIComponent(props.template.id)}/preview.webp?revision=${props.template.revision}&missing=${encodeURIComponent(missing)}${attempt.value ? `&retry=${attempt.value}` : ''}`
 })
 </script>
 
@@ -24,7 +25,10 @@ const source = computed(() => {
       decoding="async"
       @error="failed = source"
     />
-    <span v-else class="help">Preview unavailable</span>
+    <div v-else class="preview-error" role="status">
+      <span class="help">Preview unavailable</span>
+      <button type="button" class="small secondary" @click="attempt++">Retry preview</button>
+    </div>
   </div>
 </template>
 
@@ -44,5 +48,10 @@ const source = computed(() => {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+}
+.preview-error {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
 }
 </style>

@@ -246,7 +246,10 @@ Group permissions apply through that group and grant no direct printer access.
 Interrupted-batch review requires Moderator or Full directly on the physical
 printer. Template groups share templates and never assign roles. Owners can edit
 or delete their own templates and cancel their own queued jobs after losing
-printer access. Only administrators publish global templates.
+printer access. Roles independently grant creation of personal or global templates
+and editing or deleting other users’ global templates. The default Member role
+includes personal template creation. Registration codes can assign independent
+collaboration permissions for each selected template group.
 
 Pending requests do not count toward thresholds. Disabling a user or revoking the
 access needed for queued work pauses those jobs for an administrator to release

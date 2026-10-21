@@ -25,11 +25,18 @@ from app.models import AuthSession, AuthSettings, PrinterDevice, PrinterGroup, R
 COOKIE_NAME = "label_session"
 SESSION_SECONDS = 7 * 24 * 3600
 PERMISSIONS = {
+    "templates.create_personal": "Create personal templates",
+    "templates.create_global": "Create global templates",
+    "templates.edit_global": "Edit other users’ global templates",
+    "templates.delete_global": "Delete other users’ global templates",
     "assets.write": "Upload and manage own images and fonts",
     "inventory.manage": "Manage tape profiles and cartridges",
     "printers.manage": "Register printers and create distribution groups",
 }
-MEMBER_PERMISSIONS = [{"kind": "application", "permission": "assets.write"}]
+MEMBER_PERMISSIONS = [
+    {"kind": "application", "permission": "assets.write"},
+    {"kind": "application", "permission": "templates.create_personal"},
+]
 PASSWORD_SLOTS = BoundedSemaphore(2)
 logger = logging.getLogger(__name__)
 

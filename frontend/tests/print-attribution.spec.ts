@@ -48,10 +48,10 @@ async function account(
 
 async function people(root: Locator, requester: string, approver: string, timeout?: number) {
   await expect(
-    root.locator('.print-attribution > div').filter({ hasText: 'Requested by' }),
+    root.locator('.print-attribution > div').filter({ hasText: /Requested by|Queued by/ }),
   ).toContainText(requester, { timeout })
   await expect(
-    root.locator('.print-attribution > div').filter({ hasText: 'Approved by' }),
+    root.locator('.print-attribution > div').filter({ hasText: /Approved by|Authorized by/ }),
   ).toContainText(approver, { timeout })
 }
 
@@ -81,6 +81,10 @@ test('activity separates label requester, approver, release and manual batch sta
     const approval = await request.post(`/api/requests/${(await submitted.json()).id}/approve`)
     expect(approval.ok(), await approval.text()).toBeTruthy()
     const [jobId] = (await approval.json()).job_ids
+    await page.goto('/#/queue')
+    const queuedRow = page.locator('tbody tr').filter({ hasText: 'Approved history' })
+    await queuedRow.locator('.queue-label-details > summary').click()
+    await people(queuedRow, 'requester', 'owner')
     await change(request, 'users', { disabled: false, role_ids: [] }, requester.user.id)
     expect((await request.get('/api/access-holds')).ok()).toBeTruthy()
     expect((await request.post(`/api/access-holds/${jobId}/release`)).ok()).toBeTruthy()
@@ -144,8 +148,9 @@ test('activity separates label requester, approver, release and manual batch sta
     await page.goto('/#/activity')
     const latest = page.locator('.activity-batch').first()
     // Another client printed this batch; wait for the dynamic history cache to refresh.
-    await people(latest, 'operator', 'operator', 15000)
-    await expect(latest.getByText('Direct printing', { exact: false })).toBeVisible()
+    await expect(latest.locator('.print-attribution')).toContainText('operator', { timeout: 15000 })
+    await expect(latest.getByText('Queued by', { exact: true })).toBeVisible()
+    await expect(latest.getByText('Approved by', { exact: true })).toHaveCount(0)
     await expect(latest.locator('.batch-trigger')).toContainText('Manually started by owner')
   } finally {
     await requester.request.dispose()

@@ -7,6 +7,7 @@ import type { BatchDetail } from '../types'
 import { useWorkspaceStore, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
 import JobPreview from '../components/JobPreview.vue'
+import LabelDetails from '../components/LabelDetails.vue'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
 import { useAuthStore } from '../auth'
@@ -180,6 +181,8 @@ async function resolve() {
                 /></label>
               </td>
               <td class="review-text">
+                <strong>{{ item.process_name }}</strong>
+                <LabelDetails :label="item" />
                 <JobPreview
                   :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
                   :job-id="item.job_id"
@@ -187,10 +190,9 @@ async function resolve() {
                   :width-mm="item.width_mm"
                   :length-mm="item.length_mm"
                 />
-                <span>{{ item.text }}</span>
               </td>
               <td class="review-attribution">
-                <PrintAttribution :attribution="item.attribution" />
+                <PrintAttribution :attribution="item.attribution" queue />
               </td>
               <td>{{ item.copy_number }}</td>
               <td><Badge :state="item.outcome" /></td>

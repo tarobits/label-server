@@ -25,7 +25,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const routePath = ref('/')
   const routeLoaded = ref('')
   const routeReady = computed(() => routePath.value === routeLoaded.value)
-  const selectedPrinter = ref(localStorage.getItem('selectedPrinter') || '')
+  const selectedPrinter = ref('')
+  try {
+    selectedPrinter.value = localStorage.getItem('selectedPrinter') || ''
+  } catch {
+    // The destination still works in memory when browser storage is blocked.
+  }
   const printerStatuses = ref<Status[]>([])
   const destinations = ref<Destination[]>([])
   const status = ref<Status | null>(null)
@@ -210,7 +215,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     cartridges.value.find((c) => c.id === id)?.name ?? 'Unknown cartridge'
   watch([selectedPrinter, printerStatuses], () => {
     status.value = printerStatuses.value.find((s) => s.printer_id === selectedPrinter.value) ?? null
-    localStorage.setItem('selectedPrinter', selectedPrinter.value)
+    try {
+      localStorage.setItem('selectedPrinter', selectedPrinter.value)
+    } catch {
+      // A full or disabled storage area must not interrupt the workspace.
+    }
   })
   const destinationName = (id: string) => destinations.value.find((d) => d.id === id)?.name ?? id
   const destinationPrinter = (id: string) => {

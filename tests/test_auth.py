@@ -23,6 +23,7 @@ from app.models import (
     LabelTemplate,
     PrinterDevice,
     PrinterGroup,
+    RegistrationCode,
     Role,
     User,
     UserGroup,
@@ -216,7 +217,7 @@ def test_registration_never_grants_administrator(auth_client, tmp_path):
     code = invite(client)
     result = register_member(client, code)
     assert not result["user"]["is_admin"]
-    assert result["user"]["permissions"] == ["assets.write"]
+    assert result["user"]["permissions"] == ["assets.write", "templates.create_personal"]
     assert result["user"]["destination_levels"] == {}
     assert client.get("/api/admin/users").status_code == 403
     assert (
@@ -226,6 +227,104 @@ def test_registration_never_grants_administrator(auth_client, tmp_path):
         ).status_code
         == 400
     )
+
+
+def test_registration_applies_independent_permissions_for_each_template_group(
+    auth_client, tmp_path
+):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    flags = [
+        {"can_create": False, "can_edit_others": False, "can_delete_others": False},
+        {"can_create": True, "can_edit_others": False, "can_delete_others": False},
+        {"can_create": False, "can_edit_others": True, "can_delete_others": False},
+        {"can_create": False, "can_edit_others": False, "can_delete_others": True},
+        {"can_create": True, "can_edit_others": True, "can_delete_others": True},
+    ]
+    groups = [
+        change(client, "groups", "POST", {"name": f"Team {index}", "members": []}).json()
+        for index in range(len(flags))
+    ]
+    expected = {group["id"]: rights for group, rights in zip(groups, flags, strict=True)}
+    created = client.post(
+        "/api/admin/registration-codes",
+        json={"name": "Team access", "group_ids": list(expected), "group_permissions": expected},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["group_permissions"] == expected
+    assert client.get("/api/admin/registration-codes").json()[0]["group_permissions"] == expected
+    result = register_member(client, created.json()["code"])
+    assert result["user"]["group_memberships"] == expected
+    with client.app.state.factory() as session:
+        for group in groups:
+            assert session.get(UserGroup, group["id"]).members == [
+                {"user_id": result["user"]["id"], **expected[group["id"]]}
+            ]
+
+
+def test_legacy_registration_codes_keep_create_only_template_access(auth_client, tmp_path):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    group = change(client, "groups", "POST", {"name": "Legacy team"}).json()
+    response = client.post(
+        "/api/admin/registration-codes", json={"name": "Legacy invite", "group_ids": [group["id"]]}
+    )
+    assert response.status_code == 201, response.text
+    expected = {"can_create": True, "can_edit_others": False, "can_delete_others": False}
+    assert response.json()["group_permissions"] == {group["id"]: expected}
+    # Existing codes acquire an empty permissions map when the database is upgraded.
+    with client.app.state.factory.begin() as session:
+        session.get(RegistrationCode, response.json()["id"]).group_permissions = {}
+    result = register_member(client, response.json()["code"])
+    assert result["user"]["group_memberships"] == {group["id"]: expected}
+
+
+@pytest.mark.parametrize("invalid", ["unselected", "unknown", "extra-permission", "duplicate"])
+def test_registration_group_permissions_validate_references_and_rights(
+    auth_client, tmp_path, invalid
+):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    group = change(client, "groups", "POST", {"name": "Selected team"}).json()
+    body = {
+        "name": "Invalid invitation",
+        "group_ids": [group["id"]],
+        "group_permissions": {group["id"]: {"can_create": True}},
+    }
+    if invalid == "unselected":
+        body["group_ids"] = []
+    elif invalid == "unknown":
+        body["group_ids"] = ["unknown"]
+        body["group_permissions"] = {"unknown": {"can_create": True}}
+    elif invalid == "extra-permission":
+        body["group_permissions"] = {group["id"]: {"is_admin": True}}
+    else:
+        body["group_ids"] = [group["id"], group["id"]]
+    assert client.post("/api/admin/registration-codes", json=body).status_code == 422
+    assert client.get("/api/admin/registration-codes").json() == []
+
+
+def test_deleting_group_removes_its_registration_code_permissions(auth_client, tmp_path):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    removed = change(client, "groups", "POST", {"name": "Removed team"}).json()
+    retained = change(client, "groups", "POST", {"name": "Remaining team"}).json()
+    rights = {"can_create": False, "can_edit_others": True, "can_delete_others": False}
+    response = client.post(
+        "/api/admin/registration-codes",
+        json={
+            "name": "Shared invitation",
+            "group_ids": [removed["id"], retained["id"]],
+            "group_permissions": {removed["id"]: rights, retained["id"]: rights},
+        },
+    )
+    assert response.status_code == 201, response.text
+    change(client, "groups", "DELETE", identifier=removed["id"])
+    code = client.get("/api/admin/registration-codes").json()[0]
+    assert code["group_ids"] == [retained["id"]]
+    assert code["group_permissions"] == {retained["id"]: rights}
+    result = register_member(client, response.json()["code"])
+    assert result["user"]["group_memberships"] == {retained["id"]: rights}
 
 
 def test_open_registration_and_revoked_codes(auth_client, tmp_path):

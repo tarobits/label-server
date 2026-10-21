@@ -63,7 +63,15 @@ class AdminInput(BaseModel):
 
 class ApplicationPermission(AdminInput):
     kind: Literal["application"]
-    permission: Literal["assets.write", "inventory.manage", "printers.manage"]
+    permission: Literal[
+        "assets.write",
+        "inventory.manage",
+        "printers.manage",
+        "templates.create_personal",
+        "templates.create_global",
+        "templates.edit_global",
+        "templates.delete_global",
+    ]
 
 
 class DestinationPermission(AdminInput):
@@ -105,11 +113,20 @@ class CreateUserInput(Credentials):
     role_ids: list[str] = Field(default_factory=lambda: ["member"], max_length=100)
 
 
+class GroupPermissionsInput(AdminInput):
+    can_create: bool = False
+    can_edit_others: bool = False
+    can_delete_others: bool = False
+
+
 class CodeInput(AdminInput):
     name: str = Field(min_length=1, max_length=100)
     expires_in_days: int = Field(default=7, ge=1, le=365)
     role_ids: list[str] = Field(default_factory=lambda: ["member"], max_length=100)
     group_ids: list[str] = Field(default_factory=list, max_length=100)
+    group_permissions: dict[str, GroupPermissionsInput] = Field(
+        default_factory=dict, max_length=100
+    )
 
 
 class SettingsInput(AdminInput):
@@ -314,6 +331,11 @@ def apply_change(
                 code.group_ids = [
                     identifier for identifier in code.group_ids if identifier != group.id
                 ]
+                code.group_permissions = {
+                    identifier: permissions
+                    for identifier, permissions in code.group_permissions.items()
+                    if identifier != group.id
+                }
             session.delete(group)
             session.flush()
             return None
@@ -558,7 +580,10 @@ def delete_group(identifier: str, request: Request, session: DB) -> None:
 @router.get("/registration-codes")
 def registration_codes(session: DB) -> list[dict[str, Any]]:
     return [
-        record(code, "id name created_at expires_at redeemed_at revoked role_ids group_ids")
+        record(
+            code,
+            "id name created_at expires_at redeemed_at revoked role_ids group_ids group_permissions",
+        )
         for code in session.scalars(
             select(RegistrationCode).order_by(RegistrationCode.created_at.desc())
         )
@@ -569,6 +594,8 @@ def registration_codes(session: DB) -> list[dict[str, Any]]:
 def create_code(body: CodeInput, session: DB) -> dict[str, Any]:
     require_ids(session, Role, body.role_ids)
     require_ids(session, UserGroup, body.group_ids)
+    if not set(body.group_permissions).issubset(body.group_ids):
+        raise HTTPException(422, "Group permissions require a selected template group")
     if ADMINISTRATOR_ROLE_ID in body.role_ids:
         raise HTTPException(422, "Registration codes cannot grant Administrator")
     secret = secrets.token_urlsafe(32)
@@ -577,12 +604,21 @@ def create_code(body: CodeInput, session: DB) -> dict[str, Any]:
         name=body.name,
         role_ids=body.role_ids,
         group_ids=body.group_ids,
+        group_permissions={
+            identifier: body.group_permissions.get(
+                identifier, GroupPermissionsInput(can_create=True)
+            ).model_dump()
+            for identifier in body.group_ids
+        },
         expires_at=time.time() + body.expires_in_days * 86400,
     )
     session.add(code)
     session.flush()
     return {
-        **record(code, "id name created_at expires_at redeemed_at revoked role_ids group_ids"),
+        **record(
+            code,
+            "id name created_at expires_at redeemed_at revoked role_ids group_ids group_permissions",
+        ),
         "code": secret,
     }
 

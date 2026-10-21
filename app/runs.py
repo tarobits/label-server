@@ -21,7 +21,7 @@ from app.preparation import rendering
 from app.print_audit import delegated_attribution, direct_attribution
 from app.printer.base import RenderedLabel
 from app.render import RenderSpec, render_document, render_job
-from app.schemas import Input, JobInput
+from app.schemas import Input, JobInput, ProcessName
 from app.submissions import build_job, input_fingerprint, rendering_spec
 from app.template_schema import TemplateDocument
 
@@ -39,6 +39,7 @@ class RunRow(Input):
 
 
 class RunInput(CsvInput):
+    process_name: ProcessName | None = None
     destination_id: str | None = None
     request_key: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=100)
@@ -95,6 +96,7 @@ def run_record(run: PrintRun) -> dict[str, Any]:
     return {
         "id": run.id,
         "name": run.name,
+        "process_name": run.manifest.get("process_name", run.manifest["template_name"]),
         "profile_id": run.profile_id,
         "owner_id": run.owner_id,
         "destination_id": run.destination_id,
@@ -182,6 +184,7 @@ def prepare_run(
             try:
                 job = build_job(
                     JobInput(
+                        process_name=body.process_name,
                         template=template.id,
                         destination_id=body.destination_id,
                         tape_profile=profile.id,
@@ -239,6 +242,7 @@ def prepare_run(
         request_hash=fingerprint,
         profile_id=profile.id,
         manifest={
+            "process_name": body.process_name or template.name,
             "rows": entries,
             "estimated_mm": estimate,
             "print_plan": asdict(backend.plan_batch(labels)),

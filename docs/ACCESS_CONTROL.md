@@ -20,8 +20,7 @@ the membership settings below govern collaboration within a template group.
 Administrator is a protected, built-in role assigned directly to users. It grants
 every permission on all existing and future resources, including printers,
 distribution groups and user groups. Its users can view every template, including
-templates in groups they have not joined. Only administrators may publish global
-templates.
+templates in groups they have not joined.
 
 The role cannot be deleted or stripped of its universal access. At least one
 enabled administrator must remain. Validation and physical printer state still
@@ -40,6 +39,24 @@ Users can always edit and delete their own templates. Editing or deleting someon
 else's group template requires the corresponding membership permission; creation
 permission does not implicitly grant either. Administrators have all of these
 permissions regardless of membership.
+
+Roles independently grant creation of personal templates, creation of global
+templates, editing other users' global templates, and deletion of other users'
+global templates. The Member role includes personal template creation by default.
+Custom roles must explicitly grant it. Creation permissions also govern moving
+owned templates into a different scope; editing an existing owned template does
+not require a creation permission. Only its owner or an administrator can change
+a template's sharing scope.
+
+Global deletion permission allows archiving and deleting global templates,
+including other users' templates. Deleted templates remain recoverable by an
+administrator for 30 days. Global template permissions grant no access to other
+users' personal templates or to template groups.
+
+Registration codes can assign template groups with independent create, edit
+others, and delete others permissions for each group. Selecting a group with all
+three permissions off grants view-only membership. Codes issued before these
+settings were available retain their original create-only membership.
 
 ## Printer and distribution-group access
 

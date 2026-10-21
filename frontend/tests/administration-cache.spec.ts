@@ -32,6 +32,7 @@ test('administration reuses cached navigation data and reloads only mutated reco
   const unsavedDelay = page.getByLabel('Approval notification delay (seconds)', { exact: false })
   await unsavedDelay.fill('123')
   await page.getByRole('button', { name: 'Registration codes', exact: true }).click()
+  await page.getByRole('button', { name: 'New registration code', exact: true }).click()
   await page.getByLabel('Code label', { exact: true }).fill('Cache test invitation')
   await page.getByRole('button', { name: 'Create registration code', exact: true }).click()
   await expect(page.getByText('Cache test invitation', { exact: true })).toBeVisible()

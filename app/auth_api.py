@@ -173,9 +173,14 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
                         *group.members,
                         {
                             "user_id": user.id,
-                            "can_create": True,
-                            "can_edit_others": False,
-                            "can_delete_others": False,
+                            **code.group_permissions.get(
+                                group.id,
+                                {
+                                    "can_create": True,
+                                    "can_edit_others": False,
+                                    "can_delete_others": False,
+                                },
+                            ),
                         },
                     ]
             result = new_session(request, response, session, user)

@@ -8,6 +8,7 @@ import { useWorkspaceStore, date } from '../workspace'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
+import ProcessNameInput from '../components/ProcessNameInput.vue'
 interface Row {
   source_row: number
   values: string[]
@@ -18,6 +19,7 @@ interface Run {
   destination_id: string
   id: string
   name: string
+  process_name: string
   submitted_at: number | null
   created_at: number
   template_name: string
@@ -66,6 +68,7 @@ const csv = ref(''),
       : (w.activeProfile?.id ?? w.profiles[0]?.id ?? ''),
   )
 const template = computed(() => w.templates.find((t) => t.id === templateId.value))
+const processName = ref('')
 watch(
   templateId,
   (_, previous) => {
@@ -175,8 +178,10 @@ function move(index: number, delta: number) {
 async function prepare() {
   await perform(async () => {
     if (!template.value) throw new Error('Choose a template.')
+    if (!processName.value.trim()) throw new Error('Process name is required.')
     rowErrors.value = []
     const body = {
+      process_name: processName.value.trim(),
       destination_id: destinationId.value,
       name: name.value,
       template: templateId.value,
@@ -374,6 +379,7 @@ onUnmounted(() => {
           </select></label
         >
       </div>
+      <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <label
         >CSV file<input type="file" accept=".csv,text/csv,text/plain" @change="fileChanged"
       /></label>

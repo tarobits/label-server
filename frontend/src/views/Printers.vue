@@ -149,7 +149,12 @@ function move(index: number, offset: number) {
       </button>
     </div>
   </div>
-  <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
+  <form
+    v-validate-form
+    v-if="showPrinter"
+    class="panel form-stack motion-reveal"
+    @submit.prevent="addPrinter"
+  >
     <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
     <div class="field-row">
       <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
@@ -306,7 +311,12 @@ function move(index: number, offset: number) {
       </div>
     </section>
   </div>
-  <form v-validate-form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
+  <form
+    v-validate-form
+    v-if="showGroup"
+    class="panel form-stack motion-reveal"
+    @submit.prevent="saveGroup"
+  >
     <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
     <label>Group name<input v-model="group.name" required maxlength="100" /></label>
     <fieldset>

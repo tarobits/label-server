@@ -1,0 +1,155 @@
+:root {
+  --motion-press: 100ms;
+  --motion-fast: 140ms;
+  --motion-state: 180ms;
+  --motion-enter: 240ms;
+  --motion-exit: 100ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Feedback stays local to the control; the editor canvas follows the pointer
+   without interpolation. */
+button,
+.button {
+  transition:
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out,
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-press) var(--motion-ease);
+}
+button:not(:disabled):active,
+.button:not([aria-disabled='true']):active {
+  transform: scale(0.98);
+}
+a,
+summary {
+  transition: color var(--motion-fast) ease-out;
+}
+.sidebar nav a,
+.administration-nav button,
+input,
+select,
+textarea,
+.badge,
+.status-dot {
+  transition:
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out;
+}
+@media (hover: hover) {
+  input:not(:disabled):not([aria-invalid='true']):hover,
+  select:not(:disabled):not([aria-invalid='true']):hover,
+  textarea:not(:disabled):not([aria-invalid='true']):hover {
+    border-color: var(--line-strong);
+  }
+}
+
+/* Feedback appears once when inserted, rather than pulsing during refreshes. */
+.alert,
+.field-error,
+.update-notice,
+.motion-reveal {
+  animation: feedback-arrive var(--motion-state) var(--motion-ease);
+}
+/* Native disclosures retain their keyboard behavior and lazy-loaded content.
+   Older browsers get the same opening feedback without size interpolation. */
+details[open] > :not(summary) {
+  animation: feedback-arrive var(--motion-state) var(--motion-ease);
+}
+@supports (interpolate-size: allow-keywords) and (transition-behavior: allow-discrete) and
+  selector(details::details-content) {
+  details::details-content {
+    interpolate-size: allow-keywords;
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    overflow-clip-margin: 6px;
+    transition:
+      block-size var(--motion-exit) var(--motion-ease),
+      opacity var(--motion-exit) ease-out,
+      content-visibility var(--motion-exit) allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+    opacity: 1;
+    transition-duration: var(--motion-state);
+  }
+  details[open] > :not(summary) {
+    animation: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    details::details-content {
+      transition-property: opacity, content-visibility;
+    }
+  }
+}
+.notice-leave-active {
+  transition: opacity var(--motion-exit) ease-out;
+}
+.notice-leave-to {
+  opacity: 0;
+}
+@keyframes feedback-arrive {
+  from {
+    opacity: 0.6;
+  }
+}
+
+/* The first rendered label feeds into view across its physical length. Live
+   edits replace its pixels immediately, without replaying the feed. */
+.label-stage > .raster-preview {
+  animation: label-feed var(--motion-enter) var(--motion-ease);
+}
+@keyframes label-feed {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+/* Native dialog focus and close behavior stay immediate. Every dialog uses the
+   same depth cue, including image, history, and access previews. */
+dialog[open] {
+  animation: dialog-arrive var(--motion-enter) var(--motion-ease);
+}
+dialog[open]::backdrop {
+  animation: backdrop-arrive var(--motion-state) ease-out;
+}
+@keyframes dialog-arrive {
+  from {
+    opacity: 0.5;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes backdrop-arrive {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 100ms;
+    --motion-state: 100ms;
+    --motion-enter: 100ms;
+  }
+  button:not(:disabled):active,
+  .button:not([aria-disabled='true']):active {
+    transform: none;
+  }
+  dialog[open],
+  .label-stage > .raster-preview {
+    animation-name: feedback-arrive;
+  }
+}

@@ -57,6 +57,7 @@ test(
     await expect(page.getByRole('link', { name: 'Review →', exact: true })).toHaveCount(0)
     await page.getByRole('link', { name: 'Print queue', exact: false }).click()
     await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
+    await page.locator('.queue-label-details > summary').click()
     await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
     await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
     // Tape usage changes asynchronously in the worker after the print command is accepted.

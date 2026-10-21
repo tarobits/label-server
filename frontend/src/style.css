@@ -83,7 +83,6 @@ button,
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
   line-height: 1.4;
   text-decoration: none;
 }
@@ -268,6 +267,11 @@ h2 {
 h3 {
   font-size: 16px;
 }
+h1,
+h2,
+h3 {
+  overflow-wrap: anywhere;
+}
 p {
   color: var(--muted);
 }
@@ -386,13 +390,22 @@ small {
   flex: 1;
 }
 .topbar {
-  height: 63px;
+  min-height: 63px;
   border-bottom: 1px solid var(--line);
   padding: 0 42px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   background: var(--surface-dense);
+}
+.topbar .row {
+  min-width: 0;
+  max-width: 100%;
+  padding-block: 12px;
+}
+.topbar .row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .printer-pill {
   font-size: 9px;
@@ -428,6 +441,7 @@ main {
   gap: 12px;
 }
 .panel {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -441,6 +455,9 @@ main {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
+}
+.section-heading > :first-child {
+  min-width: 0;
 }
 .stats-grid {
   display: grid;
@@ -944,6 +961,7 @@ dd,
 .card-grid p {
   font-size: 12px;
   margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 .profile-meta {
   display: flex;
@@ -1154,6 +1172,11 @@ dd {
   }
 }
 @media (max-width: 850px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
   .sidebar {
     width: 100%;
     position: static;
@@ -1193,7 +1216,10 @@ dd {
     margin: 0;
   }
   .topbar {
-    height: 44px;
+    min-height: 44px;
+  }
+  .topbar .row {
+    padding-block: 8px;
   }
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
@@ -1299,8 +1325,9 @@ dd {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
     scroll-behavior: auto !important;
   }
 }
@@ -1454,7 +1481,7 @@ dd {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  transition: transform 200ms ease;
+  transition: transform var(--motion-state) var(--motion-ease);
 }
 .property-section h3 svg.collapsed {
   transform: rotate(-90deg);
@@ -1479,8 +1506,8 @@ dd {
 .property-expand-enter-active,
 .property-expand-leave-active {
   transition:
-    grid-template-rows 220ms ease,
-    opacity 180ms ease;
+    grid-template-rows var(--motion-state) var(--motion-ease),
+    opacity var(--motion-fast) ease-out;
 }
 .property-expand-enter-from,
 .property-expand-leave-to {
@@ -1666,7 +1693,7 @@ button[aria-pressed='true'] {
   color: var(--ink);
 }
 .queue-disclosure svg {
-  transition: transform 220ms ease;
+  transition: transform var(--motion-state) var(--motion-ease);
 }
 .queue-disclosure[aria-expanded='true'] svg {
   transform: rotate(90deg);
@@ -1680,7 +1707,7 @@ button[aria-pressed='true'] {
 .queue-cell {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 220ms ease;
+  transition: grid-template-rows var(--motion-state) var(--motion-ease);
 }
 .queue-cell-content {
   min-height: 0;
@@ -1688,13 +1715,13 @@ button[aria-pressed='true'] {
 }
 .queue-expand-enter-active,
 .queue-expand-leave-active {
-  transition: opacity 220ms ease;
+  transition: opacity var(--motion-state) ease-out;
 }
 .queue-expand-enter-active > td,
 .queue-expand-leave-active > td {
   transition:
-    padding 220ms ease,
-    border-width 220ms ease;
+    padding var(--motion-state) var(--motion-ease),
+    border-width var(--motion-state) var(--motion-ease);
 }
 .queue-expand-enter-from,
 .queue-expand-leave-to {

@@ -27,7 +27,11 @@ test('catalogs are route-scoped and queue filters reuse cached reads until a mut
   expect(
     (
       await request.post('/api/jobs', {
-        data: { tape_profile: profile.id, data: { text: 'Cached queue label' } },
+        data: {
+          process_name: 'Cached queue label',
+          tape_profile: profile.id,
+          data: { text: 'Cached queue label' },
+        },
       })
     ).ok(),
   ).toBeTruthy()
@@ -52,7 +56,9 @@ test('catalogs are route-scoped and queue filters reuse cached reads until a mut
     .getByRole('navigation')
     .getByRole('link', { name: /^Print queue/ })
     .click()
-  await expect(page.getByText('Cached queue label', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.queue-label-name').filter({ hasText: 'Cached queue label' }),
+  ).toBeVisible()
   const queuedReads = () =>
     reads.filter(
       (path) => path.startsWith('/api/queue/groups?') && path.includes('copy_state=queued'),
@@ -63,7 +69,9 @@ test('catalogs are route-scoped and queue filters reuse cached reads until a mut
     page.getByRole('heading', { name: 'No printed labels here.', exact: true }),
   ).toBeVisible()
   await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('queued')
-  await expect(page.getByText('Cached queue label', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.queue-label-name').filter({ hasText: 'Cached queue label' }),
+  ).toBeVisible()
   expect(queuedReads()).toBe(1)
   await page.getByRole('link', { name: 'Tape profiles', exact: true }).click()
   await expect(page.getByRole('heading', { name: profile.name, exact: true })).toBeVisible()
@@ -71,13 +79,18 @@ test('catalogs are route-scoped and queue filters reuse cached reads until a mut
     .getByRole('navigation')
     .getByRole('link', { name: /^Print queue/ })
     .click()
-  await expect(page.getByText('Cached queue label', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.queue-label-name').filter({ hasText: 'Cached queue label' }),
+  ).toBeVisible()
   expect(queuedReads()).toBe(1)
 
   await page.getByRole('link', { name: 'New label', exact: true }).click()
   await page.getByLabel('Label text', { exact: true }).fill('Fresh after mutation')
+  await page.getByLabel('Process name', { exact: true }).fill('Fresh after mutation')
   await page.getByRole('button', { name: 'Add to queue', exact: true }).click()
-  await expect(page.getByText('Fresh after mutation', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.queue-label-name').filter({ hasText: 'Fresh after mutation' }),
+  ).toBeVisible()
   expect(queuedReads()).toBe(2)
 })
 

@@ -10,6 +10,8 @@ import { useResourceStore } from '../stores/resources'
 import type { Job } from '../types'
 import { useWorkspaceStore, date } from '../workspace'
 import Badge from '../components/Badge.vue'
+import QueuePreview from '../components/QueuePreview.vue'
+import LabelDetails from '../components/LabelDetails.vue'
 interface QueueGroup {
   id: string
   run_id: string | null
@@ -88,6 +90,7 @@ onUnmounted(() => {
   generation++
 })
 const jobs = computed(() => groups.value.flatMap((group) => group.jobs))
+const labelName = (job: Job) => job.process_name || job.template_name || 'Label'
 const canCancel = (job: Job) =>
   job.can_cancel ??
   (job.owner_id === auth.user?.id || auth.atLeast(job.destination_id, 'moderator'))
@@ -284,7 +287,7 @@ async function cancel(job: Job) {
                   @change="toggle(jobs, $event)"
               /></label>
             </th>
-            <th>Label</th>
+            <th>Process</th>
             <th>Tape</th>
             <th>Copies</th>
             <th>Status</th>
@@ -363,7 +366,7 @@ async function cancel(job: Job) {
                       <label class="checkbox-target"
                         ><input
                           type="checkbox"
-                          :aria-label="`Select ${job.payload.text || (job.source_row ? 'CSV record ' + job.source_row : job.template_id)}`"
+                          :aria-label="`Select ${job.payload.text || (job.source_row ? 'CSV record ' + job.source_row : labelName(job))}`"
                           :checked="checked([job])"
                           :indeterminate="partial([job])"
                           :disabled="!selectable([job]).length || loading"
@@ -375,12 +378,22 @@ async function cancel(job: Job) {
                 <td>
                   <div class="queue-cell">
                     <div class="queue-cell-content">
-                      <strong class="truncate">{{ job.payload.text || job.template_id }}</strong
+                      <strong class="queue-label-name">{{ labelName(job) }}</strong
                       ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
                       ><small>{{ routing(job) }}</small>
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
                         >CSV record {{ job.source_row }}</RouterLink
                       >
+                      <details class="queue-label-details">
+                        <summary>Details</summary>
+                        <LabelDetails :label="job" :attribution="job.attribution" />
+                      </details>
+                      <QueuePreview
+                        :job-id="job.id"
+                        :text="labelName(job)"
+                        :width-mm="job.width_mm"
+                        :length-mm="job.length_mm"
+                      />
                     </div>
                   </div>
                 </td>
@@ -448,5 +461,22 @@ async function cancel(job: Job) {
 <style scoped>
 .queue-destination-filter {
   grid-column: 1 / -1;
+}
+.queue-label-name {
+  white-space: normal;
+}
+.queue-label-details {
+  margin-top: 8px;
+  white-space: normal;
+}
+summary {
+  width: fit-content;
+  padding-block: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+summary:hover,
+details[open] > summary {
+  color: var(--ink);
 }
 </style>

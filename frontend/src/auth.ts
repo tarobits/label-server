@@ -39,6 +39,14 @@ export const useAuthStore = defineStore('auth', () => {
   const user = computed(() => session.value?.user ?? null)
   const can = (permission: string) =>
     !!user.value && (user.value.is_admin || user.value.permissions.includes(permission))
+  const canCreateTemplates = computed(
+    () =>
+      can('templates.create_personal') ||
+      can('templates.create_global') ||
+      Object.values(user.value?.group_memberships ?? {}).some(
+        (membership) => membership.can_create,
+      ),
+  )
   const level = (destination: string) =>
     user.value?.is_admin ? 'full' : (user.value?.destination_levels?.[destination] ?? 'none')
   const atLeast = (destination: string, minimum: AccessLevel) =>
@@ -119,6 +127,7 @@ export const useAuthStore = defineStore('auth', () => {
     ready,
     error,
     can,
+    canCreateTemplates,
     level,
     atLeast,
     any,
