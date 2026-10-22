@@ -1,3 +1,4 @@
+import copy
 import io
 import time
 from dataclasses import asdict
@@ -43,7 +44,7 @@ from app.preparation import rendering
 from app.print_audit import batch_audit, unknown_attribution
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
-from app.render import render_document, render_job
+from app.render import RenderSpec, render_document, render_job
 from app.reservations import reserve_flush
 from app.schemas import (
     ActiveTapeInput,
@@ -65,8 +66,9 @@ from app.submissions import (
     submission_destination,
     submitted_job,
 )
-from app.template_schema import PreviewInput, TemplateDocument, TemplateInput
-from app.templates import template_record
+from app.template_dimensions import template_dimensions
+from app.template_schema import PreviewInput, RevisionRestoreInput, TemplateDocument, TemplateInput
+from app.templates import save_revision, template_record
 
 router = APIRouter(prefix="/api")
 
@@ -344,7 +346,7 @@ def templates(
 ) -> list[dict[str, Any]]:
     return [
         {
-            **template_record(t, session),
+            **template_record(t, session, request.app.state.fonts),
             "asset_notices": document_notices(session, t.document),
             "can_edit": template_access(request, t, Action.WRITE),
             "can_delete": template_access(request, t, Action.DELETE),
@@ -364,7 +366,7 @@ def template(
 ) -> dict[str, Any]:
     value = get(session, LabelTemplate, identifier)
     return {
-        **template_record(value, session),
+        **template_record(value, session, request.app.state.fonts),
         "asset_notices": document_notices(session, value.document),
         "can_edit": template_access(request, value, Action.WRITE),
         "can_delete": template_access(request, value, Action.DELETE),
@@ -423,12 +425,8 @@ def create_template(
     )
     session.add(value)
     session.flush()
-    session.add(
-        TemplateRevision(
-            template_id=value.id, revision=value.revision, name=value.name, document=value.document
-        )
-    )
-    return template_record(value, session)
+    save_revision(session, value, access_context(request).actor)
+    return template_record(value, session, request.app.state.fonts)
 
 
 @router.put("/templates/{identifier}")
@@ -459,13 +457,9 @@ def update_template(
     request.state.after_commit.append(
         lambda identifier=value.id: request.app.state.template_previews.invalidate(identifier)
     )
-    session.add(
-        TemplateRevision(
-            template_id=value.id, revision=value.revision, name=value.name, document=value.document
-        )
-    )
+    save_revision(session, value, access_context(request).actor)
     session.flush()
-    return template_record(value, session)
+    return template_record(value, session, request.app.state.fonts)
 
 
 @router.delete("/templates/{identifier}")
@@ -499,17 +493,107 @@ def delete_template(
 
 @router.get("/templates/{identifier}/revisions")
 def revisions(
-    identifier: str, session: Session = Depends(db, scope="function")
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
     get(session, LabelTemplate, identifier)
     return [
-        record(item)
+        {
+            **record(item),
+            **template_dimensions(
+                TemplateDocument.model_validate(item.document), request.app.state.fonts
+            ),
+        }
         for item in session.scalars(
             select(TemplateRevision)
             .where(TemplateRevision.template_id == identifier)
             .order_by(TemplateRevision.revision.desc())
         )
     ]
+
+
+def get_template_revision(session: Session, identifier: str, number: int) -> TemplateRevision:
+    item = session.get(TemplateRevision, (identifier, number))
+    if item is None:
+        raise HTTPException(404, "Template revision not found")
+    return item
+
+
+@router.get("/templates/{identifier}/revisions/{number}/preview")
+def revision_preview(
+    identifier: str,
+    number: int,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    get(session, LabelTemplate, identifier)
+    item = get_template_revision(session, identifier, number)
+    try:
+        document = TemplateDocument.model_validate(item.document)
+        output = render_document(
+            document,
+            {},
+            RenderSpec(stretch_canvas=True),
+            samples=True,
+            fonts=request.app.state.fonts,
+            images=request.app.state.images,
+            allow_missing_assets=True,
+        )
+    except (ValueError, OSError) as error:
+        raise HTTPException(422, "This revision could not be previewed") from error
+    tape = document.preview_tape
+    return {
+        "png": output.preview(
+            tape.foreground if tape else "#000000", tape.background if tape else "#ffffff"
+        ),
+        "width_mm": output.document.width_mm,
+        "length_mm": output.document.length_mm,
+        "warnings": output.warnings,
+        "missing_assets": output.missing_assets,
+    }
+
+
+@router.post("/templates/{identifier}/revisions/{number}/restore")
+def restore_revision(
+    identifier: str,
+    number: int,
+    body: RevisionRestoreInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    value = get(session, LabelTemplate, identifier)
+    require_record(request, value, Action.WRITE)
+    if value.archived or body.expected_revision != value.revision:
+        raise HTTPException(
+            409, "Template changed or was archived; reload history before restoring"
+        )
+    if number == value.revision:
+        raise HTTPException(409, "This revision is already current")
+    source = get_template_revision(session, identifier, number)
+    try:
+        document = TemplateDocument.model_validate(source.document)
+    except ValueError as error:
+        raise HTTPException(422, "This saved revision is no longer a valid template") from error
+    with rendering(request, session, document.model_dump(), destination_id=body.destination_id):
+        try:
+            render_document(
+                document,
+                {},
+                RenderSpec(stretch_canvas=True),
+                samples=True,
+                fonts=request.app.state.fonts,
+                images=request.app.state.images,
+            )
+        except (ValueError, OSError) as error:
+            raise HTTPException(422, "This revision could not be restored") from error
+    value.name = source.name
+    value.document = copy.deepcopy(source.document)
+    value.revision += 1
+    save_revision(session, value, access_context(request).actor, restored_from=number)
+    request.state.after_commit.append(
+        lambda identifier=value.id: request.app.state.template_previews.invalidate(identifier)
+    )
+    session.flush()
+    return template_record(value, session, request.app.state.fonts)
 
 
 @router.post("/preview")

@@ -53,6 +53,12 @@ including other users' templates. Deleted templates remain recoverable by an
 administrator for 30 days. Global template permissions grant no access to other
 users' personal templates or to template groups.
 
+Template readers can inspect saved revisions and the artwork referenced by that
+history. Restoring requires current edit permission and creates a new revision;
+it preserves the template's current owner, visibility, and group. Existing queued
+labels retain their saved layout. New revisions record the editor and save date;
+older revisions without that information are shown as unrecorded.
+
 Registration codes can assign template groups with independent create, edit
 others, and delete others permissions for each group. Selecting a group with all
 three permissions off grants view-only membership. Codes issued before these

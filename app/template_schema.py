@@ -126,6 +126,11 @@ class TemplateInput(Input):
     expected_revision: int | None = Field(default=None, ge=1)
 
 
+class RevisionRestoreInput(Input):
+    expected_revision: int = Field(ge=1)
+    destination_id: str | None = None
+
+
 class PreviewInput(Input):
     destination_id: str | None = None
     document: TemplateDocument | None = None

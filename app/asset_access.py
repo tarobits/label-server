@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
 from app.asset_store import ASSET_ID
-from app.models import LabelTemplate, PrintJob, PrintRun
+from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision
 from app.request_models import PrintRequest
 
 AssetKind = Literal["image_asset", "font_asset"]
@@ -52,8 +52,6 @@ def referenced_by_readable_document(
 
         if is_deleted(session, "templates", template.id):
             continue
-        if reference not in asset_references(template.document):
-            continue
         resource = Resource(
             "template",
             template.id,
@@ -62,7 +60,15 @@ def referenced_by_readable_document(
             group_id=template.group_id,
         )
         if context.policy.allows(context.actor, Action.READ, resource):
-            return True
+            if reference in asset_references(template.document):
+                return True
+            # Reading a template includes its saved history and the artwork
+            # needed to inspect or restore those immutable revisions.
+            for revision in session.scalars(
+                select(TemplateRevision).where(TemplateRevision.template_id == template.id)
+            ):
+                if reference in asset_references(revision.document):
+                    return True
     for model, field, resource_kind in (
         (PrintJob, PrintJob.template_snapshot, "job"),
         (PrintRun, PrintRun.manifest, "run"),

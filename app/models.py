@@ -187,6 +187,9 @@ class TemplateRevision(Base):
     revision: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str]
     document: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[float | None] = mapped_column(default=time.time)
+    edited_by: Mapped[dict[str, str] | None] = mapped_column(JSON)
+    restored_from_revision: Mapped[int | None]
 
 
 class PrintJob(Base):
