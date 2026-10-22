@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "label-printer-server"
-version = "0.3.1"
+version = "0.3.2"
 description = "Persistent tape-aware label queue with Brother USB printers and groups"
 requires-python = ">=3.12"
 dependencies = [

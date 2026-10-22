@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2] - 2026-10-22
+
+### Fixed
+
+- Account menu clicks in Safari no longer dismiss the menu before settings or
+  sign-out actions can run.
+
 ## [0.3.1] - 2026-10-22
 
 ### Fixed
@@ -121,7 +128,8 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
-[0.3.1]: https://github.com/tarobits/label-server/compare/v0.3.0...main
+[0.3.2]: https://github.com/tarobits/label-server/compare/v0.3.1...main
+[0.3.1]: https://github.com/tarobits/label-server/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tarobits/label-server/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
