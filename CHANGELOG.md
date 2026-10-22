@@ -10,16 +10,16 @@
   ability to restore a previous revision as a new revision without changing
   queued labels. Older revisions without editor or date records remain unrecorded.
 
-### Changed
-
-- Upgrade requirement: Apply database migrations with `alembic upgrade head`
-  and rebuild the frontend.
-
 ### Fixed
 
 - Template dimensions show a calculated length when inputs cannot change the
   label size, and “Variable length” when input-driven text sizing can change it.
 - The label-length field clearly appears disabled when automatic length is selected.
+
+### Security
+
+- Updated Vite to 7.3.7 to fix five development-server vulnerabilities involving
+  file access, cross-origin script execution, and editor command execution.
 
 ## [0.3.2] - 2026-10-22
 
@@ -63,9 +63,8 @@
   account and group management, and notification settings.
 - Permission change: Custom roles must explicitly grant template creation.
   The Member role retains personal-template creation by default.
-- Upgrade requirement: Apply database migrations with alembic upgrade head
-  and rebuild the frontend. Accounts establish their changelog baseline on their
-  first visit after this upgrade.
+- Accounts establish their changelog baseline on their first visit after this
+  upgrade.
 
 ### Fixed
 
@@ -149,9 +148,10 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
-[0.3.2]: https://github.com/tarobits/label-server/compare/v0.3.1...main
+[0.4.0]: https://github.com/tarobits/label-server/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/tarobits/label-server/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tarobits/label-server/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/tarobits/label-server/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/tarobits/label-server/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...291810f
+[0.2.0]: https://github.com/tarobits/label-server/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tarobits/label-server/tree/v0.1.0

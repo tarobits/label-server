@@ -1,7 +1,9 @@
 """Account-wide release visits, independent of browser storage and sessions."""
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -13,6 +15,23 @@ from app.models import User
 
 auth_client = auth_fixture
 NEXT_VERSION = f"{__version__.split('.')[0]}.{int(__version__.split('.')[1]) + 1}.0"
+
+
+def test_every_release_links_to_version_tags():
+    source = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text()
+    versions = re.findall(r"^## \[([0-9]+\.[0-9]+\.[0-9]+)\]", source, re.MULTILINE)
+    references = dict(re.findall(r"^\[([^\]]+)\]:\s+(\S+)\s*$", source, re.MULTILINE))
+    # Release references always use version tags, including tags not yet created.
+    # Branch names and commit hashes must not become release references.
+    ref = r"v[0-9]+\.[0-9]+\.[0-9]+"
+    target = re.compile(
+        rf"https://github\.com/tarobits/label-server/(?:compare/{ref}\.\.\.{ref}|tree/{ref})"
+    )
+    assert versions, "The changelog must contain released versions"
+    for version in versions:
+        assert version in references, f"Missing changelog reference for {version}"
+    for name, url in references.items():
+        assert target.fullmatch(url), f"Changelog reference {name} must use version tags"
 
 
 def test_visit_requires_session_csrf_and_same_origin(auth_client, tmp_path):
