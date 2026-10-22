@@ -4,6 +4,7 @@ import EditorRuler from '../components/EditorRuler.vue'
 import PropertySection from '../components/PropertySection.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
+import TemplateHistory from '../components/TemplateHistory.vue'
 import { decodeLabel } from '../labelPreview'
 import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroicons/vue/24/outline'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -32,6 +33,23 @@ const document = ref<TemplateDocument>(newDocument()),
   revision = ref(0)
 const scope = ref<'personal' | 'group' | 'global'>('personal'),
   groupId = ref<string | null>(null)
+const revisionHistoryOpen = ref(false)
+function showRevisionHistory(event: MouseEvent) {
+  ;(event.currentTarget as HTMLElement).focus()
+  revisionHistoryOpen.value = true
+}
+function applyRestoredRevision(template: Template) {
+  name.value = template.name
+  document.value = structuredClone(template.document)
+  revision.value = template.revision
+  scope.value = template.scope ?? scope.value
+  groupId.value = template.group_id ?? null
+  originalSharing.value = { scope: scope.value, group_id: groupId.value }
+  selectedId.value = ''
+  saved.value = snapshot()
+  history.value = [saved.value]
+  cursor.value = 0
+}
 const ownerId = ref<string | null>(null)
 const originalSharing = ref<{ scope: string; group_id: string | null }>({
   scope: 'personal',
@@ -767,7 +785,7 @@ onUnmounted(() => {
         >Label length (mm)<input
           :value="document.auto_length ? canvasLength : document.length_mm"
           @input="setManualLength"
-          :disabled="document.auto_length"
+          :disabled="!editable || document.auto_length"
           type="number"
           min="10"
           max="300"
@@ -812,6 +830,17 @@ onUnmounted(() => {
         </select></label
       >
     </div>
+    <p
+      v-if="
+        id &&
+        scope !== 'personal' &&
+        (scope !== originalSharing.scope ||
+          (scope === 'group' && groupId !== originalSharing.group_id))
+      "
+      class="help template-history-sharing"
+    >
+      Sharing includes all saved revisions.
+    </p>
     <div class="editor-settings-footer">
       <div class="editor-settings-toggles">
         <label class="checkbox"
@@ -828,6 +857,9 @@ onUnmounted(() => {
         >
       </div>
       <div class="editor-settings-actions">
+        <button v-if="id" type="button" :disabled="w.busy" @click="showRevisionHistory">
+          History
+        </button>
         <button :disabled="cursor === 0" @click="restore(-1)">Undo</button
         ><button :disabled="cursor >= history.length - 1" @click="restore(1)">Redo</button>
         <button
@@ -1497,10 +1529,29 @@ onUnmounted(() => {
       ><button class="danger-text" @click="removeField(index)">Remove variable</button>
     </div>
   </section>
+  <TemplateHistory
+    :open="revisionHistoryOpen"
+    :template-id="id ?? ''"
+    :template-name="name"
+    :can-restore="editable"
+    :unsaved-changes="dirty"
+    @close="revisionHistoryOpen = false"
+    @restored="applyRestoredRevision"
+  />
 </template>
 <style scoped>
+.editor-settings-fields input:disabled {
+  background: var(--surface-dense);
+  color: var(--muted);
+  -webkit-text-fill-color: currentColor;
+  opacity: 1;
+  cursor: not-allowed;
+}
 .template-sharing {
   max-width: 600px;
+}
+.template-history-sharing {
+  margin-block: 12px;
 }
 .variable-fields > .section-heading:last-child {
   margin-bottom: 0;

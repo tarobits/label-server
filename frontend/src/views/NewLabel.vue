@@ -11,6 +11,7 @@ import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import { decodeLabel } from '../labelPreview'
+import { templateLength } from '../templateDimensions'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -371,7 +372,8 @@ async function submit() {
         <p v-else-if="rendering" class="help">Rendering…</p>
         <span
           >{{ selected?.width_mm }} mm tape ·
-          {{ preview?.length_mm ?? template?.document.length_mm }} mm label</span
+          <template v-if="preview">{{ preview.length_mm }} mm label</template>
+          <template v-else-if="template">{{ templateLength(template) }}</template></span
         >
       </div>
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">

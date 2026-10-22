@@ -200,7 +200,11 @@ export interface Notice {
   }[]
 }
 
-export interface Template {
+export interface TemplateDimensions {
+  variable_length: boolean
+  length_mm: number | null
+}
+export interface Template extends TemplateDimensions {
   asset_notices?: { kind: string; id: string; message: string }[]
   can_delete?: boolean
   scope?: 'personal' | 'group' | 'global'
@@ -216,6 +220,16 @@ export interface Template {
   fields: string[]
   renderer: string
 }
+export interface TemplateRevision extends TemplateDimensions {
+  template_id: string
+  revision: number
+  name: string
+  document: TemplateDocument
+  created_at: number | null
+  edited_by: AuditActor | null
+  restored_from_revision: number | null
+}
+
 export interface AccessHold {
   can_release?: boolean
   job_id: string

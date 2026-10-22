@@ -1,20 +1,27 @@
 <script setup lang="ts">
 import { freezeLeavingItem } from '../collectionMotion'
 import { confirmAction } from '../confirmation'
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { api } from '../api'
 import { useAuthStore } from '../auth'
 import type { Template } from '../types'
+import { templateLength } from '../templateDimensions'
 import { useWorkspaceStore } from '../workspace'
 import TemplatePreview from '../components/TemplatePreview.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
+import TemplateHistory from '../components/TemplateHistory.vue'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const historyTemplate = ref<Template | null>(null)
+function showHistory(template: Template, event: MouseEvent) {
+  ;(event.currentTarget as HTMLElement).focus()
+  historyTemplate.value = template
+}
 const scopes = [
   { id: 'all', label: 'All' },
   { id: 'personal', label: 'Personal', heading: 'Personal templates' },
@@ -250,8 +257,9 @@ async function remove(template: Template) {
             <span class="badge">{{ template.document.width_mm }} mm</span>
           </div>
           <p>
-            Revision {{ template.revision }} · {{ template.document.length_mm }} mm long ·
-            {{ template.document.elements.length }} elements
+            Revision {{ template.revision }} ·
+            {{ templateLength(template) }}
+            · {{ template.document.elements.length }} elements
           </p>
           <p class="help">Fields: {{ template.fields.join(', ') || 'No variable fields' }}</p>
           <p
@@ -286,6 +294,9 @@ async function remove(template: Template) {
             >
           </div>
           <div class="card-actions">
+            <button type="button" class="text-button" @click="showHistory(template, $event)">
+              History
+            </button>
             <button
               v-if="auth.can('templates.create_personal')"
               :disabled="w.busy"
@@ -322,6 +333,16 @@ async function remove(template: Template) {
       </div>
     </TransitionGroup>
   </MotionSurface>
+  <TemplateHistory
+    :open="!!historyTemplate"
+    :template-id="historyTemplate?.id ?? ''"
+    :template-name="historyTemplate?.name ?? ''"
+    :can-restore="
+      historyTemplate?.can_edit ??
+      (!!auth.user?.is_admin || historyTemplate?.owner_id === auth.user?.id)
+    "
+    @close="historyTemplate = null"
+  />
 </template>
 
 <style scoped>
