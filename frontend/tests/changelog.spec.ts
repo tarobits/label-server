@@ -54,6 +54,7 @@ test('the version link opens the full changelog repeatedly without changing visi
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
   await expect(dialog.getByRole('heading', { level: 3 })).toHaveText([
+    'v0.4.0',
     'v0.3.2',
     'v0.3.1',
     'v0.3.0',

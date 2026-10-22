@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0] - 2026-10-22
+
+### Added
+
+- Searchable template library with separate personal, group, and global sections,
+  plus tape-width and group filters that persist when returning from the editor.
+- Template revision history with previews, editor names, save dates, and the
+  ability to restore a previous revision as a new revision without changing
+  queued labels. Older revisions without editor or date records remain unrecorded.
+
+### Changed
+
+- Upgrade requirement: Apply database migrations with `alembic upgrade head`
+  and rebuild the frontend.
+
+### Fixed
+
+- Template dimensions show a calculated length when inputs cannot change the
+  label size, and “Variable length” when input-driven text sizing can change it.
+- The label-length field clearly appears disabled when automatic length is selected.
+
 ## [0.3.2] - 2026-10-22
 
 ### Fixed
