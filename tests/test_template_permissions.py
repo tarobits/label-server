@@ -31,6 +31,31 @@ def template(client, name, scope="personal", **extra):
     )
 
 
+def test_template_group_names_follow_visibility_and_group_renames(accounts):
+    admin, alice, _ = accounts
+    group = change(
+        admin, "groups", "POST", {"name": "Facilities", "members": [{"user_id": "alice"}]}
+    ).json()
+    hidden = change(admin, "groups", "POST", {"name": "Private team", "members": []}).json()
+    shared = template(admin, "Door signs", "group", group_id=group["id"]).json()
+    private = template(admin, "Private signs", "group", group_id=hidden["id"]).json()
+    assert shared["group_name"] == "Facilities"
+    visible = {value["id"]: value for value in alice.get("/api/templates").json()}
+    assert visible[shared["id"]]["group_name"] == "Facilities"
+    assert private["id"] not in visible
+    assert alice.get(f"/api/templates/{private['id']}").status_code == 403
+    assert alice.get(f"/api/templates/{shared['id']}").json()["group_name"] == "Facilities"
+    change(
+        admin,
+        "groups",
+        "PUT",
+        {"name": "Building services", "members": [{"user_id": "alice"}]},
+        group["id"],
+    )
+    assert alice.get(f"/api/templates/{shared['id']}").json()["group_name"] == "Building services"
+    assert alice.get("/api/templates/text").json()["group_name"] is None
+
+
 @pytest.mark.parametrize(
     "personal,global_", [(False, False), (True, False), (False, True), (True, True)]
 )

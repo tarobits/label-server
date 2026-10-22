@@ -205,6 +205,7 @@ export interface Template {
   can_delete?: boolean
   scope?: 'personal' | 'group' | 'global'
   group_id?: string | null
+  group_name?: string | null
   owner_id?: string | null
   can_edit?: boolean
   name: string

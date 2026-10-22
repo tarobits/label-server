@@ -344,7 +344,7 @@ def templates(
 ) -> list[dict[str, Any]]:
     return [
         {
-            **template_record(t),
+            **template_record(t, session),
             "asset_notices": document_notices(session, t.document),
             "can_edit": template_access(request, t, Action.WRITE),
             "can_delete": template_access(request, t, Action.DELETE),
@@ -364,7 +364,7 @@ def template(
 ) -> dict[str, Any]:
     value = get(session, LabelTemplate, identifier)
     return {
-        **template_record(value),
+        **template_record(value, session),
         "asset_notices": document_notices(session, value.document),
         "can_edit": template_access(request, value, Action.WRITE),
         "can_delete": template_access(request, value, Action.DELETE),
@@ -428,7 +428,7 @@ def create_template(
             template_id=value.id, revision=value.revision, name=value.name, document=value.document
         )
     )
-    return template_record(value)
+    return template_record(value, session)
 
 
 @router.put("/templates/{identifier}")
@@ -465,7 +465,7 @@ def update_template(
         )
     )
     session.flush()
-    return template_record(value)
+    return template_record(value, session)
 
 
 @router.delete("/templates/{identifier}")

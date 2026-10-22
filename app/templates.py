@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import LabelTemplate, TemplateRevision
+from app.models import LabelTemplate, TemplateRevision, UserGroup
 from app.template_schema import TemplateDocument
 
 
@@ -45,12 +45,20 @@ def seed_templates(session: Session) -> None:
     )
 
 
-def template_record(template: LabelTemplate) -> dict[str, Any]:
+def template_record(template: LabelTemplate, session: Session) -> dict[str, Any]:
+    group_name = None
+    if template.scope == "group" and template.group_id:
+        names = session.info.setdefault("template_group_names", {})
+        if template.group_id not in names:
+            group = session.get(UserGroup, template.group_id)
+            names[template.group_id] = group.name if group else None
+        group_name = names[template.group_id]
     return {
         "id": template.id,
         "owner_id": template.owner_id,
         "scope": template.scope,
         "group_id": template.group_id,
+        "group_name": group_name,
         "name": template.name,
         "revision": template.revision,
         "document": template.document,
