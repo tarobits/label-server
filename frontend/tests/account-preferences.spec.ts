@@ -1,5 +1,57 @@
 import { test, expect } from './fixtures'
 
+for (const width of [1280, 390]) {
+  test(`account clicks work without browser pointer focus at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/templates')
+    // Safari can blur the old control without focusing the clicked button.
+    await page.evaluate(() => {
+      document.addEventListener(
+        'mousedown',
+        (event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('.account-menu, .account-flyout')
+          ) {
+            event.preventDefault()
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+          }
+        },
+        true,
+      )
+    })
+    const trigger = page.locator('.account-menu > summary')
+    const flyout = page.getByRole('group', { name: 'Account', exact: true })
+    const settings = page.getByRole('link', { name: 'Account settings', exact: true })
+    const signOut = page.getByRole('button', { name: 'Sign out', exact: true })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(settings).toBeFocused()
+    await trigger.click()
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    await expect(flyout).toHaveCount(0)
+    await trigger.click()
+    await expect(flyout).toBeVisible()
+    await settings.focus()
+    let attempts = 0
+    await page.route('**/api/auth/logout', async (route) => {
+      attempts++
+      await route.abort('failed')
+    })
+    await signOut.click()
+    await expect.poll(() => attempts).toBe(1)
+    await expect(page.getByRole('alert')).toHaveText(/Could not sign out/)
+    await expect(flyout).toBeVisible()
+    await settings.click()
+    await expect(page).toHaveURL(/#\/account$/)
+    await expect(flyout).toHaveCount(0)
+    await trigger.click()
+    await expect(flyout).toBeVisible()
+    await page.getByRole('heading', { name: 'Change password', exact: true }).click()
+    await expect(flyout).toHaveCount(0)
+  })
+}
+
 test('Tab closes the account flyout and the trigger can reopen it in either direction', async ({
   page,
 }) => {

@@ -73,8 +73,9 @@ function enterFlyout(event: KeyboardEvent) {
 }
 function focusOutside(event: FocusEvent) {
   const next = event.relatedTarget
-  if (!(next instanceof Node) || (!menu.value?.contains(next) && !panel.value?.contains(next)))
-    close()
+  // Safari can report no focus target during an internal click. Outside pointer
+  // clicks and the Tab boundaries dismiss the menu independently.
+  if (next instanceof Node && !menu.value?.contains(next) && !panel.value?.contains(next)) close()
 }
 function close(focus = false) {
   if (!open.value) return
