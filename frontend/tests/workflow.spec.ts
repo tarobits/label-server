@@ -1011,8 +1011,10 @@ test('rotated objects drag and resize with the opposite corner fixed', async ({ 
     const corner = () =>
       page.locator('.object-boundary').evaluate((node) => {
         const rect = node as SVGRectElement
+        // Measure within the label so page layout shifts do not look like
+        // movement of the opposite corner during a resize.
         const point = new DOMPoint(rect.x.baseVal.value, rect.y.baseVal.value).matrixTransform(
-          rect.getScreenCTM()!,
+          rect.getCTM()!,
         )
         return { x: point.x, y: point.y }
       })
