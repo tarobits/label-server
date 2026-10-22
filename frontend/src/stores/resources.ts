@@ -115,6 +115,7 @@ export const useResourceStore = defineStore('resources', () => {
         affected.push(...printing)
       if (collection === '/admin/roles' || collection === '/admin/groups')
         affected.push('/admin/users', '/admin/registration-codes')
+      if (collection === '/admin/groups') affected.push('/templates', '/user-groups')
       if (collection === '/admin/users') affected.push('/admin/groups', '/admin/registration-codes')
       if (collection === '/admin/users' || collection === '/admin/trash')
         affected.push('/admin/trash', '/templates', '/image-assets', '/font-assets', ...printing)

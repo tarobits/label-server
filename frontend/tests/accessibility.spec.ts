@@ -119,8 +119,23 @@ test('Tab traverses the navigation and reaches page controls in both directions'
   await page.keyboard.press('Tab')
   await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(page.getByRole('link', { name: 'Create template', exact: true })).toBeFocused()
+  const scopes = page.getByRole('group', { name: 'Template visibility', exact: true })
+  const controls = [
+    ...['All', 'Personal', 'Groups', 'Global'].map((name) =>
+      scopes.getByRole('button', { name, exact: true }),
+    ),
+    page.getByRole('link', { name: 'Create template', exact: true }),
+    page.getByRole('searchbox', { name: 'Search templates', exact: true }),
+    page.getByRole('combobox', { name: 'Tape width', exact: true }),
+  ]
+  for (const control of controls) {
+    await page.keyboard.press('Tab')
+    await expect(control).toBeFocused()
+  }
+  for (const control of controls.slice(0, -1).reverse()) {
+    await page.keyboard.press('Shift+Tab')
+    await expect(control).toBeFocused()
+  }
   await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
 })
