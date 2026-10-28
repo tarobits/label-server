@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.6.0] - 2026-10-28
+
+### Added
+
+- Approximate costs before submitting individual labels or CSV runs, including
+  all copies, feed, unused tape and one batch leader. Queue estimates update for
+  remaining copies; missing prices and cartridge price ranges stay explicit.
+- Individual user usage views and account balances, with separate permissions to
+  view other users' usage and to edit accounts. Payments and corrections retain
+  the operator, date and reason, and retries cannot duplicate an adjustment.
+
+### Security
+
+- Upgraded Pillow to 13.0.0 to address image-processing vulnerabilities, including
+  Ghostscript argument injection and TIFF memory corruption.
+
+Stop existing servers, install the updated dependencies, and run
+`alembic upgrade head` before restarting. Account balances include already tracked,
+settled print costs; pending and unpriced tape remain separate. Administrators
+receive both account permissions; other roles must be granted them explicitly.
+
 ## [0.5.0] - 2026-10-28
 
 ### Added
@@ -173,6 +194,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.6.0]: https://github.com/tarobits/label-server/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tarobits/label-server/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tarobits/label-server/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/tarobits/label-server/compare/v0.3.1...v0.3.2
