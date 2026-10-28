@@ -32,6 +32,8 @@ PERMISSIONS = {
     "assets.write": "Upload and manage own images and fonts",
     "inventory.manage": "Manage tape profiles and cartridges",
     "printers.manage": "Register printers and create distribution groups",
+    "usage.view_others": "View other users’ usage and balances",
+    "usage.edit_accounts": "Edit usage accounts",
 }
 MEMBER_PERMISSIONS = [
     {"kind": "application", "permission": "assets.write"},

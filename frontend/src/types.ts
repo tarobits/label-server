@@ -287,7 +287,24 @@ export interface ImageAsset {
   archived: boolean
 }
 
+export interface UsageUser {
+  user_id: string
+  username: string
+}
+
+export interface UsageAdjustment extends UsageUser {
+  id: string
+  actor_id: string
+  actor_name: string
+  amount_minor: number
+  currency: string
+  note: string
+  created_at: number
+}
+
 export interface UsageReport {
+  accounts: (UsageUser & { balances: Record<string, string> })[]
+  adjustments: UsageAdjustment[]
   users: {
     user_id: string
     username: string

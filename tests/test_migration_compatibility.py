@@ -59,7 +59,7 @@ def test_upgrade_preserves_history_from_each_applied_migration_shape(tmp_path, p
         assert row["print_plan"] == (json.dumps(plan) if "print_plan" in columns else None)
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == "c84e21d690ab"
+            == "d91e6a27b430"
         )
     # All historical versions still support the project's schema roundtrip checks.
     command.downgrade(config, "e92b4f06a318")

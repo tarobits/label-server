@@ -73,6 +73,7 @@ from app.submissions import (
 from app.template_dimensions import template_dimensions
 from app.template_schema import PreviewInput, RevisionRestoreInput, TemplateDocument, TemplateInput
 from app.templates import save_revision, template_record
+from app.usage_accounts import AdjustmentInput, account_names, adjust_account
 
 router = APIRouter(prefix="/api")
 
@@ -201,14 +202,46 @@ def create_cartridge(
 def tape_usage(
     request: Request,
     all_users: bool = False,
+    user_id: str | None = None,
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     from app.usage import usage_report
 
-    actor = access_context(request).actor
-    if all_users and not actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
-    return usage_report(session, None if all_users else actor.id)
+    context = access_context(request)
+    if (all_users or user_id not in (None, context.actor.id)) and not context.has_permission(
+        "usage.view_others"
+    ):
+        raise HTTPException(403, "Viewing other users’ usage is not permitted")
+    if all_users and user_id is not None:
+        raise HTTPException(422, "Choose all users or an individual user")
+    if user_id is not None and user_id not in account_names(session, user_id):
+        raise HTTPException(404, "Usage account not found")
+    return usage_report(session, None if all_users else user_id or context.actor.id)
+
+
+@router.get("/usage/users")
+def usage_users(
+    request: Request, session: Session = Depends(db, scope="function")
+) -> list[dict[str, str]]:
+    context = access_context(request)
+    if not any(context.has_permission(key) for key in ("usage.view_others", "usage.edit_accounts")):
+        raise HTTPException(403, "Usage account access is not permitted")
+    return [
+        {"user_id": identifier, "username": name}
+        for identifier, name in sorted(
+            account_names(session).items(), key=lambda item: (item[1].casefold(), item[0])
+        )
+    ]
+
+
+@router.post("/usage/adjustments", status_code=201)
+def usage_adjustment(
+    body: AdjustmentInput, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    context = access_context(request)
+    if not context.has_permission("usage.edit_accounts"):
+        raise HTTPException(403, "Editing usage accounts is not permitted")
+    return record(adjust_account(session, context.actor, body))
 
 
 @router.put("/cartridges/{identifier}/price")

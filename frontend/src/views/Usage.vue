@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../auth'
 import { errorMessage } from '../api'
 import { useResourceStore } from '../stores/resources'
@@ -7,32 +8,62 @@ import { useLiveRefresh } from '../live'
 import { date, metres } from '../workspace'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import Badge from '../components/Badge.vue'
-import type { UsageReport } from '../types'
+import AccountAdjustment from '../components/AccountAdjustment.vue'
+import type { UsageReport, UsageUser } from '../types'
 const auth = useAuthStore()
 const resources = useResourceStore()
-const allUsers = ref(false)
+const route = useRoute()
+const router = useRouter()
+const canViewOthers = computed(() => auth.can('usage.view_others'))
+const canEditAccounts = computed(() => auth.can('usage.edit_accounts'))
+const selected = computed({
+  get: () => (canViewOthers.value && typeof route.query.user === 'string' ? route.query.user : ''),
+  set: (user: string) => {
+    void router.replace({ query: user ? { user } : {} })
+  },
+})
+const allUsers = computed(() => selected.value === 'all')
+const users = ref<UsageUser[]>([])
+const adjustmentUser = computed(() => (allUsers.value ? '' : selected.value || auth.user?.id || ''))
 const report = ref<UsageReport | null>(null)
 const error = ref('')
 let sequence = 0
 async function refresh() {
   const ticket = ++sequence
   try {
-    const value = await resources.get<UsageReport>(`/usage?all_users=${allUsers.value}`, {
-      ttl: 2000,
-    })
+    const query = allUsers.value
+      ? '?all_users=true'
+      : selected.value
+        ? `?user_id=${encodeURIComponent(selected.value)}`
+        : ''
+    const [value, names] = await Promise.all([
+      resources.get<UsageReport>(`/usage${query}`, { ttl: 2000 }),
+      canViewOthers.value || canEditAccounts.value
+        ? resources.get<UsageUser[]>('/usage/users', { ttl: 2000 })
+        : Promise.resolve([]),
+    ])
     if (ticket === sequence) {
       report.value = value
+      users.value = names
       error.value = ''
     }
   } catch (cause) {
-    if (ticket === sequence) error.value = errorMessage(cause)
+    if (ticket === sequence) {
+      report.value = null
+      users.value = []
+      error.value = errorMessage(cause)
+    }
   }
 }
-watch(allUsers, () => {
+watch([selected, canViewOthers, canEditAccounts, () => auth.user?.id], () => {
   report.value = null
+  users.value = []
   void refresh()
 })
 useLiveRefresh(refresh)
+onUnmounted(() => {
+  sequence++
+})
 function money(value: string, currency: string) {
   return new Intl.NumberFormat(undefined, {
     style: 'currency',
@@ -43,17 +74,57 @@ function money(value: string, currency: string) {
 }
 </script>
 <template>
-  <div v-if="auth.user?.is_admin" class="section-heading">
+  <div v-if="canViewOthers" class="section-heading">
     <label
-      >View<select v-model="allUsers">
-        <option :value="false">My usage</option>
-        <option :value="true">All users</option>
+      >View<select v-model="selected">
+        <option value="">My usage</option>
+        <option value="all">All users</option>
+        <option
+          v-for="user in users.filter((user) => user.user_id !== auth.user?.id)"
+          :key="user.user_id"
+          :value="user.user_id"
+        >
+          {{ user.username }}
+        </option>
       </select></label
     >
   </div>
-  <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+  <Transition name="notice"
+    ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
+  >
   <div v-if="!report && !error" class="panel empty" role="status">Loading tape usage…</div>
   <template v-if="report">
+    <section class="panel usage-accounts">
+      <h2>{{ allUsers ? 'Account balances' : 'Account balance' }}</h2>
+      <p class="help">
+        Negative balances are amounts owed. Unpriced and pending tape are excluded.
+      </p>
+      <article v-for="account in report.accounts" :key="account.user_id" class="list-row">
+        <div class="grow">
+          <RouterLink
+            v-if="allUsers"
+            :to="{
+              path: '/usage',
+              query: account.user_id === auth.user?.id ? {} : { user: account.user_id },
+            }"
+            >{{ account.username }}</RouterLink
+          >
+          <strong v-else>{{ account.username }}</strong>
+        </div>
+        <div class="usage-costs account-balance">
+          <strong v-for="(balance, currency) in account.balances" :key="currency">{{
+            money(balance, currency)
+          }}</strong>
+          <span v-if="!Object.keys(account.balances).length" class="muted"
+            >No charges or payments yet</span
+          >
+        </div>
+      </article>
+      <AnimatedDetails v-if="canEditAccounts" class="account-adjustment">
+        <template #summary>Adjust account</template>
+        <AccountAdjustment :users="users" :user-id="adjustmentUser" @saved="refresh" />
+      </AnimatedDetails>
+    </section>
     <section class="panel">
       <h2>Allocated tape and cost</h2>
       <p class="help">
@@ -75,6 +146,26 @@ function money(value: string, currency: string) {
             money(cost, currency)
           }}</strong>
         </div>
+      </article>
+    </section>
+    <section v-if="report.adjustments.length" class="panel">
+      <h2>Recent adjustments</h2>
+      <article
+        v-for="adjustment in report.adjustments"
+        :key="adjustment.id"
+        class="list-row adjustment-entry"
+      >
+        <div class="grow">
+          <strong>{{ adjustment.note }}</strong>
+          <small
+            ><span v-if="allUsers">{{ adjustment.username }} · </span
+            >{{ date(adjustment.created_at) }} · {{ adjustment.actor_name }}</small
+          >
+        </div>
+        <strong class="usage-costs"
+          >{{ adjustment.amount_minor > 0 ? '+' : ''
+          }}{{ money(String(adjustment.amount_minor / 100), adjustment.currency) }}</strong
+        >
       </article>
     </section>
     <section v-if="report.entries.length" class="panel">
@@ -134,5 +225,15 @@ function money(value: string, currency: string) {
   flex-wrap: wrap;
   gap: 12px;
   font-variant-numeric: tabular-nums;
+}
+.account-adjustment {
+  padding-top: 14px;
+}
+.adjustment-entry .grow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-balance {
+  justify-content: flex-end;
 }
 </style>

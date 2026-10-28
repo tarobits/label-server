@@ -64,6 +64,24 @@ others, and delete others permissions for each group. Selecting a group with all
 three permissions off grants view-only membership. Codes issued before these
 settings were available retain their original create-only membership.
 
+## Usage accounts
+
+Every signed-in user can view their own tape usage, balance and adjustments.
+Two independent application permissions can be granted through roles:
+
+- `usage.view_others`: view all users or an individual user's usage, balances and
+  adjustment history.
+- `usage.edit_accounts`: record positive or negative account adjustments, including
+  payments and corrections, with a required reason. This permission exposes the
+  recipient name list but does not grant access to others' usage or balances.
+
+Administrators have both permissions. Printer access and inventory management
+grant neither. Adjustments are append-only and retain the operator, recipient,
+time and reason, including after account deletion. Repeating an adjustment with
+the same reference and payload does not apply it twice. Balances use settled
+priced allocations; pending and unpriced tape stays separate. Viewing usage does
+not grant access to batch details or printer operations.
+
 ## Printer and distribution-group access
 
 Each permission object in a role identifies its printer or distribution-group

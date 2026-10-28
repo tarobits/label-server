@@ -139,9 +139,14 @@ def usage_report(session: Session, user_id: str | None) -> dict[str, Any]:
                     "nominal_length_mm": row.nominal_length_mm,
                 }
             )
+    from app.usage_accounts import account_report
+
+    accounts = account_report(
+        session, user_id, {identifier: summary["costs"] for identifier, summary in users.items()}
+    )
     for summary in users.values():
         summary["costs"] = {currency: money(value) for currency, value in summary["costs"].items()}
-    return {"users": list(users.values()), "entries": entries}
+    return {"users": list(users.values()), "entries": entries, **accounts}
 
 
 def money(micros: int) -> str:

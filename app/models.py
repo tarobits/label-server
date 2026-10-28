@@ -372,3 +372,18 @@ class TapeAllocation(Base):
     currency: Mapped[str] = mapped_column(String(3))
     # Integer millionths of currency stored as text to avoid overflow and float rounding.
     cost_micros: Mapped[str | None] = mapped_column(String)
+
+
+class UsageAdjustment(Base):
+    """Append-only payments/corrections; identities survive account deletion."""
+
+    __tablename__ = "usage_adjustments"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    username: Mapped[str]
+    actor_id: Mapped[str]
+    actor_name: Mapped[str]
+    amount_minor: Mapped[int]
+    currency: Mapped[str] = mapped_column(String(3))
+    note: Mapped[str]
+    created_at: Mapped[float] = mapped_column(default=time.time)

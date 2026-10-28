@@ -40,14 +40,19 @@ test('cartridge prices and requester usage persist with animated details on desk
   await expect(
     page.getByRole('heading', { name: 'Allocated tape and cost', exact: true }),
   ).toBeVisible()
-  await expect(page.locator('.usage-costs')).toContainText('€')
+  await expect(
+    page
+      .locator('section')
+      .filter({ has: page.getByRole('heading', { name: 'Allocated tape and cost', exact: true }) })
+      .locator('.usage-costs'),
+  ).toContainText('€')
   const detail = page.locator('.usage-entry').first()
   await detail.locator('summary').click()
   await expect(detail.getByText('Cartridge price:', { exact: false })).toBeVisible()
   await expect(detail.getByRole('link', { name: 'Batch details →', exact: true })).toBeVisible()
   await detail.locator('summary').click()
   await expect(detail.getByText('Cartridge price:', { exact: false })).toBeHidden()
-  await page.getByRole('combobox', { name: 'View', exact: true }).selectOption('true')
+  await page.getByRole('combobox', { name: 'View', exact: true }).selectOption('all')
   await expect(page.locator('.usage-entry')).toHaveCount(1)
   await page.screenshot({ path: 'test-results/tape-usage-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })

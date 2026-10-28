@@ -67,6 +67,8 @@ class ApplicationPermission(AdminInput):
         "assets.write",
         "inventory.manage",
         "printers.manage",
+        "usage.view_others",
+        "usage.edit_accounts",
         "templates.create_personal",
         "templates.create_global",
         "templates.edit_global",

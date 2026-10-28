@@ -135,6 +135,8 @@ class AccountPolicy:
             )
         # Application permissions are independent of any incidental destination.
         if kind.startswith("/api/") and action != Action.READ:
+            if kind == "/api/usage/adjustments" and action == Action.WRITE:
+                return "usage.edit_accounts" in actor.permissions
             if "tape-profiles" in kind or "cartridges" in kind:
                 return "inventory.manage" in actor.permissions
             if kind in ("/api/printers", "/api/printer-groups") and action == Action.WRITE:

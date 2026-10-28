@@ -108,7 +108,8 @@ change with cartridge prices, routing, shared batches or retries.
 
 Set the purchase price and currency when registering a cartridge, or expand
 **Price** on its card. **Tape usage** shows each signed-in user's allocated tape
-and cost; administrators can select **All users**. Different currencies stay
+and cost. **View other users’ usage and balances** permits selecting **All users**
+or an individual user. Different currencies stay
 separate. Prices use hundredths of the selected currency in the API
 (`price_minor: 1299` means `12.99`).
 
@@ -130,6 +131,18 @@ not free. Tracking starts with new attempts after this migration; older history
 is not reconstructed. Costs retain millionths of currency, and requester tape
 allocations retain thousandths of a millimetre, with rounding shared so totals
 remain consistent.
+
+Account balances equal recorded adjustments minus settled, priced print costs,
+including costs already tracked before account balances were introduced. Negative
+balances are amounts owed; positive balances are credit. Pending and unpriced tape
+does not affect the balance. Negative balances do not block printing.
+**Edit usage accounts** permits recording payments, adding credit, or subtracting
+an amount with a required reason under **Tape usage → Adjust account**. Adjustments
+retain the operator, recipient, date and reason; corrections are new entries, and
+retrying the same adjustment does not record it twice. The edit permission does
+not grant access to other users' usage or balances. Administrators have both
+permissions; other roles must be granted each explicitly. Run `alembic upgrade head`
+with the server stopped before restarting to create the adjustment ledger.
 
 ## Templates and previews
 
