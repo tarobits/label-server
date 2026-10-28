@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.0] - 2026-10-28
+
+### Added
+
+- Per-user tape usage and costs with cartridge purchase prices, personal usage
+  history, and an administrator view across users. All allocated tape is charged
+  to the original requester, including a share of the batch leader. Prices are
+  preserved per attempt; unpriced tape and attempts awaiting review stay separate.
+- GitHub installer for a fresh systemd deployment, including dependencies, USB
+  permissions, frontend builds, database migrations, and service health checks.
+- Tape breakdowns under queue and activity details: Design, Feed, Leader, and
+  Unused, with saved estimates retained for each print attempt.
+
+### Fixed
+
+- Short-label estimates now include padding for the 10 mm template minimum and
+  the PT-P710BT's 24.5 mm cutting minimum. Individual labels and CSV drafts warn
+  when hand trimming is needed, and print attempts log the extra unused tape.
+- New-label previews fit within the desktop viewport so warnings remain visible.
+- Upgrades recognize the previously applied consumption-source migration and
+  preserve existing print history.
+
+Stop existing servers and run `alembic upgrade head` before restarting. Per-user
+usage tracking starts with new print attempts; older costs are not reconstructed.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added
@@ -148,6 +173,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.5.0]: https://github.com/tarobits/label-server/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tarobits/label-server/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/tarobits/label-server/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/tarobits/label-server/compare/v0.3.0...v0.3.1
