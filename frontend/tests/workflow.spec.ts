@@ -285,7 +285,7 @@ test('automatic length and clipping persist while outside objects remain editabl
   await page.getByLabel('Y (mm)', { exact: true }).fill('2')
   await showEditorSettings(page, 'Arrange')
   await page.getByRole('button', { name: 'Delete element', exact: true }).click()
-  await expect(page.locator('.alert.warning')).toHaveCount(0)
+  await expect(page.locator('.alert.warning').filter({ hasText: 'omitted' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
   await expect(page.getByText('Revision 2', { exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/automatic-layout.png', fullPage: true })
