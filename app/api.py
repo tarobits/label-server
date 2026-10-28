@@ -18,6 +18,7 @@ from app.authorization import (
     visible_destinations,
     visible_jobs,
 )
+from app.cost_estimates import estimate_cost
 from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
@@ -43,6 +44,7 @@ from app.notifications import clear_empty_cartridge_alert
 from app.preparation import rendering
 from app.print_audit import batch_audit, unknown_attribution
 from app.print_planning import geometry_plan, planning_backend, queued_plan
+from app.printer.base import LabelGeometry
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
 from app.render import RenderSpec, render_document, render_job
@@ -660,7 +662,35 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     backend = planning_backend(request, session, body.destination_id, allow_unassigned=True)
+    cost = None
+    if body.tape_profile is not None:
+        profile = get(session, TapeProfile, body.tape_profile)
+        if profile.width_mm != output.document.width_mm:
+            raise HTTPException(422, "Template and tape widths do not match")
+        from app.authorization import rendering_destination
+
+        destination = rendering_destination(
+            request, session, body.destination_id, allow_unassigned=True
+        )
+        cost = estimate_cost(
+            request,
+            session,
+            destination,
+            profile.id,
+            [
+                LabelGeometry(
+                    str(index),
+                    profile.width_mm,
+                    output.document.length_mm,
+                    spec.horizontal_dpi,
+                    spec.dpi,
+                    output.template_padding_mm,
+                )
+                for index in range(body.copies)
+            ],
+        )
     return {
+        "cost_estimate": cost,
         "print_plan": geometry_plan(
             backend,
             output.document.width_mm,
@@ -746,6 +776,8 @@ def preview_image_job(
             foreground=profile.foreground,
             background=profile.background,
             destination_id=body.destination_id,
+            tape_profile=body.tape_profile,
+            copies=body.copies,
         ),
         request,
         session,
@@ -870,8 +902,20 @@ def queue_groups(
         records = [job_record(session, job) for job in jobs]
         has_queued = any(label["state"] == "queued" for job in records for label in job["labels"])
         saved_plan = (run.manifest if run else jobs[0].template_snapshot).get("print_plan")
+        cost = None
+        if has_queued:
+            from app.print_planning import queued_geometry
+
+            cost = estimate_cost(
+                request,
+                session,
+                jobs[0].destination_id,
+                jobs[0].profile_id,
+                queued_geometry(records),
+            )
         result.append(
             {
+                "cost_estimate": cost,
                 "id": identifier,
                 "run_id": run.id if run else None,
                 "name": run.name if run else None,

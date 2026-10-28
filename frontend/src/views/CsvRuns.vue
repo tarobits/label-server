@@ -10,8 +10,9 @@ import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
-import type { PrintPlan } from '../types'
+import type { CostEstimate as CostEstimateData, PrintPlan } from '../types'
 import TapeUsage from '../components/TapeUsage.vue'
+import CostEstimate from '../components/CostEstimate.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 interface Row {
   source_row: number
@@ -20,6 +21,7 @@ interface Row {
   copies: number
 }
 interface Run {
+  cost_estimate?: CostEstimateData | null
   destination_id: string
   id: string
   name: string
@@ -520,6 +522,7 @@ onUnmounted(() => {
         {{ run.estimated_mm.toFixed(2) }} mm as one batch. Actual use depends on feed, cuts, and
         retries.
       </p>
+      <CostEstimate v-if="!run.submitted_at" :estimate="run.cost_estimate" />
       <div v-if="run.print_plan" class="inset">
         <strong>Planned tape sequence</strong>
         <p v-for="warning in run.warnings ?? []" :key="warning" class="alert warning" role="status">

@@ -98,6 +98,14 @@ feed and cut. Automatic cuts during printing continue to use the printer setting
 
 ## Tape usage and costs
 
+Before submission, individual label previews and validated CSV drafts show an
+approximate cost for all selected copies as one batch, including feed, unused
+tape and one leader. The queue shows a current estimate for remaining copies.
+Matching installed cartridges supply the price; when none are installed, known
+cartridge prices are shown as an inventory estimate. Groups can show a range or
+separate currencies. Missing prices remain unavailable. These estimates can
+change with cartridge prices, routing, shared batches or retries.
+
 Set the purchase price and currency when registering a cartridge, or expand
 **Price** on its card. **Tape usage** shows each signed-in user's allocated tape
 and cost; administrators can select **All users**. Different currencies stay

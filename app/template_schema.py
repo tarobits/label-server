@@ -132,6 +132,8 @@ class RevisionRestoreInput(Input):
 
 
 class PreviewInput(Input):
+    tape_profile: str | None = None
+    copies: int = Field(default=1, ge=1, le=1000)
     destination_id: str | None = None
     document: TemplateDocument | None = None
     template_id: str | None = None

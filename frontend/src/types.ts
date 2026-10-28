@@ -311,3 +311,10 @@ export interface UsageReport {
     nominal_length_mm: number
   }[]
 }
+
+export interface CostEstimate {
+  quotes: { currency: string; minimum: string; maximum: string }[]
+  basis: 'installed' | 'inventory'
+  incomplete: boolean
+  reason: 'price' | 'cartridge' | 'destination' | null
+}

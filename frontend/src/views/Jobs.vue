@@ -7,14 +7,16 @@ import { api, errorMessage } from '../api'
 import { requestPrinting } from '../printing'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
-import type { Job, PrintPlan } from '../types'
+import type { CostEstimate as CostEstimateData, Job, PrintPlan } from '../types'
 import { useWorkspaceStore, date } from '../workspace'
 import Badge from '../components/Badge.vue'
 import QueuePreview from '../components/QueuePreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import TapeUsage from '../components/TapeUsage.vue'
+import CostEstimate from '../components/CostEstimate.vue'
 interface QueueGroup {
+  cost_estimate?: CostEstimateData | null
   print_plan?: PrintPlan | null
   print_plan_scope?: 'queued' | 'submission'
   id: string
@@ -334,6 +336,7 @@ async function cancel(job: Job) {
               <td>
                 <strong>{{ group.name }}</strong
                 ><small>{{ group.jobs.length }} matching labels</small>
+                <CostEstimate :estimate="group.cost_estimate" />
                 <AnimatedDetails class="queue-label-details">
                   <template #summary>Details</template>
                   <TapeUsage
@@ -396,6 +399,7 @@ async function cancel(job: Job) {
                       <strong class="queue-label-name">{{ labelName(job) }}</strong
                       ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
                       ><small>{{ routing(job) }}</small>
+                      <CostEstimate v-if="!group.run_id" :estimate="group.cost_estimate" />
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
                         >CSV record {{ job.source_row }}</RouterLink
                       >

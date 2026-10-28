@@ -141,8 +141,8 @@ export const useResourceStore = defineStore('resources', () => {
       path.startsWith('/destinations/')
     )
       invalidate(['/printers', '/preview', ...printing])
+    else if (path.startsWith('/cartridges')) invalidate(['/preview', ...printing])
     else if (
-      path.startsWith('/cartridges') ||
       path.startsWith('/jobs') ||
       path.startsWith('/queue') ||
       path.startsWith('/runs') ||

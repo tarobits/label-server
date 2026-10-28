@@ -11,6 +11,7 @@ import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
+import CostEstimate from '../components/CostEstimate.vue'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
 const w = useWorkspaceStore()
@@ -130,6 +131,18 @@ const planningConfig = computed(() =>
     .filter((printer) => destination.value?.printer_ids.includes(printer.id))
     .map((printer) => printer.config),
 )
+const pricingConfig = computed(() => ({
+  cartridges: w.cartridges.map((c) => [
+    c.id,
+    c.profile_id,
+    c.price_minor,
+    c.currency,
+    c.nominal_length_mm,
+    c.remaining_mm,
+    c.installed,
+  ]),
+  mounted: w.printerStatuses.map((p) => [p.printer_id, p.active_cartridge_id]),
+}))
 const matchingPrinters = computed(() =>
   w.printerStatuses.filter(
     (s) =>
@@ -221,6 +234,8 @@ async function render() {
     const result = await resources.preview<Preview>(
       {
         destination_id: form.destination_id,
+        tape_profile: form.tape_profile,
+        copies: form.copies,
         document: document.value,
         data: data.value,
         foreground: selected.value?.foreground ?? '#000000',
@@ -229,6 +244,7 @@ async function render() {
       {
         capabilities: w.destinationPrinter(form.destination_id)?.capabilities,
         config: planningConfig.value,
+        pricing: pricingConfig.value,
       },
     )
     if (ticket !== serial || stopped) return
@@ -248,7 +264,7 @@ async function render() {
 }
 let initialRender = true
 watch(
-  [document, data, selected, destination, planningConfig],
+  [document, data, selected, destination, planningConfig, pricingConfig, () => form.copies],
   () => {
     serial++
     previewFieldErrors.value = {}
@@ -380,6 +396,7 @@ async function submit() {
             required
         /></label>
       </div>
+      <CostEstimate :estimate="preview?.cost_estimate" :pending="rendering && !error" />
       <p class="help">{{ routingHint }}</p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <button

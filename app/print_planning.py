@@ -54,6 +54,23 @@ def queued_plan(
     request: Request, session: Session, jobs: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
     """Estimate visible queued copies as one batch, with one leader, without rasterizing."""
+    labels = queued_geometry(jobs)
+    if not labels:
+        return None
+    # Job visibility already authorizes these label dimensions. A held job may
+    # outlive destination access; do not turn a planning hint into a read boundary.
+    try:
+        identifiers = members(session, jobs[0]["destination_id"])
+    except HTTPException:
+        return None
+    registry: PrinterRegistry = request.app.state.registry
+    for identifier in identifiers:
+        if identifier in request.app.state.fleet.workers:
+            return asdict(registry.backend(identifier).plan_batch(labels))
+    return None
+
+
+def queued_geometry(jobs: list[dict[str, Any]]) -> list[LabelGeometry]:
     labels = []
     for job in jobs:
         snapshot = job["template_snapshot"]
@@ -71,16 +88,4 @@ def queued_plan(
                     snapshot.get("template_padding_mm", 0),
                 )
             )
-    if not labels:
-        return None
-    # Job visibility already authorizes these label dimensions. A held job may
-    # outlive destination access; do not turn a planning hint into a read boundary.
-    try:
-        identifiers = members(session, jobs[0]["destination_id"])
-    except HTTPException:
-        return None
-    registry: PrinterRegistry = request.app.state.registry
-    for identifier in identifiers:
-        if identifier in request.app.state.fleet.workers:
-            return asdict(registry.backend(identifier).plan_batch(labels))
-    return None
+    return labels

@@ -13,13 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
 from app.authorization import rendering_destination, require_record
+from app.cost_estimates import estimate_cost
 from app.destinations import members
 from app.http import db, get, job_record
 from app.job_access import principal_access_reason
 from app.models import LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
 from app.preparation import rendering
 from app.print_audit import delegated_attribution, direct_attribution
-from app.printer.base import RenderedLabel
+from app.printer.base import LabelGeometry, RenderedLabel
 from app.render import RenderSpec, render_document, render_job
 from app.schemas import Input, JobInput, ProcessName
 from app.submissions import build_job, input_fingerprint, rendering_spec
@@ -123,6 +124,28 @@ def run_record(run: PrintRun) -> dict[str, Any]:
     }
 
 
+def quoted_run(run: PrintRun, request: Request, session: Session) -> dict[str, Any]:
+    cost = None
+    if run.submitted_at is None:
+        labels: list[LabelGeometry] = []
+        for index, row in enumerate(run.manifest["rows"]):
+            snapshot = row["template_snapshot"]
+            spec = snapshot.get("render_spec", {})
+            labels.extend(
+                LabelGeometry(
+                    f"{index}:{copy}",
+                    row["width_mm"],
+                    row["length_mm"],
+                    spec.get("dpi_x") or spec.get("dpi", 180),
+                    spec.get("dpi", 180),
+                    snapshot.get("template_padding_mm", 0),
+                )
+                for copy in range(row["copies"])
+            )
+        cost = estimate_cost(request, session, run.destination_id, run.profile_id, labels)
+    return {**run_record(run), "cost_estimate": cost}
+
+
 @router.post("/runs/prepare")
 def prepare_run(
     body: RunInput, request: Request, session: Session = Depends(db, scope="function")
@@ -152,7 +175,7 @@ def prepare_run(
         require_record(request, existing)
         if existing.request_hash != fingerprint:
             raise HTTPException(409, "Request key already used for different run inputs")
-        return {"valid": True, "run": run_record(existing), "errors": []}
+        return {"valid": True, "run": quoted_run(existing, request, session), "errors": []}
     parsed = parse_csv(body)
     profile = get(session, TapeProfile, body.tape_profile)
     template = get(session, LabelTemplate, body.template)
@@ -240,7 +263,7 @@ def prepare_run(
     if existing:
         if existing.request_hash != fingerprint:
             raise HTTPException(409, "Request key already used for different run inputs")
-        return {"valid": True, "run": run_record(existing), "errors": []}
+        return {"valid": True, "run": quoted_run(existing, request, session), "errors": []}
     run = PrintRun(
         owner_id=access_context(request).actor.id,
         destination_id=body.destination_id,
@@ -261,7 +284,7 @@ def prepare_run(
     )
     session.add(run)
     session.flush()
-    return {"valid": True, "errors": [], "run": run_record(run)}
+    return {"valid": True, "errors": [], "run": quoted_run(run, request, session)}
 
 
 @router.get("/runs")
@@ -294,8 +317,10 @@ def list_runs(
 
 
 @router.get("/runs/{identifier}")
-def show_run(identifier: str, session: Session = Depends(db, scope="function")) -> dict[str, Any]:
-    return run_record(get(session, PrintRun, identifier))
+def show_run(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    return quoted_run(get(session, PrintRun, identifier), request, session)
 
 
 @router.get("/runs/{identifier}/rows/{position}/preview")

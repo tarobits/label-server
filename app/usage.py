@@ -80,11 +80,7 @@ def settle_usage(session: Session, batch: Batch, consumed_mm: float) -> None:
     price = rows[0].price_minor
     costs = None
     if price is not None:
-        total = int(
-            (length * price * 10000 / Decimal(str(rows[0].nominal_length_mm))).to_integral_value(
-                ROUND_HALF_UP
-            )
-        )
+        total = cost_micros(consumed_mm, price, rows[0].nominal_length_mm)
         costs = distribute(total, weights)
     for index, row in enumerate(rows):
         row.consumed_mm = lengths[index] / 1000
@@ -150,3 +146,11 @@ def usage_report(session: Session, user_id: str | None) -> dict[str, Any]:
 
 def money(micros: int) -> str:
     return format(Decimal(micros) / 1000000, ".6f")
+
+
+def cost_micros(consumed_mm: float, price_minor: int, nominal_length_mm: float) -> int:
+    return int(
+        (
+            Decimal(str(consumed_mm)) * price_minor * 10000 / Decimal(str(nominal_length_mm))
+        ).to_integral_value(ROUND_HALF_UP)
+    )
