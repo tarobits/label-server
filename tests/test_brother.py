@@ -77,6 +77,27 @@ def test_status_raster_pins_and_buffered_multi_page_stream() -> None:
     assert not transport.opened
 
 
+@pytest.mark.parametrize("dpi_x", [180, 360])
+def test_short_12mm_batch_already_chains_until_the_final_feed(dpi_x) -> None:
+    labels = []
+    for index, length in enumerate((10, 15, 18)):
+        image = Image.new("1", (round(length * dpi_x / 25.4), 85))
+        image.putpixel((5, 20), 1)
+        labels.append(
+            RenderedLabel(str(index), 12, length, *image.size, image.tobytes(), dpi_x=dpi_x)
+        )
+    transport = Transport(width=12)
+    BrotherPTP710BT(transport).print_batch(labels)
+    pages = [data for data in transport.writes if data.startswith(b"\x1biz")]
+    resolution = 0x40 if dpi_x == 360 else 0
+    for index, (page, label) in enumerate(zip(pages, labels)):
+        assert page[7:11] == label.pixel_width.to_bytes(4, "little")
+        assert b"\x1biM\x40" in page  # Individual cutting stays enabled.
+        final = index == len(labels) - 1
+        assert b"\x1biK" + bytes([resolution | (8 if final else 0)]) in page
+        assert page.endswith(b"\x1a" if final else b"\x0c")
+
+
 def test_wrong_width_and_invalid_ink_never_send_print_commands() -> None:
     transport = Transport(width=12)
     with pytest.raises(PrintNotStarted, match="width"):

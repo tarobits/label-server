@@ -49,6 +49,7 @@ class RenderOutput:
     document: TemplateDocument
     font_files: list[str]
     missing_assets: dict[str, str]
+    template_padding_mm: float = 0
 
     def preview(self, foreground: str, background: str, *, smooth: bool = False) -> str:
         source = self.image.convert("L")
@@ -302,6 +303,7 @@ def resolve_layout(
     values: dict[str, str],
     spec: RenderSpec,
     fonts: FontStore | None = None,
+    warnings: list[str] | None = None,
 ) -> TemplateDocument:
     resolved = document.model_copy(deep=True)
     for element in resolved.elements:
@@ -352,12 +354,21 @@ def resolve_layout(
     if resolved.auto_length:
         if spec.media_kind != "continuous":
             raise ValueError("Automatic label length requires continuous media")
-        right = max((element_bounds(e)[2] for e in resolved.elements), default=0)
-        resolved.length_mm = max(10, math.ceil((right + spec.margin_mm) * 100) / 100)
+        natural_length = fitted_length(resolved, spec.margin_mm)
+        if natural_length < 10 and warnings is not None:
+            warnings.append(
+                "Automatic length would be below the 10 mm template minimum; "
+                "the label is extended to 10 mm."
+            )
+        resolved.length_mm = max(10, math.ceil(natural_length * 100) / 100)
         if resolved.length_mm > 300:
             raise ValueError("Automatic label length exceeds the 300 mm limit")
         resolved.auto_length = False
     return resolved
+
+
+def fitted_length(document: TemplateDocument, margin_mm: float) -> float:
+    return max(0, max((element_bounds(e)[2] for e in document.elements), default=0) + margin_mm)
 
 
 def missing_asset_svg(element: Element, kind: str) -> str:
@@ -409,7 +420,12 @@ def render_document(
     band = (spec.printable_widths_mm or {}).get(f"{document.width_mm:g}")
     vertical_margin = (document.width_mm - band) / 2 if band else spec.margin_mm
     values = resolve_values(document, data, samples)
-    document = resolve_layout(document, values, spec, fonts)
+    layout_warnings: list[str] = []
+    automatic_length = document.auto_length
+    document = resolve_layout(document, values, spec, fonts, warnings=layout_warnings)
+    template_padding = (
+        max(0, 10 - fitted_length(document, spec.margin_mm)) if automatic_length else 0
+    )
     font_files = [str(FONT_DIR / "NotoSans.ttf"), str(FONT_DIR / "NotoSans-Bold.ttf")]
     font_files.extend(
         sorted(
@@ -437,6 +453,7 @@ def render_document(
         f"Missing {kind} in element {identifier}. Restore or replace it before printing."
         for identifier, kind in missing.items()
     ]
+    warnings.extend(layout_warnings)
     clipping = document.out_of_bounds == "clip"
     if clipping:
         parts.append(
@@ -514,7 +531,7 @@ def render_document(
     )
     source = Image.open(io.BytesIO(png)).convert("L")
     image = source.point(lambda value: 255 if value >= 128 else 0, mode="1")
-    return RenderOutput(svg, image, warnings, document, font_files, missing)
+    return RenderOutput(svg, image, warnings, document, font_files, missing, template_padding)
 
 
 def render_job(
@@ -550,4 +567,5 @@ def render_job(
         dpi_x=spec.horizontal_dpi,
         dpi_y=spec.dpi,
         canvas_width_mm=output.document.width_mm,
+        template_padding_mm=snapshot.get("template_padding_mm", output.template_padding_mm),
     )

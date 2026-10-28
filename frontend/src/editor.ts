@@ -1,4 +1,5 @@
 import { randomUUID } from './uuid'
+import type { PrintPlan } from './types'
 
 export interface TemplateField {
   name: string
@@ -53,6 +54,7 @@ export interface TemplateDocument {
   fields: TemplateField[]
 }
 export interface Preview {
+  print_plan?: PrintPlan | null
   printable?: boolean
   missing_assets?: Record<string, 'image' | 'font'>
   png: string

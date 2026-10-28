@@ -19,6 +19,7 @@ from app.http import get, job_record
 from app.image_assets import ImageStore
 from app.models import JobSubmission, LabelCopy, LabelTemplate, PrintJob, TapeProfile
 from app.print_audit import direct_attribution
+from app.print_planning import geometry_plan, planning_backend
 from app.render import RenderSpec, render_document
 from app.schemas import JobInput
 from app.template_schema import TemplateDocument
@@ -133,6 +134,8 @@ def build_job(
             "revision": template.revision,
             "document": document,
             "render_spec": asdict(spec),
+            "warnings": output.warnings,
+            "template_padding_mm": output.template_padding_mm,
         },
         payload=body.data,
         width_mm=profile.width_mm,
@@ -181,6 +184,21 @@ def save_submission(
     job.owner_id = actor.id
     job.created_at = time.time()
     job.attribution = direct_attribution(actor, job.created_at)
+    backend = planning_backend(request, session, job.destination_id)
+    assert backend is not None
+    spec = RenderSpec(**job.template_snapshot["render_spec"])
+    job.template_snapshot = {
+        **job.template_snapshot,
+        "print_plan": geometry_plan(
+            backend,
+            job.width_mm,
+            job.length_mm,
+            spec.horizontal_dpi,
+            spec.dpi,
+            job.copies,
+            job.template_snapshot.get("template_padding_mm", 0),
+        ),
+    }
     session.add(job)
     session.flush()
     key = request.headers.get("Idempotency-Key")

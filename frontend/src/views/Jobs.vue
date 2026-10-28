@@ -7,13 +7,16 @@ import { api, errorMessage } from '../api'
 import { requestPrinting } from '../printing'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
-import type { Job } from '../types'
+import type { Job, PrintPlan } from '../types'
 import { useWorkspaceStore, date } from '../workspace'
 import Badge from '../components/Badge.vue'
 import QueuePreview from '../components/QueuePreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
+import TapeUsage from '../components/TapeUsage.vue'
 interface QueueGroup {
+  print_plan?: PrintPlan | null
+  print_plan_scope?: 'queued' | 'submission'
   id: string
   run_id: string | null
   name: string | null
@@ -331,6 +334,17 @@ async function cancel(job: Job) {
               <td>
                 <strong>{{ group.name }}</strong
                 ><small>{{ group.jobs.length }} matching labels</small>
+                <AnimatedDetails class="queue-label-details">
+                  <template #summary>Details</template>
+                  <TapeUsage
+                    :plan="group.print_plan"
+                    :caption="
+                      group.print_plan_scope === 'queued'
+                        ? 'Queued copies, if printed as one batch'
+                        : 'Saved submission estimate'
+                    "
+                  />
+                </AnimatedDetails>
               </td>
               <td>{{ w.profileName(group.jobs[0]!.profile_id) }}</td>
               <td>
@@ -388,6 +402,15 @@ async function cancel(job: Job) {
                       <AnimatedDetails class="queue-label-details">
                         <template #summary>Details</template>
                         <LabelDetails :label="job" :attribution="job.attribution" />
+                        <TapeUsage
+                          v-if="!group.run_id"
+                          :plan="group.print_plan"
+                          :caption="
+                            group.print_plan_scope === 'queued'
+                              ? 'Queued copies, if printed as one batch'
+                              : 'Saved submission estimate'
+                          "
+                        />
                       </AnimatedDetails>
                       <QueuePreview
                         :job-id="job.id"

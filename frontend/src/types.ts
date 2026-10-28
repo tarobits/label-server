@@ -153,6 +153,8 @@ export interface BatchTrigger {
   }
 }
 export interface Batch {
+  consumption_source?: 'estimated' | 'measured' | 'reported' | null
+  print_plan?: PrintPlan | null
   process_names?: string[]
   trigger: BatchTrigger
   attribution_summary: { attribution: PrintAttribution; copies: number }[]
@@ -169,6 +171,7 @@ export interface Batch {
 }
 export interface BatchDetail extends Batch {
   items: (LabelInformation & {
+    output_plan?: LabelOutputPlan | null
     attribution: PrintAttribution
     copy_id: string
     position: number
@@ -179,6 +182,26 @@ export interface BatchDetail extends Batch {
     width_mm: number
     length_mm: number
   })[]
+}
+export interface LabelOutputPlan {
+  copy_id: string
+  design_length_mm: number
+  feed_mm: number
+  output_length_mm: number
+  minimum_padding_mm: number
+  trim_required: boolean
+  template_padding_mm?: number
+}
+export interface PrintPlan {
+  breakdown?: { design_mm: number; feed_mm: number; leader_mm: number; unused_mm: number } | null
+  estimated_mm: number
+  leader_mm: number
+  feed_per_label_mm: number
+  cut_each: boolean
+  label_lengths_mm: number[]
+  minimum_cut_length_mm?: number | null
+  label_output?: LabelOutputPlan[]
+  strip_padding_mm?: number
 }
 export interface Notice {
   id: string

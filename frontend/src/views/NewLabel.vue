@@ -10,6 +10,7 @@ import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import type { Preview } from '../editor'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
+import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
 const w = useWorkspaceStore()
@@ -70,6 +71,45 @@ const data = ref<Record<string, string>>({}),
   rendering = ref(false),
   showPrintPixels = ref(true)
 const labelForm = ref<HTMLFormElement | null>(null)
+const previewPanel = ref<HTMLElement | null>(null)
+const previewSpace = ref(600)
+const previewImageSpace = ref(300)
+watch(
+  previewPanel,
+  (panel, _, cleanup) => {
+    if (!panel) return
+    function fitPreview() {
+      if (!panel) return
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+      // Stacked mobile panels use a full screen once scrolled into view.
+      const top = window.matchMedia('(min-width: 851px)').matches
+        ? Math.max(24, panel.getBoundingClientRect().top)
+        : 24
+      const space = Math.max(160, viewportHeight - top - 24)
+      previewSpace.value = space
+      const image = panel.querySelector<HTMLImageElement>('.raster-preview')
+      const overhead = panel.scrollHeight - (image?.getBoundingClientRect().height ?? 0)
+      previewImageSpace.value = Math.max(40, Math.min(viewportHeight * 0.36, space - overhead - 2))
+    }
+    const observer = new ResizeObserver(fitPreview)
+    observer.observe(panel)
+    panel
+      .querySelectorAll('.preview-feedback, .label-stage')
+      .forEach((element) => observer.observe(element))
+    if (panel.closest('main')) observer.observe(panel.closest('main')!)
+    window.addEventListener('resize', fitPreview)
+    window.addEventListener('scroll', fitPreview, { passive: true })
+    window.visualViewport?.addEventListener('resize', fitPreview)
+    fitPreview()
+    cleanup(() => {
+      observer.disconnect()
+      window.removeEventListener('resize', fitPreview)
+      window.removeEventListener('scroll', fitPreview)
+      window.visualViewport?.removeEventListener('resize', fitPreview)
+    })
+  },
+  { flush: 'post' },
+)
 const previewFieldErrors = ref<FieldErrors>({})
 const submissionFieldErrors = ref<FieldErrors>({})
 const fieldErrors = computed(() => ({
@@ -85,6 +125,11 @@ function clearSubmissionError(event: Event) {
 }
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
 const destination = computed(() => w.destinations.find((d) => d.id === form.destination_id))
+const planningConfig = computed(() =>
+  w.printers
+    .filter((printer) => destination.value?.printer_ids.includes(printer.id))
+    .map((printer) => printer.config),
+)
 const matchingPrinters = computed(() =>
   w.printerStatuses.filter(
     (s) =>
@@ -181,7 +226,10 @@ async function render() {
         foreground: selected.value?.foreground ?? '#000000',
         background: selected.value?.background ?? '#ffffff',
       },
-      w.destinationPrinter(form.destination_id)?.capabilities,
+      {
+        capabilities: w.destinationPrinter(form.destination_id)?.capabilities,
+        config: planningConfig.value,
+      },
     )
     if (ticket !== serial || stopped) return
     await decodeLabel(result)
@@ -200,7 +248,7 @@ async function render() {
 }
 let initialRender = true
 watch(
-  [document, data, selected, destination],
+  [document, data, selected, destination, planningConfig],
   () => {
     serial++
     previewFieldErrors.value = {}
@@ -350,7 +398,14 @@ async function submit() {
         {{ auth.atLeast(form.destination_id, 'print') ? 'Add to queue' : 'Request printing' }}
       </button>
     </form>
-    <section class="panel preview-panel">
+    <section
+      ref="previewPanel"
+      class="panel preview-panel"
+      :style="{
+        '--preview-space': `${previewSpace}px`,
+        '--preview-image-space': `${previewImageSpace}px`,
+      }"
+    >
       <div class="section-heading">
         <h2>Print preview</h2>
         <span class="badge">{{ showPrintPixels ? '1-bit raster' : 'Smooth design' }}</span>
@@ -358,6 +413,19 @@ async function submit() {
       <label class="checkbox"
         ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
       >
+      <div class="preview-feedback">
+        <TransitionGroup name="notice">
+          <p
+            v-for="warning in preview?.warnings ?? []"
+            :key="warning"
+            class="alert warning"
+            role="status"
+          >
+            {{ warning }}
+          </p>
+        </TransitionGroup>
+        <PrintPlanNotice :plan="preview?.print_plan" :copies="form.copies" />
+      </div>
       <div class="label-stage">
         <img
           v-if="preview"
@@ -366,6 +434,7 @@ async function submit() {
           :style="{
             imageRendering: showPrintPixels ? 'pixelated' : 'auto',
             aspectRatio: `${preview.length_mm} / ${preview.width_mm}`,
+            '--label-aspect': preview.length_mm / preview.width_mm,
           }"
           alt="Rendered label preview"
         />
@@ -376,9 +445,37 @@ async function submit() {
           <template v-else-if="template">{{ templateLength(template) }}</template></span
         >
       </div>
-      <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
-        {{ warning }}
-      </p>
     </section>
   </div>
 </template>
+
+<style scoped>
+.preview-panel {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: var(--preview-space);
+  overflow: auto;
+}
+.preview-panel > *,
+.preview-feedback > :deep(*) {
+  flex-shrink: 0;
+  margin-block: 0;
+}
+.preview-feedback {
+  display: grid;
+  gap: 12px;
+}
+.preview-feedback:empty {
+  display: none;
+}
+.label-stage {
+  min-height: 0;
+}
+.raster-preview {
+  width: min(100%, calc(var(--preview-image-space) * var(--label-aspect)));
+  height: auto;
+}
+</style>

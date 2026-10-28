@@ -178,6 +178,50 @@ No standalone cutter opcode is documented in the raster reference. The
 documents double-pressing the physical power button to feed and cut (printed pages
 8, 11 and 14). No blank-label cutter workaround is sent by this implementation.
 
+## Short labels and chain printing
+
+On 2026-10-24, the user reported that several variable-length designs printed
+as equally long pieces with unused tape at the end on **12 mm tape**. No measured
+cut length was supplied. This is consistent with the 24.5 mm minimum fed-out
+length documented in the [Brother Raster Command Reference, printed page 18](https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf).
+This length is determined by the cutter position, independently of tape width.
+
+The adapter already enables chain printing between pages in a batch, using FF
+for intermediate pages and Control-Z with final feeding/cutting for the last
+page (printed pages 33, 37–38). Chain printing defers the final feed; the reference
+does not guarantee individually cut pieces shorter than the cutting minimum.
+No cross-batch chain state or new printer commands were added for this report.
+Sub-minimum individual cuts in chain mode remain unverified on hardware.
+
+With **Cut each label** enabled, the plan applies the minimum to each design
+plus its configured feed. Short designs retain their intended layout. New label
+creation and validated CSV drafts warn that hand trimming is required and report
+the estimated extra unused tape caused specifically by this minimum, excluding
+normal feed and batch overhead. With it disabled, labels form a continuous strip;
+the minimum is applied once to the whole strip and labels require manual separation.
+
+CSV drafts preserve their preparation plan; individual submissions save their
+plan in the template snapshot. Before transmitting any print data, each physical
+attempt saves the current adapter plan, per-copy expected output, extra tape,
+and trimming requirement. Activity and batch details display this saved record,
+and the server logs a warning for planned minimum-cut waste. Interrupted attempts
+keep the plan as an estimate, never a claim that all planned tape was consumed.
+Older attempts have no recorded plan; current settings are not used to invent one.
+
+Tape estimates now retain four exclusive categories: design, feed, leader, and
+unused. Their unrounded sum equals the existing total estimate. Automatic-length
+padding to 10 mm is classified as unused alongside padding from the cutting
+minimum; it is not added a second time to consumption. Design remains the intended
+layout extent, including its own margins, before that automatic-length padding.
+Manually chosen fixed canvas lengths remain design length.
+
+Queue Details estimates the remaining copies of an item or CSV run as one batch,
+using current settings and one leader. Separate queue items can share a physical
+batch, so their hypothetical leaders must not be summed as actual usage. Activity
+Details uses the immutable attempt plan. The printer does not measure category
+totals: estimated, backend-measured, and reviewer-reported consumption are recorded
+separately. A reviewer-reported total does not rewrite the planned category split.
+
 ## Consumption calibration
 
 For a direct bench test without running the web server, use

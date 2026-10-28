@@ -1,9 +1,10 @@
 """Queue policy and durable physical-print attempts; no printer protocol knowledge."""
 
+import logging
 import math
 import time
 from _thread import LockType
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from threading import Lock
 from typing import Protocol, TypeVar
 
@@ -40,6 +41,7 @@ from app.printer.base import (
 from app.render import render_job
 
 Record = TypeVar("Record", bound=Base)
+logger = logging.getLogger(__name__)
 EMPTY_TAPE_BLOCKER = (
     "Installed cartridge is estimated empty; automatic printing is waiting for replacement tape."
 )
@@ -184,6 +186,7 @@ class QueueWorker:
                 # configuration changes while this immutable snapshot is rendered.
                 try:
                     labels, estimate = self._render_reserved(batch_id)
+                    plan = self.backend.plan_batch(labels)
                 except Exception as error:
                     raise PrintNotStarted(f"Could not prepare labels: {error}") from error
                 with self.lock, self.factory.begin() as session:
@@ -199,7 +202,33 @@ class QueueWorker:
                             raise PrintNotStarted(reason)
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     batch.estimated_mm = estimate
+                    # Commit the adapter's physical-output estimate before any print command.
+                    # Keep it on uncertain attempts too; never recompute historical settings.
+                    batch.print_plan = asdict(plan)
                     batch.shortage_warning = estimate > cartridge.remaining_mm
+                extra = sum(
+                    item.minimum_padding_mm + item.template_padding_mm for item in plan.label_output
+                )
+                extra += plan.strip_padding_mm
+                if usage := plan.breakdown:
+                    logger.info(
+                        "Batch %s tape estimate: design %.2f mm, feed %.2f mm, leader %.2f mm, "
+                        "unused %.2f mm; total %.2f mm",
+                        batch_id,
+                        usage.design_mm,
+                        usage.feed_mm,
+                        usage.leader_mm,
+                        usage.unused_mm,
+                        plan.estimated_mm,
+                    )
+                if extra > 0:
+                    logger.warning(
+                        "Batch %s: hand trimming required; estimated extra unused tape %.2f mm "
+                        "due to template/cutting minimums (cut minimum %s mm; excluding feed and leader)",
+                        batch_id,
+                        extra,
+                        plan.minimum_cut_length_mm,
+                    )
                 result = (
                     self.backend.print_batch_controlled(labels, self.control)
                     if isinstance(self.backend, ControlledPrinterBackend)
@@ -243,6 +272,9 @@ class QueueWorker:
                         State.PRINTED,
                         time.time(),
                         consumed,
+                    )
+                    batch.consumption_source = (
+                        "estimated" if result.consumed_mm is None else "measured"
                     )
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed)
@@ -485,6 +517,7 @@ def resolve_batch(
         session, printer_state(session, batch.printer_id), cartridge, time.time()
     )
     batch.consumed_mm = consumed_mm
+    batch.consumption_source = "reported"
     batch.finished_at = time.time()
     batch.state = (
         State.PRINTED if all(item.outcome == State.PRINTED for item in items) else State.FAILED

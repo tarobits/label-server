@@ -26,7 +26,7 @@ class MockPrinterBackend:
     def estimate_consumption(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> float:
         return sum(label.length_mm for label in labels) + (20 if labels else 0)
 
-    def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan:
+    def plan_batch(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> BatchPlan:
         return BatchPlan(
             self.estimate_consumption(labels),
             20 if labels else 0,

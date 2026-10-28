@@ -16,12 +16,14 @@ from PIL import Image
 from app.printer.base import (
     BatchPlan,
     LabelGeometry,
+    LabelOutputPlan,
     PrintControl,
     PrinterStatus,
     PrintInterrupted,
     PrintNotStarted,
     PrintResult,
     RenderedLabel,
+    TapeBreakdown,
 )
 from app.printer.registry import ByteTransport, MediaKind, PrinterCapabilities
 
@@ -31,6 +33,8 @@ PRINT_PINS = {3.5: 24, 6: 32, 9: 50, 12: 70, 18: 112, 24: 128}
 WIDTH_CODES = {3.5: 4, 6: 6, 9: 9, 12: 12, 18: 18, 24: 24}
 WIDTH_MM = {code: width for width, code in WIDTH_CODES.items()}
 DPI = 180
+# Raster Command Reference, printed p.18: cutter position limits fed-out tape.
+MINIMUM_CUT_LENGTH_MM = 24.5
 
 
 def capabilities(*, high_resolution: bool = False) -> PrinterCapabilities:
@@ -218,18 +222,50 @@ class BrotherPTP710BT:
             return 0
         lengths = [label.length_mm + self._feed_per_label(label) for label in labels]
         return self.leader_mm + (
-            sum(max(24.5, length) for length in lengths)
+            sum(max(MINIMUM_CUT_LENGTH_MM, length) for length in lengths)
             if self.cut_each
-            else max(24.5, sum(lengths))
+            else max(MINIMUM_CUT_LENGTH_MM, sum(lengths))
         )
 
-    def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan:
+    def plan_batch(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> BatchPlan:
+        outputs = []
+        for label in labels:
+            feed = self._feed_per_label(label)
+            length = label.length_mm + feed
+            padding = max(0, MINIMUM_CUT_LENGTH_MM - length) if self.cut_each else 0
+            outputs.append(
+                LabelOutputPlan(
+                    label.copy_id,
+                    label.length_mm - label.template_padding_mm,
+                    feed,
+                    length + padding,
+                    padding,
+                    bool(padding or label.template_padding_mm) or not self.cut_each,
+                    label.template_padding_mm,
+                )
+            )
+        strip_padding = (
+            max(0, MINIMUM_CUT_LENGTH_MM - sum(item.output_length_mm for item in outputs))
+            if outputs and not self.cut_each
+            else 0
+        )
+        leader = self.leader_mm if labels else 0
         return BatchPlan(
             self.estimate_consumption(labels),
-            self.leader_mm if labels else 0,
+            leader,
             self._feed_per_label(labels[0]) if labels else 0,
             self.cut_each,
             tuple(label.length_mm for label in labels),
+            minimum_cut_length_mm=MINIMUM_CUT_LENGTH_MM,
+            label_output=tuple(outputs),
+            strip_padding_mm=strip_padding,
+            breakdown=TapeBreakdown(
+                sum(item.design_length_mm for item in outputs),
+                sum(item.feed_mm for item in outputs),
+                leader,
+                sum(item.minimum_padding_mm + item.template_padding_mm for item in outputs)
+                + strip_padding,
+            ),
         )
 
     def _feed_per_label(self, label: RenderedLabel | LabelGeometry) -> float:

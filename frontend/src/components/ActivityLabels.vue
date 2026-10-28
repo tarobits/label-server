@@ -7,6 +7,8 @@ import type { BatchDetail } from '../types'
 import LabelDetails from './LabelDetails.vue'
 import QueuePreview from './QueuePreview.vue'
 import AnimatedDetails from './AnimatedDetails.vue'
+import TapeUsage from './TapeUsage.vue'
+import PrintPlanNotice from './PrintPlanNotice.vue'
 const props = defineProps<{ batchId: string; state: string }>()
 const resources = useResourceStore(),
   auth = useAuthStore()
@@ -63,11 +65,15 @@ onUnmounted(() => {
 
 <template>
   <AnimatedDetails class="activity-labels" @toggle="toggle">
-    <template #summary>Labels</template>
+    <template #summary>Details</template>
     <p v-if="error" class="alert warning" role="status">
       {{ error }} <button type="button" class="small secondary" @click="load(true)">Retry</button>
     </p>
     <p v-else-if="loading && !detail" class="help" role="status">Loading labels…</p>
+    <template v-if="detail">
+      <TapeUsage :plan="detail.print_plan" caption="Saved estimate for this attempt" />
+      <PrintPlanNotice :plan="detail.print_plan" />
+    </template>
     <section v-for="entry in labels" :key="entry.item.job_id" class="activity-label">
       <strong>{{ entry.item.process_name }}</strong>
       <small>{{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}</small>

@@ -107,6 +107,34 @@ def test_auto_length_resolves_values_and_freezes_each_job(client: TestClient) ->
     assert original["elements"][0]["width"] == 30
 
 
+@pytest.mark.parametrize("natural_length", [9.5, 9.999, 10, 10.5])
+@pytest.mark.parametrize("automatic", [False, True])
+def test_only_automatic_lengths_below_ten_mm_warn(natural_length, automatic):
+    document = TemplateDocument.model_validate(
+        {
+            "length_mm": 10,
+            "auto_length": automatic,
+            "out_of_bounds": "clip",
+            "elements": [
+                {
+                    "id": "line",
+                    "kind": "line",
+                    "x": 1,
+                    "y": 5,
+                    "width": natural_length - 2,
+                    "height": 1,
+                }
+            ],
+        }
+    )
+    output = render_document(document, {}, RenderSpec())
+    minimum_warnings = [
+        warning for warning in output.warnings if "10 mm template minimum" in warning
+    ]
+    assert bool(minimum_warnings) == (automatic and natural_length < 10)
+    assert output.document.length_mm == (max(10, natural_length) if automatic else 10)
+
+
 def test_auto_length_rotation_limits_and_fixed_media() -> None:
     doc = TemplateDocument.model_validate(
         {

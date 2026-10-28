@@ -42,6 +42,7 @@ from app.notification_routing import notifications_enabled
 from app.notifications import clear_empty_cartridge_alert
 from app.preparation import rendering
 from app.print_audit import batch_audit, unknown_attribution
+from app.print_planning import geometry_plan, planning_backend, queued_plan
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
 from app.render import RenderSpec, render_document, render_job
@@ -615,10 +616,11 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         document.preview_tape.background if document.preview_tape else "#ffffff"
     )
     try:
+        spec = rendering_spec(request, document, body.destination_id)
         output = render_document(
             document,
             body.data,
-            rendering_spec(request, document, body.destination_id),
+            spec,
             body.use_samples,
             fonts=request.app.state.fonts,
             images=request.app.state.images,
@@ -626,7 +628,18 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         )
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
+    backend = planning_backend(request, session, body.destination_id, allow_unassigned=True)
     return {
+        "print_plan": geometry_plan(
+            backend,
+            output.document.width_mm,
+            output.document.length_mm,
+            spec.horizontal_dpi,
+            spec.dpi,
+            template_padding_mm=output.template_padding_mm,
+        )
+        if backend
+        else None,
         "png": output.preview(foreground, background),
         "design_png": output.preview(foreground, background, smooth=True),
         "svg": output.svg,
@@ -823,12 +836,17 @@ def queue_groups(
             )
         )
         run = session.get(PrintRun, jobs[0].run_id) if jobs[0].run_id else None
+        records = [job_record(session, job) for job in jobs]
+        has_queued = any(label["state"] == "queued" for job in records for label in job["labels"])
+        saved_plan = (run.manifest if run else jobs[0].template_snapshot).get("print_plan")
         result.append(
             {
                 "id": identifier,
                 "run_id": run.id if run else None,
                 "name": run.name if run else None,
-                "jobs": [job_record(session, job) for job in jobs],
+                "jobs": records,
+                "print_plan": queued_plan(request, session, records) if has_queued else saved_plan,
+                "print_plan_scope": "queued" if has_queued else "submission",
             }
         )
     return result
@@ -974,6 +992,9 @@ def batch_detail(
     identifier: str, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
+    output_plans = {
+        item["copy_id"]: item for item in (batch.print_plan or {}).get("label_output", [])
+    }
     items = []
     for item in session.scalars(
         select(BatchItem).where(BatchItem.batch_id == identifier).order_by(BatchItem.position)
@@ -990,6 +1011,7 @@ def batch_detail(
                 "attribution": item.attribution or unknown_attribution(),
                 "job_id": job.id,
                 "copy_number": label.ordinal + 1,
+                "output_plan": output_plans.get(label.id),
                 "text": job.payload.get("text") or " · ".join(job.payload.values()) or "Label",
                 "width_mm": job.width_mm,
                 "length_mm": job.length_mm,

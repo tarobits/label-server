@@ -47,7 +47,15 @@ function noticeState(notice: (typeof notices.value)[number]) {
           ><small
             >{{ w.cartridgeName(batch.cartridge_id) }} · {{ w.destinationName(batch.printer_id) }} ·
             {{ date(batch.created_at) }} ·
-            {{ batch.consumed_mm === null ? 'Estimated' : 'Consumed' }}
+            {{
+              batch.consumed_mm === null || batch.consumption_source === 'estimated'
+                ? 'Estimated'
+                : batch.consumption_source === 'reported'
+                  ? 'Reported'
+                  : batch.consumption_source === 'measured'
+                    ? 'Measured'
+                    : 'Accounted'
+            }}
             {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</small
           ><small v-if="batch.shortage_warning" class="danger-text"
             >Batch estimate exceeded remaining tape.</small

@@ -98,9 +98,24 @@ layer ordering, duplication, snapping, and undo/redo are available.
   keeps a fixed gap to another object's bounds. Text widths resolve first, then
   linked positions, then automatic label length. Circular links are rejected.
 - **Automatic label length** fits content and margins within 10–300 mm; tape width
-  stays fixed. **Ignore out-of-bounds objects** clips partial objects and omits
+  stays fixed. Shorter automatic lengths are extended to 10 mm with a warning,
+  which is retained in saved jobs and CSV drafts.
+  **Ignore out-of-bounds objects** clips partial objects and omits
   fully outside objects while keeping them editable. New templates enable both;
   existing templates retain their saved settings.
+- Individually cut PT-P710BT labels have a 24.5 mm minimum output length,
+  including feed, regardless of tape width. Shorter designs need hand trimming
+  and produce extra unused tape. New label previews and validated CSV drafts
+  show affected copies and estimated extra tape. Activity preserves the output
+  plan for each attempt, including interrupted prints. These are estimates,
+  separate from normal feed and batch overhead.
+- Queue **Details** and Activity **Details** show tape use split into **Design**,
+  **Feed**, **Leader**, and **Unused**. Design excludes padding added by the 10 mm
+  automatic-length minimum; that padding and any cutting-minimum padding belong
+  to Unused. Feed covers both end margins of each label, while Leader is charged
+  once per batch. Queue estimates cover remaining copies printed together;
+  separate batches each need a leader. Saved attempt breakdowns remain estimates,
+  even when a reviewer reports a different total consumed length.
 - **Show print pixels** displays the exact 1-bit raster and is enabled by default.
   Turn it off for a smooth design preview. Tape colors change the preview colors,
   not the ink pattern. Rulers, cursor guides, and object outlines do not print.

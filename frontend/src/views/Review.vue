@@ -10,6 +10,9 @@ import JobPreview from '../components/JobPreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
+import PrintPlanNotice from '../components/PrintPlanNotice.vue'
+import TapeUsage from '../components/TapeUsage.vue'
+import AnimatedDetails from '../components/AnimatedDetails.vue'
 import { useAuthStore } from '../auth'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
@@ -119,6 +122,11 @@ async function resolve() {
       <Badge :state="batch.state" />
     </div>
     <BatchTrigger :trigger="batch.trigger" />
+    <PrintPlanNotice :plan="batch.print_plan" />
+    <AnimatedDetails class="batch-tape-details">
+      <template #summary>Tape details</template>
+      <TapeUsage :plan="batch.print_plan" caption="Saved estimate for this attempt" />
+    </AnimatedDetails>
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
     <form v-validate-form @submit.prevent="resolve">
       <p v-if="batch.state === 'needs_review'" class="help">
@@ -183,6 +191,22 @@ async function resolve() {
               <td class="review-text">
                 <strong>{{ item.process_name }}</strong>
                 <LabelDetails :label="item" />
+                <p
+                  v-if="
+                    item.output_plan &&
+                    (item.output_plan.minimum_padding_mm || item.output_plan.template_padding_mm)
+                  "
+                  class="help"
+                >
+                  Estimated cut length {{ item.output_plan.output_length_mm.toFixed(1) }} mm ·
+                  {{
+                    (
+                      item.output_plan.minimum_padding_mm +
+                      (item.output_plan.template_padding_mm ?? 0)
+                    ).toFixed(1)
+                  }}
+                  mm extra unused tape · Hand trimming required
+                </p>
                 <JobPreview
                   :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
                   :job-id="item.job_id"
@@ -244,7 +268,8 @@ async function resolve() {
         </button>
       </div>
       <p v-else-if="batch.consumed_mm !== null" class="help">
-        Tape consumed: {{ metres(batch.consumed_mm) }}. This attempt has been accounted for.
+        {{ batch.consumption_source === 'estimated' ? 'Tape use estimated' : 'Tape consumed' }}:
+        {{ metres(batch.consumed_mm) }}. This attempt has been accounted for.
       </p>
     </form>
   </section>

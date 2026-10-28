@@ -112,6 +112,13 @@ def run_record(run: PrintRun) -> dict[str, Any]:
         "copies": sum(row["copies"] for row in run.manifest["rows"]),
         "estimated_mm": run.manifest["estimated_mm"],
         "print_plan": run.manifest.get("print_plan"),
+        "warnings": list(
+            dict.fromkeys(
+                warning
+                for row in run.manifest["rows"]
+                for warning in row["template_snapshot"].get("warnings", [])
+            )
+        ),
         "label_length_mm": sum(row["copies"] * row["length_mm"] for row in run.manifest["rows"]),
     }
 
@@ -317,7 +324,7 @@ def preview_run_row(
         "design_png": output.preview(
             run.manifest["foreground"], run.manifest["background"], smooth=True
         ),
-        "warnings": output.warnings,
+        "warnings": list(dict.fromkeys([*snapshot.get("warnings", []), *output.warnings])),
         "length_mm": row["length_mm"],
         "width_mm": row["width_mm"],
     }

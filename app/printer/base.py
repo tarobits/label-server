@@ -48,6 +48,7 @@ class LabelGeometry:
     length_mm: float
     dpi_x: int = 180
     dpi_y: int = 180
+    template_padding_mm: float = 0
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class RenderedLabel:
     dpi_y: int = 180
     # A saved canvas may have different dimensions from its physical media.
     canvas_width_mm: float | None = None
+    template_padding_mm: float = 0
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,25 @@ class PrintInterrupted(Exception):
 
 
 @dataclass(frozen=True)
+class LabelOutputPlan:
+    copy_id: str
+    design_length_mm: float
+    feed_mm: float
+    output_length_mm: float
+    minimum_padding_mm: float
+    trim_required: bool
+    template_padding_mm: float = 0
+
+
+@dataclass(frozen=True)
+class TapeBreakdown:
+    design_mm: float
+    feed_mm: float
+    leader_mm: float
+    unused_mm: float
+
+
+@dataclass(frozen=True)
 class BatchPlan:
     estimated_mm: float
     leader_mm: float
@@ -91,10 +112,14 @@ class BatchPlan:
     cut_each: bool
     label_lengths_mm: tuple[float, ...]
     calibrated: bool = False
+    minimum_cut_length_mm: float | None = None
+    label_output: tuple[LabelOutputPlan, ...] = ()
+    strip_padding_mm: float = 0
+    breakdown: TapeBreakdown | None = None
 
 
 class PrinterBackend(Protocol):
-    def plan_batch(self, labels: Sequence[RenderedLabel]) -> BatchPlan: ...
+    def plan_batch(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> BatchPlan: ...
     def get_status(self) -> PrinterStatus: ...
     def estimate_consumption(self, labels: Sequence[RenderedLabel | LabelGeometry]) -> float: ...
     def print_batch(self, labels: Sequence[RenderedLabel]) -> PrintResult: ...

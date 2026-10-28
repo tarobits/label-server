@@ -229,6 +229,8 @@ class LabelCopy(Base):
 class Batch(Base):
     __tablename__ = "batches"
     trigger: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    print_plan: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    consumption_source: Mapped[str | None] = mapped_column(String)
     printer_id: Mapped[str] = mapped_column(
         String, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )

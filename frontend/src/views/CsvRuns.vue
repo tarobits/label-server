@@ -9,6 +9,10 @@ import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
+import PrintPlanNotice from '../components/PrintPlanNotice.vue'
+import type { PrintPlan } from '../types'
+import TapeUsage from '../components/TapeUsage.vue'
+import AnimatedDetails from '../components/AnimatedDetails.vue'
 interface Row {
   source_row: number
   values: string[]
@@ -27,12 +31,8 @@ interface Run {
   copies: number
   label_length_mm: number
   estimated_mm: number
-  print_plan?: {
-    leader_mm: number
-    feed_per_label_mm: number
-    cut_each: boolean
-    label_lengths_mm: number[]
-  } | null
+  print_plan?: PrintPlan | null
+  warnings?: string[]
   rows: {
     source_row: number
     copies: number
@@ -522,6 +522,14 @@ onUnmounted(() => {
       </p>
       <div v-if="run.print_plan" class="inset">
         <strong>Planned tape sequence</strong>
+        <p v-for="warning in run.warnings ?? []" :key="warning" class="alert warning" role="status">
+          {{ warning }}
+        </p>
+        <PrintPlanNotice :plan="run.print_plan" />
+        <AnimatedDetails>
+          <template #summary>Tape details</template>
+          <TapeUsage :plan="run.print_plan" caption="Saved estimate for this draft" />
+        </AnimatedDetails>
         <p>
           {{ run.print_plan.leader_mm.toFixed(1) }} mm batch overhead ·
           {{ run.print_plan.feed_per_label_mm.toFixed(1) }} mm feed per label ·
