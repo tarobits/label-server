@@ -7,6 +7,70 @@ startup, application-level USB access, physical printing, VM reboot, hold
 persistence and printer disconnect/reconnect without a service restart passed
 on 2026-10-17.
 
+## GitHub installer
+
+Use a fresh Debian 13+ host or VM with systemd, Python 3.12+ and Git. The script
+installs apt packages (including Node, Python venv and libusb), fetches the selected
+GitHub version into a separate installation, builds the UI and Python environment,
+applies migrations and enables the service at boot. Build and migration commands
+run as the unprivileged `labels` account. Code is then owned by root, with writable
+state under `data/`. It installs the bundled Brother USB rule and supplementary
+`labelprinter` group.
+
+```sh
+git clone https://github.com/tarobits/label-server.git
+cd label-server
+python3 scripts/install.py --check
+sudo python3 scripts/install.py
+sudo systemctl status labels.service
+```
+
+The default version is GitHub's latest published stable release. No release or
+missing repository access stops installation. To install a particular release
+or the current branch, pass `--ref v0.4.0` or `--ref main`. The install fetches
+that ref from GitHub; local uncommitted changes are not copied. Use
+`--repository OWNER/REPOSITORY` for a fork.
+
+The default bind address is `127.0.0.1:8000`, for local access or a reverse proxy.
+For direct LAN access, choose the reachable URL for your server:
+
+```sh
+sudo python3 scripts/install.py --host 0.0.0.0 --public-url http://labels.example:8000
+```
+
+Options include `--install-dir /opt/labels`, `--port 8000`, `--skip-packages`
+(for pre-provisioned dependencies) and `--no-start` (enable without starting).
+The runtime requires Python 3.12+; the frontend build accepts Node 20.19+ on 20.x,
+or Node 22.12+. Older Debian releases need compatible dependencies provisioned
+separately.
+
+For a private repository, clone using your usual GitHub authentication and pass
+an absolute path to a protected token file with repository read access:
+
+```sh
+sudo python3 scripts/install.py --github-token-file /secure/path/github-token
+```
+
+The installer uses a temporary Git credential helper, stores a private copy in
+`data/github-token` with mode `0600`, and references it from `.env` for later
+release checks and updates. It does not put the token in Git remotes or command
+arguments. Avoid putting credentials directly in a clone URL.
+
+After startup, open the configured URL and retrieve the first-run setup token:
+
+```sh
+sudo cat /opt/labels/data/auth-setup-token
+sudo journalctl -u labels.service -f
+```
+
+Create the administrator account and configure printers and cartridges in the
+web UI. Printer registration does not trigger a test print.
+The installer refuses an existing destination or `labels.service`; use the
+[release updater](#automated-release-updates) for existing installations. A failed install
+retains its files for inspection. If startup fails its health check, the new
+service is stopped and disabled. Review the error before manually retrying or
+removing the partial fresh installation. Existing deployments are never replaced.
+
 ## Debian service in a VM, LXC or host
 
 Install Python 3.12+, Node 22.12+ for building the UI, `libusb-1.0-0` and `usbutils`.

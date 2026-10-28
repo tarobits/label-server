@@ -37,6 +37,23 @@ For frontend development, keep the backend on port 8000 and run
 it proxies `/api` to the backend. Production serves `frontend/dist` by default;
 `LABEL_FRONTEND_DIST` overrides that path.
 
+## Install as a Linux service
+
+On Debian 13+ with Python 3.12+ and Git:
+
+```sh
+git clone https://github.com/tarobits/label-server.git
+cd label-server
+sudo python3 scripts/install.py
+```
+
+The installer fetches the latest stable GitHub release into a fresh `/opt/labels`,
+installs dependencies, builds the UI, migrates the database and enables
+`labels.service`. It binds to `127.0.0.1:8000` by default. Use `--ref main` to
+install the current GitHub branch instead of a published release.
+See [installer options and first-run setup](docs/DEPLOYMENT.md#github-installer)
+for LAN access, private repositories and updates.
+
 ## Print your first label
 
 1. Add your printer under **Printers & groups**. USB serial is optional for one
