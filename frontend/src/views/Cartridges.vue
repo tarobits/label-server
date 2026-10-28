@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import CartridgePrice from '../components/CartridgePrice.vue'
 import { freezeLeavingItem } from '../collectionMotion'
 import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
@@ -64,6 +65,8 @@ const form = reactive({
   name: '',
   nominal: 8,
   remaining: 8,
+  price: '',
+  currency: 'EUR',
 })
 async function save() {
   if (
@@ -72,6 +75,8 @@ async function save() {
         api('/cartridges', 'POST', {
           profile_id: form.profile_id,
           name: form.name,
+          price_minor: form.price === '' ? null : Math.round(Number(form.price) * 100),
+          currency: form.currency,
           nominal_length_mm: form.nominal * 1000,
           remaining_mm: form.remaining * 1000,
         }),
@@ -171,6 +176,19 @@ async function correct(id: string) {
             required
         /></label>
       </div>
+      <div class="field-row">
+        <label
+          >Cartridge price<input
+            v-model="form.price"
+            type="number"
+            min="0"
+            max="10000000"
+            step="0.01"
+        /></label>
+        <label
+          >Currency<input v-model="form.currency" required pattern="[A-Z]{3}" maxlength="3"
+        /></label>
+      </div>
       <div class="row">
         <button class="primary" :disabled="busy">Register cartridge</button
         ><button type="button" @click="showForm = false">Cancel</button>
@@ -234,6 +252,7 @@ async function correct(id: string) {
         </div>
       </form>
       <div v-else aria-hidden="true"></div>
+      <CartridgePrice :cartridge="cartridge" />
       <div class="card-actions">
         <button
           v-if="!isInstalled(cartridge) && canSwap"
@@ -272,8 +291,8 @@ async function correct(id: string) {
 }
 .cartridge-card {
   display: grid;
-  grid-template-rows: auto auto auto auto 1fr auto auto;
-  grid-row: span 7;
+  grid-template-rows: auto auto auto auto 1fr auto auto auto;
+  grid-row: span 8;
   row-gap: 12px;
   min-width: 0;
   margin-bottom: 0;

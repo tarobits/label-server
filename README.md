@@ -79,6 +79,33 @@ The PT-P710BT USB driver has no documented standalone cutter command. **Cut tape
 is disabled; while the printer is idle, double-press its physical power button to
 feed and cut. Automatic cuts during printing continue to use the printer settings.
 
+## Tape usage and costs
+
+Set the purchase price and currency when registering a cartridge, or expand
+**Price** on its card. **Tape usage** shows each signed-in user's allocated tape
+and cost; administrators can select **All users**. Different currencies stay
+separate. Prices use hundredths of the selected currency in the API
+(`price_minor: 1299` means `12.99`).
+
+Each attempt charges the original requester, including approved requests and
+CSV runs. It includes design, feed, minimum-length padding, and a proportional
+share of the batch leader and any shared strip padding. Shares follow each
+requester's physical label lengths, including per-label feed and unused tape.
+Cost is allocated consumption divided by the cartridge's nominal length,
+multiplied by its purchase price. Cartridge remaining-length corrections do not
+change historical charges.
+
+Requester shares and prices are frozen before printing. Successful attempts use
+the same consumption total deducted from the cartridge; that total may be an
+estimate. Interrupted attempts remain pending until review supplies the total,
+which is allocated across the frozen requester shares, including wasted tape.
+Retries are separate attempts. A guaranteed failure before printing charges zero.
+Changing a price affects future attempts only. Missing prices remain **Unpriced**,
+not free. Tracking starts with new attempts after this migration; older history
+is not reconstructed. Costs retain millionths of currency, and requester tape
+allocations retain thousandths of a millimetre, with rounding shared so totals
+remain consistent.
+
 ## Templates and previews
 
 The visual editor supports text, QR codes, images, rectangles, and lines. Drag,

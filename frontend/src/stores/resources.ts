@@ -100,6 +100,7 @@ export const useResourceStore = defineStore('resources', () => {
       '/printers/status',
       '/destinations',
       '/batches',
+      '/usage',
       '/cartridges',
       '/queue',
       '/jobs',

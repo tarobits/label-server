@@ -51,6 +51,7 @@ from app.schemas import (
     ActiveTapeInput,
     AutomaticPrintingInput,
     CartridgeInput,
+    CartridgePriceInput,
     CopySelectionInput,
     ImageJobInput,
     JobInput,
@@ -190,6 +191,36 @@ def create_cartridge(
     )
     cartridge = Cartridge(**values)
     session.add(cartridge)
+    session.flush()
+    return record(cartridge)
+
+
+@router.get("/usage")
+def tape_usage(
+    request: Request,
+    all_users: bool = False,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    from app.usage import usage_report
+
+    actor = access_context(request).actor
+    if all_users and not actor.is_admin:
+        raise HTTPException(403, "Administrator access is required")
+    return usage_report(session, None if all_users else actor.id)
+
+
+@router.put("/cartridges/{identifier}/price")
+def cartridge_price(
+    identifier: str,
+    body: CartridgePriceInput,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    for state in session.scalars(
+        select(PrinterState).where(PrinterState.active_cartridge_id == identifier)
+    ):
+        idle(session, state.printer_id)
+    cartridge = get(session, Cartridge, identifier)
+    cartridge.price_minor, cartridge.currency = body.price_minor, body.currency
     session.flush()
     return record(cartridge)
 

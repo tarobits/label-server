@@ -50,6 +50,8 @@ export type ProfileInput = Pick<
   | 'waiting_notification_interval_seconds'
 >
 export interface Cartridge {
+  price_minor: number | null
+  currency: string
   installed?: boolean
   estimate_locked?: boolean
   id: string
@@ -283,4 +285,29 @@ export interface ImageAsset {
   height: number
   size_bytes: number
   archived: boolean
+}
+
+export interface UsageReport {
+  users: {
+    user_id: string
+    username: string
+    consumed_mm: number
+    pending_mm: number
+    unpriced_mm: number
+    costs: Record<string, string>
+  }[]
+  entries: {
+    batch_id: string
+    user_id: string
+    username: string
+    created_at: number
+    state: CopyState
+    planned_mm: number
+    consumed_mm: number | null
+    consumption_source: string | null
+    cost: string | null
+    currency: string
+    price_minor: number | null
+    nominal_length_mm: number
+  }[]
 }

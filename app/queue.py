@@ -206,6 +206,9 @@ class QueueWorker:
                     # Keep it on uncertain attempts too; never recompute historical settings.
                     batch.print_plan = asdict(plan)
                     batch.shortage_warning = estimate > cartridge.remaining_mm
+                    from app.usage import prepare_usage
+
+                    prepare_usage(session, batch, cartridge, plan)
                 extra = sum(
                     item.minimum_padding_mm + item.template_padding_mm for item in plan.label_output
                 )
@@ -245,6 +248,9 @@ class QueueWorker:
                         str(error),
                         time.time(),
                     )
+                    from app.usage import settle_usage
+
+                    settle_usage(session, batch, 0)
                     for item in session.scalars(
                         select(BatchItem).where(BatchItem.batch_id == batch_id)
                     ):
@@ -278,6 +284,9 @@ class QueueWorker:
                     )
                     cartridge = required(session, Cartridge, batch.cartridge_id)
                     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed)
+                    from app.usage import settle_usage
+
+                    settle_usage(session, batch, consumed)
                     sync_empty_cartridge_alert(session, state, cartridge, time.time())
                     for item in session.scalars(
                         select(BatchItem).where(BatchItem.batch_id == batch_id)
@@ -516,6 +525,9 @@ def resolve_batch(
     sync_empty_cartridge_alert(
         session, printer_state(session, batch.printer_id), cartridge, time.time()
     )
+    from app.usage import settle_usage
+
+    settle_usage(session, batch, consumed_mm)
     batch.consumed_mm = consumed_mm
     batch.consumption_source = "reported"
     batch.finished_at = time.time()

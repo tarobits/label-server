@@ -7,6 +7,7 @@ import NewLabel from './views/NewLabel.vue'
 import Profiles from './views/Profiles.vue'
 import Cartridges from './views/Cartridges.vue'
 import Activity from './views/Activity.vue'
+import Usage from './views/Usage.vue'
 import Review from './views/Review.vue'
 import Fonts from './views/Fonts.vue'
 import Images from './views/Images.vue'
@@ -26,6 +27,7 @@ import { pinia } from './stores'
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    { path: '/usage', component: Usage, meta: { title: 'Tape usage' } },
     { path: '/account', component: AccountSettings, meta: { title: 'Account settings' } },
     {
       path: '/access-holds',

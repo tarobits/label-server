@@ -150,6 +150,7 @@ const links = computed(() =>
     ['/profiles', 'Tape profiles', 'tape'],
     ['/cartridges', 'Cartridges', 'cartridge'],
     ['/activity', 'Activity', 'activity'],
+    ['/usage', 'Tape usage', 'tape'],
     ['/printers', 'Printers & groups', 'printer'],
     ['/admin', 'Administration', 'users'],
   ].filter(([path]) => {

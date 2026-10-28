@@ -137,6 +137,8 @@ class Cartridge(Base):
     nominal_length_mm: Mapped[float]
     remaining_mm: Mapped[float]
     consumption_uncertain: Mapped[bool] = mapped_column(default=False)
+    price_minor: Mapped[int | None]
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", server_default="EUR")
 
 
 class PrinterDevice(Base):
@@ -353,3 +355,20 @@ class JobSubmission(Base):
     request_key: Mapped[str] = mapped_column(String, primary_key=True)
     request_hash: Mapped[str]
     job_id: Mapped[str] = mapped_column(ForeignKey("print_jobs.id"))
+
+
+class TapeAllocation(Base):
+    """Immutable requester/price snapshot; settled with cartridge consumption."""
+
+    __tablename__ = "tape_allocations"
+    batch_id: Mapped[str] = mapped_column(ForeignKey("batches.id"), primary_key=True)
+    # Retain attribution when an account is purged, like the existing print audit.
+    user_id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
+    username: Mapped[str]
+    planned_mm: Mapped[float]
+    consumed_mm: Mapped[float | None]
+    nominal_length_mm: Mapped[float]
+    price_minor: Mapped[int | None]
+    currency: Mapped[str] = mapped_column(String(3))
+    # Integer millionths of currency stored as text to avoid overflow and float rounding.
+    cost_micros: Mapped[str | None] = mapped_column(String)
