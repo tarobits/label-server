@@ -145,6 +145,8 @@ Interrupted-batch review requires Moderator or Full directly on the physical
 printer. Distribution-group permissions cannot authorize batch review. Once the
 physical printer has produced an uncertain result, its authorized reviewer must
 be able to reconcile that batch, including work routed through a group.
+Reviewers may correct which cartridge is charged for that attempt. This does not
+grant permission to install or confirm a cartridge on any printer.
 
 **Stop after current label** requires Moderator directly on the physical printer.
 **Emergency stop** and any future standalone cutter operation require Full

@@ -523,7 +523,12 @@ class QueueWorker:
 
 
 def resolve_batch(
-    session: Session, batch: Batch, decisions: dict[str, State], consumed_mm: float
+    session: Session,
+    batch: Batch,
+    decisions: dict[str, State],
+    consumed_mm: float,
+    *,
+    cartridge: Cartridge | None = None,
 ) -> None:
     if batch.state != State.NEEDS_REVIEW:
         raise ValueError("Batch is not waiting for review")
@@ -531,17 +536,19 @@ def resolve_batch(
     pending = {item.copy_id for item in items if item.outcome == State.NEEDS_REVIEW}
     if set(decisions) != pending:
         raise ValueError("Provide exactly one decision for every uncertain copy")
+    original_cartridge = required(session, Cartridge, batch.cartridge_id)
+    cartridge = cartridge or original_cartridge
+    if cartridge.id != original_cartridge.id:
+        from app.usage import reassign_usage
+
+        reassign_usage(session, batch, cartridge)
+        batch.cartridge_id = cartridge.id
     for item in items:
         if item.copy_id in decisions:
             item.outcome = decisions[item.copy_id]
             copy = required(session, LabelCopy, item.copy_id)
             copy.state = item.outcome
-    cartridge = required(session, Cartridge, batch.cartridge_id)
     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed_mm)
-    cartridge.consumption_uncertain = False
-    sync_empty_cartridge_alert(
-        session, printer_state(session, batch.printer_id), cartridge, time.time()
-    )
     from app.usage import settle_usage
 
     settle_usage(session, batch, consumed_mm)
@@ -551,3 +558,18 @@ def resolve_batch(
     batch.state = (
         State.PRINTED if all(item.outcome == State.PRINTED for item in items) else State.FAILED
     )
+    session.flush()
+    for affected in {original_cartridge, cartridge}:
+        affected.consumption_uncertain = bool(
+            session.scalar(
+                select(Batch.id)
+                .where(Batch.cartridge_id == affected.id, Batch.state == State.NEEDS_REVIEW)
+                .limit(1)
+            )
+        )
+    # Past tape use does not identify what is currently installed. Depletion
+    # notices belong only to printers actually using the charged cartridge.
+    for state in session.scalars(
+        select(PrinterState).where(PrinterState.active_cartridge_id == cartridge.id)
+    ):
+        sync_empty_cartridge_alert(session, state, cartridge, time.time())

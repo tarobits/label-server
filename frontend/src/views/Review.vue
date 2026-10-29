@@ -23,6 +23,7 @@ const route = useRoute(),
   batch = ref<BatchDetail | null>(null),
   error = ref('')
 const decisions = ref<Record<string, string>>({}),
+  cartridgeId = ref(''),
   consumed = ref<number | null>(null),
   selected = ref<string[]>([]),
   bulkDecision = ref('')
@@ -58,6 +59,7 @@ async function load(force = false) {
       force,
     })
     if (!stopped && ticket === generation && auth.user?.id === actor) {
+      if (!batch.value) cartridgeId.value = result.cartridge_id
       if (JSON.stringify(batch.value) !== JSON.stringify(result)) batch.value = result
       const ids = new Set(uncertain.value.map((item) => item.copy_id))
       selected.value = selected.value.filter((id) => ids.has(id))
@@ -80,6 +82,7 @@ watch(
     selected.value = []
     bulkDecision.value = ''
     consumed.value = null
+    cartridgeId.value = ''
     void load()
   },
 )
@@ -98,6 +101,7 @@ async function resolve() {
         api(`/batches/${batch.value!.id}/review`, 'POST', {
           decisions: payload,
           consumed_mm: consumed.value,
+          cartridge_id: cartridgeId.value,
         }),
       'Review saved. Requeued copies follow the printer’s hold and queue settings.',
     )
@@ -249,6 +253,13 @@ async function resolve() {
       </div>
       <div v-if="batch.state === 'needs_review'" class="review-resolution">
         <label
+          >Cartridge used for this attempt<select v-model="cartridgeId" :disabled="w.busy" required>
+            <option v-for="cartridge in w.cartridges" :key="cartridge.id" :value="cartridge.id">
+              {{ cartridge.name }} · {{ w.profileName(cartridge.profile_id) }}
+            </option>
+          </select></label
+        >
+        <label
           >Total tape consumed by this attempt (mm)<input
             v-model.number="consumed"
             type="number"
@@ -258,11 +269,16 @@ async function resolve() {
         /></label>
         <p class="help">
           Include confirmed labels, partial labels, and feed waste. This total is deducted once from
-          the cartridge.
+          the selected cartridge. The installed cartridge stays unchanged.
         </p>
         <button
           class="primary"
-          :disabled="w.busy || consumed === null || uncertain.some((i) => !decisions[i.copy_id])"
+          :disabled="
+            w.busy ||
+            !cartridgeId ||
+            consumed === null ||
+            uncertain.some((i) => !decisions[i.copy_id])
+          "
         >
           Save review
         </button>

@@ -30,7 +30,26 @@ test('batch review applies outcomes to selected following uncertain copies befor
     .toBe('needs_review')
   const batch = (await (await request.get('/api/batches')).json())[0]
   const items = (await (await request.get(`/api/batches/${batch.id}`)).json()).items
+  const previous = await (
+    await request.post('/api/cartridges', {
+      data: { profile_id: tape.id, name: 'Previous cassette', nominal_length_mm: 8000 },
+    })
+  ).json()
+  // The printer's current assignment can differ from the attempt's saved one.
+  await page.route('**/api/printers/status', async (route) => {
+    const response = await route.fetch()
+    const statuses = await response.json()
+    await route.fulfill({
+      json: statuses.map((status: object) => ({ ...status, active_cartridge_id: previous.id })),
+    })
+  })
   await page.goto(`/#/batches/${batch.id}`)
+  const cartridge = page.getByRole('combobox', {
+    name: 'Cartridge used for this attempt',
+    exact: true,
+  })
+  await expect(cartridge).toHaveValue(batch.cartridge_id)
+  await cartridge.selectOption(previous.id)
   await expect(page.getByLabel('Decision for label 1', { exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Select label 1', { exact: true })).toHaveCount(0)
   const save = page.getByRole('button', { name: 'Save review', exact: true })
@@ -80,7 +99,15 @@ test('batch review applies outcomes to selected following uncertain copies befor
   )
   await expect(page.getByLabel('Decision for label 4', { exact: true })).toHaveValue('queued')
   await expect(page.getByLabel('Select label 2', { exact: true })).toBeChecked()
+  await expect(cartridge).toHaveValue(previous.id)
   await page.screenshot({ path: 'test-results/batch-review-selection.png', fullPage: true })
+  await page
+    .locator('.review-resolution')
+    .screenshot({ path: 'test-results/review-cartridge-desktop.png', animations: 'disabled' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page
+    .locator('.review-resolution')
+    .screenshot({ path: 'test-results/review-cartridge-mobile.png', animations: 'disabled' })
   const review = page.waitForRequest(
     (response) =>
       response.url().endsWith(`/api/batches/${batch.id}/review`) && response.method() === 'POST',
@@ -94,9 +121,17 @@ test('batch review applies outcomes to selected following uncertain copies befor
       [items[4].copy_id]: 'printed',
     },
     consumed_mm: 200,
+    cartridge_id: previous.id,
   })
   await expect(save).toHaveCount(0)
   const resolved = await (await request.get(`/api/batches/${batch.id}`)).json()
+  expect(resolved.cartridge_id).toBe(previous.id)
+  expect((await (await request.get('/api/status')).json()).active_cartridge_id).toBe(
+    batch.cartridge_id,
+  )
+  const inventory = await (await request.get('/api/cartridges')).json()
+  expect(inventory.find((c: { id: string }) => c.id === previous.id).remaining_mm).toBe(7800)
+  expect(inventory.find((c: { id: string }) => c.id === batch.cartridge_id).remaining_mm).toBe(8000)
   expect(resolved.items.map((item: { outcome: string }) => item.outcome)).toEqual([
     'printed',
     'cancelled',

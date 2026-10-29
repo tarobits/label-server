@@ -64,6 +64,17 @@ def prepare_usage(session: Session, batch: Batch, cartridge: Cartridge, plan: Ba
     session.flush()
 
 
+def reassign_usage(session: Session, batch: Batch, cartridge: Cartridge) -> None:
+    """Use the reviewed cartridge's price without changing frozen requester shares."""
+    rows = list(session.scalars(select(TapeAllocation).where(TapeAllocation.batch_id == batch.id)))
+    if any(row.consumed_mm is not None for row in rows):
+        raise ValueError("This attempt's tape usage has already been settled")
+    for row in rows:
+        row.nominal_length_mm = cartridge.nominal_length_mm
+        row.price_minor = cartridge.price_minor
+        row.currency = cartridge.currency
+
+
 def settle_usage(session: Session, batch: Batch, consumed_mm: float) -> None:
     rows = list(
         session.scalars(

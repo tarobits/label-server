@@ -3,7 +3,7 @@
 from collections import deque
 
 import pytest
-from conftest import job, profile
+from conftest import install, job, profile
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_brother import label
@@ -13,6 +13,36 @@ from app.printer.base import MediaSelection, PrintNotStarted
 from app.printer.brother import BrotherPTP710BT
 
 accounts = account_fixture
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_manual_review_preserves_installed_cartridge_confirmation(client, pending):
+    tape = profile(client, threshold=1)
+    cartridge = install(client, tape["id"])
+    queued = job(client, tape["id"])
+    worker = client.app.state.fleet.workers["main"]
+    worker.backend.fail_after = 0
+    worker.tick()
+    batch = client.get("/api/batches").json()[0]
+    confirmation = {"cartridge_id": cartridge["id"], "fingerprint": "before-review"}
+    with client.app.state.factory.begin() as session:
+        state = session.scalar(select(PrinterState))
+        state.media_confirmation = confirmation
+        state.media_verified_fingerprint = "verified-before-review"
+        state.cartridge_check_pending = pending
+    response = client.post(
+        f"/api/batches/{batch['id']}/review",
+        json={"decisions": {queued["labels"][0]["id"]: "cancelled"}, "consumed_mm": 100},
+    )
+    assert response.status_code == 200, response.text
+    assert client.get("/api/cartridges").json()[0]["remaining_mm"] == 7900
+    with client.app.state.factory() as session:
+        state = session.scalar(select(PrinterState))
+        assert state.active_cartridge_id == cartridge["id"]
+        assert state.media_confirmation == confirmation
+        assert state.media_verified_fingerprint == "verified-before-review"
+        assert state.cartridge_check_pending == pending
+        assert state.cartridge_check_enabled
 
 
 class DetectedTapeTransport:

@@ -1204,6 +1204,7 @@ def review(
             batch,
             {key: State(value) for key, value in body.decisions.items()},
             body.consumed_mm,
+            cartridge=get(session, Cartridge, body.cartridge_id) if body.cartridge_id else None,
         )
     except ValueError as error:
         raise HTTPException(409, str(error)) from error

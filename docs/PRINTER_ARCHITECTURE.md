@@ -143,6 +143,14 @@ review and are never silently retried on another member. Other group jobs may
 continue on another ready device. Restart recovery marks in-flight attempts
 uncertain per printer and retains completed-copy accounting.
 
+Manual review defaults to the cartridge recorded when the attempt began. The
+reviewer may select a different cartridge for that attempt's tape use and cost;
+the requester shares stay fixed, and the reviewed cartridge is retained in the
+batch history. Review never installs or confirms a cartridge or clears a pending
+cartridge check.
+Cartridge-check prompts wait until the operator leaves the review page; physical
+confirmation remains a separate action.
+
 Waiting reminders evaluate each destination/profile threshold against every
 member's installed cartridge. The existing per-profile interval, silence and
 snooze controls remain shared across destinations; one notification lists the

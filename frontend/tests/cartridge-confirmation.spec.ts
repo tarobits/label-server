@@ -80,6 +80,48 @@ async function detection(page: Page, coverCheck = false) {
   return attempts
 }
 
+test('saving review accounts for tape without triggering installation confirmation', async ({
+  page,
+  request,
+}) => {
+  const [profile] = await (await request.get('/api/tape-profiles')).json()
+  const [installed] = await (await request.get('/api/cartridges')).json()
+  await request.put('/api/printer/mock', { data: { fail_after: 0 } })
+  const job = await (
+    await request.post('/api/jobs', {
+      data: { tape_profile: profile.id, data: { text: 'Review accounting' } },
+    })
+  ).json()
+  await request.post('/api/queue/print')
+  await expect
+    .poll(async () => (await (await request.get(`/api/jobs/${job.id}`)).json()).status)
+    .toBe('needs_review')
+  const [batch] = await (await request.get('/api/batches')).json()
+  const attempts = await detection(page, true)
+  await page.goto(`/#/batches/${batch.id}`)
+  await page.getByLabel('Decision for label 1', { exact: true }).selectOption('cancelled')
+  await page.getByLabel('Total tape consumed by this attempt (mm)', { exact: true }).fill('100')
+  await page.screenshot({
+    path: 'test-results/review-cartridge-accounting.png',
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.getByRole('button', { name: 'Save review', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Save review', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Confirm action' })).not.toBeVisible()
+  expect(attempts).toEqual([])
+  const status = await (await request.get('/api/status')).json()
+  expect(status.active_cartridge_id).toBe(installed.id)
+  const cartridges = await (await request.get('/api/cartridges')).json()
+  expect(cartridges.find((c: { id: string }) => c.id === installed.id).remaining_mm).toBe(7900)
+  // The outstanding physical-cartridge check remains available as its own action.
+  await page.getByRole('link', { name: 'Printers & groups', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Confirm action' })).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Confirm action' })).not.toBeVisible()
+  expect(attempts).toHaveLength(1)
+})
+
 test('installed cartridge mismatch can be cancelled and then confirmed on printers', async ({
   page,
   request,
