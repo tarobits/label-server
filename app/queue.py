@@ -11,6 +11,7 @@ from typing import Protocol, TypeVar
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.cartridge_confirmation import configure_media
 from app.destinations import printer_state
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
@@ -173,7 +174,23 @@ class QueueWorker:
             with self.lock:
                 self.control.clear()
             try:
+                with self.lock, self.factory() as session:
+                    configure_media(self.backend, session, printer_state(session, self.printer_id))
                 self.latest_status = self.backend.get_status()
+                with self.lock, self.factory.begin() as session:
+                    state = printer_state(session, self.printer_id)
+                    if state.media_confirmation and (
+                        not self.latest_status.media
+                        or self.latest_status.media.fingerprint
+                        != state.media_confirmation.get("fingerprint")
+                    ):
+                        state.media_confirmation = None
+                    if (
+                        state.active_cartridge_id
+                        and state.cartridge_check_enabled
+                        and self.latest_status.media_changed
+                    ):
+                        state.cartridge_check_pending = True
             except Exception:
                 self.latest_status = PrinterStatus(False, None)
             prepared = self._reserve(stamp)

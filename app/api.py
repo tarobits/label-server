@@ -18,6 +18,7 @@ from app.authorization import (
     visible_destinations,
     visible_jobs,
 )
+from app.cartridge_confirmation import check_cartridge, configure_media
 from app.cost_estimates import estimate_cost
 from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
@@ -44,7 +45,7 @@ from app.notifications import clear_empty_cartridge_alert
 from app.preparation import rendering
 from app.print_audit import batch_audit, unknown_attribution
 from app.print_planning import geometry_plan, planning_backend, queued_plan
-from app.printer.base import LabelGeometry
+from app.printer.base import ConfirmableMediaBackend, LabelGeometry
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
 from app.render import RenderSpec, render_document, render_job
@@ -52,6 +53,7 @@ from app.reservations import reserve_flush
 from app.schemas import (
     ActiveTapeInput,
     AutomaticPrintingInput,
+    CartridgeCheckInput,
     CartridgeInput,
     CartridgePriceInput,
     CopySelectionInput,
@@ -304,8 +306,9 @@ def active_tape(
         .limit(1)
     ):
         raise HTTPException(409, "Cancel or finish the pending flush before changing cartridges")
+    cartridge = None
     if body.cartridge_id:
-        get(session, Cartridge, body.cartridge_id)
+        cartridge = get(session, Cartridge, body.cartridge_id)
         if session.scalar(
             select(PrinterState.id).where(
                 PrinterState.active_cartridge_id == body.cartridge_id,
@@ -313,13 +316,71 @@ def active_tape(
             )
         ):
             raise HTTPException(409, "Cartridge is already installed in another printer")
-    printer_id = resolve_destination(session, printer_id)
-    state = printer_state(session, printer_id)
+    confirmation, verification = (
+        check_cartridge(request, session, state, cartridge, body.media_confirmation)
+        if cartridge
+        else (None, None)
+    )
     if state.active_cartridge_id != body.cartridge_id:
         clear_empty_cartridge_alert(session, state)
     state.active_cartridge_id = body.cartridge_id
+    state.media_confirmation = confirmation
+    state.media_verified_fingerprint = verification
+    if verification or cartridge is None:
+        state.cartridge_check_pending = False
+    elif worker := request.app.state.fleet.workers.get(printer_id):
+        state.cartridge_check_pending = (
+            state.cartridge_check_pending or worker.latest_status.media_changed
+        ) and state.cartridge_check_enabled
     state.blocker = None
     session.flush()
+    worker = request.app.state.fleet.workers.get(printer_id)
+    if worker and isinstance(worker.backend, ConfirmableMediaBackend):
+        # Apply only after the selection and its confirmation have committed.
+        def apply_selection() -> None:
+            with request.app.state.factory() as lookup:
+                configure_media(worker.backend, lookup, printer_state(lookup, printer_id))
+            worker.latest_status = worker.backend.get_status()
+
+        if cartridge is None and not worker.printer_lock.acquire(blocking=False):
+            raise HTTPException(409, "Printer is busy; try again when it is idle")
+        if cartridge is None:
+            request.state.held_locks.append(worker.printer_lock)
+        request.state.after_commit.append(apply_selection)
+    return record(state)
+
+
+@router.put("/printers/{identifier}/cartridge-check")
+def cartridge_check(
+    identifier: str,
+    body: CartridgeCheckInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    from app.models import PrinterDevice
+
+    access_context(request).require_destination(identifier, "full")
+    get(session, PrinterDevice, identifier)
+    idle(session, identifier)
+    state = printer_state(session, identifier)
+    worker = request.app.state.fleet.workers.get(identifier)
+    if worker:
+        if not worker.printer_lock.acquire(blocking=False):
+            raise HTTPException(409, "Printer is busy; try again when it is idle")
+        request.state.held_locks.append(worker.printer_lock)
+    state.cartridge_check_enabled = body.enabled
+    if not body.enabled:
+        state.cartridge_check_pending = False
+        state.blocker = None
+    session.flush()
+    if worker:
+
+        def apply_setting() -> None:
+            with request.app.state.factory() as lookup:
+                configure_media(worker.backend, lookup, printer_state(lookup, identifier))
+            worker.latest_status = worker.backend.get_status()
+
+        request.state.after_commit.append(apply_setting)
     return record(state)
 
 

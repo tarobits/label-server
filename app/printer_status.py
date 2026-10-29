@@ -8,9 +8,19 @@ from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
 from app.authorization import visible_copy_count, visible_jobs
+from app.cartridge_confirmation import media_mismatch
 from app.destinations import printer_state, resolve_destination
 from app.http import get, record
-from app.models import Batch, FlushRequest, LabelCopy, PrinterDevice, PrintJob, State, TapeProfile
+from app.models import (
+    Batch,
+    Cartridge,
+    FlushRequest,
+    LabelCopy,
+    PrinterDevice,
+    PrintJob,
+    State,
+    TapeProfile,
+)
 from app.notification_routing import notifications_enabled
 from app.printer.base import PrinterStatus
 
@@ -37,14 +47,34 @@ def status_record(
     active = session.scalar(
         select(Batch).where(Batch.printer_id == printer_id, Batch.state == State.PRINTING)
     )
+    cartridge = (
+        session.get(Cartridge, state.active_cartridge_id) if state.active_cartridge_id else None
+    )
+    profile = session.get(TapeProfile, cartridge.profile_id) if cartridge else None
+    warning = media_mismatch(hardware, profile) if profile else None
     return {
         **record(state),
+        "media_confirmation": None,
+        "media_verified_fingerprint": None,
+        "cartridge_check_pending": state.cartridge_check_enabled
+        and bool(
+            state.active_cartridge_id and (state.cartridge_check_pending or hardware.media_changed)
+        ),
+        "cartridge_check_key": hardware.media.verification_key if hardware.media else None,
+        "cartridge_check_ready": bool(
+            hardware.connected and hardware.media and hardware.media.confirmable
+        ),
         "backend": device.driver,
         "printer_name": device.name,
         "printer_error": hardware.error,
         "renderer": "svg",
         "connected": hardware.connected,
-        "detected_width_mm": hardware.tape_width_mm,
+        "detected_width_mm": hardware.media.width_mm if hardware.media else hardware.tape_width_mm,
+        "effective_width_mm": hardware.tape_width_mm,
+        "detected_media": hardware.media.description if hardware.media else None,
+        "media_warning": warning,
+        "media_confirmed": hardware.media_confirmed,
+        "diagnostics": hardware.diagnostics,
         "needs_review": list(
             session.scalars(
                 select(Batch.id).where(

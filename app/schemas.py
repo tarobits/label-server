@@ -43,6 +43,11 @@ class RemainingInput(Input):
 
 class ActiveTapeInput(Input):
     cartridge_id: str | None
+    media_confirmation: str | None = Field(default=None, max_length=64)
+
+
+class CartridgeCheckInput(Input):
+    enabled: bool
 
 
 class JobInput(Input):

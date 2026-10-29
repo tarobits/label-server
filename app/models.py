@@ -164,6 +164,10 @@ class PrinterState(Base):
         String, unique=True, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )
     active_cartridge_id: Mapped[str | None] = mapped_column(ForeignKey("cartridges.id"))
+    media_confirmation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    media_verified_fingerprint: Mapped[str | None] = mapped_column(String)
+    cartridge_check_enabled: Mapped[bool] = mapped_column(default=True, server_default="1")
+    cartridge_check_pending: Mapped[bool] = mapped_column(default=False, server_default="0")
     empty_alert_cartridge_id: Mapped[str | None] = mapped_column(String)
     blocker: Mapped[str | None]
     automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")

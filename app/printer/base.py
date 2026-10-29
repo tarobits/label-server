@@ -33,10 +33,35 @@ class PrintControl:
 
 
 @dataclass(frozen=True)
+class DetectedMedia:
+    """Adapter-owned detection, with an opaque identity for explicit confirmation."""
+
+    width_mm: float | None
+    description: str
+    fingerprint: str
+    problem: str | None = None
+    confirmable: bool = True
+    verification_key: str | None = None
+
+
+@dataclass(frozen=True)
+class MediaSelection:
+    width_mm: float
+    confirmation: str | None = None
+    verified_fingerprint: str | None = None
+    verify_after_change: bool = True
+    verification_required: bool = False
+
+
+@dataclass(frozen=True)
 class PrinterStatus:
     connected: bool
     tape_width_mm: float | None
     error: str | None = None
+    media: DetectedMedia | None = None
+    media_confirmed: bool = False
+    diagnostics: dict[str, str] | None = None
+    media_changed: bool = False
 
 
 @dataclass(frozen=True)
@@ -130,3 +155,8 @@ class ControlledPrinterBackend(Protocol):
     def print_batch_controlled(
         self, labels: Sequence[RenderedLabel], control: PrintControl
     ) -> PrintResult: ...
+
+
+@runtime_checkable
+class ConfirmableMediaBackend(PrinterBackend, Protocol):
+    def configure_media(self, selection: MediaSelection | None) -> None: ...
