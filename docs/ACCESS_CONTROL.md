@@ -133,6 +133,14 @@ Full access to a distribution group permits changing its settings and membership
 Adding a printer additionally requires Full access directly on that printer.
 Configuring an individual printer always requires Full access directly on it.
 
+Installing or confirming a cartridge detection mismatch also requires Full access
+directly on the physical printer. The confirmation records its operator and time;
+it permits the selected cartridge width without bypassing hardware faults.
+Detected status details are read-only and available with direct printer access.
+Confirming a cartridge after the cover opens, or disabling that per-printer
+check, also requires Full access directly on the physical printer. Other users'
+queued work waits until the check is resolved.
+
 Interrupted-batch review requires Moderator or Full directly on the physical
 printer. Distribution-group permissions cannot authorize batch review. Once the
 physical printer has produced an uncertain result, its authorized reviewer must

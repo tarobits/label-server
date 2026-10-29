@@ -201,7 +201,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       activeCount.value > 0 &&
       !!status.value?.connected &&
       !status.value?.printer_error &&
-      status.value.detected_width_mm === activeProfile.value?.width_mm &&
+      (status.value.effective_width_mm ?? status.value.detected_width_mm) ===
+        activeProfile.value?.width_mm &&
       !status.value.pending_flush,
   )
   const printNow = () =>

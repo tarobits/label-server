@@ -40,7 +40,7 @@ function canPrintDirect(id: string) {
     !current.pending_flush &&
     !current.needs_review.length &&
     installed &&
-    current.detected_width_mm === installed.width_mm &&
+    (current.effective_width_mm ?? current.detected_width_mm) === installed.width_mm &&
     destination(id)?.queues.some(
       (queue) => queue.profile_id === installed.id && queue.queued_copies > 0,
     )
@@ -179,6 +179,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         <p
           v-else-if="
             profile(device.id) &&
+            !state(device.id)?.media_confirmed &&
             state(device.id)?.detected_width_mm !== profile(device.id)?.width_mm
           "
           class="inline-warning"

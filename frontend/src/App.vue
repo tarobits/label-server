@@ -7,6 +7,7 @@ import BrandLogo from './components/BrandLogo.vue'
 import AccountMenu from './components/AccountMenu.vue'
 import { reducedMotion } from './preferences'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import CartridgeCheckPrompt from './components/CartridgeCheckPrompt.vue'
 import MotionTrack from './components/MotionTrack.vue'
 import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
@@ -198,6 +199,7 @@ onMounted(auth.refresh)
   <SignIn v-else-if="!auth.user" />
   <template v-else>
     <ChangelogNotice v-if="loaded" :key="auth.user.id" />
+    <CartridgeCheckPrompt v-if="loaded" :key="auth.user.id" />
     <a class="skip" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
     <div class="app-shell">
       <aside class="sidebar">

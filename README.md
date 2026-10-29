@@ -98,6 +98,22 @@ feed and cut. Automatic cuts during printing continue to use the printer setting
 
 ## Tape usage and costs
 
+If a third-party TZe cartridge reports an unrecognized type or a different width,
+users with Full access on the printer can select **Confirm cartridge** in
+**Cartridges** or **Printers & groups**. Review the selected cartridge against the
+detected media and choose **Yes, I’m sure** to use the selected width for printing.
+New cartridge installations show the same confirmation when needed. Hardware
+faults still block printing, and an observed cartridge change requires confirmation
+again. **Detected details** in **Printers & groups** shows the reported type,
+width, colors, error flags and raw status packet.
+
+By default, an observed cover opening pauses printing until a user with Full
+access confirms that the selected cartridge is still installed or selects a
+different one. Closing the cover alone does not resume the queue. Turn off
+**Confirm cartridge after opening** on that printer in **Printers & groups** to
+disable this check. Hardware faults and unconfirmed detection mismatches still
+block printing.
+
 Before submission, individual label previews and validated CSV drafts show an
 approximate cost for all selected copies as one batch, including feed, unused
 tape and one leader. The queue shows a current estimate for remaining copies.

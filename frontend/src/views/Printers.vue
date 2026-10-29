@@ -7,6 +7,9 @@ import { api } from '../api'
 import { requestPrinting } from '../printing'
 import { useWorkspaceStore, metres } from '../workspace'
 import PropertySection from '../components/PropertySection.vue'
+import AdminDialog from '../components/AdminDialog.vue'
+import CartridgeDetection from '../components/CartridgeDetection.vue'
+import { installCartridge } from '../cartridges'
 import type { Destination, Printer } from '../types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
@@ -14,6 +17,9 @@ const showPrinter = ref(false),
   showGroup = ref(false),
   editing = ref('')
 const editingPrinter = ref('')
+const detailsPrinter = ref('')
+const cartridgeChecks = reactive<Record<string, boolean>>({})
+const detailsDevice = computed(() => w.printers.find((p) => p.id === detailsPrinter.value))
 async function cancelFlush(id: string) {
   const pending = state(id)?.pending_flush
   if (pending)
@@ -113,19 +119,29 @@ async function saveGroup() {
     showGroup.value = false
 }
 async function install(id: string, event: Event) {
-  await w.action(
-    () =>
-      api(`/printer/active-tape?printer_id=${encodeURIComponent(id)}`, 'PUT', {
-        cartridge_id: (event.target as HTMLSelectElement).value || null,
-      }),
-    'Installed cartridge updated.',
-  )
+  const select = event.target as HTMLSelectElement
+  const selected = select.value || null
+  select.value = state(id)?.active_cartridge_id ?? ''
+  await w.action(() => installCartridge(id, selected), 'Installed cartridge updated.')
 }
 async function hold(id: string, held: boolean) {
   await w.action(
     () => api(`/destinations/${id}/automatic-printing`, 'PUT', { held }),
     held ? 'Automatic printing held.' : 'Automatic printing resumed.',
   )
+}
+async function setCartridgeCheck(id: string, event: Event) {
+  const checkbox = event.target as HTMLInputElement
+  const enabled = checkbox.checked
+  cartridgeChecks[id] = enabled
+  try {
+    await w.action(
+      () => api(`/printers/${encodeURIComponent(id)}/cartridge-check`, 'PUT', { enabled }),
+      enabled ? 'Cartridge check enabled.' : 'Cartridge check disabled.',
+    )
+  } finally {
+    delete cartridgeChecks[id]
+  }
 }
 async function print(id: string) {
   await w.action(
@@ -235,9 +251,17 @@ function move(index: number, offset: number) {
       <p v-if="device.configuration_error" class="alert warning">
         Configuration error: {{ device.configuration_error }}. Edit this printer to repair it.
       </p>
-      <p v-if="state(device.id)?.printer_error" class="alert warning">
+      <p
+        v-if="
+          state(device.id)?.printer_error &&
+          (!(state(device.id)?.media_warning || state(device.id)?.cartridge_check_pending) ||
+            !auth.atLeast(device.id, 'full'))
+        "
+        class="alert warning"
+      >
         {{ state(device.id)?.printer_error }}
       </p>
+      <CartridgeDetection :status="state(device.id)" />
       <p class="muted">Brother PT-P710BT · USB</p>
       <p class="help">
         {{ device.capabilities?.dpi_y }} × {{ device.capabilities?.dpi_x }} dpi · Detected tape:
@@ -247,6 +271,18 @@ function move(index: number, offset: number) {
             : 'Unknown'
         }}
       </p>
+      <button class="text-button" @click="detailsPrinter = device.id">Detected details</button>
+      <label v-if="auth.atLeast(device.id, 'full')" class="checkbox">
+        <input
+          type="checkbox"
+          :checked="cartridgeChecks[device.id] ?? state(device.id)?.cartridge_check_enabled ?? true"
+          :disabled="
+            w.busy || !!state(device.id)?.printing || !!state(device.id)?.needs_review.length
+          "
+          @change="setCartridgeCheck(device.id, $event)"
+        />
+        Confirm cartridge after opening
+      </label>
       <label
         >Installed cartridge<select
           :value="state(device.id)?.active_cartridge_id ?? ''"
@@ -314,6 +350,23 @@ function move(index: number, offset: number) {
       </div>
     </section>
   </TransitionGroup>
+  <AdminDialog
+    :open="!!detailsDevice"
+    :title="`${detailsDevice?.name ?? 'Printer'} · Detected details`"
+    @close="detailsPrinter = ''"
+  >
+    <p role="status">{{ state(detailsPrinter)?.connected ? 'Connected' : 'Disconnected' }}</p>
+    <p v-if="state(detailsPrinter)?.printer_error" class="alert warning">
+      {{ state(detailsPrinter)?.printer_error }}
+    </p>
+    <dl v-if="state(detailsPrinter)?.diagnostics" class="printer-diagnostics">
+      <template v-for="(value, name) in state(detailsPrinter)?.diagnostics" :key="name">
+        <dt>{{ name }}</dt>
+        <dd>{{ value }}</dd>
+      </template>
+    </dl>
+    <p v-else class="muted">No detection details available.</p>
+  </AdminDialog>
   <Transition name="panel-expand">
     <form v-validate-form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
       <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
@@ -427,6 +480,28 @@ function move(index: number, offset: number) {
   </section>
 </template>
 <style scoped>
+.printer-diagnostics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 12px 20px;
+}
+.printer-diagnostics dt {
+  color: var(--text-secondary);
+}
+.printer-diagnostics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+@media (max-width: 600px) {
+  .printer-diagnostics {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .printer-diagnostics dd {
+    margin-bottom: 12px;
+  }
+}
 .printer-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));

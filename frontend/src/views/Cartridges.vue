@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import CartridgePrice from '../components/CartridgePrice.vue'
+import CartridgeDetection from '../components/CartridgeDetection.vue'
+import { installCartridge } from '../cartridges'
 import { freezeLeavingItem } from '../collectionMotion'
 import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
@@ -91,10 +93,7 @@ async function install(id: string | null) {
   const target = printerId.value
   const name = selectedPrinter.value?.name ?? 'printer'
   await w.action(
-    () =>
-      api(`/printer/active-tape?printer_id=${encodeURIComponent(target)}`, 'PUT', {
-        cartridge_id: id,
-      }),
+    () => installCartridge(target, id),
     id
       ? `Cartridge installed in ${name}. Eligible queued labels may now print.`
       : `Cartridge removed from ${name}.`,
@@ -195,6 +194,7 @@ async function correct(id: string) {
       </div>
     </form>
   </Transition>
+  <CartridgeDetection :status="selectedStatus" />
   <div v-if="!cartridges.length" class="panel empty">
     <h2>No cartridges registered yet.</h2>
     <RouterLink v-if="!profiles.length" class="button primary" to="/profiles"

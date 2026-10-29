@@ -83,6 +83,59 @@ They prevent cartridge reassignment until completed or explicitly cancelled via
 `DELETE /api/queue/flush/{id}`. Empty/cancelled selections release reservations.
 Both physical and group endpoints apply the same selected-only hold rules.
 
+## Cartridge detection and confirmation
+
+Cartridge installation uses `PUT /api/printer/active-tape?printer_id=…` and requires
+Full access directly on that printer. Adapters may implement the generic
+`ConfirmableMediaBackend` contract to expose detected media and accept an explicit
+selection. The queue continues to use effective width and readiness through
+`PrinterStatus`; it never interprets protocol codes.
+
+When a reported type is unrecognized or the detected width differs from the
+selected profile, installation returns HTTP 409 with `code: cartridge_mismatch`,
+a comparison message, and a `confirmation` token. Resubmit the same cartridge
+with that token in `media_confirmation` after the operator accepts the comparison.
+No cartridge assignment or acceptance is saved on the initial 409. An already
+installed cartridge can be confirmed through the same endpoint.
+
+Mismatch acceptance records the operator and time and is bound to the printer, cartridge,
+profile geometry/colors and adapter's opaque detected-media identity. The adapter
+rechecks that identity before sending print data and during completion waits.
+Observed cartridge changes, power changes or disconnection invalidate the
+mismatch acceptance; profile changes and reassignment require fresh confirmation. Devices
+cannot distinguish physical cartridges that report identical data without an
+observed swap, so operators must keep the installed selection accurate.
+
+Cartridge verification after an observed cover opening is enabled by default.
+The adapter consumes buffered cover-open/closed notifications as well as fresh
+status replies, latches a verification requirement, and rechecks it at the final
+USB preflight. Closing the cover does not release queued work. A pending check
+is persisted and blocks printing across restarts until the installed cartridge
+is explicitly confirmed or changed. Authorized users receive one prompt per
+observed change; cancelling leaves the check pending without repeatedly reopening
+the dialog during the same browser session.
+
+Full users can disable **Confirm cartridge after opening** independently per
+printer, including while work is queued. `PUT /api/printers/{id}/cartridge-check`
+accepts `{ "enabled": false }` to release a pending cover check. Hardware faults
+and unconfirmed type/width mismatches remain enforced. Opening and closing a
+printer whose reported media remains identical does not revoke an existing
+third-party type/width acceptance when this optional check is disabled.
+
+For confirmed TZe tape, the Brother adapter renders at the selected supported
+width and omits the firmware's media type/width comparison flags, as defined in
+the [Raster Command Reference v1.02, printed page 32](https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf).
+Hardware errors, missing tape, unsupported output widths and heat-shrink media
+remain blocked. Confirmation cannot force firmware to accept a cartridge it
+rejects independently of the comparison flags. Colors are reported for inspection;
+the selected profile remains authoritative for preview colors and queue routing.
+
+Status responses retain the actual `detected_width_mm` and add
+`effective_width_mm`, `detected_media`, `media_warning`, `media_confirmed` and
+adapter-provided `diagnostics`. The **Detected details** window on **Printers &
+groups** shows the decoded Brother status fields, numeric codes and full 32-byte
+packet. Unknown fields remain visible as raw values.
+
 ## Interruptions, reminders and persistence
 
 An interrupted printer blocks only its own device. Uncertain copies require human

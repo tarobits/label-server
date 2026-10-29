@@ -152,7 +152,7 @@ function routing(job: Job) {
       !state.automatic_printing_held &&
       !state.printing &&
       !state.needs_review.length &&
-      state.detected_width_mm === job.width_mm &&
+      (state.effective_width_mm ?? state.detected_width_mm) === job.width_mm &&
       w.cartridges.find((c) => c.id === state.active_cartridge_id)?.profile_id === job.profile_id
     )
   })

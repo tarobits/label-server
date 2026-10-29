@@ -85,6 +85,15 @@ export interface Status {
   renderer: string
   connected: boolean
   detected_width_mm: number | null
+  effective_width_mm?: number | null
+  detected_media?: string | null
+  media_warning?: string | null
+  media_confirmed?: boolean
+  diagnostics?: Record<string, string> | null
+  cartridge_check_enabled?: boolean
+  cartridge_check_pending?: boolean
+  cartridge_check_key?: string | null
+  cartridge_check_ready?: boolean
   needs_review: string[]
   notifications_enabled: boolean
   printing: string | null
