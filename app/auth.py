@@ -11,6 +11,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
+from dataclasses import asdict
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from typing import TYPE_CHECKING, Any
@@ -29,14 +30,22 @@ PERMISSIONS = {
     "templates.create_global": "Create global templates",
     "templates.edit_global": "Edit other users’ global templates",
     "templates.delete_global": "Delete other users’ global templates",
-    "assets.write": "Upload and manage own images and fonts",
+    "images.create_personal": "Upload personal images",
+    "images.create_global": "Upload global images",
+    "images.edit_global": "Edit other users’ global images",
+    "images.delete_global": "Delete other users’ global images",
+    "fonts.create_personal": "Upload personal fonts",
+    "fonts.create_global": "Upload global fonts",
+    "fonts.edit_global": "Edit other users’ global fonts",
+    "fonts.delete_global": "Delete other users’ global fonts",
     "inventory.manage": "Manage tape profiles and cartridges",
     "printers.manage": "Register printers and create distribution groups",
     "usage.view_others": "View other users’ usage and balances",
     "usage.edit_accounts": "Edit usage accounts",
 }
 MEMBER_PERMISSIONS = [
-    {"kind": "application", "permission": "assets.write"},
+    {"kind": "application", "permission": "images.create_personal"},
+    {"kind": "application", "permission": "fonts.create_personal"},
     {"kind": "application", "permission": "templates.create_personal"},
 ]
 PASSWORD_SLOTS = BoundedSemaphore(2)
@@ -102,13 +111,15 @@ def initialize_auth(factory: sessionmaker[Session], data_dir: Path) -> None:
 
 
 def actor_for_user(session: Session, user: User) -> "Actor":
-    from app.access import ADMINISTRATOR_ROLE_ID, LEVELS, Actor, GroupMembership
+    from app.access import ADMINISTRATOR_ROLE_ID, LEVELS, Actor, GroupMembership, GroupRights
 
     memberships = {
         group.id: GroupMembership(
             can_create=member.get("can_create", False),
             can_edit_others=member.get("can_edit_others", False),
             can_delete_others=member.get("can_delete_others", False),
+            images=GroupRights(**member.get("images", {})),
+            fonts=GroupRights(**member.get("fonts", {})),
         )
         for group in session.scalars(select(UserGroup))
         for member in group.members
@@ -139,7 +150,9 @@ def actor_for_user(session: Session, user: User) -> "Actor":
         permissions = set(PERMISSIONS)
         levels = {identifier: "full" for identifier in destinations}
         memberships = {
-            group.id: GroupMembership(True, True, True)
+            group.id: GroupMembership(
+                True, True, True, GroupRights(True, True, True), GroupRights(True, True, True)
+            )
             for group in session.scalars(select(UserGroup))
         }
     return Actor(
@@ -229,11 +242,7 @@ def session_record(session: Session, user: User, record: AuthSession) -> dict[st
             "role_ids": sorted(actor.role_ids),
             "destination_levels": dict(actor.destination_levels),
             "group_memberships": {
-                identifier: {
-                    "can_create": membership.can_create,
-                    "can_edit_others": membership.can_edit_others,
-                    "can_delete_others": membership.can_delete_others,
-                }
+                identifier: asdict(membership)
                 for identifier, membership in actor.group_memberships.items()
             },
         },

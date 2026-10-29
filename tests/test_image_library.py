@@ -118,6 +118,7 @@ def test_library_changes_and_previews_respect_access_policy(client):
     identifier = upload(client)
     client.app.state.access_policy = Policy(Action.WRITE)
     assert client.put(f"/api/image-assets/{identifier}", json={"name": "Denied"}).status_code == 403
+    client.app.state.access_policy = Policy(Action.DELETE)
     assert client.delete(f"/api/image-assets/{identifier}/permanent").status_code == 403
     client.app.state.access_policy = Policy(Action.READ)
     assert client.get(f"/api/image-assets/{identifier}/preview").status_code == 403

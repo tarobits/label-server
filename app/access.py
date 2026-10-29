@@ -14,10 +14,16 @@ ADMINISTRATOR_ROLE_ID = "administrator"
 
 
 @dataclass(frozen=True)
-class GroupMembership:
+class GroupRights:
     can_create: bool = False
     can_edit_others: bool = False
     can_delete_others: bool = False
+
+
+@dataclass(frozen=True)
+class GroupMembership(GroupRights):
+    images: GroupRights = field(default_factory=GroupRights)
+    fonts: GroupRights = field(default_factory=GroupRights)
 
 
 @dataclass(frozen=True)
@@ -92,7 +98,10 @@ class AccountPolicy:
         kind = resource.kind
         if kind.startswith("/api/admin"):
             return False
-        if kind == "template":
+        if kind in ("template", "image_asset", "font_asset"):
+            namespace = {"template": "templates", "image_asset": "images", "font_asset": "fonts"}[
+                kind
+            ]
             if resource.owner_id == actor.id:
                 return True
             member = actor.group_memberships.get(resource.group_id or "")
@@ -102,14 +111,15 @@ class AccountPolicy:
                 )
             if resource.scope == "global":
                 permission = (
-                    "templates.delete_global"
+                    f"{namespace}.delete_global"
                     if action == Action.DELETE
-                    else "templates.edit_global"
+                    else f"{namespace}.edit_global"
                 )
                 return permission in actor.permissions
             if resource.scope == "group" and member is not None:
+                rights = member if kind == "template" else getattr(member, namespace)
                 return (
-                    member.can_delete_others if action == Action.DELETE else member.can_edit_others
+                    rights.can_delete_others if action == Action.DELETE else rights.can_edit_others
                 )
             return False
         if kind in ("job", "run", "request"):
@@ -124,10 +134,6 @@ class AccountPolicy:
                     resource.destination_id
                     and self.can_destination(actor, resource.destination_id, "moderator")
                 )
-        if kind in ("image_asset", "font_asset"):
-            return resource.owner_id == actor.id and (
-                action == Action.READ or "assets.write" in actor.permissions
-            )
         if kind in ("batch", "flush"):
             return bool(
                 resource.destination_id
@@ -141,8 +147,9 @@ class AccountPolicy:
                 return "inventory.manage" in actor.permissions
             if kind in ("/api/printers", "/api/printer-groups") and action == Action.WRITE:
                 return "printers.manage" in actor.permissions
-            if "assets" in kind:
-                return "assets.write" in actor.permissions
+            if kind.startswith(("/api/image-assets", "/api/font-assets")):
+                # Services recheck creation scope or the saved asset after locking.
+                return True
         if resource.destination_id:
             minimum = (
                 "print"

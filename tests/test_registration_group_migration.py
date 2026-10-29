@@ -63,8 +63,9 @@ def test_template_creation_migration_preserves_member_defaults_and_custom_role_s
         with engine.connect() as connection:
             values = dict(connection.execute(select(roles.c.id, roles.c.permissions)).all())
             assert values["member"] == [
-                *old_grants,
                 {"kind": "application", "permission": "templates.create_personal"},
+                {"kind": "application", "permission": "fonts.create_personal"},
+                {"kind": "application", "permission": "images.create_personal"},
             ]
             assert values["custom"] == []
         command.downgrade(config, "f17a2c53b908")

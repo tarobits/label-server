@@ -118,13 +118,19 @@ class ImageStore(AssetStore):
         return result
 
     def add(
-        self, data: bytes, name: str = "Uploaded image", *, owner_id: str = LOCAL_OWNER_ID
+        self,
+        data: bytes,
+        name: str = "Uploaded image",
+        *,
+        owner_id: str = LOCAL_OWNER_ID,
+        scope: str = "personal",
+        group_id: str | None = None,
     ) -> dict[str, Any]:
         if not data or len(data) > MAX_IMAGE_BYTES:
             raise ValueError("Upload an image of at most 5 MB")
         # Identical uploads by different accounts must not disclose metadata or
         # acquire control of another account's library entry. Existing IDs stay valid.
-        identifier = self.identifier(data, owner_id)
+        identifier = self.identifier(data, owner_id, scope, group_id)
         if (self.root / f"{identifier}.json").exists():
             return self.metadata(identifier)
         try:
@@ -159,6 +165,8 @@ class ImageStore(AssetStore):
         metadata = {
             "id": identifier,
             "owner_id": owner_id,
+            "scope": scope,
+            "group_id": group_id,
             "name": name[:120] or "Uploaded image",
             "kind": kind,
             "width": width,

@@ -37,6 +37,8 @@ class AssetStore:
         metadata = dict(json.loads((self.root / f"{identifier}.json").read_text()))
         # Legacy assets gain ownership metadata without rewriting their immutable bytes.
         metadata.setdefault("owner_id", LOCAL_OWNER_ID)
+        metadata.setdefault("scope", "personal")
+        metadata.setdefault("group_id", None)
         return metadata
 
     def list(self, *, include_deleted: bool = False) -> list[dict[str, Any]]:
@@ -53,12 +55,25 @@ class AssetStore:
             ),
         )
 
-    def identifier(self, data: bytes, owner_id: str) -> str:
-        identifier = hashlib.sha256(owner_id.encode() + b"\0" + data).hexdigest()
-        if self.unavailable(identifier):
+    def identifier(
+        self, data: bytes, owner_id: str, scope: str = "personal", group_id: str | None = None
+    ) -> str:
+        namespace = owner_id if scope == "personal" else f"{owner_id}\0{scope}\0{group_id or ''}"
+        identifier = hashlib.sha256(namespace.encode() + b"\0" + data).hexdigest()
+        moved = False
+        if (self.root / f"{identifier}.json").exists() and not self.unavailable(identifier):
+            metadata = self.metadata(identifier)
+            moved = (metadata["scope"], metadata["group_id"]) != (scope, group_id)
+        if self.unavailable(identifier) or moved:
             # Re-uploading never resurrects deleted references or overwrites held bytes.
             identifier = hashlib.sha256(secrets.token_bytes(32) + data).hexdigest()
         return identifier
+
+    def set_sharing(self, identifier: str, scope: str, group_id: str | None) -> dict[str, Any]:
+        metadata = self.metadata(identifier)
+        metadata.update(scope=scope, group_id=group_id)
+        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        return metadata
 
     def purge(self, identifier: str) -> None:
         if not ASSET_ID.fullmatch(identifier):

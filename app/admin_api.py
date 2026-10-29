@@ -4,6 +4,7 @@ import json
 import secrets
 import time
 from collections.abc import Iterator
+from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -64,7 +65,14 @@ class AdminInput(BaseModel):
 class ApplicationPermission(AdminInput):
     kind: Literal["application"]
     permission: Literal[
-        "assets.write",
+        "images.create_personal",
+        "images.create_global",
+        "images.edit_global",
+        "images.delete_global",
+        "fonts.create_personal",
+        "fonts.create_global",
+        "fonts.edit_global",
+        "fonts.delete_global",
         "inventory.manage",
         "printers.manage",
         "usage.view_others",
@@ -92,11 +100,19 @@ class RoleInput(AdminInput):
     permissions: list[PermissionInput] = Field(max_length=1000)
 
 
-class MemberInput(AdminInput):
-    user_id: str
+class ContentGroupPermissionsInput(AdminInput):
     can_create: bool = False
     can_edit_others: bool = False
     can_delete_others: bool = False
+
+
+class GroupPermissionsInput(ContentGroupPermissionsInput):
+    images: ContentGroupPermissionsInput = Field(default_factory=ContentGroupPermissionsInput)
+    fonts: ContentGroupPermissionsInput = Field(default_factory=ContentGroupPermissionsInput)
+
+
+class MemberInput(GroupPermissionsInput):
+    user_id: str
 
 
 class GroupInput(AdminInput):
@@ -113,12 +129,6 @@ class UserInput(AdminInput):
 class CreateUserInput(Credentials):
     model_config = ConfigDict(extra="forbid")
     role_ids: list[str] = Field(default_factory=lambda: ["member"], max_length=100)
-
-
-class GroupPermissionsInput(AdminInput):
-    can_create: bool = False
-    can_edit_others: bool = False
-    can_delete_others: bool = False
 
 
 class CodeInput(AdminInput):
@@ -189,12 +199,7 @@ def effective_users(session: Session) -> dict[str, dict[str, Any]]:
             "permissions": sorted(actor.permissions),
             "destination_levels": dict(actor.destination_levels) if not user.disabled else {},
             "group_memberships": {
-                identifier: {
-                    "can_create": member.can_create,
-                    "can_edit_others": member.can_edit_others,
-                    "can_delete_others": member.can_delete_others,
-                }
-                for identifier, member in actor.group_memberships.items()
+                identifier: asdict(member) for identifier, member in actor.group_memberships.items()
             }
             if not user.disabled
             else {},
@@ -597,7 +602,7 @@ def create_code(body: CodeInput, session: DB) -> dict[str, Any]:
     require_ids(session, Role, body.role_ids)
     require_ids(session, UserGroup, body.group_ids)
     if not set(body.group_permissions).issubset(body.group_ids):
-        raise HTTPException(422, "Group permissions require a selected template group")
+        raise HTTPException(422, "Group permissions require a selected content group")
     if ADMINISTRATOR_ROLE_ID in body.role_ids:
         raise HTTPException(422, "Registration codes cannot grant Administrator")
     secret = secrets.token_urlsafe(32)

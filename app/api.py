@@ -382,10 +382,7 @@ def user_groups(
         {
             "id": group.id,
             "name": group.name,
-            "can_create": actor.is_admin or actor.group_memberships[group.id].can_create,
-            "can_edit_others": actor.is_admin or actor.group_memberships[group.id].can_edit_others,
-            "can_delete_others": actor.is_admin
-            or actor.group_memberships[group.id].can_delete_others,
+            **asdict(actor.group_memberships[group.id]),
         }
         for group in session.scalars(select(UserGroup).order_by(UserGroup.name))
         if actor.is_admin or group.id in actor.group_ids

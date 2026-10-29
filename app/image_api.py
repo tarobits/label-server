@@ -1,22 +1,25 @@
 """Image library operations; hidden assets remain available to saved labels."""
 
-from collections.abc import Iterable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import Field, field_validator
-from sqlalchemy import select
-from sqlalchemy.orm import InstrumentedAttribute, Session
+from sqlalchemy.orm import Session
 
-from app.access import Action, Resource, access_context
-from app.asset_access import library_asset_visible, require_asset
-from app.deletion import retain
+from app.access import Action, access_context
+from app.asset_access import (
+    AssetSharingInput,
+    asset_record,
+    delete_asset,
+    library_asset_visible,
+    require_asset,
+    require_asset_scope,
+    share_asset,
+)
 from app.http import db
 from app.image_assets import MAX_IMAGE_BYTES
-from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision
-from app.request_models import PrintRequest
 from app.schemas import Input
 
 router = APIRouter(prefix="/api/image-assets")
@@ -62,49 +65,16 @@ def rename_image(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     image_metadata(identifier, request, Action.WRITE, session)
-    return dict(request.app.state.images.rename(identifier, body.name))
-
-
-def references_image(value: Any, identifier: str) -> bool:
-    if isinstance(value, dict):
-        return value.get("image_asset") == identifier or any(
-            references_image(child, identifier) for child in value.values()
-        )
-    if isinstance(value, list):
-        return any(references_image(child, identifier) for child in value)
-    return False
+    return asset_record(
+        request, "image_asset", request.app.state.images.rename(identifier, body.name)
+    )
 
 
 @router.delete("/{identifier}/permanent")
 def delete_image(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
-    metadata = image_metadata(identifier, request, Action.WRITE, session)
-    actor = access_context(request).actor
-    if actor.is_admin:
-        retain(session, "images", identifier, metadata["name"], metadata["owner_id"], actor.id)
-        from app.job_access import reconcile_access_holds
-
-        reconcile_access_holds(session)
-        return {"deleted": True}
-    # Hold the mutation lock across reference checks and deletion.
-    columns: tuple[InstrumentedAttribute[Any], ...] = (
-        LabelTemplate.document,
-        TemplateRevision.document,
-        PrintJob.template_snapshot,
-        PrintRun.manifest,
-        PrintRequest.labels,
-    )
-    for column in columns:
-        documents: Iterable[Any] = session.scalars(select(column).execution_options(yield_per=100))
-        if any(references_image(value, identifier) for value in documents):
-            raise HTTPException(
-                409,
-                "Image is used by a saved template, template revision, job, CSV run or print request. "
-                "Hide it instead to preserve existing labels.",
-            )
-    retain(session, "images", identifier, metadata["name"], metadata["owner_id"], actor.id)
-    return {"deleted": True}
+    return delete_asset(request, session, "image_asset", identifier)
 
 
 @router.get("")
@@ -112,14 +82,18 @@ def list_images(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
     return [
-        asset
+        asset_record(request, "image_asset", asset)
         for asset in request.app.state.images.list()
         if library_asset_visible(request, "image_asset", asset)
     ]
 
 
 @router.post("", status_code=201)
-async def upload_image(request: Request) -> dict[str, Any]:
+async def upload_image(
+    request: Request,
+    scope: Literal["personal", "group", "global"] = "personal",
+    group_id: str | None = None,
+) -> dict[str, Any]:
     chunks = []
     size = 0
     async for chunk in request.stream():
@@ -130,16 +104,20 @@ async def upload_image(request: Request) -> dict[str, Any]:
     data = b"".join(chunks)
 
     def store() -> dict[str, Any]:
-        with request.app.state.fleet.lock:
+        with request.app.state.fleet.lock, request.app.state.factory() as session:
             context = access_context(request)
-            context.require(Action.WRITE, Resource("image_asset", owner_id=context.actor.id))
+            require_asset_scope(request, session, "image_asset", scope, group_id)
             try:
-                return dict(
+                return asset_record(
+                    request,
+                    "image_asset",
                     request.app.state.images.add(
                         data,
                         request.query_params.get("name", "Uploaded image"),
                         owner_id=context.actor.id,
-                    )
+                        scope=scope,
+                        group_id=group_id,
+                    ),
                 )
             except ValueError as error:
                 raise HTTPException(422, str(error)) from error
@@ -164,8 +142,20 @@ def restore_image(
 def change_visibility(
     identifier: str, archived: bool, request: Request, session: Session
 ) -> dict[str, Any]:
-    image_metadata(identifier, request, Action.WRITE, session)
+    image_metadata(identifier, request, Action.DELETE if archived else Action.WRITE, session)
     try:
-        return dict(request.app.state.images.set_archived(identifier, archived))
+        return asset_record(
+            request, "image_asset", request.app.state.images.set_archived(identifier, archived)
+        )
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
+
+
+@router.put("/{identifier}/sharing")
+def sharing(
+    identifier: str,
+    body: AssetSharingInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    return share_asset(request, session, "image_asset", identifier, body)

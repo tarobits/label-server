@@ -170,6 +170,16 @@ def test_account_deletion_holds_all_content_and_restoration_recovers_it(accounts
                 "can_create": False,
                 "can_edit_others": False,
                 "can_delete_others": False,
+                "images": {
+                    "can_create": False,
+                    "can_edit_others": False,
+                    "can_delete_others": False,
+                },
+                "fonts": {
+                    "can_create": False,
+                    "can_edit_others": False,
+                    "can_delete_others": False,
+                },
             }
         ]
     trash = admin.get("/api/admin/trash").json()
@@ -200,7 +210,7 @@ def test_admin_can_delete_referenced_content_and_restore_within_hold(accounts, k
     image, font, own, _ = assets(alice)
     identifier = {"images": image["id"], "fonts": font["id"], "templates": own["id"]}[kind]
     path = {"images": "image-assets", "fonts": "font-assets", "templates": "templates"}[kind]
-    if kind != "images":
+    if kind == "templates":
         assert alice.delete(f"/api/{path}/{identifier}/permanent").status_code == 403
     else:
         assert alice.delete(f"/api/{path}/{identifier}/permanent").status_code == 409
