@@ -6,10 +6,10 @@ import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
 import type { ImageAsset } from '../types'
+import AssetUpload from '../components/AssetUpload.vue'
+import AssetSharingEditor from '../components/AssetSharingEditor.vue'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
-const file = ref<File | null>(null),
-  input = ref<HTMLInputElement | null>(null)
 const editing = ref<string | null>(null),
   imageName = ref(''),
   renameInput = ref<HTMLInputElement[]>([]),
@@ -43,7 +43,7 @@ async function rename(asset: ImageAsset) {
 async function remove(asset: ImageAsset) {
   if (
     !(await confirmAction(
-      `Delete “${asset.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. ${auth.user?.is_admin ? 'Templates using it will show a missing-image placeholder, and affected queued work is paused.' : 'Images used by saved labels cannot be deleted.'}`,
+      `Delete “${asset.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. ${auth.user?.is_admin || (asset.scope === 'global' && auth.can('images.delete_global')) ? 'Templates using it will show a missing-image placeholder, and affected queued work is paused.' : 'Images used by saved labels cannot be deleted.'}`,
     ))
   )
     return
@@ -54,27 +54,6 @@ async function remove(asset: ImageAsset) {
     )
   ) {
     if (editing.value === asset.id) editing.value = null
-  }
-}
-function choose(event: Event) {
-  file.value = (event.target as HTMLInputElement).files?.[0] ?? null
-}
-async function upload() {
-  const chosen = file.value
-  if (!chosen) return
-  if (chosen.size > 5_000_000) {
-    w.actionError = 'Upload an image of at most 5 MB.'
-    return
-  }
-  if (
-    await w.action(
-      () =>
-        api<ImageAsset>(`/image-assets?name=${encodeURIComponent(chosen.name)}`, 'POST', chosen),
-      'Image added to the library.',
-    )
-  ) {
-    file.value = null
-    if (input.value) input.value.value = ''
   }
 }
 async function visibility(asset: ImageAsset) {
@@ -91,26 +70,7 @@ async function visibility(asset: ImageAsset) {
 }
 </script>
 <template>
-  <section v-if="auth.can('assets.write')" class="panel form-stack">
-    <h2>Upload an image</h2>
-    <p class="help">
-      PNG, JPEG, WebP, BMP, still GIF or simple SVG, up to 5 MB. Bitmaps are limited to 16
-      megapixels and 8192 pixels per side.
-    </p>
-    <p class="help">
-      SVG supports paths and basic shapes. Convert text to paths and remove styles, embedded images,
-      filters and external references before uploading.
-    </p>
-    <label
-      >Image file<input
-        ref="input"
-        type="file"
-        accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
-        :disabled="w.busy"
-        @change="choose"
-    /></label>
-    <button class="primary" :disabled="!file || w.busy" @click="upload">Upload image</button>
-  </section>
+  <AssetUpload kind="images" />
   <section class="panel">
     <h2>Image library</h2>
     <p class="help">Hidden images remain available to saved labels.</p>
@@ -123,6 +83,7 @@ async function visibility(asset: ImageAsset) {
             <th>Name</th>
             <th>Format</th>
             <th>Dimensions</th>
+            <th>Visibility</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -179,26 +140,36 @@ async function visibility(asset: ImageAsset) {
             </td>
             <td>{{ asset.kind === 'svg' ? 'SVG' : 'Bitmap' }}</td>
             <td>{{ asset.width }} × {{ asset.height }}</td>
+            <td>
+              {{
+                asset.scope === 'group'
+                  ? asset.group_name
+                  : asset.scope === 'global'
+                    ? 'Global'
+                    : 'Personal'
+              }}
+            </td>
             <td>{{ asset.archived ? 'Hidden' : 'Available' }}</td>
             <td>
-              <div
-                v-if="
-                  auth.can('assets.write') &&
-                  (asset.can_edit ?? (auth.user?.is_admin || asset.owner_id === auth.user?.id))
-                "
-                class="image-library-actions"
-              >
+              <div class="image-library-actions">
                 <button
+                  v-if="asset.can_edit"
                   class="small secondary"
                   :disabled="w.busy || editing === asset.id"
                   @click="startRename(asset)"
                 >
                   Rename
                 </button>
-                <button class="small secondary" :disabled="w.busy" @click="visibility(asset)">
+                <button
+                  v-if="asset.archived ? asset.can_edit : asset.can_delete"
+                  class="small secondary"
+                  :disabled="w.busy"
+                  @click="visibility(asset)"
+                >
                   {{ asset.archived ? 'Restore' : 'Hide' }}
                 </button>
                 <button
+                  v-if="asset.can_delete"
                   class="small secondary danger-text"
                   :disabled="w.busy"
                   @click="remove(asset)"
@@ -206,6 +177,7 @@ async function visibility(asset: ImageAsset) {
                   Delete
                 </button>
               </div>
+              <AssetSharingEditor v-if="asset.can_share" kind="images" :asset="asset" />
             </td>
           </tr>
         </tbody>

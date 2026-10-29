@@ -144,7 +144,7 @@ test('renaming a template group refreshes its cached library name', async ({ pag
   await page.goto(`/#/templates?scope=group&group=${groups[0].id}`)
   await expect(page.locator('article')).toContainText('Facilities')
   await page.getByRole('link', { name: 'Administration', exact: true }).click()
-  await page.getByRole('button', { name: 'Template groups', exact: true }).click()
+  await page.getByRole('button', { name: 'Content groups', exact: true }).click()
   await page.getByRole('button', { name: 'Edit group Facilities', exact: true }).click()
   await page.getByLabel('Group name', { exact: true }).fill('Building services')
   await page.getByRole('button', { name: 'Review group changes', exact: true }).click()

@@ -265,7 +265,17 @@ export interface AccessHold {
   job: Job
 }
 
-export interface FontAsset {
+export interface AssetSharing {
+  scope: 'personal' | 'group' | 'global'
+  group_id: string | null
+}
+export interface AssetAccess extends AssetSharing {
+  can_edit?: boolean
+  can_delete?: boolean
+  can_share?: boolean
+  group_name?: string | null
+}
+export interface FontAsset extends AssetAccess {
   can_edit?: boolean
   owner_id?: string | null
   id: string
@@ -275,7 +285,7 @@ export interface FontAsset {
   archived: boolean
 }
 
-export interface ImageAsset {
+export interface ImageAsset extends AssetAccess {
   can_edit?: boolean
   owner_id?: string | null
   id: string

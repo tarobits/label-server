@@ -113,10 +113,11 @@ export const useResourceStore = defineStore('resources', () => {
       const collection = path.split('/').slice(0, 3).join('/')
       const affected = [collection]
       if (['/admin/users', '/admin/roles', '/admin/groups'].includes(collection))
-        affected.push(...printing)
+        affected.push('/font-assets', '/image-assets', ...printing)
       if (collection === '/admin/roles' || collection === '/admin/groups')
         affected.push('/admin/users', '/admin/registration-codes')
-      if (collection === '/admin/groups') affected.push('/templates', '/user-groups')
+      if (collection === '/admin/groups')
+        affected.push('/templates', '/user-groups', '/font-assets', '/image-assets')
       if (collection === '/admin/users') affected.push('/admin/groups', '/admin/registration-codes')
       if (collection === '/admin/users' || collection === '/admin/trash')
         affected.push('/admin/trash', '/templates', '/image-assets', '/font-assets', ...printing)

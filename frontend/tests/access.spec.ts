@@ -252,7 +252,7 @@ test('template collaboration settings stay independent and owners can edit after
     ],
   })
   await page.goto('/#/admin')
-  await page.getByRole('button', { name: 'Template groups', exact: true }).click()
+  await page.getByRole('button', { name: 'Content groups', exact: true }).click()
   await page.getByRole('button', { name: 'Edit group Design team', exact: true }).click()
   await page
     .getByRole('checkbox', { name: 'Allow designer to create group templates', exact: true })

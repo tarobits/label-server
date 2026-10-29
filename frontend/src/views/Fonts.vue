@@ -1,28 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { api } from '../api'
-import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
 import type { FontAsset } from '../types'
+import AssetUpload from '../components/AssetUpload.vue'
+import AssetSharingEditor from '../components/AssetSharingEditor.vue'
 const w = useWorkspaceStore()
-const auth = useAuthStore()
-const file = ref<File | null>(null),
-  input = ref<HTMLInputElement | null>(null)
-function choose(event: Event) {
-  file.value = (event.target as HTMLInputElement).files?.[0] ?? null
-}
-async function upload() {
-  if (!file.value) return
-  if (file.value.size > 5_000_000) {
-    w.actionError = 'Upload a font of at most 5 MB.'
-    return
-  }
-  if (await w.action(() => api<FontAsset>('/font-assets', 'POST', file.value), 'Font uploaded.')) {
-    file.value = null
-    if (input.value) input.value.value = ''
-  }
-}
 async function visibility(font: FontAsset) {
   await w.action(
     () =>
@@ -38,7 +21,7 @@ async function visibility(font: FontAsset) {
 async function remove(font: FontAsset) {
   if (
     await confirmAction(
-      `Delete “${font.family}”? It becomes unavailable immediately, including in saved templates. Administrators can restore it for 30 days before permanent purging. Affected queued work is paused.`,
+      `Delete “${font.family}”? It becomes unavailable immediately, including in saved templates. Administrators can restore it for 30 days before permanent purging. Fonts used by saved labels require administrator or global deletion permission.`,
     )
   )
     await w.action(
@@ -48,22 +31,7 @@ async function remove(font: FontAsset) {
 }
 </script>
 <template>
-  <section v-if="auth.can('assets.write')" class="panel form-stack">
-    <h2>Upload a font</h2>
-    <p class="help">
-      Static TTF and OTF files, up to 5 MB. Upload regular, bold and italic faces separately.
-      Variable fonts, font collections and color fonts are not supported.
-    </p>
-    <label
-      >Font file<input
-        ref="input"
-        type="file"
-        accept=".ttf,.otf"
-        :disabled="w.busy"
-        @change="choose"
-    /></label>
-    <button class="primary" :disabled="!file || w.busy" @click="upload">Upload font</button>
-  </section>
+  <AssetUpload kind="fonts" />
   <section class="panel">
     <h2>Font library</h2>
     <p class="help">Hidden fonts remain available to saved labels.</p>
@@ -74,6 +42,7 @@ async function remove(font: FontAsset) {
             <th>Family</th>
             <th>Face</th>
             <th>Size</th>
+            <th>Visibility</th>
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -83,6 +52,7 @@ async function remove(font: FontAsset) {
             <td>Noto Sans</td>
             <td>Regular / Bold</td>
             <td>Bundled</td>
+            <td>Global</td>
             <td>Available</td>
             <td>—</td>
           </tr>
@@ -92,13 +62,19 @@ async function remove(font: FontAsset) {
             </td>
             <td>{{ font.style }}</td>
             <td>{{ (font.size_bytes / 1024).toFixed(0) }} KB</td>
+            <td>
+              {{
+                font.scope === 'group'
+                  ? font.group_name
+                  : font.scope === 'global'
+                    ? 'Global'
+                    : 'Personal'
+              }}
+            </td>
             <td>{{ font.archived ? 'Hidden' : 'Available' }}</td>
             <td>
               <button
-                v-if="
-                  auth.can('assets.write') &&
-                  (font.can_edit ?? (auth.user?.is_admin || font.owner_id === auth.user?.id))
-                "
+                v-if="font.archived ? font.can_edit : font.can_delete"
                 class="text-button"
                 :disabled="w.busy"
                 @click="visibility(font)"
@@ -106,13 +82,14 @@ async function remove(font: FontAsset) {
                 {{ font.archived ? 'Restore' : 'Hide' }}
               </button>
               <button
-                v-if="auth.user?.is_admin"
+                v-if="font.can_delete"
                 class="text-button danger-text"
                 :disabled="w.busy"
                 @click="remove(font)"
               >
                 Delete font
               </button>
+              <AssetSharingEditor v-if="font.can_share" kind="fonts" :asset="font" />
             </td>
           </tr>
         </tbody>

@@ -1152,7 +1152,7 @@ onUnmounted(() => {
                 </option>
               </select></label
             >
-            <label v-if="auth.can('assets.write')"
+            <label v-if="auth.can('images.create_personal')"
               >Upload image file<input
                 ref="imageInput"
                 type="file"
@@ -1161,7 +1161,7 @@ onUnmounted(() => {
                 @change="chooseImageFile"
             /></label>
             <button
-              v-if="auth.can('assets.write')"
+              v-if="auth.can('images.create_personal')"
               class="secondary"
               :disabled="!imageFile || w.busy"
               @click="uploadImage"

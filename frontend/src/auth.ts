@@ -9,10 +9,14 @@ export const accessLevels: { value: AccessLevel; label: string }[] = [
   { value: 'moderator', label: 'Moderator' },
   { value: 'full', label: 'Full' },
 ]
-export interface Membership {
+export interface GroupRights {
   can_create: boolean
   can_edit_others: boolean
   can_delete_others: boolean
+}
+export interface Membership extends GroupRights {
+  images?: GroupRights
+  fonts?: GroupRights
 }
 
 export interface User {
@@ -47,6 +51,10 @@ export const useAuthStore = defineStore('auth', () => {
         (membership) => membership.can_create,
       ),
   )
+  const canUpload = (kind: 'images' | 'fonts') =>
+    can(`${kind}.create_personal`) ||
+    can(`${kind}.create_global`) ||
+    Object.values(user.value?.group_memberships ?? {}).some((member) => member[kind]?.can_create)
   const level = (destination: string) =>
     user.value?.is_admin ? 'full' : (user.value?.destination_levels?.[destination] ?? 'none')
   const atLeast = (destination: string, minimum: AccessLevel) =>
@@ -128,6 +136,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     can,
     canCreateTemplates,
+    canUpload,
     level,
     atLeast,
     any,

@@ -123,7 +123,7 @@ test('role summaries and collaboration modal stay compact across desktop and mob
   await expect(review.getByText('No effective access changes.', { exact: true })).toBeVisible()
   await review.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Template groups', exact: true }).click()
+  await page.getByRole('button', { name: 'Content groups', exact: true }).click()
   await page.getByRole('button', { name: 'Edit group Cable team', exact: true }).click()
   const group = page.getByRole('dialog', { name: 'Edit Cable team', exact: true })
   await expect(
@@ -195,6 +195,10 @@ test('registration codes apply per-group collaboration rights when redeemed', as
   await editor
     .getByRole('checkbox', { name: 'Edit others’ templates in Cable team', exact: true })
     .check()
+  await editor.getByRole('checkbox', { name: 'Create images in Cable team', exact: true }).check()
+  await editor
+    .getByRole('checkbox', { name: 'Delete others’ fonts in Cable team', exact: true })
+    .check()
   await editor.getByRole('checkbox', { name: 'Reference team', exact: true }).check()
   await editor
     .getByRole('checkbox', { name: 'Create templates in Reference team', exact: true })
@@ -223,8 +227,20 @@ test('registration codes apply per-group collaboration rights when redeemed', as
     .getByRole('textbox', { name: 'New registration code', exact: true })
     .inputValue()
   const expected = {
-    [editable.id]: { can_create: false, can_edit_others: true, can_delete_others: false },
-    [readonly.id]: { can_create: false, can_edit_others: false, can_delete_others: false },
+    [editable.id]: {
+      can_create: false,
+      can_edit_others: true,
+      can_delete_others: false,
+      images: { can_create: true, can_edit_others: false, can_delete_others: false },
+      fonts: { can_create: false, can_edit_others: false, can_delete_others: true },
+    },
+    [readonly.id]: {
+      can_create: false,
+      can_edit_others: false,
+      can_delete_others: false,
+      images: { can_create: false, can_edit_others: false, can_delete_others: false },
+      fonts: { can_create: false, can_edit_others: false, can_delete_others: false },
+    },
   }
   expect(
     (await (await request.get('/api/admin/registration-codes')).json())[0].group_permissions,

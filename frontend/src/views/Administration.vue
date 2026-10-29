@@ -12,6 +12,7 @@ import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import NotificationEndpoints from '../components/NotificationEndpoints.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
+import GroupPermissionsFields from '../components/GroupPermissionsFields.vue'
 import {
   useAdministrationStore,
   type AdminResource,
@@ -52,7 +53,7 @@ const router = useRouter()
 const sections = [
   { id: 'users', title: 'Users' },
   { id: 'roles', title: 'Roles' },
-  { id: 'groups', title: 'Template groups' },
+  { id: 'groups', title: 'Content groups' },
   { id: 'codes', title: 'Registration codes' },
   { id: 'settings', title: 'Account settings' },
   { id: 'notifications', title: 'Notification endpoints' },
@@ -85,7 +86,7 @@ const editorTitle = computed(() =>
         : editor.value === 'group'
           ? groupForm.id
             ? `Edit ${groupForm.name}`
-            : 'New template group'
+            : 'New content group'
           : 'New registration code',
 )
 const loading = ref(true)
@@ -184,13 +185,15 @@ const rolePermissions = () => [
     .map(([destination_id, level]) => ({ kind: 'destination' as const, destination_id, level })),
 ]
 const permissionGroups = computed(() => [
-  {
-    title: 'Template permissions',
-    options: permissions.value.filter((permission) => permission.id.startsWith('templates.')),
-  },
+  ...(['templates', 'images', 'fonts'] as const).map((kind) => ({
+    title: `${kind === 'templates' ? 'Template' : kind === 'images' ? 'Image' : 'Font'} permissions`,
+    options: permissions.value.filter((permission) => permission.id.startsWith(`${kind}.`)),
+  })),
   {
     title: 'Application permissions',
-    options: permissions.value.filter((permission) => !permission.id.startsWith('templates.')),
+    options: permissions.value.filter(
+      (permission) => !/^(templates|images|fonts)\./.test(permission.id),
+    ),
   },
 ])
 const sortedPermissions = (values: Permission[]) =>
@@ -210,6 +213,11 @@ const sortedMembers = (values: Member[]) =>
       member.can_create,
       member.can_edit_others,
       member.can_delete_others,
+      ...[member.images, member.fonts].flatMap((rights) => [
+        !!rights?.can_create,
+        !!rights?.can_edit_others,
+        !!rights?.can_delete_others,
+      ]),
     ])
 const editorChanged = computed(() => {
   if (editor.value === 'user') {
@@ -410,15 +418,6 @@ function editGroup(group?: Group) {
     members: group?.members.map((m) => ({ ...m })) ?? [],
   })
 }
-const collaborationRights = [
-  { key: 'can_create', label: 'Create templates', action: 'create group templates' },
-  { key: 'can_edit_others', label: 'Edit others’ templates', action: 'edit others’ templates' },
-  {
-    key: 'can_delete_others',
-    label: 'Delete others’ templates',
-    action: 'delete others’ templates',
-  },
-] as const
 function toggleCodeGroup(id: string, event: Event) {
   if ((event.target as HTMLInputElement).checked) {
     codeForm.group_ids.push(id)
@@ -432,13 +431,9 @@ function toggleCodeGroup(id: string, event: Event) {
     delete codeForm.group_permissions[id]
   }
 }
-function setMemberRight(
-  userId: string,
-  key: 'can_create' | 'can_edit_others' | 'can_delete_others',
-  event: Event,
-) {
+function setMemberPermissions(userId: string, rights: Membership) {
   const member = groupForm.members.find((item) => item.user_id === userId)
-  if (member) member[key] = (event.target as HTMLInputElement).checked
+  if (member) Object.assign(member, rights)
 }
 async function revokeCode(id: string) {
   if (!(await confirmAction('Revoke this registration code?'))) return
@@ -501,7 +496,7 @@ function saveGroup() {
     identifier: groupForm.id || undefined,
     method: groupForm.id ? 'PUT' : 'POST',
     payload: { name: groupForm.name, members: groupForm.members.map((m) => ({ ...m })) },
-    message: 'Template group saved.',
+    message: 'Content group saved.',
   })
 }
 function remove(resource: 'roles' | 'groups', identifier: string) {
@@ -531,9 +526,16 @@ function describe(value: Effective | null) {
     ),
     ...Object.entries(value.group_memberships).map(
       ([id, m]) =>
-        `${groups.value.find((g) => g.id === id)?.name ?? groupForm.name ?? id}: view${m.can_create ? ', create' : ''}${m.can_edit_others ? ', edit others' : ''}${m.can_delete_others ? ', delete others' : ''}`,
+        `${groups.value.find((g) => g.id === id)?.name ?? groupForm.name ?? id}: view; ${(
+          ['templates', 'images', 'fonts'] as const
+        )
+          .map((kind) => {
+            const rights = kind === 'templates' ? m : m[kind]
+            return `${kind}${rights?.can_create ? ', create' : ''}${rights?.can_edit_others ? ', edit others' : ''}${rights?.can_delete_others ? ', delete others' : ''}`
+          })
+          .join('; ')}`,
     ),
-    'Own templates: edit and delete; own queued jobs: cancel',
+    'Own templates, images and fonts: edit and delete; own queued jobs: cancel',
   ]
 }
 function refreshAccess() {
@@ -683,12 +685,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         >
           <header class="admin-section-heading">
             <h2 id="groups-heading">
-              Template groups <span>{{ groups.length }}</span>
+              Content groups <span>{{ groups.length }}</span>
             </h2>
-            <button class="primary" @click="editGroup()">New template group</button>
+            <button class="primary" @click="editGroup()">New content group</button>
           </header>
           <label v-if="groups.length" class="admin-search"
-            >Search template groups<input v-model="search" type="search"
+            >Search content groups<input v-model="search" type="search"
           /></label>
           <div v-for="group in filteredGroups" :key="group.id" class="admin-record">
             <div>
@@ -708,7 +710,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             </button>
           </div>
           <p v-if="!filteredGroups.length" class="empty">
-            {{ groups.length ? 'No template groups found.' : 'No template groups.' }}
+            {{ groups.length ? 'No content groups found.' : 'No content groups.' }}
           </p>
         </section>
         <section
@@ -993,10 +995,6 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         <fieldset>
           <legend>Membership and collaboration</legend>
           <div class="member-matrix">
-            <div class="matrix-heading" aria-hidden="true">
-              <span>Member</span><span>Create</span><span>Edit others</span
-              ><span>Delete others</span>
-            </div>
             <div v-for="user in users" :key="user.id" class="member-row">
               <label class="checkbox member-name"
                 ><input
@@ -1005,33 +1003,20 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   @change="toggleMember(user.id, $event)"
                 />{{ user.username }}</label
               >
-              <template v-if="groupForm.members.find((m) => m.user_id === user.id)">
-                <label
-                  v-for="right in collaborationRights"
-                  :key="right.key"
-                  class="checkbox member-right"
-                  ><input
-                    type="checkbox"
-                    :checked="groupForm.members.find((m) => m.user_id === user.id)?.[right.key]"
-                    :aria-label="`Allow ${user.username} to ${right.action}`"
-                    @change="setMemberRight(user.id, right.key, $event)"
-                  /><span>{{ right.label }}</span></label
-                > </template
-              ><template v-else
-                ><span
-                  v-for="right in collaborationRights"
-                  :key="right.key"
-                  class="unassigned"
-                  aria-hidden="true"
-                  >—</span
-                ></template
-              >
+              <Transition name="panel-expand">
+                <GroupPermissionsFields
+                  v-if="groupForm.members.find((m) => m.user_id === user.id)"
+                  :model-value="groupForm.members.find((m) => m.user_id === user.id)!"
+                  :subject="user.username"
+                  @update:model-value="setMemberPermissions(user.id, $event)"
+                />
+              </Transition>
             </div>
           </div>
         </fieldset>
         <p class="help">
-          Members can view this group’s templates. Collaboration permissions are independent; owners
-          retain editing and deletion rights to their own templates.
+          Members can view this group’s templates, images and fonts. Creation, editing and deletion
+          permissions are independent for each resource.
         </p>
         <div class="admin-actions">
           <button
@@ -1077,12 +1062,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
         </fieldset>
         <fieldset v-if="groups.length">
-          <legend>Join template groups</legend>
+          <legend>Join content groups</legend>
           <div class="member-matrix">
-            <div class="matrix-heading" aria-hidden="true">
-              <span>Template group</span><span>Create</span><span>Edit others</span
-              ><span>Delete others</span>
-            </div>
             <div v-for="group in groups" :key="group.id" class="member-row">
               <label class="checkbox member-name"
                 ><input
@@ -1091,28 +1072,15 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   @change="toggleCodeGroup(group.id, $event)"
                 />{{ group.name }}</label
               >
-              <template v-if="codeForm.group_permissions[group.id]">
-                <label
-                  v-for="right in collaborationRights"
-                  :key="right.key"
-                  class="checkbox member-right"
-                >
-                  <input
-                    v-model="codeForm.group_permissions[group.id]![right.key]"
-                    type="checkbox"
-                    :aria-label="`${right.label} in ${group.name}`"
-                  /><span>{{ right.label }}</span>
-                </label>
-              </template>
-              <template v-else
-                ><span
-                  v-for="right in collaborationRights"
-                  :key="right.key"
-                  class="unassigned"
-                  aria-hidden="true"
-                  >—</span
-                ></template
-              >
+              <Transition name="panel-expand">
+                <GroupPermissionsFields
+                  v-if="codeForm.group_permissions[group.id]"
+                  :model-value="codeForm.group_permissions[group.id]!"
+                  :subject="group.name"
+                  invitation
+                  @update:model-value="codeForm.group_permissions[group.id] = $event"
+                />
+              </Transition>
             </div>
           </div>
         </fieldset>
@@ -1315,20 +1283,11 @@ h2 span {
 .member-matrix {
   margin-top: 8px;
 }
-.matrix-heading,
 .member-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) repeat(3, minmax(100px, 120px));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-}
-.matrix-heading {
-  color: var(--muted);
-  font-size: 12px;
-  padding: 0 0 12px;
-}
-.matrix-heading span:not(:first-child) {
-  text-align: center;
 }
 .member-row {
   padding: 12px 0;
@@ -1337,13 +1296,6 @@ h2 span {
 .member-name {
   overflow-wrap: anywhere;
   min-width: 0;
-}
-.member-right {
-  justify-content: center;
-  min-height: 32px;
-}
-.member-right span {
-  display: none;
 }
 .unassigned {
   color: var(--muted);
@@ -1407,19 +1359,9 @@ h2 span {
   }
 }
 @media (max-width: 600px) {
-  .matrix-heading {
-    display: none;
-  }
   .member-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
-  }
-  .member-right {
-    justify-content: flex-start;
-    margin-left: 28px;
-  }
-  .member-right span {
-    display: inline;
   }
   .unassigned {
     display: none;
