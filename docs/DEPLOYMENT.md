@@ -221,7 +221,8 @@ records belong to this first administrator. Subsequent users require registratio
 codes by default and need a directly assigned role with Request only or higher
 access to a printer or distribution group before submitting approval requests.
 Print skips approval; Moderator adds scoped queue/request management; Full adds
-configuration. Template groups share templates and never hand out roles.
+configuration. Content groups share templates, fonts and images with separate
+collaboration permissions, and never hand out roles.
 Queued labels paused before initial administrator setup stay paused until the
 administrator releases or cancels them from the dashboard.
 

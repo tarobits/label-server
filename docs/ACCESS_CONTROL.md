@@ -1,7 +1,7 @@
 # Access control
 
-Roles control application and printer access. Template ownership and group
-membership control template sharing. These rules are implemented.
+Roles control application and printer access. Ownership and group membership
+control template, font and image sharing. These rules are implemented.
 
 ## Roles and user groups
 
@@ -10,10 +10,9 @@ contain application permissions and access levels scoped to individual printers
 or distribution groups. Multiple applicable role permissions combine by taking
 the highest access level; No access does not override a higher applicable level.
 
-User groups centralize and share templates. They never assign roles or confer
-printer permissions. Roles do not grant access to specific templates. Template
-ownership, scope and group membership determine which templates are available;
-the membership settings below govern collaboration within a template group.
+Content groups share templates, fonts and images. They never assign roles or
+confer printer permissions. Ownership, scope and group membership determine
+which items are available. Each content type has separate collaboration rights.
 
 ## Protected Administrator role
 
@@ -59,10 +58,38 @@ it preserves the template's current owner, visibility, and group. Existing queue
 labels retain their saved layout. New revisions record the editor and save date;
 older revisions without that information are shown as unrecorded.
 
-Registration codes can assign template groups with independent create, edit
-others, and delete others permissions for each group. Selecting a group with all
-three permissions off grants view-only membership. Codes issued before these
-settings were available retain their original create-only membership.
+Registration codes can assign content groups with independent create, edit
+others, and delete others permissions for templates, fonts and images in each
+group. Membership with all permissions off grants view-only access. Older codes
+retain their template permissions and grant no font or image collaboration rights.
+
+## Font and image libraries
+
+Uploaded fonts and images have personal, group or global scope, just like
+templates. Each has its own role permissions:
+
+| Action | Fonts | Images |
+| --- | --- | --- |
+| Upload personal items | `fonts.create_personal` | `images.create_personal` |
+| Upload global items | `fonts.create_global` | `images.create_global` |
+| Edit others' global items | `fonts.edit_global` | `images.edit_global` |
+| Hide or delete others' global items | `fonts.delete_global` | `images.delete_global` |
+
+Group membership separately controls uploading, editing others' items and deleting
+others' items for each library. Restoring a hidden item requires edit permission.
+Owners can manage their own existing items even after losing upload permission.
+Only owners and administrators can change sharing, and moving an item requires
+permission to create in the target scope. Template rights do not grant asset rights.
+
+The Member role includes personal font and image uploads. The migration replaces
+the former `assets.write` grant with both personal upload grants. Existing uploads
+remain personal; no group or global grants are added. Stop the server and run
+`alembic upgrade head` before restarting after this upgrade.
+
+Readable templates, their revisions, and saved printing work also allow access to
+the specific assets they reference. This preserves rendering without exposing the
+asset owner's entire library. Changing an asset's scope does not revoke access
+already provided by a readable saved document. Bundled fonts remain global.
 
 ## Usage accounts
 
@@ -131,7 +158,7 @@ the impact if the underlying configuration changes before confirmation.
 
 Administrators can delete accounts through the effective-access preview and
 confirmation flow. Deletion immediately disables login, revokes sessions and
-preview receipts, removes template-group memberships, and removes all owned
+preview receipts, removes content-group memberships, and removes all owned
 templates, images and fonts from use, including shared content. The last enabled
 administrator is protected. Retained account and content data can be restored for
 30 days under **Administration → Deleted accounts and content**. Account restoration
@@ -144,8 +171,9 @@ of saved references. Deleted assets cannot be read, rendered for printing, or
 re-enabled by the ordinary Hide/Restore controls. Dependent templates display a
 notice, a file-and-question-mark image placeholder, or an Aa placeholder with a
 question mark at the top right for missing fonts. Preview placeholders cannot be
-printed. Other users' permanent-image-deletion operations still require the image
-to be unused and use the same 30-day retention period.
+printed. Global deletion permission also permits deletion of referenced assets in
+that global library. Other font and image deletion operations require the asset
+to be unused. All use the same 30-day retention period.
 
 Queued jobs affected by deletion enter durable holds. Deleted dependencies must
 be restored before those jobs can be released; replacing a template's asset does

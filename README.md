@@ -216,6 +216,15 @@ external resources, styles, embedded images, filters, and animation are rejected
 SVG limits are 200 KB, 1000 elements, and dimensions up to 8192. Export unsupported
 SVGs as PNG.
 
+Both libraries accept multiple files at once, with individual results and retries
+for failed uploads. Choose Personal, Group or Global for the batch; an item's
+**Sharing** details can change its visibility afterward. Fonts and images have
+separate upload and management permissions, independent of templates. Group
+members can use shared items; creating, editing others' items and deleting others'
+items each require the corresponding group permission. Existing uploads remain
+personal when upgrading. Run `alembic upgrade head` with the server stopped to
+migrate the former asset-upload permission to personal font and image uploads.
+
 Use **Add image** in the editor or upload directly in its properties panel. Aspect
 ratio is preserved by default. Brightness and contrast use 1 for unchanged
 artwork. Threshold conversion suits logos; dithering provides tonal shading.
@@ -226,8 +235,9 @@ Images can be renamed without changing their ID. Administrators can delete image
 fonts and templates even when saved work references them. Deletion removes them
 from use immediately and retains their data for 30 days. Restore them under
 **Administration → Deleted accounts and content** before the deadline; afterward,
-maintenance permanently purges the retained data. Other users may delete unused
-images, but cannot override saved references. Back up `data/assets` with the database.
+maintenance permanently purges the retained data. Global deletion permissions
+also permit removing referenced assets in that global library; other users may
+delete only unused assets they can manage. Back up `data/assets` with the database.
 
 Templates that reference deleted assets show a notice and placeholders: a file
 with a question mark for images, or **Aa** with a question mark in the top right
@@ -324,12 +334,13 @@ restored users must sign in again. A print already underway may finish.
 
 Group permissions apply through that group and grant no direct printer access.
 Interrupted-batch review requires Moderator or Full directly on the physical
-printer. Template groups share templates and never assign roles. Owners can edit
-or delete their own templates and cancel their own queued jobs after losing
-printer access. Roles independently grant creation of personal or global templates
-and editing or deleting other users’ global templates. The default Member role
-includes personal template creation. Registration codes can assign independent
-collaboration permissions for each selected template group.
+printer. Content groups share templates, fonts and images and never assign roles.
+Owners can edit or delete their own content and cancel their own queued jobs after
+losing printer access. Roles independently grant creation of personal or global
+content and editing or deleting other users’ global content for each type. The
+default Member role includes personal template creation and personal font and
+image uploads. Registration codes can assign independent collaboration permissions
+for each content type in each selected group.
 
 Pending requests do not count toward thresholds. Disabling a user or revoking the
 access needed for queued work pauses those jobs for an administrator to release

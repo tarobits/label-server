@@ -6,8 +6,8 @@ Use the API from Home Assistant, Shortcuts, scripts, or inventory systems.
 
 Create an account with a role granting access to the required printers or groups. Print, Moderator or Full permits direct
 queue submission; Request only requires approval. A distribution-group permission
-does not grant direct access to its printers. Image upload also requires the
-`assets.write` application permission in a directly assigned role.
+does not grant direct access to its printers. Personal image uploads require the
+`images.create_personal` application permission in a directly assigned role.
 
 The bundled clients read `LABEL_API_USERNAME` and `LABEL_API_PASSWORD` from their
 environment, sign in, retain the session cookie in memory and send the CSRF token.
@@ -120,6 +120,22 @@ Image jobs share the existing job-key namespace and retry rules. Upload retries
 reuse the content-addressed asset. Image submissions honor automatic-print hold,
 tape thresholds, selection and review just like template labels; the client does
 not flush the queue. Set hold before submitting if you want manual inspection.
+
+### Shared images and fonts
+
+Both `/api/image-assets` and `/api/font-assets` accept raw file uploads with an
+optional `scope=personal|group|global` query parameter (default: personal).
+Group uploads also require `group_id` and that group's create permission for
+the relevant library. Global uploads require `images.create_global` or
+`fonts.create_global`. Personal fonts require `fonts.create_personal`.
+
+Upload multiple files with one request per file, tracking success and failure
+individually. A failed file does not roll back earlier uploads. Library records
+include scope, group and `can_edit`, `can_delete`, and `can_share` capabilities.
+Owners and administrators can change sharing with
+`PUT /api/image-assets/{id}/sharing` or `PUT /api/font-assets/{id}/sharing` and
+`{"scope":"group","group_id":"GROUP_ID"}`. Personal and global scope use a null
+or omitted group ID. Changing scope requires creation permission in the target.
 
 ## HomeBox print-command bridge
 
