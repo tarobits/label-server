@@ -106,9 +106,28 @@ const saved = ref(''),
   cursor = ref(0),
   margin = ref(1)
 const printableWidths = ref<Record<string, number>>({})
-const verticalMargin = computed(() => {
+const printableBand = computed(() => {
   const band = printableWidths.value[String(document.value.width_mm)]
-  return band ? (document.value.width_mm - band) / 2 : margin.value
+  if (!band) return { top: margin.value, height: document.value.width_mm - 2 * margin.value }
+  const dpi =
+    resolutionModes.value[document.value.print_resolution ?? 'printer']?.[1] ??
+    defaultResolution.value[1]
+  const pixels = Math.round((document.value.width_mm * dpi) / 25.4)
+  const rows = Math.min(pixels, Math.round((band * dpi) / 25.4))
+  return {
+    top: (Math.floor((pixels - rows) / 2) * document.value.width_mm) / pixels,
+    height: (rows * document.value.width_mm) / pixels,
+  }
+})
+const verticalMargin = computed(() => printableBand.value.top)
+const printableBorder = computed(() => {
+  const background = document.value.preview_tape?.background ?? '#ffffff'
+  const channels = [1, 3, 5].map((offset) => {
+    const value = parseInt(background.slice(offset, offset + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  const luminance = channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
+  return luminance > 0.179 ? '#000000' : '#ffffff'
 })
 const selected = computed(() => document.value.elements.find((e) => e.id === selectedId.value))
 const elementTitles = {
@@ -241,7 +260,6 @@ watch(
   () => w.selectedPrinter,
   () => {
     const capabilities = w.destinationPrinter(w.selectedPrinter)?.capabilities
-    if (!capabilities) return
     if (!capabilities) return
     margin.value = capabilities.printable_margin_mm
     printableWidths.value = capabilities.printable_widths_mm ?? {}
@@ -424,7 +442,7 @@ function add(kind: Element['kind']) {
   element.x = margin.value
   element.y = verticalMargin.value
   element.width = Math.min(element.width, document.value.length_mm - 2 * margin.value)
-  element.height = Math.min(element.height, document.value.width_mm - 2 * verticalMargin.value)
+  element.height = Math.min(element.height, printableBand.value.height)
   if (kind === 'qr') element.width = element.height
   document.value.elements.push(element)
   selectedId.value = element.id
@@ -991,14 +1009,16 @@ onUnmounted(() => {
               style="pointer-events: none"
             />
             <rect
+              class="printable-border"
               :x="margin"
               :y="verticalMargin"
               :width="canvasLength - margin * 2"
-              :height="document.width_mm - verticalMargin * 2"
+              :height="printableBand.height"
               fill="none"
-              stroke="#ef4444"
-              stroke-width="0.1"
-              stroke-dasharray="0.5 0.5"
+              :stroke="printableBorder"
+              stroke-width="1.25"
+              stroke-dasharray="5 5"
+              vector-effect="non-scaling-stroke"
               style="pointer-events: none"
             />
             <g
@@ -1044,7 +1064,7 @@ onUnmounted(() => {
       </p>
       <p class="help">
         {{ canvasLength }} × {{ document.width_mm }} mm · {{ margin }} mm end /
-        {{ verticalMargin.toFixed(2) }} mm side guides ·
+        {{ printableBand.height.toFixed(2) }} mm printable width ·
         {{
           rendering
             ? 'Rendering…'

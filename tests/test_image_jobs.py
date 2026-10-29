@@ -46,7 +46,9 @@ def test_image_preview_matches_frozen_high_resolution_print_with_physical_band(c
     assert response.status_code == 200, response.text
     preview = response.json()
     element = preview["resolved_elements"][0]
-    assert (element["width"], element["height"], element["y"]) == (36, 18, 3)
+    assert (element["width"], element["height"], element["y"]) == pytest.approx(
+        (2 * 128 * 24 / 170, 128 * 24 / 170, 21 * 24 / 170)
+    )
     assert client.get("/api/jobs").json() == []
     response = client.post("/api/image-jobs", json=body)
     assert response.status_code == 201, response.text

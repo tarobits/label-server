@@ -183,6 +183,12 @@ is connected or has the requested tape installed. Capabilities, rendering, CSV
 preparation and approval use the first configured member. If none exists, group
 capabilities are null and new print intent returns a clear conflict.
 
+New render specifications align the printable band to whole device pixel rows.
+Editor guides use that same band, and clipping warnings measure visible artwork
+rather than blank space inside object bounds (QR quiet zones remain protected).
+Older job snapshots keep their original raster geometry. A job rejected for ink
+outside the print head must be submitted again to use the corrected rendering.
+
 ## Verification
 
 Automated tests cover migration, group matching, concurrent reservations, independent

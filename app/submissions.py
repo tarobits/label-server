@@ -20,7 +20,7 @@ from app.image_assets import ImageStore
 from app.models import JobSubmission, LabelCopy, LabelTemplate, PrintJob, TapeProfile
 from app.print_audit import direct_attribution
 from app.print_planning import geometry_plan, planning_backend
-from app.render import RenderSpec, render_document
+from app.render import RenderSpec, printable_vertical_bounds, render_document
 from app.schemas import JobInput
 from app.template_schema import TemplateDocument
 
@@ -64,6 +64,7 @@ def rendering_spec(
         dpi_x, dpi_y = supported[mode]
     return RenderSpec(
         stretch_canvas=True,
+        align_printable_band=True,
         supported_widths_mm=capabilities.supported_widths_mm,
         dpi=dpi_y,
         dpi_x=dpi_x,
@@ -102,13 +103,13 @@ def build_job(
         if document["elements"]:
             document["elements"][0]["width"] = document["length_mm"] - 4
             band = (spec.printable_widths_mm or {}).get(f"{profile.width_mm:g}")
-            side = (
-                (profile.width_mm - band) / 2
-                if band
-                else max(spec.margin_mm, min(2, profile.width_mm / 4))
-            )
-            document["elements"][0]["y"] = side
-            document["elements"][0]["height"] = profile.width_mm - 2 * side
+            if band:
+                top, bottom = printable_vertical_bounds(profile.width_mm, spec)
+            else:
+                top = max(spec.margin_mm, min(2, profile.width_mm / 4))
+                bottom = profile.width_mm - top
+            document["elements"][0]["y"] = top
+            document["elements"][0]["height"] = bottom - top
     if document["width_mm"] != profile.width_mm:
         raise HTTPException(422, "Template and tape widths do not match")
     try:

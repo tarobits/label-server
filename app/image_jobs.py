@@ -3,7 +3,7 @@
 import math
 
 from app.image_assets import ImageStore
-from app.render import RenderSpec
+from app.render import RenderSpec, printable_vertical_bounds
 from app.schemas import ImageJobInput
 from app.template_schema import TemplateDocument
 
@@ -14,9 +14,8 @@ def image_document(
     if spec.media_kind != "continuous":
         raise ValueError("Image submissions currently require continuous media")
     asset = images.metadata(body.image_asset)
-    height = (spec.printable_widths_mm or {}).get(
-        f"{tape_width:g}", tape_width - 2 * spec.margin_mm
-    )
+    top, bottom = printable_vertical_bounds(tape_width, spec)
+    height = bottom - top
     ratio = asset["width"] / asset["height"]
     length = body.length_mm
     if length is None:
@@ -39,7 +38,7 @@ def image_document(
                     "kind": "image",
                     "image_asset": body.image_asset,
                     "x": (length - image_width) / 2,
-                    "y": (tape_width - image_height) / 2,
+                    "y": top + (height - image_height) / 2,
                     "width": image_width,
                     "height": image_height,
                     "image_mode": body.image_mode,

@@ -35,6 +35,8 @@ class RenderSpec:
     # Versioned so existing snapshots retain their exact raster geometry.
     stretch_canvas: bool = False
     supported_widths_mm: tuple[float, ...] | None = None
+    # Keep old job snapshots unchanged; new renders align the band to whole device rows.
+    align_printable_band: bool = False
 
     @property
     def horizontal_dpi(self) -> int:
@@ -389,6 +391,54 @@ def missing_asset_svg(element: Element, kind: str) -> str:
     )
 
 
+def printable_vertical_bounds(width_mm: float, spec: RenderSpec) -> tuple[float, float]:
+    band = (spec.printable_widths_mm or {}).get(f"{width_mm:g}")
+    if band and spec.align_printable_band:
+        height = round(width_mm * spec.dpi / 25.4)
+        rows = min(height, round(band * spec.dpi / 25.4))
+        top = (height - rows) // 2
+        return top * width_mm / height, (top + rows) * width_mm / height
+    margin = (width_mm - band) / 2 if band else spec.margin_mm
+    return margin, width_mm - margin
+
+
+def artwork_bounds(
+    body: str,
+    bounds: tuple[float, float, float, float],
+    scale_x: float,
+    scale_y: float,
+    font_files: list[str],
+) -> tuple[float, float, float, float] | None:
+    """Measure ink on the canvas pixel grid, including artwork beyond the tape edges."""
+    x, y, right, bottom = bounds
+    left_px, top_px = math.floor(x * scale_x) - 1, math.floor(y * scale_y) - 1
+    width = math.ceil(right * scale_x) - left_px + 1
+    height = math.ceil(bottom * scale_y) - top_px + 1
+    png = resvg_py.svg_to_bytes(
+        svg_string=(
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+            f'viewBox="{left_px / scale_x} {top_px / scale_y} '
+            f'{width / scale_x} {height / scale_y}" preserveAspectRatio="none">'
+            f'<rect x="{left_px / scale_x}" y="{top_px / scale_y}" '
+            f'width="{width / scale_x}" height="{height / scale_y}" fill="white"/>'
+            f"{body}</svg>"
+        ),
+        skip_system_fonts=True,
+        font_files=font_files,
+    )
+    ink = Image.open(io.BytesIO(png)).convert("L").point(lambda value: 255 if value < 128 else 0)
+    box = ink.getbbox()
+    if box is None:
+        return None
+    # Pixel centres determine whether any printed dots lie beyond a guide.
+    return (
+        (left_px + box[0] + 0.5) / scale_x,
+        (top_px + box[1] + 0.5) / scale_y,
+        (left_px + box[2] - 0.5) / scale_x,
+        (top_px + box[3] - 0.5) / scale_y,
+    )
+
+
 def render_document(
     document: TemplateDocument,
     data: dict[str, str],
@@ -417,8 +467,7 @@ def render_document(
                 element.font = "Noto Sans"
     if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
         raise ValueError("The selected printer does not support this physical tape width")
-    band = (spec.printable_widths_mm or {}).get(f"{document.width_mm:g}")
-    vertical_margin = (document.width_mm - band) / 2 if band else spec.margin_mm
+    printable_top, printable_bottom = printable_vertical_bounds(document.width_mm, spec)
     values = resolve_values(document, data, samples)
     layout_warnings: list[str] = []
     automatic_length = document.auto_length
@@ -457,35 +506,24 @@ def render_document(
     clipping = document.out_of_bounds == "clip"
     if clipping:
         parts.append(
-            f'<defs><clipPath id="printable"><rect x="{spec.margin_mm}" y="{vertical_margin}" '
+            f'<defs><clipPath id="printable"><rect x="{spec.margin_mm}" y="{printable_top}" '
             f'width="{document.length_mm - 2 * spec.margin_mm}" '
-            f'height="{document.width_mm - 2 * vertical_margin}"/></clipPath></defs>'
+            f'height="{printable_bottom - printable_top}"/></clipPath></defs>'
             '<g clip-path="url(#printable)">'
         )
     for element in document.elements:
         x, y, right, bottom = element_bounds(element)
         outside = (
             x < spec.margin_mm - 0.001
-            or y < vertical_margin - 0.001
+            or y < printable_top - 0.001
             or right > document.length_mm - spec.margin_mm + 0.001
-            or bottom > document.width_mm - vertical_margin + 0.001
+            or bottom > printable_bottom + 0.001
         )
         if outside:
             if not clipping:
                 raise ValueError(
                     f"Element {element.id} is outside the printable area ({spec.margin_mm} mm margins)"
                 )
-            omitted = (
-                right <= spec.margin_mm
-                or bottom <= vertical_margin
-                or x >= document.length_mm - spec.margin_mm
-                or y >= document.width_mm - vertical_margin
-            )
-            warnings.append(
-                f"Element {element.id} is {'omitted' if omitted else 'clipped'} at the printable area."
-            )
-            if omitted:
-                continue
         box = (x, y, right, bottom, element.id)
         boxes.append(box)
         content = TOKEN.sub(lambda match: values[match.group(1)], element.content)
@@ -503,9 +541,36 @@ def render_document(
             body = f'<rect x="{inset}" y="{inset}" width="{element.width - element.stroke}" height="{element.height - element.stroke}" stroke="black" stroke-width="{element.stroke}" fill="{"black" if element.filled else "none"}"/>'
         else:
             body = f'<path d="M0,{element.height / 2}h{element.width}" stroke="black" stroke-width="{element.stroke}"/>'
-        parts.append(
-            f'<g transform="translate({element.x},{element.y}) rotate({element.rotation},{element.width / 2},{element.height / 2})">{body}</g>'
-        )
+        artwork = f'<g transform="translate({element.x},{element.y}) rotate({element.rotation},{element.width / 2},{element.height / 2})">{body}</g>'
+        if outside and clipping:
+            # QR quiet zones are meaningful even where they contain no ink.
+            visible = (
+                (x, y, right, bottom)
+                if element.kind == "qr"
+                else artwork_bounds(
+                    artwork,
+                    (x, y, right, bottom),
+                    px_width / document.length_mm,
+                    px_height / document.width_mm,
+                    font_files,
+                )
+            )
+            if visible and (
+                visible[0] < spec.margin_mm - 0.001
+                or visible[1] < printable_top - 0.001
+                or visible[2] > document.length_mm - spec.margin_mm + 0.001
+                or visible[3] > printable_bottom + 0.001
+            ):
+                omitted = (
+                    visible[2] < spec.margin_mm
+                    or visible[3] < printable_top
+                    or visible[0] > document.length_mm - spec.margin_mm
+                    or visible[1] > printable_bottom
+                )
+                warnings.append(
+                    f"Element {element.id} is {'omitted' if omitted else 'clipped'} at the printable area."
+                )
+        parts.append(artwork)
     if clipping:
         parts.append("</g>")
     for q in qr_boxes:
