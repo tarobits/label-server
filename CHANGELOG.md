@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.1] - 2026-10-29
+
+### Added
+
+- Cartridge selection during manual review, defaulting to the cartridge recorded
+  when printing began. Corrections update that attempt's tape usage and costs
+  without changing the installed cartridge or its confirmation.
+
+### Fixed
+
+- Narrow-tape printing failures caused by rounding at the printable edge,
+  including templates changed from 24 mm to 12 mm.
+- False clipping warnings caused by empty space inside object bounds. Printable
+  guides now match the printed area and remain visible on light and dark tape.
+- Installed-cartridge confirmation popups no longer interrupt manual review;
+  outstanding checks remain separate from the review's accounting.
+
+Resubmit previously queued labels affected by the print-area error after updating;
+existing jobs retain their saved rasters.
+
 ## [0.7.0] - 2026-10-29
 
 ### Added
@@ -219,6 +239,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.7.1]: https://github.com/tarobits/label-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/tarobits/label-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/tarobits/label-server/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tarobits/label-server/compare/v0.4.0...v0.5.0
