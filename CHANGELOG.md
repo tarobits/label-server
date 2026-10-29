@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.0] - 2026-10-29
+
+### Added
+
+- Personal, group and global font and image libraries, with sharing controls,
+  separate collaboration permissions, bulk uploads and retries for failed files.
+- Cartridge mismatch confirmation for users with Full printer access, allowing
+  third-party TZe tape to print using the selected width while retaining hardware
+  error checks.
+- A printer details window showing detected tape type, width, colors, error flags
+  and the complete reported status packet.
+- Cartridge verification after an observed cover opening or tape change. Printing
+  waits for confirmation, including after a server restart. The check is enabled
+  by default and can be disabled separately for each printer.
+
+### Changed
+
+- Replaced the combined asset-upload permission with independent font and image
+  permissions. Group and global sharing require explicit grants for each library.
+
+Stop existing servers and run `alembic upgrade head` before restarting. Existing
+uploads remain personal; roles with `assets.write` are migrated to
+`images.create_personal` and `fonts.create_personal`. Integrations that configure
+roles must use the new permission names.
+
 ## [0.6.0] - 2026-10-28
 
 ### Added
@@ -194,6 +219,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.7.0]: https://github.com/tarobits/label-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/tarobits/label-server/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/tarobits/label-server/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tarobits/label-server/compare/v0.3.2...v0.4.0
