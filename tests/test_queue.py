@@ -146,25 +146,60 @@ def test_restart_recovers_inflight_intent_once(client: TestClient) -> None:
     assert len(client.get("/api/notifications").json()) == 1
 
 
-def test_no_write_failure_keeps_manual_flush(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("manual", [False, True])
+@pytest.mark.parametrize("failure_stage", ["render", "backend"])
+def test_no_write_failure_waits_for_explicit_retry(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, manual: bool, failure_stage: str
 ) -> None:
-    tape = profile(client)
-    install(client, tape["id"])
-    job(client, tape["id"])
+    tape = profile(client, threshold=1)
+    cartridge = install(client, tape["id"])
+    job(client, tape["id"], 2)
     worker = client.app.state.fleet.workers["main"]
-    client.post("/api/queue/print")
-    original = worker.backend.print_batch
+    original_request = client.post("/api/queue/print").json() if manual else None
+    target = worker if failure_stage == "render" else worker.backend
+    method = "_render_reserved" if failure_stage == "render" else "print_batch"
+    original = getattr(target, method)
 
     def fail(labels: object) -> PrintResult:
         raise PrintNotStarted("Disconnected before write")
 
-    monkeypatch.setattr(worker.backend, "print_batch", fail)
+    monkeypatch.setattr(target, method, fail)
     worker.tick()
     assert client.get("/api/jobs").json()[0]["status"] == "queued"
-    monkeypatch.setattr(worker.backend, "print_batch", original)
+    for _ in range(80):
+        worker.tick()
+    batches = client.get("/api/batches").json()
+    assert len(batches) == 1
+    assert batches[0]["state"] == "failed"
+    assert len(client.get("/api/notifications").json()) == 1
+    status = client.get("/api/status").json()
+    assert status["automatic_printing_held"] and status["pending_flush"] is None
+    assert client.get("/api/cartridges").json()[0]["remaining_mm"] == cartridge["remaining_mm"]
+    monkeypatch.setattr(target, method, original)
+    # Recreating the worker cannot clear the durable hold or resurrect a manual request.
+    restarted = QueueWorker(
+        worker.factory,
+        worker.backend,
+        worker.fonts,
+        worker.images,
+        printer_id="main",
+        enforce_job_access=False,
+    )
+    restarted.recover()
+    restarted.tick()
+    assert not worker.backend.batches
+    if manual:
+        retry = client.post("/api/queue/print")
+        assert retry.status_code == 202, retry.text
+        assert retry.json()["id"] != original_request["id"]
+    else:
+        assert (
+            client.put("/api/printer/automatic-printing", json={"held": False}).status_code == 200
+        )
     worker.tick()
     assert len(worker.backend.batches) == 1
+    assert client.get("/api/jobs").json()[0]["status"] == "printed"
+    assert len(client.get("/api/batches").json()) == 2
 
 
 def test_batch_frozen_and_printer_serialized(

@@ -268,15 +268,28 @@ class QueueWorker:
                     from app.usage import settle_usage
 
                     settle_usage(session, batch, 0)
+                    failed_destinations: set[str] = set()
                     for item in session.scalars(
                         select(BatchItem).where(BatchItem.batch_id == batch_id)
                     ):
                         item.outcome = State.FAILED
                         copy = required(session, LabelCopy, item.copy_id)
                         copy.state = State.QUEUED
-                    if prepared.request_id and not self.control.stop.is_set():
+                        failed_destinations.add(
+                            required(session, PrintJob, copy.job_id).destination_id
+                        )
+                    if prepared.request_id:
                         stored_request = required(session, FlushRequest, prepared.request_id)
-                        stored_request.completed = False
+                        stored_request.completed = True
+                    if not self.control.stop.is_set():
+                        # A ready status does not prove a rejected attempt will now work.
+                        # Keep copies queued, but require a new manual request or an
+                        # explicit resume instead of creating a failed batch every tick.
+                        # Hold the logical group too, so another member cannot replay it.
+                        for destination in failed_destinations:
+                            group = session.get(PrinterGroup, destination)
+                            target = group or printer_state(session, destination)
+                            target.automatic_printing_held = True
                     state = printer_state(session, self.printer_id)
                     record_blocker(session, state, str(error))
             except Exception as error:

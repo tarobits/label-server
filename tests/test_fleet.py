@@ -1,11 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
+import pytest
 from conftest import create_test_app as create_app
 from conftest import profile
 from fastapi.testclient import TestClient
 
 from app.models import PrintRun
+from app.printer.base import PrintNotStarted
 
 
 def device(client, name="Second"):
@@ -52,6 +54,46 @@ def submit(client, dest, tape, copies=1):
 
 def job_state(client, job):
     return client.get(f"/api/jobs/{job['id']}").json()["status"]
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_no_start_failure_holds_group_without_automatic_failover(client, monkeypatch, manual):
+    tape = profile(client, threshold=1)
+    second = device(client)
+    dest = group(client, ["main", second])
+    fit(client, "main", tape)
+    fit(client, second, tape)
+    workers = client.app.state.fleet.workers
+    for worker in workers.values():
+        worker.tick()
+    submitted = submit(client, dest, tape, copies=2)
+    if manual:
+        assert client.post(f"/api/destinations/{dest}/print").status_code == 202
+
+    def fail(labels):
+        raise PrintNotStarted("Rejected before transmission")
+
+    monkeypatch.setattr(workers["main"].backend, "print_batch", fail)
+    workers["main"].tick()
+    workers["main"].backend.connected = False
+    for _ in range(3):
+        for worker in workers.values():
+            worker.tick()
+    assert job_state(client, submitted) == "queued"
+    assert len(client.get("/api/batches").json()) == 1
+    destination = next(
+        item for item in client.get("/api/destinations").json() if item["id"] == dest
+    )
+    assert destination["automatic_printing_held"]
+    assert not workers[second].backend.batches
+    # Only this logical destination is paused; unrelated work can still print.
+    other = submit(client, second, tape)
+    workers[second].tick()
+    assert job_state(client, other) == "printed"
+    assert job_state(client, submitted) == "queued"
+    assert client.post(f"/api/destinations/{dest}/print").status_code == 202
+    workers[second].tick()
+    assert job_state(client, submitted) == "printed"
 
 
 def test_group_matches_exact_profile_and_missing_tape_waits(client):
