@@ -175,6 +175,30 @@ editable labels, map item fields to a saved template through `/api/jobs`.
 
 ## Limits and queue controls
 
+For complete activity history, use `GET /api/batches/page` and
+`GET /api/notifications/page` with `limit` (1–100, default 25) and `offset`
+(default 0). Responses include `items`, `total`, and `before`. Pass the returned
+`before` value on subsequent pages to keep newer events from shifting the results.
+Batch records and totals are filtered by printer access; notifications require
+administrator access. The existing `/api/batches` and `/api/notifications` lists
+still return the latest 100 records.
+
+Administrators can preview redundant no-start failures with
+`GET /api/admin/history/duplicates`, then send the returned `confirmation` value
+to `POST /api/admin/history/duplicates/purge`. The preview lists each group and its
+retained original, plus counts of attempts and dependent records to delete. The
+purge permanently deletes duplicate batches, their items and zero-use allocations,
+and explicitly linked notifications and deliveries in one transaction. A changed
+preview returns 409; fetch and review a new preview before trying again. Separate
+manual print requests, nonzero or unsettled usage, reviewed attempts and unlinked
+printer alerts are retained. There is no undo.
+
+`GET /api/usage` accepts `cartridge_id` alongside `user_id` or `all_users`. Allocation
+entries include `cartridge_id`, `cartridge_name` and `profile_name`; `cartridges`
+lists the selected users' tracked cartridges for filtering. Usage totals and the
+latest 100 matching allocations follow the filter. Account balances and adjustments
+always span all cartridges, and user-usage permissions apply before filtering.
+
 Label lengths are 10–300 mm across job, image, and CSV inputs. Tape widths are
 physical millimetres, including 3.5 mm.
 

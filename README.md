@@ -287,9 +287,32 @@ confirmed labels and waste. Confirmed copies cannot be changed. In-flight batche
 also require review after a server restart; uncertain copies are never retried
 automatically. Other printers can continue.
 
+If an attempt fails before any printing starts, its labels stay queued and its
+manual print request ends. Automatic printing for that destination is held until
+someone retries manually or resumes it. The worker does not repeatedly retry the
+failed attempt or create duplicate failure entries on every poll.
+
 **Activity** shows saved label previews, outcomes, requester, approver, and manual
 batch starter. Each attempt preserves its attribution after retries or account
 changes. Older events without reliable attribution show **Not recorded**.
+Print batches and notifications have separate history pages, with 25 records per
+page. **Previous** and **Next** browse older records; **Latest** returns to current
+activity. Reloading or using browser back preserves the selected pages.
+
+Administrators can use **Purge duplicates…** in Activity to preview and permanently
+remove repeated failures where printing never started. Matching requires the same
+label copies, printer, cartridge, error and print settings; separate manual print
+requests stay separate. The oldest attempt in each group remains. The purge also
+deletes redundant label-history rows, zero-use tape allocations, and notifications
+explicitly linked to those attempts, including delivery records. Printed,
+reviewed, unfinished, charged and unsettled attempts are excluded, so tape usage
+and account balances do not change. General printer alerts without a batch link
+remain. This deletion cannot be undone.
+
+Tape usage entries identify their cartridge and tape profile. The **Cartridge**
+filter narrows usage totals and recent allocations for the selected user or all
+users. Account balances and payments always include all cartridges.
+
 Cartridge lengths are estimates, not sensor measurements; calibrate feed and
 leader settings and correct remaining length when the printer is idle with no
 batch awaiting review.

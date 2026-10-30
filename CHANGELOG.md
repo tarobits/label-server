@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.8.0] - 2026-10-30
+
+### Added
+
+- Separate Activity pages for print attempts and notifications, with access to
+  history beyond the latest 100 records and page selections preserved on reload.
+- Administrator preview and confirmation for permanently purging duplicate
+  failures where printing never started. One original remains; duplicate usage
+  records and linked notifications are removed without changing tape consumption
+  or account balances.
+- Cartridge names and tape profiles in usage history, plus a cartridge filter for
+  personal, individual-user and all-user usage. Account balances and payments
+  continue to include all cartridges.
+
+### Fixed
+
+- Failures before printing no longer create repeated attempts on every worker
+  poll. Labels remain queued and automatic printing is held for the affected
+  destination, including printer groups, pending a manual retry or explicit resume.
+
+No database migration is required. Existing duplicate failures remain until an
+administrator previews and confirms their removal in Activity.
+
 ## [0.7.1] - 2026-10-29
 
 ### Added
@@ -239,6 +262,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.8.0]: https://github.com/tarobits/label-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/tarobits/label-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/tarobits/label-server/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/tarobits/label-server/compare/v0.5.0...v0.6.0
