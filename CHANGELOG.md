@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0] - 2026-10-30
+
+### Added
+
+- Cartridge renaming, archiving and restoration, with print history, usage and
+  costs preserved. Archived cartridges are excluded from installation choices
+  and new cost estimates.
+- Permanent deletion of cartridges without print or queue history, with
+  confirmation and visible explanations when removal is blocked.
+- Owner names in font and image libraries for administrators.
+
+Stop existing servers and run `alembic upgrade head` before restarting. Existing
+cartridges remain active after the upgrade.
+
 ## [0.8.0] - 2026-10-30
 
 ### Added
@@ -262,6 +276,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.9.0]: https://github.com/tarobits/label-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/tarobits/label-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/tarobits/label-server/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/tarobits/label-server/compare/v0.6.0...v0.7.0
