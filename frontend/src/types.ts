@@ -322,6 +322,7 @@ export interface UsageAdjustment extends UsageUser {
 }
 
 export interface UsageReport {
+  cartridges: { id: string; name: string; profile_name: string }[]
   accounts: (UsageUser & { balances: Record<string, string> })[]
   adjustments: UsageAdjustment[]
   users: {
@@ -334,6 +335,9 @@ export interface UsageReport {
   }[]
   entries: {
     batch_id: string
+    cartridge_id: string
+    cartridge_name: string
+    profile_name: string
     user_id: string
     username: string
     created_at: number

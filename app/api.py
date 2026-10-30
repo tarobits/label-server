@@ -205,6 +205,7 @@ def tape_usage(
     request: Request,
     all_users: bool = False,
     user_id: str | None = None,
+    cartridge_id: str | None = Query(default=None, min_length=1, max_length=100),
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     from app.usage import usage_report
@@ -218,7 +219,7 @@ def tape_usage(
         raise HTTPException(422, "Choose all users or an individual user")
     if user_id is not None and user_id not in account_names(session, user_id):
         raise HTTPException(404, "Usage account not found")
-    return usage_report(session, None if all_users else user_id or context.actor.id)
+    return usage_report(session, None if all_users else user_id or context.actor.id, cartridge_id)
 
 
 @router.get("/usage/users")

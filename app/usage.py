@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Batch, BatchItem, Cartridge, LabelCopy, PrintJob, TapeAllocation
+from app.models import Batch, BatchItem, Cartridge, LabelCopy, PrintJob, TapeAllocation, TapeProfile
 from app.printer.base import BatchPlan
 
 
@@ -98,19 +98,45 @@ def settle_usage(session: Session, batch: Batch, consumed_mm: float) -> None:
         row.cost_micros = str(costs[index]) if costs is not None else None
 
 
-def usage_report(session: Session, user_id: str | None) -> dict[str, Any]:
-    query = select(TapeAllocation, Batch.created_at, Batch.state, Batch.consumption_source).join(
-        Batch, Batch.id == TapeAllocation.batch_id
+def usage_report(
+    session: Session, user_id: str | None, cartridge_id: str | None = None
+) -> dict[str, Any]:
+    query = (
+        select(
+            TapeAllocation,
+            Batch.created_at,
+            Batch.state,
+            Batch.consumption_source,
+            Cartridge.id,
+            Cartridge.name,
+            TapeProfile.name,
+        )
+        .join(Batch, Batch.id == TapeAllocation.batch_id)
+        .join(Cartridge, Cartridge.id == Batch.cartridge_id)
+        .join(TapeProfile, TapeProfile.id == Cartridge.profile_id)
     )
     if user_id is not None:
         query = query.where(TapeAllocation.user_id == user_id)
     users: dict[str, dict[str, Any]] = {}
+    cartridges: dict[str, dict[str, str]] = {}
+    account_costs: dict[str, dict[str, int]] = defaultdict(dict)
     entries: list[dict[str, Any]] = []
-    for row, created_at, state, source in session.execute(
-        query.order_by(Batch.created_at.desc(), TapeAllocation.user_id).execution_options(
+    for row, created_at, state, source, cartridge, cartridge_name, profile_name in session.execute(
+        query.order_by(Batch.created_at.desc(), Batch.id, TapeAllocation.user_id).execution_options(
             yield_per=500
         )
     ):
+        cartridges[cartridge] = {
+            "id": cartridge,
+            "name": cartridge_name,
+            "profile_name": profile_name,
+        }
+        # Account balances include all charges, regardless of the usage filter.
+        if row.consumed_mm is not None and row.cost_micros is not None:
+            costs = account_costs[row.user_id]
+            costs[row.currency] = costs.get(row.currency, 0) + int(row.cost_micros)
+        if cartridge_id is not None and cartridge != cartridge_id:
+            continue
         summary = users.setdefault(
             row.user_id,
             {
@@ -137,6 +163,9 @@ def usage_report(session: Session, user_id: str | None) -> dict[str, Any]:
             entries.append(
                 {
                     "batch_id": row.batch_id,
+                    "cartridge_id": cartridge,
+                    "cartridge_name": cartridge_name,
+                    "profile_name": profile_name,
                     "user_id": row.user_id,
                     "username": row.username,
                     "created_at": created_at,
@@ -152,12 +181,17 @@ def usage_report(session: Session, user_id: str | None) -> dict[str, Any]:
             )
     from app.usage_accounts import account_report
 
-    accounts = account_report(
-        session, user_id, {identifier: summary["costs"] for identifier, summary in users.items()}
-    )
+    accounts = account_report(session, user_id, account_costs)
     for summary in users.values():
         summary["costs"] = {currency: money(value) for currency, value in summary["costs"].items()}
-    return {"users": list(users.values()), "entries": entries, **accounts}
+    return {
+        "users": list(users.values()),
+        "entries": entries,
+        "cartridges": sorted(
+            cartridges.values(), key=lambda item: (item["name"].casefold(), item["id"])
+        ),
+        **accounts,
+    }
 
 
 def money(micros: int) -> str:

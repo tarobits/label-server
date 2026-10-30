@@ -16,12 +16,25 @@ const route = useRoute()
 const router = useRouter()
 const canViewOthers = computed(() => auth.can('usage.view_others'))
 const canEditAccounts = computed(() => auth.can('usage.edit_accounts'))
+function filterQuery(key: string, value: string) {
+  const query = { ...route.query }
+  if (value) query[key] = value
+  else delete query[key]
+  return query
+}
 const selected = computed({
   get: () => (canViewOthers.value && typeof route.query.user === 'string' ? route.query.user : ''),
   set: (user: string) => {
-    void router.replace({ query: user ? { user } : {} })
+    void router.replace({ query: filterQuery('user', user) })
   },
 })
+const cartridge = computed({
+  get: () => (typeof route.query.cartridge === 'string' ? route.query.cartridge : ''),
+  set: (value: string) => {
+    void router.replace({ query: filterQuery('cartridge', value) })
+  },
+})
+const cartridges = ref<UsageReport['cartridges']>([])
 const allUsers = computed(() => selected.value === 'all')
 const users = ref<UsageUser[]>([])
 const adjustmentUser = computed(() => (allUsers.value ? '' : selected.value || auth.user?.id || ''))
@@ -31,11 +44,11 @@ let sequence = 0
 async function refresh() {
   const ticket = ++sequence
   try {
-    const query = allUsers.value
-      ? '?all_users=true'
-      : selected.value
-        ? `?user_id=${encodeURIComponent(selected.value)}`
-        : ''
+    const parameters = new URLSearchParams()
+    if (allUsers.value) parameters.set('all_users', 'true')
+    else if (selected.value) parameters.set('user_id', selected.value)
+    if (cartridge.value) parameters.set('cartridge_id', cartridge.value)
+    const query = parameters.size ? `?${parameters}` : ''
     const [value, names] = await Promise.all([
       resources.get<UsageReport>(`/usage${query}`, { ttl: 2000 }),
       canViewOthers.value || canEditAccounts.value
@@ -44,6 +57,7 @@ async function refresh() {
     ])
     if (ticket === sequence) {
       report.value = value
+      cartridges.value = value.cartridges
       users.value = names
       error.value = ''
     }
@@ -55,10 +69,13 @@ async function refresh() {
     }
   }
 }
-watch([selected, canViewOthers, canEditAccounts, () => auth.user?.id], () => {
+watch([selected, cartridge, canViewOthers, canEditAccounts, () => auth.user?.id], () => {
   report.value = null
   users.value = []
   void refresh()
+})
+watch([selected, canViewOthers, () => auth.user?.id], () => {
+  cartridges.value = []
 })
 useLiveRefresh(refresh)
 onUnmounted(() => {
@@ -74,8 +91,8 @@ function money(value: string, currency: string) {
 }
 </script>
 <template>
-  <div v-if="canViewOthers" class="section-heading">
-    <label
+  <div class="row wrap usage-filters">
+    <label v-if="canViewOthers"
       >View<select v-model="selected">
         <option value="">My usage</option>
         <option value="all">All users</option>
@@ -88,6 +105,20 @@ function money(value: string, currency: string) {
         </option>
       </select></label
     >
+    <label>
+      Cartridge<select v-model="cartridge">
+        <option value="">All cartridges</option>
+        <option
+          v-if="cartridge && !cartridges.some((item) => item.id === cartridge)"
+          :value="cartridge"
+        >
+          Selected cartridge (no tracked usage)
+        </option>
+        <option v-for="item in cartridges" :key="item.id" :value="item.id">
+          {{ item.name }} · {{ item.profile_name }}
+        </option>
+      </select>
+    </label>
   </div>
   <Transition name="notice"
     ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
@@ -98,6 +129,7 @@ function money(value: string, currency: string) {
       <h2>{{ allUsers ? 'Account balances' : 'Account balance' }}</h2>
       <p class="help">
         Negative balances are amounts owed. Unpriced and pending tape are excluded.
+        <span v-if="cartridge">Balances include all cartridges.</span>
       </p>
       <article v-for="account in report.accounts" :key="account.user_id" class="list-row">
         <div class="grow">
@@ -105,7 +137,7 @@ function money(value: string, currency: string) {
             v-if="allUsers"
             :to="{
               path: '/usage',
-              query: account.user_id === auth.user?.id ? {} : { user: account.user_id },
+              query: filterQuery('user', account.user_id === auth.user?.id ? '' : account.user_id),
             }"
             >{{ account.username }}</RouterLink
           >
@@ -131,7 +163,9 @@ function money(value: string, currency: string) {
         Includes design, feed, unused tape and a proportional share of the batch leader. Prices are
         frozen per attempt.
       </p>
-      <div v-if="!report.users.length" class="empty compact">No tracked print attempts yet.</div>
+      <div v-if="!report.users.length" class="empty compact">
+        {{ cartridge ? 'No tracked usage for this cartridge.' : 'No tracked print attempts yet.' }}
+      </div>
       <article v-for="user in report.users" :key="user.user_id" class="list-row">
         <div class="grow">
           <strong>{{ user.username }}</strong>
@@ -176,7 +210,7 @@ function money(value: string, currency: string) {
         class="usage-entry"
       >
         <template #summary
-          >{{ entry.username }} · {{ date(entry.created_at) }} ·
+          >{{ entry.username }} · {{ date(entry.created_at) }} · {{ entry.cartridge_name }} ·
           {{ metres(entry.consumed_mm ?? entry.planned_mm) }} ·
           {{
             entry.consumed_mm === null
@@ -187,6 +221,7 @@ function money(value: string, currency: string) {
           }}</template
         >
         <div class="form-stack inset">
+          <span>Cartridge: {{ entry.cartridge_name }} · {{ entry.profile_name }}</span>
           <div class="row">
             <Badge :state="entry.state" /><span
               >{{
@@ -213,6 +248,18 @@ function money(value: string, currency: string) {
   </template>
 </template>
 <style scoped>
+.usage-filters {
+  align-items: end;
+  margin-bottom: 24px;
+}
+.usage-filters label {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 100%;
+}
+.usage-entry {
+  overflow-wrap: anywhere;
+}
 .usage-entry {
   padding: 14px 0;
   border-bottom: 1px solid var(--line);
