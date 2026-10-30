@@ -17,6 +17,7 @@ from app.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
 from app.auth_api import Credentials, Password
 from app.deletion import delete_account, is_deleted, restore_account, restore_content
+from app.history_cleanup import duplicate_history, purge_duplicate_history
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,
@@ -60,6 +61,23 @@ DB = Annotated[Session, Depends(admin_session)]
 
 class AdminInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class HistoryPurgeInput(AdminInput):
+    confirmation: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+@router.get("/history/duplicates")
+def preview_history_duplicates(session: DB) -> dict[str, Any]:
+    return duplicate_history(session).preview()
+
+
+@router.post("/history/duplicates/purge")
+def purge_history_duplicates(body: HistoryPurgeInput, session: DB) -> dict[str, Any]:
+    try:
+        return purge_duplicate_history(session, body.confirmation)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
 
 
 class ApplicationPermission(AdminInput):

@@ -4,9 +4,9 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from PIL import Image, ImageOps
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
@@ -1134,23 +1134,53 @@ def batch_process_names(session: Session, batch: Batch) -> list[str]:
     return names
 
 
-@router.get("/batches")
-def batches(
-    request: Request, session: Session = Depends(db, scope="function")
-) -> list[dict[str, Any]]:
+def visible_batches(request: Request, session: Session) -> Select[Batch]:
     query = select(Batch)
     if not access_context(request).actor.is_admin:
         query = query.where(
             Batch.printer_id.in_(visible_destinations(request, session, "moderator"))
         )
+    return query
+
+
+def batch_history_records(session: Session, query: Select[Batch]) -> list[dict[str, Any]]:
     return [
         {
             **record(batch),
             **batch_audit(session, batch),
             "process_names": batch_process_names(session, batch),
         }
-        for batch in session.scalars(query.order_by(Batch.created_at.desc()).limit(100))
+        for batch in session.scalars(query)
     ]
+
+
+@router.get("/batches")
+def batches(
+    request: Request, session: Session = Depends(db, scope="function")
+) -> list[dict[str, Any]]:
+    return batch_history_records(
+        session,
+        visible_batches(request, session).order_by(Batch.created_at.desc(), Batch.id).limit(100),
+    )
+
+
+@router.get("/batches/page")
+def batch_page(
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    before: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    stamp = time.time() if before is None else before
+    query = visible_batches(request, session).where(Batch.created_at <= stamp)
+    return {
+        "items": batch_history_records(
+            session, query.order_by(Batch.created_at.desc(), Batch.id).offset(offset).limit(limit)
+        ),
+        "total": session.scalar(select(func.count()).select_from(query.subquery())),
+        "before": stamp,
+    }
 
 
 @router.get("/batches/{identifier}")
@@ -1228,8 +1258,9 @@ def batch_item_preview(
     return label_preview_response(request, session, item, label)
 
 
-@router.get("/notifications")
-def notifications(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
+def notification_history_records(
+    session: Session, query: Select[Notification]
+) -> list[dict[str, Any]]:
     return [
         {
             **record(n),
@@ -1250,7 +1281,34 @@ def notifications(session: Session = Depends(db, scope="function")) -> list[dict
                 )
             ],
         }
-        for n in session.scalars(
-            select(Notification).order_by(Notification.created_at.desc()).limit(100)
-        )
+        for n in session.scalars(query)
     ]
+
+
+@router.get("/notifications")
+def notifications(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
+    return notification_history_records(
+        session,
+        select(Notification).order_by(Notification.created_at.desc(), Notification.id).limit(100),
+    )
+
+
+@router.get("/notifications/page")
+def notification_page(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    before: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    stamp = time.time() if before is None else before
+    query = select(Notification).where(Notification.created_at <= stamp)
+    return {
+        "items": notification_history_records(
+            session,
+            query.order_by(Notification.created_at.desc(), Notification.id)
+            .offset(offset)
+            .limit(limit),
+        ),
+        "total": session.scalar(select(func.count()).select_from(query.subquery())),
+        "before": stamp,
+    }

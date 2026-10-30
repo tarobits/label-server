@@ -117,10 +117,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
               (value) => apply(accessHolds, value),
             ),
           )
-        if (['/', '/activity', '/printers'].includes(path) || path.startsWith('/batches/'))
+        if (['/', '/printers'].includes(path) || path.startsWith('/batches/'))
           tasks.push(read<Batch[]>('/batches', 5000).then((value) => apply(batches, value)))
-        if (path === '/activity' && auth.user.is_admin)
-          tasks.push(read<Notice[]>('/notifications', 10000).then((value) => apply(notices, value)))
         if (
           ['/templates', '/new'].includes(path) ||
           path.startsWith('/templates/') ||

@@ -103,14 +103,14 @@ test('activity loads complete label information and previews only when opened', 
     .toBe('printed')
   const reads: string[] = []
   page.on('request', (outgoing) => {
-    if (/\/api\/batches\/[^/?]+/.test(outgoing.url())) reads.push(outgoing.url())
+    if (/\/api\/batches\/(?!page(?:\?|$))[^/?]+/.test(outgoing.url())) reads.push(outgoing.url())
   })
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
     release = resolve
   })
   await page.route(
-    '**/api/batches/*',
+    /\/api\/batches\/(?!page(?:\?|$))[^/?]+$/,
     async (route) => {
       await gate
       await route.continue()

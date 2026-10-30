@@ -123,6 +123,7 @@ export const useResourceStore = defineStore('resources', () => {
         affected.push('/admin/trash', '/templates', '/image-assets', '/font-assets', ...printing)
       if (collection === '/admin/notification-endpoints')
         affected.push('/notifications', '/workspace')
+      if (collection === '/admin/history') affected.push(...printing)
       invalidate(affected)
     } else if (path.startsWith('/templates'))
       invalidate(['/templates', '/preview', '/admin/trash', ...printing])
