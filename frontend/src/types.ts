@@ -279,6 +279,7 @@ export interface AssetSharing {
   group_id: string | null
 }
 export interface AssetAccess extends AssetSharing {
+  owner_name?: string | null
   can_edit?: boolean
   can_delete?: boolean
   can_share?: boolean

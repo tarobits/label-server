@@ -246,6 +246,7 @@ ratio is preserved by default. Brightness and contrast use 1 for unchanged
 artwork. Threshold conversion suits logos; dithering provides tonal shading.
 Transparent areas preserve content behind them.
 
+Administrators see each uploaded font and image's owner in the library.
 Hiding assets removes them from new selections while keeping saved labels usable.
 Images can be renamed without changing their ID. Administrators can delete images,
 fonts and templates even when saved work references them. Deletion removes them

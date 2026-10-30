@@ -13,7 +13,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.access import Action, Resource, access_context
 from app.asset_store import ASSET_ID
-from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision, UserGroup
+from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision, User, UserGroup
 from app.request_models import PrintRequest
 
 AssetKind = Literal["image_asset", "font_asset"]
@@ -38,6 +38,14 @@ def asset_resource(kind: AssetKind, metadata: dict[str, Any]) -> Resource:
 def asset_record(request: Request, kind: AssetKind, metadata: dict[str, Any]) -> dict[str, Any]:
     context = access_context(request)
     resource = asset_resource(kind, metadata)
+    owner = {}
+    if context.actor.is_admin:
+        names = getattr(request.state, "asset_owner_names", None)
+        if names is None:
+            with request.app.state.factory() as session:
+                names = dict(session.execute(select(User.id, User.username)).all())
+            request.state.asset_owner_names = names
+        owner["owner_name"] = names.get(metadata["owner_id"])
     group_name = None
     if metadata.get("group_id"):
         with request.app.state.factory() as session:
@@ -45,6 +53,7 @@ def asset_record(request: Request, kind: AssetKind, metadata: dict[str, Any]) ->
             group_name = group.name if group else "Deleted group"
     return {
         **metadata,
+        **owner,
         "group_name": group_name,
         "can_edit": context.can(Action.WRITE, resource),
         "can_delete": context.can(Action.DELETE, resource),

@@ -81,6 +81,7 @@ async function visibility(asset: ImageAsset) {
           <tr>
             <th>Preview</th>
             <th>Name</th>
+            <th v-if="auth.user?.is_admin">Owner</th>
             <th>Format</th>
             <th>Dimensions</th>
             <th>Visibility</th>
@@ -137,6 +138,9 @@ async function visibility(asset: ImageAsset) {
               </form>
               <template v-else>{{ asset.name }}</template>
               <small>{{ asset.id.slice(0, 12) }}</small>
+            </td>
+            <td v-if="auth.user?.is_admin" class="asset-owner">
+              {{ asset.owner_name ?? 'Unknown owner' }}
             </td>
             <td>{{ asset.kind === 'svg' ? 'SVG' : 'Bitmap' }}</td>
             <td>{{ asset.width }} × {{ asset.height }}</td>
@@ -213,6 +217,11 @@ async function visibility(asset: ImageAsset) {
   </Teleport>
 </template>
 <style scoped>
+.asset-owner {
+  min-width: 100px;
+  max-width: 180px;
+  overflow-wrap: anywhere;
+}
 .open-templates {
   margin-top: 18px;
 }

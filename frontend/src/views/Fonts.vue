@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { api } from '../api'
+import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
 import type { FontAsset } from '../types'
 import AssetUpload from '../components/AssetUpload.vue'
 import AssetSharingEditor from '../components/AssetSharingEditor.vue'
 const w = useWorkspaceStore()
+const auth = useAuthStore()
 async function visibility(font: FontAsset) {
   await w.action(
     () =>
@@ -40,6 +42,7 @@ async function remove(font: FontAsset) {
         <thead>
           <tr>
             <th>Family</th>
+            <th v-if="auth.user?.is_admin">Owner</th>
             <th>Face</th>
             <th>Size</th>
             <th>Visibility</th>
@@ -50,6 +53,7 @@ async function remove(font: FontAsset) {
         <tbody>
           <tr>
             <td>Noto Sans</td>
+            <td v-if="auth.user?.is_admin">System</td>
             <td>Regular / Bold</td>
             <td>Bundled</td>
             <td>Global</td>
@@ -59,6 +63,9 @@ async function remove(font: FontAsset) {
           <tr v-for="font in w.fonts" :key="font.id">
             <td>
               {{ font.family }}<small>{{ font.id.slice(0, 12) }}</small>
+            </td>
+            <td v-if="auth.user?.is_admin" class="asset-owner">
+              {{ font.owner_name ?? 'Unknown owner' }}
             </td>
             <td>{{ font.style }}</td>
             <td>{{ (font.size_bytes / 1024).toFixed(0) }} KB</td>
@@ -100,6 +107,11 @@ async function remove(font: FontAsset) {
 </template>
 
 <style scoped>
+.asset-owner {
+  min-width: 100px;
+  max-width: 180px;
+  overflow-wrap: anywhere;
+}
 .open-templates {
   margin-top: 18px;
 }

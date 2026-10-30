@@ -199,6 +199,10 @@ lists the selected users' tracked cartridges for filtering. Usage totals and the
 latest 100 matching allocations follow the filter. Account balances and adjustments
 always span all cartridges, and user-usage permissions apply before filtering.
 
+Administrator font and image responses also include the current `owner_name`
+(null when no matching user exists). Other users receive no additional owner-name
+field or asset access.
+
 Label lengths are 10–300 mm across job, image, and CSV inputs. Tape widths are
 physical millimetres, including 3.5 mm.
 

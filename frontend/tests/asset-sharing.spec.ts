@@ -68,6 +68,7 @@ test('cancelling a batch finishes its current upload and leaves remaining files 
 })
 
 test('a group image uploader sees only authorized scopes and separate personal font access', async ({
+  page: adminPage,
   request,
   browser,
   baseURL,
@@ -110,10 +111,57 @@ test('a group image uploader sees only authorized scopes and separate personal f
     })
     await page.getByRole('button', { name: 'Upload image', exact: true }).click()
     await expect(page.getByRole('cell', { name: 'Artwork', exact: true })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Owner', exact: true })).toHaveCount(0)
     await page.goto('/#/fonts')
     await expect(visibility).toHaveValue('personal')
     await expect(visibility.locator('option')).toHaveText(['Personal'])
     await expect(page.getByRole('combobox', { name: 'Group', exact: true })).toHaveCount(0)
+    await page.getByLabel('Font files', { exact: true }).setInputFiles('../app/fonts/NotoSans.ttf')
+    await page.getByRole('button', { name: 'Upload font', exact: true }).click()
+    await expect(page.getByRole('list', { name: 'Upload results' })).toContainText('Uploaded')
+    await expect(page.getByRole('columnheader', { name: 'Owner', exact: true })).toHaveCount(0)
+    for (const kind of ['images', 'fonts']) {
+      await adminPage.setViewportSize({ width: 1440, height: 1000 })
+      await adminPage.goto(`/#/${kind}`)
+      await expect(
+        adminPage.getByRole('heading', {
+          name: kind === 'images' ? 'Image library' : 'Font library',
+          exact: true,
+        }),
+      ).toBeVisible()
+      await expect(
+        adminPage.getByRole('columnheader', { name: 'Owner', exact: true }),
+      ).toBeVisible()
+      await expect(adminPage.getByRole('cell', { name: 'designer', exact: true })).toBeVisible()
+      // Allow the route and viewport transitions to finish before capturing them.
+      await adminPage.waitForTimeout(500)
+      await adminPage.screenshot({
+        path: `test-results/${kind}-owners-desktop.png`,
+        fullPage: true,
+        animations: 'disabled',
+      })
+      await adminPage.setViewportSize({ width: 390, height: 844 })
+      await adminPage.waitForTimeout(500)
+      expect(
+        await adminPage.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(390)
+      await adminPage.screenshot({
+        path: `test-results/${kind}-owners-mobile.png`,
+        fullPage: true,
+        animations: 'disabled',
+      })
+      const owner = adminPage.getByRole('cell', { name: 'designer', exact: true })
+      await owner.scrollIntoViewIfNeeded()
+      await expect(owner).toBeInViewport()
+      expect(
+        await owner.evaluate((cell) => {
+          const text = document.createRange()
+          text.selectNodeContents(cell)
+          return text.getClientRects().length
+        }),
+      ).toBe(1)
+      await adminPage.screenshot({ path: `test-results/${kind}-owners-mobile-scrolled.png` })
+    }
   } finally {
     await context.close()
   }

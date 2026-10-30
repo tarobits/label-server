@@ -11,7 +11,7 @@ from test_access_security import accounts as account_fixture
 from test_auth import change
 
 from app.db import make_engine
-from app.models import Role, UserGroup
+from app.models import Role, User, UserGroup
 
 accounts = account_fixture
 SVG = b'<svg viewBox="0 0 20 20"><rect width="10" height="10"/></svg>'
@@ -32,6 +32,31 @@ def data(kind):
 
 def endpoint(kind):
     return "/api/image-assets" if kind == "images" else "/api/font-assets"
+
+
+@pytest.mark.parametrize("kind", ["images", "fonts"])
+def test_admins_see_current_owner_names_without_expanding_member_visibility(accounts, kind):
+    admin, alice, bob = accounts
+    path = endpoint(kind)
+    asset = alice.post(path, content=data(kind)).json()
+    assert "owner_name" not in asset
+    assert bob.get(path).json() == []
+    assert admin.get(path).json()[0]["owner_name"] == "alice"
+    with admin.app.state.factory.begin() as session:
+        session.get(User, "alice").username = "Renamed owner"
+    assert admin.get(path).json()[0]["owner_name"] == "Renamed owner"
+    assert admin.delete(f"{path}/{asset['id']}").json()["owner_name"] == "Renamed owner"
+    assert "owner_name" not in alice.get(path).json()[0]
+    assert bob.get(path).json() == []
+
+
+@pytest.mark.parametrize("kind", ["images", "fonts"])
+def test_admin_owner_names_tolerate_legacy_assets_without_a_user_record(accounts, kind):
+    admin, _, _ = accounts
+    store = admin.app.state.images if kind == "images" else admin.app.state.fonts
+    store.add(data(kind), owner_id="legacy-owner")
+    item = admin.get(endpoint(kind)).json()[0]
+    assert item["owner_id"] == "legacy-owner" and item["owner_name"] is None
 
 
 @pytest.mark.parametrize("kind", ["images", "fonts"])
