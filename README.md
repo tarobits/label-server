@@ -314,6 +314,17 @@ Tape usage entries identify their cartridge and tape profile. The **Cartridge**
 filter narrows usage totals and recent allocations for the selected user or all
 users. Account balances and payments always include all cartridges.
 
+Users with **Manage tape profiles and cartridges** can rename cartridges, archive
+them from active inventory, and restore them using the **Archived** inventory view.
+Archived cartridges are excluded from installation choices and new cost estimates;
+their print history, usage and charges remain available. Remove an installed
+cartridge from its printer and resolve pending prints or uncertain consumption
+before archiving it. **Delete permanently** removes only cartridges without print
+or queue history, after confirmation; used cartridges can be archived instead.
+
+Cartridge archiving requires a database upgrade: stop existing servers, run
+`alembic upgrade head`, then restart. Existing cartridges remain active.
+
 Cartridge lengths are estimates, not sensor measurements; calibrate feed and
 leader settings and correct remaining length when the printer is idle with no
 batch awaiting review.

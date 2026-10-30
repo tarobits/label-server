@@ -140,6 +140,7 @@ const pricingConfig = computed(() => ({
     c.nominal_length_mm,
     c.remaining_mm,
     c.installed,
+    c.archived,
   ]),
   mounted: w.printerStatuses.map((p) => [p.printer_id, p.active_cartridge_id]),
 }))

@@ -102,7 +102,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const tasks: Promise<unknown>[] = [
           read<typeof overview.value>('/workspace', 10000).then((value) => apply(overview, value)),
           read<Profile[]>('/tape-profiles', 60000).then((value) => apply(profiles, value)),
-          read<Cartridge[]>('/cartridges', 10000).then((value) => apply(cartridges, value)),
+          read<Cartridge[]>('/cartridges?include_archived=true', 10000).then((value) =>
+            apply(cartridges, value),
+          ),
           read<Printer[]>('/printers', 30000).then((value) => apply(printers, value)),
           read<Destination[]>('/destinations', 10000).then((value) => {
             apply(destinations, value)

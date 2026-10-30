@@ -52,14 +52,16 @@ def estimate_cost(
         cartridge = (
             session.get(Cartridge, state.active_cartridge_id) if state.active_cartridge_id else None
         )
-        if cartridge and cartridge.profile_id == profile_id:
+        if cartridge and not cartridge.archived and cartridge.profile_id == profile_id:
             candidates.append((plans[state.printer_id], cartridge))
     if not candidates:
         result["basis"] = "inventory"
         inventory = list(
             session.scalars(
                 select(Cartridge).where(
-                    Cartridge.profile_id == profile_id, Cartridge.remaining_mm > 0
+                    Cartridge.profile_id == profile_id,
+                    Cartridge.remaining_mm > 0,
+                    Cartridge.archived.is_(False),
                 )
             )
         )

@@ -199,6 +199,16 @@ lists the selected users' tracked cartridges for filtering. Usage totals and the
 latest 100 matching allocations follow the filter. Account balances and adjustments
 always span all cartridges, and user-usage permissions apply before filtering.
 
+`GET /api/cartridges` returns active inventory; `include_archived=true` also returns
+archived records for history and inventory management. Each record includes
+`archived`, `archive_blocked_reason` and `delete_blocked_reason`. Inventory managers
+can rename with `PUT /api/cartridges/{id}` and `{"name": "New name"}`, archive with
+`DELETE /api/cartridges/{id}`, and restore with `POST /api/cartridges/{id}/restore`.
+`DELETE /api/cartridges/{id}/permanent` deletes unused cartridges; installed,
+uncertain, reserved or historically referenced cartridges return 409. Archived
+cartridges cannot be installed or used for new price estimates. Historical review
+can still attribute a past attempt to an archived cartridge without restoring it.
+
 Administrator font and image responses also include the current `owner_name`
 (null when no matching user exists). Other users receive no additional owner-name
 field or asset access.

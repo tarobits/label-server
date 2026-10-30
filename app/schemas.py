@@ -37,6 +37,10 @@ class CartridgeInput(CartridgePriceInput):
         return self
 
 
+class CartridgeNameInput(Input):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
 class RemainingInput(Input):
     remaining_mm: float = Field(ge=0)
 

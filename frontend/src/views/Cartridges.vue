@@ -8,6 +8,7 @@ import { storeToRefs } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
+import { confirmAction } from '../confirmation'
 import { useAuthStore } from '../auth'
 import { useWorkspaceStore, metres } from '../workspace'
 import type { Cartridge, Status } from '../types'
@@ -15,6 +16,15 @@ const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
 const { profiles, cartridges, busy } = storeToRefs(w)
+const inventoryView = ref('active')
+const editing = ref<string | null>(null),
+  cartridgeName = ref(''),
+  nameInput = ref<HTMLInputElement[]>([])
+const visibleCartridges = computed(() =>
+  cartridges.value.filter(
+    (cartridge) => !!cartridge.archived === (inventoryView.value === 'archived'),
+  ),
+)
 const printerId = ref('')
 watch(
   () =>
@@ -59,6 +69,15 @@ function correctionLocked(id: string) {
 function isInstalled(cartridge: Cartridge) {
   return cartridge.installed || !!installedIn(cartridge.id)
 }
+function removalReason(cartridge: Cartridge) {
+  if (cartridge.archive_blocked_reason)
+    return cartridge.archive_blocked_reason.replace('archiving', 'archiving or deleting')
+  if (cartridge.delete_blocked_reason)
+    return cartridge.archived
+      ? 'Cartridges with print or queue history cannot be permanently deleted.'
+      : cartridge.delete_blocked_reason
+  return ''
+}
 const showForm = ref(false),
   correcting = ref<string | null>(null),
   correction = ref(0)
@@ -86,8 +105,62 @@ async function save() {
     )
   ) {
     showForm.value = false
+    inventoryView.value = 'active'
     form.name = ''
   }
+}
+async function archive(cartridge: Cartridge) {
+  if (
+    !(await confirmAction(
+      `Archive “${cartridge.name}”? It will no longer appear in active inventory or printing choices. Its history, usage and costs remain available.`,
+      'Archive cartridge',
+    ))
+  )
+    return
+  if (await w.action(() => api(`/cartridges/${cartridge.id}`, 'DELETE'), 'Cartridge archived.'))
+    correcting.value = null
+}
+function startRename(cartridge: Cartridge) {
+  editing.value = cartridge.id
+  cartridgeName.value = cartridge.name
+}
+function focusName() {
+  if (editing.value) {
+    nameInput.value[0]?.focus()
+    nameInput.value[0]?.select()
+  }
+}
+async function rename(cartridge: Cartridge) {
+  if (!cartridgeName.value.trim()) return
+  if (
+    await w.action(
+      () => api(`/cartridges/${cartridge.id}`, 'PUT', { name: cartridgeName.value.trim() }),
+      'Cartridge renamed.',
+    )
+  )
+    editing.value = null
+}
+async function restore(cartridge: Cartridge) {
+  await w.action(
+    () => api(`/cartridges/${cartridge.id}/restore`, 'POST'),
+    'Cartridge restored to inventory.',
+  )
+}
+async function remove(cartridge: Cartridge) {
+  if (
+    !(await confirmAction(
+      `Permanently delete “${cartridge.name}”? This removes its inventory record and cannot be undone.`,
+      'Delete permanently',
+    ))
+  )
+    return
+  if (
+    await w.action(
+      () => api(`/cartridges/${cartridge.id}/permanent`, 'DELETE'),
+      'Cartridge permanently deleted.',
+    )
+  )
+    correcting.value = null
 }
 async function install(id: string | null) {
   const target = printerId.value
@@ -115,13 +188,21 @@ async function correct(id: string) {
 </script>
 <template>
   <div class="section-heading">
-    <label v-if="w.printers.length" class="cartridge-printer"
-      >Printer<select v-model="printerId" :disabled="busy">
-        <option v-for="printer in w.printers" :key="printer.id" :value="printer.id">
-          {{ printer.name }}
-        </option>
-      </select></label
-    >
+    <div class="row wrap cartridge-filters">
+      <label v-if="w.printers.length" class="cartridge-printer"
+        >Printer<select v-model="printerId" :disabled="busy">
+          <option v-for="printer in w.printers" :key="printer.id" :value="printer.id">
+            {{ printer.name }}
+          </option>
+        </select></label
+      >
+      <label class="cartridge-view"
+        >Inventory<select v-model="inventoryView" :disabled="busy">
+          <option value="active">Active</option>
+          <option value="archived">Archived</option>
+        </select></label
+      >
+    </div>
     <button class="secondary" :disabled="!profiles.length" @click="showForm = !showForm">
       Register cartridge
     </button>
@@ -195,29 +276,71 @@ async function correct(id: string) {
     </form>
   </Transition>
   <CartridgeDetection :status="selectedStatus" />
-  <div v-if="!cartridges.length" class="panel empty">
-    <h2>No cartridges registered yet.</h2>
-    <RouterLink v-if="!profiles.length" class="button primary" to="/profiles"
-      >Create a tape profile first</RouterLink
-    >
-  </div>
+  <Transition name="notice"
+    ><div v-if="!visibleCartridges.length" class="panel empty motion-reveal">
+      <h2>
+        {{ inventoryView === 'archived' ? 'No archived cartridges.' : 'No active cartridges.' }}
+      </h2>
+      <RouterLink
+        v-if="!profiles.length && inventoryView === 'active'"
+        class="button primary"
+        to="/profiles"
+        >Create a tape profile first</RouterLink
+      >
+    </div></Transition
+  >
   <TransitionGroup
-    v-if="cartridges.length"
     tag="div"
     class="cartridge-grid"
     name="collection"
     @before-leave="freezeLeavingItem"
   >
-    <article v-for="cartridge in cartridges" :key="cartridge.id" class="panel cartridge-card">
+    <article
+      v-for="cartridge in visibleCartridges"
+      :key="cartridge.id"
+      class="panel cartridge-card"
+    >
       <div class="section-heading">
         <span class="eyebrow">{{ w.profileName(cartridge.profile_id) }}</span
-        ><span v-if="isInstalled(cartridge)" class="badge printed">{{
+        ><span v-if="cartridge.archived" class="badge">Archived</span
+        ><span v-else-if="isInstalled(cartridge)" class="badge printed">{{
           installedIn(cartridge.id)
             ? `Installed in ${installedIn(cartridge.id)?.printer_name}`
             : 'Installed in another printer'
         }}</span>
       </div>
-      <h2>{{ cartridge.name }}</h2>
+      <Transition name="notice" mode="out-in" @after-enter="focusName"
+        ><form
+          v-if="editing === cartridge.id"
+          v-validate-form
+          class="form-stack motion-reveal"
+          @submit.prevent="rename(cartridge)"
+          @keydown.esc.prevent="editing = null"
+        >
+          <label
+            >Cartridge name<input
+              ref="nameInput"
+              v-model="cartridgeName"
+              required
+              maxlength="100"
+              :disabled="busy"
+          /></label>
+          <div class="row wrap">
+            <button class="small primary" :disabled="busy || !cartridgeName.trim()">
+              Save name
+            </button>
+            <button type="button" class="small secondary" :disabled="busy" @click="editing = null">
+              Cancel
+            </button>
+          </div>
+        </form>
+        <div v-else class="row spread cartridge-name motion-reveal">
+          <h2>{{ cartridge.name }}</h2>
+          <button class="text-button" :disabled="busy" @click="startRename(cartridge)">
+            Rename
+          </button>
+        </div></Transition
+      >
       <p class="remaining">
         ≈ {{ metres(cartridge.remaining_mm)
         }}<small>of {{ metres(cartridge.nominal_length_mm) }}</small>
@@ -232,7 +355,7 @@ async function correct(id: string) {
       </p>
       <form
         v-validate-form
-        v-if="correcting === cartridge.id"
+        v-if="correcting === cartridge.id && !cartridge.archived"
         class="form-stack inset"
         @submit.prevent="correct(cartridge.id)"
       >
@@ -252,34 +375,98 @@ async function correct(id: string) {
         </div>
       </form>
       <div v-else aria-hidden="true"></div>
-      <CartridgePrice :cartridge="cartridge" />
+      <CartridgePrice v-if="!cartridge.archived" :cartridge="cartridge" />
+      <p v-else class="help">
+        Price:
+        {{
+          cartridge.price_minor === null
+            ? 'Not set'
+            : `${(cartridge.price_minor / 100).toFixed(2)} ${cartridge.currency}`
+        }}
+      </p>
       <div class="card-actions">
-        <button
-          v-if="!isInstalled(cartridge) && canSwap"
-          class="secondary"
-          :disabled="busy || locked"
-          @click="install(cartridge.id)"
-        >
-          Install cartridge</button
-        ><button
-          v-else-if="installedIn(cartridge.id)?.printer_id === printerId && canSwap"
-          :disabled="busy || locked"
-          @click="install(null)"
-        >
-          Remove from printer</button
-        ><button
-          class="text-button"
-          :disabled="busy || correctionLocked(cartridge.id)"
-          @click="startCorrection(cartridge)"
-        >
-          Correct estimate
+        <template v-if="!cartridge.archived">
+          <button
+            v-if="!isInstalled(cartridge) && canSwap"
+            class="secondary"
+            :disabled="busy || locked"
+            @click="install(cartridge.id)"
+          >
+            Install cartridge</button
+          ><button
+            v-else-if="installedIn(cartridge.id)?.printer_id === printerId && canSwap"
+            :disabled="busy || locked"
+            @click="install(null)"
+          >
+            Remove from printer</button
+          ><button
+            class="text-button"
+            :disabled="busy || correctionLocked(cartridge.id)"
+            @click="startCorrection(cartridge)"
+          >
+            Correct estimate
+          </button>
+          <button
+            class="text-button"
+            :disabled="busy || !!cartridge.archive_blocked_reason"
+            :title="cartridge.archive_blocked_reason ?? undefined"
+            :aria-describedby="
+              cartridge.archive_blocked_reason ? `removal-${cartridge.id}` : undefined
+            "
+            @click="archive(cartridge)"
+          >
+            Archive cartridge
+          </button>
+        </template>
+        <button v-else class="secondary" :disabled="busy" @click="restore(cartridge)">
+          Restore cartridge
         </button>
+        <button
+          class="text-button danger-text"
+          :disabled="busy || !!cartridge.delete_blocked_reason"
+          :title="cartridge.delete_blocked_reason ?? undefined"
+          :aria-describedby="
+            cartridge.delete_blocked_reason ? `removal-${cartridge.id}` : undefined
+          "
+          @click="remove(cartridge)"
+        >
+          Delete permanently
+        </button>
+      </div>
+      <div>
+        <Transition name="notice" mode="out-in">
+          <p
+            v-if="removalReason(cartridge)"
+            :id="`removal-${cartridge.id}`"
+            :key="removalReason(cartridge)"
+            class="help motion-reveal"
+          >
+            {{ removalReason(cartridge) }}
+          </p>
+        </Transition>
       </div>
     </article>
   </TransitionGroup>
 </template>
 
 <style scoped>
+.cartridge-filters {
+  align-items: end;
+  flex: 1;
+  min-width: 0;
+}
+.cartridge-view {
+  width: min(160px, 100%);
+}
+.cartridge-name h2 {
+  min-width: 0;
+}
+.cartridge-name {
+  align-items: start;
+}
+.cartridge-name button {
+  flex-shrink: 0;
+}
 .cartridge-printer {
   width: min(320px, 100%);
 }
@@ -291,8 +478,8 @@ async function correct(id: string) {
 }
 .cartridge-card {
   display: grid;
-  grid-template-rows: auto auto auto auto 1fr auto auto auto;
-  grid-row: span 8;
+  grid-template-rows: auto auto auto auto 1fr auto auto auto auto;
+  grid-row: span 9;
   row-gap: 12px;
   min-width: 0;
   margin-bottom: 0;

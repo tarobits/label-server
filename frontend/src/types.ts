@@ -50,6 +50,9 @@ export type ProfileInput = Pick<
   | 'waiting_notification_interval_seconds'
 >
 export interface Cartridge {
+  archived: boolean
+  archive_blocked_reason?: string | null
+  delete_blocked_reason?: string | null
   price_minor: number | null
   currency: string
   installed?: boolean

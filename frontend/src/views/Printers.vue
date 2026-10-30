@@ -72,8 +72,9 @@ const cartridge = (id: string) => w.cartridges.find((c) => c.id === state(id)?.a
 function availableCartridges(id: string) {
   return w.cartridges.filter(
     (c) =>
-      c.id === state(id)?.active_cartridge_id ||
-      (!c.installed && !w.printerStatuses.some((s) => s.active_cartridge_id === c.id)),
+      !c.archived &&
+      (c.id === state(id)?.active_cartridge_id ||
+        (!c.installed && !w.printerStatuses.some((s) => s.active_cartridge_id === c.id))),
   )
 }
 async function addPrinter() {

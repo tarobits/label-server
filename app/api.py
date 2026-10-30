@@ -19,6 +19,7 @@ from app.authorization import (
     visible_jobs,
 )
 from app.cartridge_confirmation import check_cartridge, configure_media
+from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.cost_estimates import estimate_cost
 from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
@@ -55,6 +56,7 @@ from app.schemas import (
     AutomaticPrintingInput,
     CartridgeCheckInput,
     CartridgeInput,
+    CartridgeNameInput,
     CartridgePriceInput,
     CopySelectionInput,
     ImageJobInput,
@@ -163,7 +165,10 @@ def control_reminder(
 
 
 @router.get("/cartridges")
-def list_cartridges(session: Session = Depends(db, scope="function")) -> list[dict[str, Any]]:
+def list_cartridges(
+    include_archived: bool = False,
+    session: Session = Depends(db, scope="function"),
+) -> list[dict[str, Any]]:
     # Inventory is shared, but physical printer identities may be restricted.
     installed = {
         state.active_cartridge_id: state.printer_id
@@ -175,13 +180,20 @@ def list_cartridges(session: Session = Depends(db, scope="function")) -> list[di
             select(Batch.printer_id).where(Batch.state.in_([State.PRINTING, State.NEEDS_REVIEW]))
         )
     )
+    archive_reasons = archive_blockers(session)
+    delete_reasons = deletion_blockers(session, archive_reasons)
+    query = select(Cartridge)
+    if not include_archived:
+        query = query.where(Cartridge.archived.is_(False))
     return [
         {
             **record(cartridge),
             "installed": cartridge.id in installed,
             "estimate_locked": installed.get(cartridge.id) in busy_printers,
+            "archive_blocked_reason": archive_reasons.get(cartridge.id),
+            "delete_blocked_reason": delete_reasons.get(cartridge.id),
         }
-        for cartridge in session.scalars(select(Cartridge))
+        for cartridge in session.scalars(query)
     ]
 
 
@@ -198,6 +210,51 @@ def create_cartridge(
     session.add(cartridge)
     session.flush()
     return record(cartridge)
+
+
+@router.delete("/cartridges/{identifier}")
+def archive_cartridge(
+    identifier: str, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    cartridge = get(session, Cartridge, identifier)
+    if reason := archive_blockers(session).get(identifier):
+        raise HTTPException(409, reason)
+    cartridge.archived = True
+    session.flush()
+    return record(cartridge)
+
+
+@router.put("/cartridges/{identifier}")
+def rename_cartridge(
+    identifier: str,
+    body: CartridgeNameInput,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    cartridge = get(session, Cartridge, identifier)
+    cartridge.name = body.name
+    session.flush()
+    return record(cartridge)
+
+
+@router.post("/cartridges/{identifier}/restore")
+def restore_cartridge(
+    identifier: str, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    cartridge = get(session, Cartridge, identifier)
+    cartridge.archived = False
+    session.flush()
+    return record(cartridge)
+
+
+@router.delete("/cartridges/{identifier}/permanent")
+def delete_cartridge(
+    identifier: str, session: Session = Depends(db, scope="function")
+) -> dict[str, bool]:
+    cartridge = get(session, Cartridge, identifier)
+    if reason := deletion_blockers(session, archive_blockers(session)).get(identifier):
+        raise HTTPException(409, reason)
+    session.delete(cartridge)
+    return {"deleted": True}
 
 
 @router.get("/usage")
@@ -258,6 +315,8 @@ def cartridge_price(
     ):
         idle(session, state.printer_id)
     cartridge = get(session, Cartridge, identifier)
+    if cartridge.archived:
+        raise HTTPException(409, "Restore this cartridge before changing its price")
     cartridge.price_minor, cartridge.currency = body.price_minor, body.currency
     session.flush()
     return record(cartridge)
@@ -273,6 +332,8 @@ def correct_remaining(
     for state in installed_states:
         idle(session, state.printer_id)
     cartridge = get(session, Cartridge, identifier)
+    if cartridge.archived:
+        raise HTTPException(409, "Restore this cartridge before correcting its remaining tape")
     if body.remaining_mm > cartridge.nominal_length_mm:
         raise HTTPException(422, "Remaining length exceeds nominal length")
     cartridge.remaining_mm = body.remaining_mm
@@ -310,6 +371,8 @@ def active_tape(
     cartridge = None
     if body.cartridge_id:
         cartridge = get(session, Cartridge, body.cartridge_id)
+        if cartridge.archived:
+            raise HTTPException(409, "Restore this cartridge before installing it")
         if session.scalar(
             select(PrinterState.id).where(
                 PrinterState.active_cartridge_id == body.cartridge_id,

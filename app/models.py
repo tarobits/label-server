@@ -132,6 +132,7 @@ class TapeProfile(Base):
 class Cartridge(Base):
     __tablename__ = "cartridges"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    archived: Mapped[bool] = mapped_column(default=False, server_default="0")
     profile_id: Mapped[str] = mapped_column(ForeignKey("tape_profiles.id"))
     name: Mapped[str]
     nominal_length_mm: Mapped[float]

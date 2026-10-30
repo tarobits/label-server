@@ -256,6 +256,7 @@ async function resolve() {
           >Cartridge used for this attempt<select v-model="cartridgeId" :disabled="w.busy" required>
             <option v-for="cartridge in w.cartridges" :key="cartridge.id" :value="cartridge.id">
               {{ cartridge.name }} · {{ w.profileName(cartridge.profile_id) }}
+              {{ cartridge.archived ? '(Archived)' : '' }}
             </option>
           </select></label
         >
