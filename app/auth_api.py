@@ -262,6 +262,26 @@ def logout(request: Request, response: Response) -> None:
         current = session_user(request, session)
         if current:
             check_csrf(request, current[1])
+            from app.models import NotificationEndpoint
+            from app.notification_api import update_configuration
+
+            for endpoint in session.scalars(
+                select(NotificationEndpoint).where(
+                    NotificationEndpoint.transport == "push",
+                    NotificationEndpoint.owner_id == current[0].id,
+                    NotificationEndpoint.push_session_hash == current[1].token_hash,
+                )
+            ):
+                update_configuration(
+                    session,
+                    endpoint,
+                    {
+                        "enabled": False,
+                        "push_subscription": {},
+                        "deleted_at": time.time(),
+                        "push_session_hash": None,
+                    },
+                )
             session.execute(
                 delete(AuthSession).where(AuthSession.token_hash == current[1].token_hash)
             )

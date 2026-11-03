@@ -317,6 +317,10 @@ class NotificationEndpoint(Base):
     transport: Mapped[str] = mapped_column(default="ntfy", server_default="ntfy")
     email: Mapped[str] = mapped_column(default="", server_default="")
     owner_id: Mapped[str | None] = mapped_column(String, index=True)
+    push_subscription: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
+    push_session_hash: Mapped[str | None] = mapped_column(String)
     url: Mapped[str]
     topic: Mapped[str]
     token: Mapped[str] = mapped_column(default="")

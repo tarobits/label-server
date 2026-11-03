@@ -176,7 +176,13 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
             session.execute(
                 update(NotificationEndpoint)
                 .where(NotificationEndpoint.owner_id == item.identifier)
-                .values(email="", enabled=False, deleted_at=now)
+                .values(
+                    email="",
+                    enabled=False,
+                    deleted_at=now,
+                    push_subscription={},
+                    push_session_hash=None,
+                )
             )
             session.execute(delete(AuthSession).where(AuthSession.user_id == item.identifier))
             session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == item.identifier))

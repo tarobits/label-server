@@ -30,13 +30,7 @@ router = APIRouter(prefix="/api/admin/notification-endpoints", tags=["administra
 Priority = Annotated[int, Field(strict=True, ge=1, le=5)]
 
 
-class EndpointInput(AdminInput):
-    name: str = Field(min_length=1, max_length=100)
-    transport: Literal["ntfy", "email"] = "ntfy"
-    email: EmailAddress | Literal[""] = ""
-    url: str = Field(default="", max_length=2048)
-    topic: str = Field(default="", pattern=r"^[-_A-Za-z0-9]{0,64}$")
-    token: str | None = None
+class NotificationPreferences(AdminInput):
     enabled: bool = True
     destination_ids: list[str] = Field(default_factory=list, max_length=1000)
     all_printers: bool = False
@@ -50,6 +44,47 @@ class EndpointInput(AdminInput):
     priorities: dict[NotificationKind, Priority] = Field(
         default_factory=lambda: dict(DEFAULT_NOTIFICATION_PRIORITIES)
     )
+
+    @model_validator(mode="after")
+    def unique_filters(self) -> "NotificationPreferences":
+        return self.validate_filters()
+
+    def validate_filters(self) -> "NotificationPreferences":
+        for values in (self.destination_ids, self.kinds):
+            if len(values) != len(set(values)):
+                raise ValueError("Choose each destination and notification kind only once")
+        for identifier, kinds in self.printer_kinds.items():
+            if len(kinds) != len(set(kinds)):
+                raise ValueError("Choose each printer event type only once")
+            self.printer_kinds[identifier] = sorted(kinds)
+        if not self.kinds and not any(self.printer_kinds.values()):
+            raise ValueError("Select at least one event type")
+        if self.all_printers and self.destination_ids:
+            raise ValueError("Choose all current and future printers or specific destinations")
+        if (
+            not self.all_printers
+            and not self.destination_ids
+            and PRINTER_NOTIFICATION_KINDS.intersection(self.kinds)
+        ):
+            raise ValueError("Select printers or distribution groups for printer notifications")
+        self.priorities = {**DEFAULT_NOTIFICATION_PRIORITIES, **self.priorities}
+        if self.printer_priorities.keys() - self.printer_kinds.keys():
+            raise ValueError("Customize a printer's events before setting its priorities")
+        self.printer_priorities = {
+            identifier: priorities
+            for identifier, priorities in self.printer_priorities.items()
+            if priorities
+        }
+        return self
+
+
+class EndpointInput(NotificationPreferences):
+    name: str = Field(min_length=1, max_length=100)
+    transport: Literal["ntfy", "email"] = "ntfy"
+    email: EmailAddress | Literal[""] = ""
+    url: str = Field(default="", max_length=2048)
+    topic: str = Field(default="", pattern=r"^[-_A-Za-z0-9]{0,64}$")
+    token: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -97,35 +132,11 @@ class EndpointInput(AdminInput):
                 raise ValueError("Enter a recipient email address")
             self.url, self.topic, self.token = "", "", ""
             self.printer_priorities = {}
-        for values in (self.destination_ids, self.kinds):
-            if len(values) != len(set(values)):
-                raise ValueError("Choose each destination and notification kind only once")
-        for identifier, kinds in self.printer_kinds.items():
-            if len(kinds) != len(set(kinds)):
-                raise ValueError("Choose each printer event type only once")
-            self.printer_kinds[identifier] = sorted(kinds)
-        if not self.kinds and not any(self.printer_kinds.values()):
-            raise ValueError("Select at least one event type")
-        if self.all_printers and self.destination_ids:
-            raise ValueError("Choose all current and future printers or specific destinations")
-        if (
-            not self.all_printers
-            and not self.destination_ids
-            and PRINTER_NOTIFICATION_KINDS.intersection(self.kinds)
-        ):
-            raise ValueError("Select printers or distribution groups for printer notifications")
-        self.priorities = {**DEFAULT_NOTIFICATION_PRIORITIES, **self.priorities}
-        if self.printer_priorities.keys() - self.printer_kinds.keys():
-            raise ValueError("Customize a printer's events before setting its priorities")
-        self.printer_priorities = {
-            identifier: priorities
-            for identifier, priorities in self.printer_priorities.items()
-            if priorities
-        }
+        self.validate_filters()
         return self
 
 
-def validate_references(session: Session, body: EndpointInput) -> None:
+def validate_references(session: Session, body: NotificationPreferences) -> None:
     covered = set(body.destination_ids)
     for identifier in body.destination_ids:
         device = session.get(PrinterDevice, identifier)

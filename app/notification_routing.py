@@ -17,6 +17,7 @@ from app.models import (
 )
 from app.notification_types import PRINTER_NOTIFICATION_KINDS
 from app.notifications import NtfySender, notification_valid, waiting_destinations
+from app.push_delivery import ExpiredSubscription, active_push_session, send_push
 from app.request_models import PrintRequest
 
 
@@ -92,7 +93,11 @@ def endpoint_message(
         from app.auth import actor_for_user
 
         user = session.get(User, endpoint.owner_id)
-        if user is None or user.disabled or not user.email or user.email != endpoint.email:
+        if user is None or user.disabled:
+            return None
+        if endpoint.transport == "email" and (not user.email or user.email != endpoint.email):
+            return None
+        if endpoint.transport == "push" and not active_push_session(session, endpoint):
             return None
         actor = actor_for_user(session, user)
         if notice.kind == "approval_digest" and not actor.is_admin:
@@ -296,6 +301,7 @@ def deliver_routed_pending(
                 continue
             session.expunge(endpoint)
         failed = False
+        expired = False
         try:
             if send is None:
                 if endpoint.transport == "email":
@@ -305,10 +311,14 @@ def deliver_routed_pending(
                         message.title,
                         message.message + "\n\n" + settings.public_url.rstrip("/") + message.path,
                     )
+                elif endpoint.transport == "push":
+                    send_push(settings, endpoint, message)
                 else:
                     NtfySender(settings, endpoint).send(message)
             else:
                 send(endpoint, message)
+        except ExpiredSubscription:
+            expired = True
         except Exception:
             failed = True
         with factory.begin() as session:
@@ -316,7 +326,17 @@ def deliver_routed_pending(
             if stored is None:
                 continue
             stored.attempts += 1
-            if failed:
+            if expired:
+                from app.notification_api import cancel_pending
+
+                current_endpoint = session.get(NotificationEndpoint, stored.endpoint_id)
+                stored.cancelled = True
+                stored.last_error = "Push subscription expired"
+                if current_endpoint and current_endpoint.revision == stored.endpoint_revision:
+                    current_endpoint.enabled = False
+                    current_endpoint.revision += 1
+                    cancel_pending(session, current_endpoint.id)
+            elif failed:
                 stored.last_error = "Delivery failed; will retry"
                 stored.next_attempt_at = now + min(3600, 30 * 2 ** min(stored.attempts - 1, 7))
             else:

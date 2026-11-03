@@ -11,7 +11,7 @@ dependencies = [
   "fastapi>=0.121,<1", "uvicorn[standard]>=0.34,<1",
   "sqlalchemy>=2.0,<3", "alembic>=1.14,<2",
   "pydantic-settings>=2.7,<3", "httpx>=0.28,<1",
-  "pyusb>=1.3,<2",
+  "pyusb>=1.3,<2", "pywebpush>=2.5,<3", "cryptography>=47,<51", "requests>=2.31,<3",
   "pillow>=13,<14", "resvg-py>=0.5,<0.6", "qrcode>=8,<9", "fonttools>=4,<5",
 ]
 
