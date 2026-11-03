@@ -47,7 +47,7 @@ test('verified recovery email, personal subscriptions, and forgotten password wo
     emailSettings.getByRole('checkbox', { name: 'Empty cartridges', exact: true }),
   ).toBeChecked()
   await page.setViewportSize({ width: 390, height: 844 })
-  await emailSettings.getByRole('heading', { name: 'Recovery email', exact: true }).click()
+  await emailSettings.getByRole('heading', { name: 'Account email', exact: true }).click()
   await emailSettings.scrollIntoViewIfNeeded()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await page.screenshot({
@@ -102,7 +102,7 @@ test('verified recovery email, personal subscriptions, and forgotten password wo
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
   await recovery.getByRole('link', { name: 'Back to sign in', exact: true }).click()
-  await recovery.getByLabel('Username', { exact: true }).fill('owner')
+  await recovery.getByLabel('Username or email', { exact: true }).fill('owner')
   await recovery.getByLabel('Password', { exact: true }).fill('new-browser-owner-password')
   await recovery.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(recovery.getByRole('link', { name: 'Overview', exact: true })).toBeVisible()

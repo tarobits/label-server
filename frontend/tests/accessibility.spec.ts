@@ -175,7 +175,7 @@ test('switching authentication forms clears old validation and focuses the usern
   await page.route('**/api/auth/login', (route) =>
     route.fulfill({ status: 401, json: { detail: 'Invalid username or password.' } }),
   )
-  await page.getByLabel('Username', { exact: true }).fill('tester')
+  await page.getByLabel('Username or email', { exact: true }).fill('tester')
   await page.getByLabel('Password', { exact: true }).fill('test-password-123')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('alert')).toHaveText('Invalid username or password.')
@@ -185,7 +185,7 @@ test('switching authentication forms clears old validation and focuses the usern
   await expect(page.locator('[aria-invalid="true"], .field-error')).toHaveCount(0)
   await page.getByRole('button', { name: 'Back to sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
-  await expect(page.getByLabel('Username', { exact: true })).toBeFocused()
+  await expect(page.getByLabel('Username or email', { exact: true })).toBeFocused()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 

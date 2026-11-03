@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +16,7 @@ from app.auth import (
     COOKIE_NAME,
     check_csrf,
     check_origin,
+    find_login_user,
     hash_password,
     new_session,
     session_record,
@@ -37,16 +38,15 @@ from app.releases import stable_version
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 Password = Annotated[str, Field(min_length=12, max_length=256)]
+Username = Annotated[
+    str,
+    StringConstraints(to_lower=True, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$"),
+]
 
 
 class Credentials(BaseModel):
-    username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    username: Username
     password: Password
-
-    @field_validator("username")
-    @classmethod
-    def normalize_username(cls, value: str) -> str:
-        return value.lower()
 
 
 class SetupInput(Credentials):
@@ -58,7 +58,7 @@ class RegistrationInput(Credentials):
 
 
 class LoginInput(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=256)
 
 
@@ -125,17 +125,17 @@ def setup(body: SetupInput, request: Request, response: Response) -> dict[str, A
 @router.post("/login")
 def login(body: LoginInput, request: Request, response: Response) -> dict[str, Any]:
     check_origin(request)
-    throttle(request, body.username)
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         # Serialize password verification and session creation against account resets.
         session.execute(text("BEGIN IMMEDIATE"))
-        user = session.scalar(select(User).where(User.username == body.username.lower()))
+        user = find_login_user(session, body.username)
+        throttle(request, user.username if user else body.username.strip())
         if user is None:
             hash_password(body.password)
-            raise HTTPException(401, "Invalid username or password")
+            raise HTTPException(401, "Invalid sign-in details")
         valid = verify_password(body.password, user.password_hash)
         if not valid or user.disabled:
-            raise HTTPException(401, "Invalid username or password")
+            raise HTTPException(401, "Invalid sign-in details")
         result = new_session(request, response, session, user)
         session.commit()
         return result

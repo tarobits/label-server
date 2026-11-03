@@ -94,7 +94,7 @@ test('a group image uploader sees only authorized scopes and separate personal f
   const page = await context.newPage()
   try {
     await page.goto('/#/images')
-    await page.getByLabel('Username', { exact: true }).fill('designer')
+    await page.getByLabel('Username or email', { exact: true }).fill('designer')
     await page.getByLabel('Password', { exact: true }).fill('designer-password-123')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Upload images', exact: true })).toBeVisible()

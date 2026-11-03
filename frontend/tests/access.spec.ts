@@ -182,7 +182,7 @@ test('revoked access pauses queued labels while their owner can cancel and an ad
   const member = await context.newPage()
   try {
     await member.goto('/#/new')
-    await member.getByLabel('Username', exact()).fill('printeruser')
+    await member.getByLabel('Username or email', exact()).fill('printeruser')
     await member.getByLabel('Password', exact()).fill('member-password-123')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     for (const text of ['Keep for administrator', 'Cancel myself']) {
@@ -265,7 +265,7 @@ test('template collaboration settings stay independent and owners can edit after
   ).not.toBeChecked()
   await page.getByRole('button', { name: 'Review group changes', exact: true }).click()
   await page.getByRole('button', { name: 'Confirm access changes', exact: true }).click()
-  await expect(page.getByText('Template group saved.', exact())).toBeVisible()
+  await expect(page.getByText('Content group saved.', exact())).toBeVisible()
   const document = (await (await request.get('/api/templates/text')).json()).document
   document.out_of_bounds = 'clip'
   expect(
@@ -283,7 +283,7 @@ test('template collaboration settings stay independent and owners can edit after
     member = await context.newPage()
   try {
     await member.goto('/#/templates')
-    await member.getByLabel('Username', exact()).fill('designer')
+    await member.getByLabel('Username or email', exact()).fill('designer')
     await member.getByLabel('Password', exact()).fill('designer-password-123')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     const shared = member.locator('article').filter({ hasText: 'Shared read-only' })
@@ -343,7 +343,7 @@ test('group-only moderators reach scoped queue controls without physical configu
     member = await context.newPage()
   try {
     await member.goto('/#/')
-    await member.getByLabel('Username', exact()).fill('moderator')
+    await member.getByLabel('Username or email', exact()).fill('moderator')
     await member.getByLabel('Password', exact()).fill('moderator-password-123')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     await member.getByRole('link', { name: 'Printers & groups', exact: true }).click()

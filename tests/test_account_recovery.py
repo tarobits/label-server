@@ -3,11 +3,12 @@
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from test_auth import PASSWORD, login, setup_admin
+from test_auth import PASSWORD, change, login, setup_admin
 from test_auth import auth_client as auth_client_fixture
 
 from app.auth import token_hash
@@ -48,6 +49,130 @@ def reset_link(client, mailbox):
     response = client.post("/api/auth/password/forgot", json={"username": "ADMIN"})
     assert response.status_code == 202, response.text
     return email_token(mailbox)
+
+
+@pytest.mark.parametrize(
+    "address", ["admin@example.invalid", "a" * 64 + "@" + "b" * 50 + ".example.invalid"]
+)
+def test_email_signin_requires_verification_and_tracks_the_current_address(
+    auth_client, tmp_path, mailbox, address
+):
+    client = auth_client
+    owner = setup_admin(client, tmp_path)["user"]["id"]
+    assert (
+        client.put(
+            "/api/auth/email", json={"email": address, "current_password": PASSWORD}
+        ).status_code
+        == 202
+    )
+    token = email_token(mailbox)
+    credentials = {"username": address, "password": PASSWORD}
+    assert client.post("/api/auth/login", json=credentials).status_code == 401
+    assert client.post("/api/auth/email/verify", json={"token": token}).status_code == 204
+    assert login(client, "  " + address.upper() + "  ")["user"]["id"] == owner
+    assert (
+        client.post("/api/auth/login", json={**credentials, "password": "incorrect"}).status_code
+        == 401
+    )
+    # Replacing an address takes effect only after the new address is verified.
+    assert (
+        client.put(
+            "/api/auth/email",
+            json={"email": "replacement@example.invalid", "current_password": PASSWORD},
+        ).status_code
+        == 202
+    )
+    assert login(client, address)["user"]["id"] == owner
+    token = email_token(mailbox)
+    assert client.post("/api/auth/email/verify", json={"token": token}).status_code == 204
+    assert client.post("/api/auth/login", json=credentials).status_code == 401
+    assert login(client, "replacement@example.invalid")["user"]["id"] == owner
+    assert (
+        client.put(
+            "/api/auth/email", json={"email": None, "current_password": PASSWORD}
+        ).status_code
+        == 202
+    )
+    assert (
+        client.post(
+            "/api/auth/login",
+            json={"username": "replacement@example.invalid", "password": PASSWORD},
+        ).status_code
+        == 401
+    )
+    assert login(client)["user"]["id"] == owner
+
+
+def test_email_and_username_signin_share_the_account_rate_limit(auth_client, tmp_path, mailbox):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    verify_address(client, mailbox)
+    client.app.state.auth_limiter.events.clear()
+    for attempt in range(10):
+        identifier = "ADMIN" if attempt % 2 else "  Admin@Example.Invalid  "
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": identifier, "password": "wrong"}
+            ).status_code
+            == 401
+        )
+    for identifier in ("admin", "admin@example.invalid"):
+        assert (
+            client.post(
+                "/api/auth/login", json={"username": identifier, "password": PASSWORD}
+            ).status_code
+            == 429
+        )
+
+
+def test_email_verification_is_unique_and_legacy_ambiguous_signin_is_rejected(
+    auth_client, tmp_path, mailbox
+):
+    client = auth_client
+    owner = setup_admin(client, tmp_path)["user"]["id"]
+    created = change(client, "users", "POST", {"username": "member", "password": PASSWORD}).json()
+    with closing(TestClient(client.app, base_url="https://testserver")) as member:
+        login(member, "member")
+        tokens = []
+        for account in (client, member):
+            assert (
+                account.put(
+                    "/api/auth/email",
+                    json={"email": "shared@example.invalid", "current_password": PASSWORD},
+                ).status_code
+                == 202
+            )
+            tokens.append(email_token(mailbox))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(
+                pool.map(
+                    lambda pair: pair[0].post("/api/auth/email/verify", json={"token": pair[1]}),
+                    zip((client, member), tokens),
+                )
+            )
+        assert sorted(response.status_code for response in responses) == [204, 409]
+        with client.app.state.factory.begin() as session:
+            # Older installations permitted a verified address on multiple accounts.
+            session.get(User, owner).email = "shared@example.invalid"
+            session.get(User, created["id"]).email = "SHARED@example.invalid"
+        response = client.post(
+            "/api/auth/login", json={"username": "shared@example.invalid", "password": PASSWORD}
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid sign-in details"
+        assert login(client)["user"]["id"] == owner
+        assert login(member, "member")["user"]["id"] == created["id"]
+
+
+def test_disabled_accounts_cannot_sign_in_by_verified_email(auth_client, tmp_path, mailbox):
+    owner = setup_admin(auth_client, tmp_path)["user"]["id"]
+    verify_address(auth_client, mailbox)
+    with auth_client.app.state.factory.begin() as session:
+        session.get(User, owner).disabled = True
+    response = auth_client.post(
+        "/api/auth/login", json={"username": "admin@example.invalid", "password": PASSWORD}
+    )
+    assert response.status_code == 401
 
 
 def test_email_requires_password_csrf_origin_and_proof_of_possession(

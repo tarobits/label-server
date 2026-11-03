@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models import AuthSession, AuthSettings, PrinterDevice, PrinterGroup, Role, User, UserGroup
@@ -80,6 +80,16 @@ def verify_password(password: str, encoded: str) -> bool:
         return hmac.compare_digest(result.hex(), expected)
     except (ValueError, TypeError):
         return False
+
+
+def find_login_user(session: Session, identifier: str) -> User | None:
+    identifier = identifier.strip().lower()
+    match = (
+        func.lower(User.email) == identifier if "@" in identifier else User.username == identifier
+    )
+    users = list(session.scalars(select(User).where(match).limit(2)))
+    # Legacy accounts may share an address. Never guess which account to sign in.
+    return users[0] if len(users) == 1 else None
 
 
 def initialize_auth(factory: sessionmaker[Session], data_dir: Path) -> None:

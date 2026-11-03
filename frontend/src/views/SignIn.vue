@@ -61,12 +61,15 @@ async function submit() {
           >
         </label>
         <label
-          >Username<input
+          >{{ setup || registering ? 'Username' : 'Username or email'
+          }}<input
             ref="usernameInput"
             v-model="form.username"
             autocomplete="username"
             required
-            maxlength="64"
+            :maxlength="setup || registering ? 64 : 254"
+            autocapitalize="none"
+            :spellcheck="false"
             :minlength="setup || registering ? 3 : undefined"
             :pattern="setup || registering ? '[A-Za-z0-9_.-]+' : undefined"
         /></label>

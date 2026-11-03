@@ -315,7 +315,7 @@ test('read-only users can inspect shared history without restore actions', async
   try {
     const page = await context.newPage()
     await page.goto('/#/templates')
-    await page.getByLabel('Username', { exact: true }).fill('historyviewer')
+    await page.getByLabel('Username or email', { exact: true }).fill('historyviewer')
     await page.getByLabel('Password', { exact: true }).fill(password)
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     const card = page

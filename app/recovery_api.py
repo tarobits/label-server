@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth import (
@@ -172,7 +172,7 @@ def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> 
             endpoint = session.get(NotificationEndpoint, f"personal-email:{user.id}")
             if endpoint:
                 update_configuration(session, endpoint, {"enabled": False, "email": ""})
-            message = "Recovery email removed."
+            message = "Account email removed."
         else:
             require_email(request)
             token = issue_token(session, user, "verify", body.email)
@@ -211,6 +211,10 @@ def verify_email(body: TokenInput, request: Request) -> None:
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         session.execute(text("BEGIN IMMEDIATE"))
         token, user = consume_token(session, body.token, "verify")
+        if session.scalar(
+            select(User.id).where(func.lower(User.email) == token.email, User.id != user.id)
+        ):
+            raise HTTPException(409, "This email address is already used by another account")
         user.email = token.email
         session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
         endpoint = session.get(NotificationEndpoint, f"personal-email:{user.id}")

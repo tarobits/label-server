@@ -148,7 +148,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="account-email">
-    <h2>Recovery email</h2>
+    <h2>Account email</h2>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <p v-if="success" class="alert success" role="status">{{ success }}</p>
     <p v-if="!settings && !error" class="help" role="status">Loading email settings…</p>

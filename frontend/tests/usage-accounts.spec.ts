@@ -150,7 +150,7 @@ test('usage readers and account editors get independent controls without adminis
   const member = await context.newPage()
   try {
     await member.goto('/#/usage')
-    await member.getByLabel('Username', { exact: true }).fill('account-editor')
+    await member.getByLabel('Username or email', { exact: true }).fill('account-editor')
     await member.getByLabel('Password', { exact: true }).fill('browser-editor-password')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(
@@ -168,7 +168,7 @@ test('usage readers and account editors get independent controls without adminis
     await expect(member.locator('.adjustment-entry')).toHaveCount(0)
     await context.clearCookies()
     await member.reload()
-    await member.getByLabel('Username', { exact: true }).fill('usage-reader')
+    await member.getByLabel('Username or email', { exact: true }).fill('usage-reader')
     await member.getByLabel('Password', { exact: true }).fill('browser-reader-password')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(member.locator('.account-balance')).toContainText('€7.25')

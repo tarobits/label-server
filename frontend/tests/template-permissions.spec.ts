@@ -59,7 +59,7 @@ test('administrators grant global creation independently and authors start in th
   const author = await context.newPage()
   try {
     await author.goto('/#/templates')
-    await author.getByLabel('Username', { exact: true }).fill('globalauthor')
+    await author.getByLabel('Username or email', { exact: true }).fill('globalauthor')
     await author.getByLabel('Password', { exact: true }).fill('author-password-123')
     await author.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(
@@ -115,7 +115,7 @@ test('global collaborators edit and delete shared templates without creation or 
   const collaborator = await context.newPage()
   try {
     await collaborator.goto('/#/templates')
-    await collaborator.getByLabel('Username', { exact: true }).fill('collaborator')
+    await collaborator.getByLabel('Username or email', { exact: true }).fill('collaborator')
     await collaborator.getByLabel('Password', { exact: true }).fill('collaborator-password-123')
     await collaborator.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(

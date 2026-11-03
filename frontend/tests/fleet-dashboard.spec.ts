@@ -183,7 +183,7 @@ test('group-only dashboard shows authorized routing without physical printer det
   try {
     const member = await context.newPage()
     await member.goto('/#/')
-    await member.getByLabel('Username', { exact: true }).fill('groupmember')
+    await member.getByLabel('Username or email', { exact: true }).fill('groupmember')
     await member.getByLabel('Password', { exact: true }).fill('group-member-password')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     const station = member.getByRole('article', {

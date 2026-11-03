@@ -128,7 +128,7 @@ test('printer moderators can stop after the current label without emergency or c
     const page = await context.newPage()
     const calls = await simulateActivePrinter(page, printer.id)
     await page.goto('/#/')
-    await page.getByLabel('Username', { exact: true }).fill('queuemoderator')
+    await page.getByLabel('Username or email', { exact: true }).fill('queuemoderator')
     await page.getByLabel('Password', { exact: true }).fill('queue-moderator-password')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     const device = page.getByRole('article', { name: `Printer ${printer.name}`, exact: true })
