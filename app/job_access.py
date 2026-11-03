@@ -49,6 +49,25 @@ def principal_access_reason(
 def access_hold_reason(session: Session, job: PrintJob) -> str | None:
     if reason := content_hold_reason(session, job):
         return reason
+    changes = (job.attribution or {}).get("destination_changes", [])
+    if changes:
+        change = changes[-1]
+        user = session.get(User, change["actor"]["id"])
+        if user is None or user.disabled:
+            return "The printer substitution authorizer's account is unavailable or disabled"
+        authorizer = actor_for_user(session, user)
+        if not authorizer.is_admin and "queue.change_printer" not in authorizer.permissions:
+            return "The printer substitution authorizer no longer has permission to change printers"
+        for destination in (change["source_id"], job.destination_id):
+            if reason := principal_access_reason(
+                session,
+                user.id,
+                destination,
+                "moderator",
+                principal="printer substitution authorizer",
+            ):
+                return reason
+        return None
     if job.authorization_basis == "override":
         authorization = (job.attribution or {}).get("authorization", {})
         actor = authorization.get("actor") or {}

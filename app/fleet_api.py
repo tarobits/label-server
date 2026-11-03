@@ -395,7 +395,13 @@ def print_destination(
             .order_by(PrintJob.created_at, PrintJob.run_position, LabelCopy.ordinal)
         )
     )
+    if wanted is not None and not wanted.issubset({copy.id for copy in copies}):
+        raise HTTPException(
+            409,
+            "Some selected copies are no longer queued or available to you. Refresh the queue",
+        )
     choices: dict[str, list[str]] = {}
+    blockers: dict[str, str] = {}
     for copy in copies:
         if wanted is not None and copy.id not in wanted:
             continue
@@ -406,14 +412,17 @@ def print_destination(
             if job.run_id:
                 run = get(session, PrintRun, job.run_id)
                 run.assigned_printer_id = selected
+        elif job.id not in blockers:
+            blockers[job.id] = request.app.state.fleet.manual_print_blocker(session, job)
     selected_ids = {copy for group in choices.values() for copy in group}
     if wanted is not None and wanted != selected_ids:
+        raise HTTPException(409, ". ".join(dict.fromkeys(blockers.values())))
+    if not choices:
         raise HTTPException(
             409,
-            "Selection changed or no ready matching printer is available for every selected copy",
+            ". ".join(dict.fromkeys(blockers.values()))
+            or "No queued labels are available to print",
         )
-    if not choices:
-        raise HTTPException(409, "No queued labels have a ready matching printer")
     selections = [
         select_flush(session, printer_id, identifier, CopySelectionInput(copy_ids=ids))
         for printer_id, ids in choices.items()

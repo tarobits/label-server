@@ -177,6 +177,11 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
         moderates = context.can_destination(job.destination_id, "moderator")
         permissions = {
             "can_cancel": owns or moderates,
+            "can_change_printer": context.has_permission("queue.change_printer")
+            and moderates
+            and not held
+            and State.QUEUED in states
+            and not states.intersection({State.PRINTING, State.NEEDS_REVIEW}),
             "can_print": not held
             and (moderates or owns and context.can_destination(job.destination_id, "print")),
         }

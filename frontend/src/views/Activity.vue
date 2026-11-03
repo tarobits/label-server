@@ -8,6 +8,7 @@ import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
 import ActivityLabels from '../components/ActivityLabels.vue'
 import ActivityCleanup from '../components/ActivityCleanup.vue'
+import PrinterChangeHistory from '../components/PrinterChangeHistory.vue'
 import HistoryPagination from '../components/HistoryPagination.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import { useHistoryPage } from '../history'
@@ -134,6 +135,7 @@ function noticeState(notice: Notice) {
       @change="batches.go($event)"
     />
   </section>
+  <PrinterChangeHistory v-if="auth.any('moderator')" />
   <section
     v-if="auth.user?.is_admin"
     class="panel"

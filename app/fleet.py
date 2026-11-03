@@ -13,7 +13,7 @@ from app.config import Settings
 from app.destinations import busy, installed_profile, members, printer_state
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
-from app.models import Cartridge, PrinterDevice, PrintJob
+from app.models import Batch, Cartridge, PrinterDevice, PrintJob, PrintRun, State, TapeProfile
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
@@ -115,56 +115,138 @@ class PrinterFleet:
         require_ready: bool = True,
     ) -> str | None:
         from app.job_access import job_eligible
-        from app.models import PrintRun
 
         if self.enforce_job_access and not job_eligible(session, job):
             return None
 
-        run = session.get(PrintRun, job.run_id) if job.run_id else None
-        candidates = members(session, job.destination_id)
-        if run and run.assigned_printer_id:
-            candidates = [run.assigned_printer_id] if run.assigned_printer_id in candidates else []
+        candidates = self._candidates(session, job)
         if required_printer is not None:
             candidates = [identifier for identifier in candidates if identifier == required_printer]
         for identifier in candidates:
-            worker = self.workers.get(identifier)
-            state = printer_state(session, identifier)
-            if (
-                not worker
-                or busy(session, identifier)
-                or (state.automatic_printing_held and not manual)
-            ):
-                continue
-            cartridge = (
-                session.get(Cartridge, state.active_cartridge_id)
-                if state.active_cartridge_id
-                else None
-            )
-            if not manual and cartridge is not None and cartridge.remaining_mm <= 0:
-                continue
-            status = worker.latest_status
-            if (
-                installed_profile(session, identifier) != job.profile_id
-                or require_ready
-                and (not status.connected or status.error or status.tape_width_mm != job.width_mm)
-            ):
-                continue
-            # Group routing must preserve the frozen printable geometry and resolution.
-            spec = job.template_snapshot.get("render_spec", {})
-            caps = self.registry.definition(identifier).capabilities
-            resolution = (spec.get("dpi_x") or spec.get("dpi", 180), spec.get("dpi", 180))
-            modes = set((caps.resolution_modes or {}).values()) | {(caps.dpi_x, caps.dpi_y)}
-            if (
-                resolution not in modes
-                or (spec.get("printable_widths_mm") or {}).get(
-                    f"{job.template_snapshot.get('document', {}).get('width_mm', job.width_mm):g}"
-                )
-                != (caps.printable_widths_mm or {}).get(f"{job.width_mm:g}")
-                or spec.get("margin_mm", 1) != caps.printable_margin_mm
-            ):
-                continue
-            return identifier
+            if self._printer_blocker(session, job, identifier, manual, require_ready) is None:
+                return identifier
         return None
+
+    def _candidates(self, session: Session, job: PrintJob) -> list[str]:
+        candidates = members(session, job.destination_id)
+        run = session.get(PrintRun, job.run_id) if job.run_id else None
+        if run and run.assigned_printer_id:
+            return [run.assigned_printer_id] if run.assigned_printer_id in candidates else []
+        return candidates
+
+    def _printer_blocker(
+        self,
+        session: Session,
+        job: PrintJob,
+        identifier: str,
+        manual: bool,
+        require_ready: bool,
+    ) -> str | None:
+        """Use the same eligibility checks for routing and explanations."""
+        worker = self.workers.get(identifier)
+        state = printer_state(session, identifier)
+        if not worker:
+            if identifier in self.configuration_errors:
+                return "is unavailable because its printer configuration could not be loaded"
+            return "is unavailable because its printer worker is not running"
+        if busy(session, identifier):
+            printing = session.scalar(
+                select(Batch.id)
+                .where(Batch.printer_id == identifier, Batch.state == State.PRINTING)
+                .limit(1)
+            )
+            if printing:
+                return "is currently printing. Wait for its current batch to finish"
+            return "has a batch awaiting review. Review that batch before printing again"
+        if state.automatic_printing_held and not manual:
+            return "has automatic printing paused"
+        cartridge = (
+            session.get(Cartridge, state.active_cartridge_id) if state.active_cartridge_id else None
+        )
+        if not manual and cartridge is not None and cartridge.remaining_mm <= 0:
+            return "has no tape remaining"
+        if installed_profile(session, identifier) != job.profile_id:
+            return "does not have a cartridge matching the required tape profile installed"
+        status = worker.latest_status
+        if require_ready:
+            if not status.connected:
+                return "is offline. Reconnect it before printing"
+            if status.error:
+                return f"reports an error: {status.error}"
+            if status.tape_width_mm != job.width_mm:
+                detected = (
+                    f"{status.tape_width_mm:g} mm tape"
+                    if status.tape_width_mm is not None
+                    else "no tape width"
+                )
+                return f"detects {detected}, but these labels require {job.width_mm:g} mm tape"
+        if not self.supports_geometry(job, identifier):
+            return "does not support these labels' saved resolution or printable area"
+        return None
+
+    def supports_geometry(self, job: PrintJob, identifier: str) -> bool:
+        # Group routing must preserve the frozen printable geometry and resolution.
+        spec = job.template_snapshot.get("render_spec", {})
+        caps = self.registry.definition(identifier).capabilities
+        resolution = (spec.get("dpi_x") or spec.get("dpi", 180), spec.get("dpi", 180))
+        modes = set((caps.resolution_modes or {}).values()) | {(caps.dpi_x, caps.dpi_y)}
+        return not (
+            resolution not in modes
+            or (spec.get("printable_widths_mm") or {}).get(
+                f"{job.template_snapshot.get('document', {}).get('width_mm', job.width_mm):g}"
+            )
+            != (caps.printable_widths_mm or {}).get(f"{job.width_mm:g}")
+            or spec.get("margin_mm", 1) != caps.printable_margin_mm
+        )
+
+    def manual_print_blocker(self, session: Session, job: PrintJob) -> str:
+        """Explain a rejected manual route without contacting a busy printer."""
+        from app.job_access import job_eligible
+
+        if self.enforce_job_access and not job_eligible(session, job):
+            return (
+                "Printing is blocked by an access or content hold. An administrator must review it"
+            )
+        candidates = self._candidates(session, job)
+        run = session.get(PrintRun, job.run_id) if job.run_id else None
+        assigned = (
+            session.get(PrinterDevice, run.assigned_printer_id)
+            if run and run.assigned_printer_id
+            else None
+        )
+        prefix = f'This run is assigned to "{assigned.name}". ' if assigned else ""
+        if not candidates:
+            return prefix + "No eligible printer remains in the selected destination"
+        profile = session.get(TapeProfile, job.profile_id)
+        required = f'"{profile.name}" ({job.width_mm:g} mm)' if profile else f"{job.width_mm:g} mm"
+        matching = [
+            identifier
+            for identifier in candidates
+            if installed_profile(session, identifier) == job.profile_id
+        ]
+        if not matching:
+            names = ", ".join(
+                f'"{device.name}"'
+                for identifier in candidates
+                if (device := session.get(PrinterDevice, identifier))
+            )
+            subject = (
+                "The assigned printer" if assigned else "No printer in the selected destination"
+            )
+            verb = "does not have" if assigned else "has"
+            return (
+                prefix
+                + f"{subject} ({names}) {verb} a cartridge matching tape profile {required} installed"
+            )
+        reasons = []
+        for identifier in matching:
+            device = session.get(PrinterDevice, identifier)
+            reason = self._printer_blocker(
+                session, job, identifier, manual=True, require_ready=True
+            )
+            if reason:
+                reasons.append(f'"{device.name if device else identifier}" {reason}')
+        return prefix + f"For tape profile {required}: " + "; ".join(reasons)
 
     def _run(self, worker: QueueWorker) -> None:
         while not self.stop.is_set():

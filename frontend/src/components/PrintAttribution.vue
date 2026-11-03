@@ -52,6 +52,22 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
         >
       </dd>
     </div>
+    <div
+      v-for="change in attribution?.destination_changes ?? []"
+      :key="change.id"
+      class="release-attribution"
+    >
+      <dt>Printer changed by</dt>
+      <dd>{{ change.actor.name }} · {{ change.source.name }} → {{ change.target.name }}</dd>
+      <dd class="attribution-detail">
+        {{ date(change.created_at) }} · {{ change.copy_ids.length }} copies<span
+          v-if="change.previous_assignment"
+        >
+          · Previously assigned to {{ change.previous_assignment.name }}</span
+        >
+      </dd>
+      <dd v-if="change.reason" class="attribution-detail">{{ change.reason }}</dd>
+    </div>
     <div v-if="attribution?.release" class="release-attribution">
       <dt>Released by</dt>
       <dd>{{ attribution.release.actor?.name ?? 'Not recorded' }}</dd>

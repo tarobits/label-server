@@ -94,6 +94,7 @@ class ApplicationPermission(AdminInput):
         "fonts.delete_global",
         "inventory.manage",
         "printers.manage",
+        "queue.change_printer",
         "usage.view_others",
         "usage.edit_accounts",
         "templates.create_personal",

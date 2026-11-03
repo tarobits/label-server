@@ -116,6 +116,7 @@ export interface LabelInformation {
 export interface Job extends LabelInformation {
   attribution: PrintAttribution
   owner_id: string
+  can_change_printer?: boolean
   can_print?: boolean
   can_cancel?: boolean
   access_hold?: {
@@ -143,7 +144,23 @@ export interface AuditActor {
   id: string
   name: string
 }
+export interface PrinterChange {
+  id: string
+  job_id: string
+  run_id: string | null
+  job_name: string
+  copy_ids: string[]
+  actor: AuditActor
+  source_id: string
+  target_id: string
+  source: AuditActor
+  target: AuditActor
+  previous_assignment: AuditActor | null
+  reason: string
+  created_at: number
+}
 export interface PrintAttribution {
+  destination_changes?: PrinterChange[]
   requested_by: AuditActor | null
   submitted_by?: AuditActor | null
   requested_at: number | null

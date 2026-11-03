@@ -15,6 +15,7 @@ import LabelDetails from '../components/LabelDetails.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
+import ChangeQueuePrinter from '../components/ChangeQueuePrinter.vue'
 interface QueueGroup {
   cost_estimate?: CostEstimateData | null
   print_plan?: PrintPlan | null
@@ -158,6 +159,10 @@ function routing(job: Job) {
   })
   return `${destination.name} · ${ready ? 'Next eligible: ' + w.destinationName(ready) : 'Waiting for a matching printer'}`
 }
+async function printerChanged() {
+  selectedIds.value = []
+  await load(false, true)
+}
 async function removeSelected() {
   const ids = [...selectedIds.value]
   if (
@@ -248,6 +253,13 @@ async function cancel(job: Job) {
         >
       </div>
       <div class="row wrap">
+        <ChangeQueuePrinter
+          v-if="auth.can('queue.change_printer') && auth.any('moderator')"
+          :jobs="selectedJobs"
+          :copy-ids="selectedIds"
+          :loading="loading"
+          @changed="printerChanged"
+        />
         <button
           v-if="auth.any('print')"
           class="primary"

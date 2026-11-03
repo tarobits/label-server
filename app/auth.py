@@ -39,6 +39,7 @@ PERMISSIONS = {
     "fonts.edit_global": "Edit other users’ global fonts",
     "fonts.delete_global": "Delete other users’ global fonts",
     "inventory.manage": "Manage tape profiles and cartridges",
+    "queue.change_printer": "Change printers for queued work",
     "printers.manage": "Register printers and create distribution groups",
     "usage.view_others": "View other users’ usage and balances",
     "usage.edit_accounts": "Edit usage accounts",

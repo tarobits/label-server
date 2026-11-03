@@ -162,6 +162,7 @@ def create_app(
     from app.image_api import router as image_router
     from app.job_access_api import router as access_holds_router
     from app.notification_api import router as notification_endpoints_router
+    from app.queue_routing_api import router as queue_routing_router
     from app.recovery_api import router as recovery_router
     from app.request_api import router as requests_router
     from app.runs import router as runs_router
@@ -172,6 +173,7 @@ def create_app(
     app.include_router(notification_endpoints_router)
     app.include_router(router, dependencies=[Depends(authorize_request)])
     app.include_router(fleet_router, dependencies=[Depends(authorize_request)])
+    app.include_router(queue_routing_router, dependencies=[Depends(authorize_request)])
     app.include_router(runs_router, dependencies=[Depends(authorize_request)])
     app.include_router(font_router, dependencies=[Depends(authorize_request)])
     app.include_router(image_router, dependencies=[Depends(authorize_request)])

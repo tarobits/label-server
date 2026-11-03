@@ -10,7 +10,10 @@ interface HistoryPage<T> {
   total: number
   before: number
 }
-export function useHistoryPage<T>(kind: 'batches' | 'notifications', enabled = () => true) {
+export function useHistoryPage<T>(
+  kind: 'batches' | 'notifications' | 'printer-changes',
+  enabled = () => true,
+) {
   const route = useRoute(),
     router = useRouter(),
     auth = useAuthStore(),
