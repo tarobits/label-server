@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update a native or Compose deployment to GitHub's latest published release.
+"""Update a native or Compose deployment to a published GitHub release.
 
 Uses only the standard library so it also works before installing dependencies.
 Failures after shutdown leave the application stopped and preserve the backup.
@@ -18,6 +18,7 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Iterator
@@ -54,18 +55,18 @@ def github_repository(remote: str) -> str:
     return match[1]
 
 
-def latest_release(repository: str, token: str | None = None) -> str:
+def release_request(repository: str, path: str, token: str | None = None) -> Any:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
         raise UpdateError("Repository must be OWNER/REPOSITORY")
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "label-server-updater"}
     if token := token or os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/releases/latest", headers=headers
+        f"https://api.github.com/repos/{repository}/releases{path}", headers=headers
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            release = json.load(response)
+            return json.load(response)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise UpdateError(
@@ -73,11 +74,76 @@ def latest_release(repository: str, token: str | None = None) -> str:
             ) from error
         raise UpdateError(f"GitHub release lookup failed (HTTP {error.code})") from error
     except (OSError, ValueError) as error:
-        raise UpdateError("Could not read the latest GitHub release") from error
+        raise UpdateError("Could not read GitHub release information") from error
+
+
+def valid_tag(tag: str) -> bool:
+    return bool(
+        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/+\-]*", tag)
+        and ".." not in tag
+        and not tag.endswith((".", "/"))
+        and all(
+            part and not part.startswith(".") and not part.endswith(".lock")
+            for part in tag.split("/")
+        )
+    )
+
+
+def release_tag(release: Any, *, stable: bool = False) -> str:
     tag = release.get("tag_name") if isinstance(release, dict) else None
-    if not isinstance(tag, str) or not tag or release.get("draft") or release.get("prerelease"):
-        raise UpdateError("GitHub did not return a published stable release tag")
+    if (
+        not isinstance(tag, str)
+        or not valid_tag(tag)
+        or release.get("draft")
+        or (stable and release.get("prerelease"))
+    ):
+        kind = "stable " if stable else ""
+        raise UpdateError(f"GitHub did not return a published {kind}release tag")
     return tag
+
+
+def latest_release(repository: str, token: str | None = None) -> str:
+    return release_tag(release_request(repository, "/latest", token), stable=True)
+
+
+def beta_release(repository: str, token: str | None = None) -> str:
+    """Newest publication across stable and prerelease releases, excluding drafts."""
+    newest: tuple[datetime, bool, str] | None = None
+    page = 1
+    while True:
+        releases = release_request(repository, f"?per_page=100&page={page}", token)
+        if not isinstance(releases, list):
+            raise UpdateError("GitHub did not return a release list")
+        for release in releases:
+            if isinstance(release, dict) and release.get("draft"):
+                continue
+            tag = release_tag(release)
+            try:
+                published = datetime.fromisoformat(release["published_at"])
+                if published.utcoffset() is None:
+                    raise ValueError("Missing timezone")
+            except (KeyError, TypeError, ValueError) as error:
+                raise UpdateError("GitHub returned an invalid release publication date") from error
+            candidate = (published, not bool(release.get("prerelease")), tag)
+            if newest is None or candidate > newest:
+                newest = candidate
+        if len(releases) < 100:
+            break
+        page += 1
+    if newest is None:
+        raise UpdateError("No published release found for the beta channel")
+    return newest[2]
+
+
+def tagged_release(repository: str, tag: str, token: str | None = None) -> str:
+    if not valid_tag(tag):
+        raise UpdateError("Invalid release tag")
+    selected = release_tag(
+        release_request(repository, f"/tags/{urllib.parse.quote(tag, safe='')}", token)
+    )
+    if selected != tag:
+        raise UpdateError("GitHub returned a different release tag than requested")
+    return selected
 
 
 def installation_token(args: argparse.Namespace) -> str | None:
@@ -142,6 +208,13 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", required=True, choices=("native", "docker"))
     parser.add_argument(
+        "--channel",
+        choices=("stable", "beta"),
+        default="stable",
+        help="Release channel: stable (default), or newest publication including prereleases",
+    )
+    parser.add_argument("--tag", help="Published release tag to install; overrides --channel")
+    parser.add_argument(
         "--checkout",
         type=Path,
         default=Path(__file__).resolve().parents[1],
@@ -171,6 +244,8 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         "--check", action="store_true", help="Show the release and plan without changing anything"
     )
     args = parser.parse_args(argv)
+    if args.tag is not None and not valid_tag(args.tag):
+        parser.error("--tag must be a valid release tag name")
     args.checkout = args.checkout.resolve()
     args.install_dir = (args.install_dir or args.checkout).resolve()
     args.backup_dir = (
@@ -431,12 +506,17 @@ def update(args: argparse.Namespace) -> None:
         ):
             raise UpdateError("--checkout must be the repository root")
     token = installation_token(args)
-    tag = latest_release(repository, token) if token else latest_release(repository)
+    if args.tag:
+        tag = tagged_release(repository, args.tag, token)
+    elif args.channel == "beta":
+        tag = beta_release(repository, token)
+    else:
+        tag = latest_release(repository, token) if token else latest_release(repository)
     for protected in (checkout, args.install_dir):
         if args.backup_dir.is_relative_to(protected):
             raise UpdateError("Backup directory must be outside the checkout and installation")
     print(
-        f"Latest release: {repository} {tag}\nMode: {args.mode}\nCheckout: {checkout}\nBackups: {args.backup_dir}",
+        f"Selected release: {repository} {tag}\nSelection: {'explicit tag' if args.tag else args.channel}\nMode: {args.mode}\nCheckout: {checkout}\nBackups: {args.backup_dir}",
         flush=True,
     )
     if args.check:
@@ -551,7 +631,7 @@ def update(args: argparse.Namespace) -> None:
             )
             if ancestor.returncode:
                 raise UpdateError(
-                    "The release branch diverged from GitHub's latest release; refusing to discard commits"
+                    "The release branch diverged from the selected release; refusing to discard commits"
                 )
         old_commit = (
             command(["git", "rev-parse", "HEAD"], checkout, capture=True) if existing else None
