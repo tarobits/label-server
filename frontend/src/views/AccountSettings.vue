@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, reactive, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import { motionPreference } from '../preferences'
+import AccountEmail from '../components/AccountEmail.vue'
 import {
   vValidateForm,
   apiFieldErrors,
@@ -84,6 +85,9 @@ async function savePassword() {
           </select>
         </label>
       </div>
+    </section>
+    <section class="settings-section" aria-label="Email settings">
+      <AccountEmail />
     </section>
     <section class="settings-section" aria-labelledby="password-heading">
       <h2 id="password-heading">Change password</h2>

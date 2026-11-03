@@ -19,6 +19,7 @@ import Administration from './views/Administration.vue'
 import Requests from './views/Requests.vue'
 import AccessHolds from './views/AccessHolds.vue'
 import AccountSettings from './views/AccountSettings.vue'
+import AccountRecovery from './views/AccountRecovery.vue'
 import './style.css'
 import './motion.css'
 import './focusVisibility'
@@ -27,6 +28,9 @@ import { pinia } from './stores'
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    { path: '/forgot-password', component: AccountRecovery, meta: { title: 'Forgot password' } },
+    { path: '/reset-password', component: AccountRecovery, meta: { title: 'Reset password' } },
+    { path: '/verify-email', component: AccountRecovery, meta: { title: 'Verify email' } },
     { path: '/usage', component: Usage, meta: { title: 'Tape usage' } },
     { path: '/account', component: AccountSettings, meta: { title: 'Account settings' } },
     {

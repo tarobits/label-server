@@ -51,12 +51,16 @@ export interface AccountSettings {
 export interface NotificationEndpoint {
   id: string
   name: string
+  transport: 'ntfy' | 'email'
+  email: string
   url: string
   topic: string
   enabled: boolean
   all_printers: boolean
   destination_ids: string[]
   kinds: string[]
+  printer_kinds: Record<string, string[]>
+  printer_priorities: Record<string, Record<string, number>>
   priorities: Record<string, number>
   has_token: boolean
 }

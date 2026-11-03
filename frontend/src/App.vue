@@ -13,6 +13,7 @@ import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import ChangelogNotice from './components/ChangelogNotice.vue'
 import SignIn from './views/SignIn.vue'
+import AccountRecovery from './views/AccountRecovery.vue'
 import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
 import { useLiveRefresh } from './live'
@@ -196,6 +197,10 @@ onMounted(auth.refresh)
     <p>{{ auth.error || 'Opening your workspace…' }}</p>
     <button v-if="auth.error" @click="auth.refresh(true)">Retry</button>
   </main>
+  <AccountRecovery
+    v-else-if="['/forgot-password', '/reset-password', '/verify-email'].includes(route.path)"
+    :key="route.path"
+  />
   <SignIn v-else-if="!auth.user" />
   <template v-else>
     <ChangelogNotice v-if="loaded" :key="auth.user.id" />

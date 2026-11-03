@@ -1,4 +1,4 @@
-"""Scoped messages and independent ntfy delivery; never affect print state."""
+"""Scoped messages and independent transport delivery; never affect print state."""
 
 from collections.abc import Callable
 
@@ -6,12 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
+from app.email_delivery import send_email
 from app.models import (
     Notification,
     NotificationDelivery,
     NotificationEndpoint,
     PrinterDevice,
     PrinterGroup,
+    User,
 )
 from app.notification_types import PRINTER_NOTIFICATION_KINDS
 from app.notifications import NtfySender, notification_valid, waiting_destinations
@@ -43,6 +45,20 @@ def scope_matches(
     target_printer = session.get(PrinterDevice, destination)
     if target_group is None and (target_printer is None or target_printer.config.get("retired")):
         return False
+    if endpoint.owner_id:
+        from app.access import LEVELS
+        from app.auth import actor_for_user
+
+        user = session.get(User, endpoint.owner_id)
+        if user is None or user.disabled:
+            return False
+        actor = actor_for_user(session, user)
+        if (
+            not actor.is_admin
+            and LEVELS.get(actor.destination_levels.get(destination, "none"), 0)
+            < LEVELS["moderator"]
+        ):
+            return False
     if endpoint.all_printers:
         return True
     for identifier in endpoint.destination_ids:
@@ -57,13 +73,42 @@ def scope_matches(
 def endpoint_message(
     session: Session, notice: Notification, endpoint: NotificationEndpoint
 ) -> Notification | None:
-    if not endpoint.enabled or endpoint.deleted_at is not None or notice.kind not in endpoint.kinds:
+    if not endpoint.enabled or endpoint.deleted_at is not None:
         return None
+    destination = notice.context.get("printer_id") or notice.context.get("destination_id")
+
+    def wants_event(identifier: str | None) -> bool:
+        choices = (
+            (endpoint.printer_kinds or {}).get(identifier, endpoint.kinds)
+            if identifier and notice.kind in PRINTER_NOTIFICATION_KINDS
+            else endpoint.kinds
+        )
+        return notice.kind in choices
+
+    # Waiting notices can combine multiple destinations; filter each one below.
+    if notice.kind != "tape_waiting" and not wants_event(destination):
+        return None
+    if endpoint.owner_id:
+        from app.auth import actor_for_user
+
+        user = session.get(User, endpoint.owner_id)
+        if user is None or user.disabled or not user.email or user.email != endpoint.email:
+            return None
+        actor = actor_for_user(session, user)
+        if notice.kind == "approval_digest" and not actor.is_admin:
+            return None
+        if (
+            notice.kind == "general"
+            and notice.recipient_id != user.id
+            and not (actor.is_admin and notice.recipient_id == "administrators")
+        ):
+            return None
     if notice.kind in PRINTER_NOTIFICATION_KINDS and not (
         endpoint.all_printers or endpoint.destination_ids
     ):
         return None
     message, path = notice.message, notice.path
+    context = dict(notice.context)
     if notice.kind == "approval_digest":
         # Unrestricted summaries are global; selected destinations narrow them.
         pending = list(
@@ -88,14 +133,17 @@ def endpoint_message(
         waiting = [
             (identifier, name, count)
             for identifier, name, count in waiting_destinations(session, profile)
-            if identifier in recorded and scope_matches(session, endpoint, identifier)
+            if identifier in recorded
+            and wants_event(identifier)
+            and scope_matches(session, endpoint, identifier)
         ]
         if not waiting:
             return None
+        context["destination_ids"] = [identifier for identifier, _, _ in waiting]
         message = f"{profile.name} is needed: " + "; ".join(
             f"{count} queued copies at {name}" for _, name, count in waiting
         )
-    elif destination := notice.context.get("printer_id") or notice.context.get("destination_id"):
+    elif destination:
         if not scope_matches(session, endpoint, destination):
             return None
         if notice.kind in ("printer_blocked", "batch_review"):
@@ -110,7 +158,7 @@ def endpoint_message(
         message=message,
         path=path,
         kind=notice.kind,
-        context=notice.context,
+        context=context,
     )
 
 
@@ -250,7 +298,15 @@ def deliver_routed_pending(
         failed = False
         try:
             if send is None:
-                NtfySender(settings, endpoint).send(message)
+                if endpoint.transport == "email":
+                    send_email(
+                        settings,
+                        endpoint.email,
+                        message.title,
+                        message.message + "\n\n" + settings.public_url.rstrip("/") + message.path,
+                    )
+                else:
+                    NtfySender(settings, endpoint).send(message)
             else:
                 send(endpoint, message)
         except Exception:

@@ -25,6 +25,7 @@ from app.models import (
     DeletedContent,
     PrinterDevice,
     PrinterGroup,
+    RecoveryToken,
     RegistrationCode,
     Role,
     User,
@@ -406,6 +407,7 @@ def apply_change(
         if user_update.password is not None:
             user.password_hash = "preview-only" if preview else hash_password(user_update.password)
         if user_update.disabled or user_update.password is not None:
+            session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
             session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
     ensure_administrator_remains(session)
     return user_record(session, user)

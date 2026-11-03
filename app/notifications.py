@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.notification_types import (
     DEFAULT_NOTIFICATION_PRIORITIES,
+    PRINTER_NOTIFICATION_KINDS,
     NotificationKind,
 )
 
@@ -275,6 +276,30 @@ class NtfySender:
         headers = {}
         if self.endpoint.token:
             headers["Authorization"] = f"Bearer {self.endpoint.token}"
+        priority = (self.endpoint.priorities or {}).get(
+            notification.kind,
+            DEFAULT_NOTIFICATION_PRIORITIES.get(cast(NotificationKind, notification.kind), 3),
+        )
+        if notification.kind in PRINTER_NOTIFICATION_KINDS:
+            context = notification.context or {}
+            destinations = (
+                context.get("destination_ids", [])
+                if notification.kind == "tape_waiting"
+                else [context.get("printer_id") or context.get("destination_id")]
+            )
+            # Combined reminders use the highest priority among included destinations.
+            # Routing has already removed destinations that do not receive this event.
+            priority = max(
+                (
+                    (self.endpoint.printer_priorities or {})
+                    .get(identifier, {})
+                    .get(notification.kind, priority)
+                    if identifier in (self.endpoint.printer_kinds or {})
+                    else priority
+                    for identifier in destinations
+                ),
+                default=priority,
+            )
         response = httpx.post(
             self.endpoint.url.rstrip("/"),
             headers=headers,
@@ -282,12 +307,7 @@ class NtfySender:
                 "topic": self.endpoint.topic,
                 "title": notification.title,
                 "message": notification.message,
-                "priority": (self.endpoint.priorities or {}).get(
-                    notification.kind,
-                    DEFAULT_NOTIFICATION_PRIORITIES.get(
-                        cast(NotificationKind, notification.kind), 3
-                    ),
-                ),
+                "priority": priority,
                 "click": self.settings.public_url.rstrip("/") + notification.path,
             },
             timeout=10,

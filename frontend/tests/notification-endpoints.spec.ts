@@ -349,40 +349,44 @@ test('select all snapshots only current physical printers while the explicit all
 
 test('activity shows independent endpoint delivery states', async ({ page }) => {
   const now = Date.now() / 1000
-  await page.route('**/api/notifications', (route) =>
+  await page.route('**/api/notifications/page?*', (route) =>
     route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          id: 'multiple-deliveries',
-          title: 'Installed cartridge is empty',
-          message: 'Desk printer: Yellow cassette 1 has an estimated 0 mm of tape remaining.',
-          created_at: now,
-          delivered_at: null,
-          cancelled: false,
-          attempts: 3,
-          last_error: null,
-          path: '/#/printers',
-          deliveries: [
-            {
-              endpoint_name: 'Workshop phone',
-              attempts: 1,
-              delivered_at: now,
-              cancelled: false,
-              last_error: null,
-              next_attempt_at: now,
-            },
-            {
-              endpoint_name: 'Workshop tablet',
-              attempts: 2,
-              delivered_at: null,
-              cancelled: false,
-              last_error: 'Server unavailable',
-              next_attempt_at: now + 60,
-            },
-          ],
-        },
-      ]),
+      body: JSON.stringify({
+        total: 1,
+        before: now,
+        items: [
+          {
+            id: 'multiple-deliveries',
+            title: 'Installed cartridge is empty',
+            message: 'Desk printer: Yellow cassette 1 has an estimated 0 mm of tape remaining.',
+            created_at: now,
+            delivered_at: null,
+            cancelled: false,
+            attempts: 3,
+            last_error: null,
+            path: '/#/printers',
+            deliveries: [
+              {
+                endpoint_name: 'Workshop phone',
+                attempts: 1,
+                delivered_at: now,
+                cancelled: false,
+                last_error: null,
+                next_attempt_at: now,
+              },
+              {
+                endpoint_name: 'Workshop tablet',
+                attempts: 2,
+                delivered_at: null,
+                cancelled: false,
+                last_error: 'Server unavailable',
+                next_attempt_at: now + 60,
+              },
+            ],
+          },
+        ],
+      }),
     }),
   )
   await page.goto('/#/activity')

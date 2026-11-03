@@ -29,6 +29,17 @@ class User(Base):
     role_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[float] = mapped_column(default=time.time)
     last_seen_version: Mapped[str | None]
+    email: Mapped[str | None]
+
+
+class RecoveryToken(Base):
+    __tablename__ = "recovery_tokens"
+    token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    purpose: Mapped[str]
+    email: Mapped[str]
+    password_fingerprint: Mapped[str]
+    expires_at: Mapped[float] = mapped_column(index=True)
 
 
 class DeletedContent(Base):
@@ -303,6 +314,9 @@ class NotificationEndpoint(Base):
     __tablename__ = "notification_endpoints"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
     name: Mapped[str]
+    transport: Mapped[str] = mapped_column(default="ntfy", server_default="ntfy")
+    email: Mapped[str] = mapped_column(default="", server_default="")
+    owner_id: Mapped[str | None] = mapped_column(String, index=True)
     url: Mapped[str]
     topic: Mapped[str]
     token: Mapped[str] = mapped_column(default="")
@@ -313,6 +327,12 @@ class NotificationEndpoint(Base):
         JSON, default=lambda: dict(DEFAULT_NOTIFICATION_PRIORITIES)
     )
     kinds: Mapped[list[str]] = mapped_column(JSON)
+    printer_kinds: Mapped[dict[str, list[str]]] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
+    printer_priorities: Mapped[dict[str, dict[str, int]]] = mapped_column(
+        JSON, default=dict, server_default="{}"
+    )
     revision: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[float] = mapped_column(default=time.time)
     deleted_at: Mapped[float | None]

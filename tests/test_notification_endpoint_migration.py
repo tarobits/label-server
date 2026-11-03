@@ -228,9 +228,15 @@ def test_destination_only_migration_preserves_scope_and_cancels_old_pending_deli
         }
         assert "all_printers" in columns
         assert not {"role_ids", "minimum_level"} & columns
+        # Read this revision's schema rather than the current endpoint mapping.
+        scoped_endpoints = Table("notification_endpoints", MetaData(), autoload_with=engine)
         with session_factory(engine)() as session:
-            all_channel = session.get(NotificationEndpoint, "all")
-            selected = session.get(NotificationEndpoint, "selected")
+            all_channel = session.execute(
+                select(scoped_endpoints).where(scoped_endpoints.c.id == "all")
+            ).one()
+            selected = session.execute(
+                select(scoped_endpoints).where(scoped_endpoints.c.id == "selected")
+            ).one()
             assert all_channel.all_printers is True and all_channel.destination_ids == []
             assert all_channel.revision == 4
             assert selected.all_printers is False
@@ -249,10 +255,14 @@ def test_destination_only_migration_preserves_scope_and_cancels_old_pending_deli
             assert all(row["delivered_at"] == 2 for row in rows if row["id"].endswith("done"))
         # Idempotent re-upgrade cannot broaden selected IDs or increment revisions again.
         command.upgrade(config, "c91d8e5a206b")
-        assert {channel.id: channel.revision for channel in endpoints(url)} == {
-            "all": 4,
-            "selected": 8,
-        }
+        with engine.connect() as connection:
+            assert {
+                channel.id: channel.revision
+                for channel in connection.execute(select(scoped_endpoints))
+            } == {
+                "all": 4,
+                "selected": 8,
+            }
         command.downgrade(config, "a73b159dc820")
         command.upgrade(config, "c91d8e5a206b")
     finally:

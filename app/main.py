@@ -7,6 +7,8 @@ from threading import Thread
 from typing import Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.engine import make_url
@@ -124,6 +126,22 @@ def create_app(
             lock_file.close()
 
     app = FastAPI(title="Taro's Label Room", version=__version__, lifespan=lifespan)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError) -> Response:
+        if request.url.path.startswith("/api/auth/"):
+            # Recovery credentials and passwords must not be echoed in errors.
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {key: issue[key] for key in ("type", "loc", "msg")}
+                        for issue in error.errors()
+                    ]
+                },
+            )
+        return await request_validation_exception_handler(request, error)
+
     releases = ReleaseChecker(settings)
     app.state.releases = releases
     app.state.access_policy = None
@@ -144,10 +162,12 @@ def create_app(
     from app.image_api import router as image_router
     from app.job_access_api import router as access_holds_router
     from app.notification_api import router as notification_endpoints_router
+    from app.recovery_api import router as recovery_router
     from app.request_api import router as requests_router
     from app.runs import router as runs_router
 
     app.include_router(auth_router)
+    app.include_router(recovery_router)
     app.include_router(admin_router)
     app.include_router(notification_endpoints_router)
     app.include_router(router, dependencies=[Depends(authorize_request)])

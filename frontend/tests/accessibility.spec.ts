@@ -153,6 +153,7 @@ test('the skip link reaches account fields without entering disabled or hidden c
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
   for (const control of [
     page.getByLabel('Reduced motion', { exact: true }),
+    page.getByRole('button', { name: 'Add email', exact: true }),
     page.getByLabel('Current password', { exact: true }),
     page.getByLabel('New password', { exact: true }),
     page.getByLabel('Confirm new password', { exact: true }),

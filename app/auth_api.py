@@ -24,7 +24,15 @@ from app.auth import (
     verify_password,
 )
 from app.identity import LOCAL_OWNER_ID
-from app.models import AuthSession, AuthSettings, RegistrationCode, Role, User, UserGroup
+from app.models import (
+    AuthSession,
+    AuthSettings,
+    RecoveryToken,
+    RegistrationCode,
+    Role,
+    User,
+    UserGroup,
+)
 from app.releases import stable_version
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
@@ -219,6 +227,7 @@ def change_password(body: PasswordChangeInput, request: Request, response: Respo
                 ],
             )
         user.password_hash = hash_password(body.new_password)
+        session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
         session.execute(
             delete(AuthSession).where(
                 AuthSession.user_id == user.id,

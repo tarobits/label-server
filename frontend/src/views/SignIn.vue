@@ -103,6 +103,9 @@ async function submit() {
         <button v-if="!setup" type="button" class="secondary" :disabled="busy" @click="switchForm">
           {{ registering ? 'Back to sign in' : 'Create an account' }}
         </button>
+        <RouterLink v-if="!setup && !registering" to="/forgot-password"
+          >Forgot password?</RouterLink
+        >
       </form>
     </div>
   </main>

@@ -13,6 +13,8 @@ from app.models import (
     AuthSession,
     DeletedContent,
     LabelTemplate,
+    NotificationEndpoint,
+    RecoveryToken,
     RegistrationCode,
     TemplateRevision,
     User,
@@ -81,6 +83,7 @@ def delete_account(
     )
     user.disabled = True
     session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
     session.execute(
         delete(AccessChangeConfirmation).where(AccessChangeConfirmation.actor_id == user.id)
     )
@@ -170,7 +173,13 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
             )
             session.execute(delete(LabelTemplate).where(LabelTemplate.id == item.identifier))
         elif item.kind == "users":
+            session.execute(
+                update(NotificationEndpoint)
+                .where(NotificationEndpoint.owner_id == item.identifier)
+                .values(email="", enabled=False, deleted_at=now)
+            )
             session.execute(delete(AuthSession).where(AuthSession.user_id == item.identifier))
+            session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == item.identifier))
             session.execute(
                 delete(AccessChangeConfirmation).where(
                     AccessChangeConfirmation.actor_id == item.identifier

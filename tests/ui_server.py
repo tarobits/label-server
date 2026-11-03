@@ -10,6 +10,8 @@ from alembic.config import Config
 from conftest import create_test_app as create_app
 from printer_factory import browser_printer
 
+from app import notification_routing, recovery_api
+from app.admin_api import DB
 from app.auth import hash_password
 from app.config import Settings
 from app.identity import LOCAL_OWNER_ID
@@ -23,14 +25,31 @@ if __name__ == "__main__":
         config.set_main_option("script_location", str(root / "migrations"))
         config.attributes["database_url"] = url
         command.upgrade(config, "head")
+        port = int(os.environ.get("LABEL_UI_PORT", "8765"))
         settings = Settings(
             check_for_updates=False,
             database_url=url,
             worker_interval_seconds=0.1,
             frontend_dist=root / "frontend" / "dist",
+            public_url=f"http://127.0.0.1:{port}",
+            smtp_host="smtp.example.invalid",
+            smtp_from="labels@example.invalid",
         )
+        messages: list[dict[str, str]] = []
+
+        def capture_email(settings, recipient, subject, body):
+            messages.append({"recipient": recipient, "subject": subject, "body": body})
+
+        # Isolated browser fixtures never contact a real mail server.
+        recovery_api.send_email = capture_email
+        notification_routing.send_email = capture_email
         application = create_app(settings, backend_factory=browser_printer)
         application.state.access_policy = None
+
+        @application.get("/api/test/emails")
+        def captured_emails(session: DB):
+            return messages
+
         with application.state.factory.begin() as session:
             session.add(
                 User(
@@ -43,5 +62,5 @@ if __name__ == "__main__":
         uvicorn.run(
             application,
             host="127.0.0.1",
-            port=int(os.environ.get("LABEL_UI_PORT", "8765")),
+            port=port,
         )

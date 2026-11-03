@@ -143,11 +143,11 @@ function noticeState(notice: Notice) {
     <div class="section-heading">
       <h2 id="notification-history-title">Notifications</h2>
       <span class="badge" :class="overview.notifications_enabled ? 'printed' : 'queued'">{{
-        overview.notifications_enabled ? 'ntfy enabled' : 'ntfy not configured'
+        overview.notifications_enabled ? 'Delivery enabled' : 'Delivery not configured'
       }}</span>
     </div>
     <p v-if="!overview.notifications_enabled" class="help">
-      Alerts are saved here. Configure ntfy to deliver them to your devices.
+      Add a notification endpoint in Administration to deliver alerts.
     </p>
     <HistoryPagination
       v-bind="notices.pagination"

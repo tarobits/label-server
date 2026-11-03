@@ -19,6 +19,16 @@ def isolated_notification_environment(monkeypatch):
     # Migration tests must never import the developer's live notification channel.
     for name in ("LABEL_NTFY_URL", "LABEL_NTFY_TOPIC", "LABEL_NTFY_TOKEN"):
         monkeypatch.setenv(name, "")
+    monkeypatch.setenv("LABEL_SMTP_SECURITY", "starttls")
+    monkeypatch.setenv("LABEL_SMTP_PORT", "587")
+    for name in (
+        "LABEL_SMTP_HOST",
+        "LABEL_SMTP_FROM",
+        "LABEL_SMTP_FROM_NAME",
+        "LABEL_SMTP_USERNAME",
+        "LABEL_SMTP_PASSWORD",
+    ):
+        monkeypatch.setenv(name, "")
 
 
 def create_test_app(settings=None, backends=None, start_worker=True, **kwargs):

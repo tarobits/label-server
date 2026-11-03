@@ -6,6 +6,8 @@ NotificationKind = Literal[
     "general", "empty_tape", "printer_blocked", "batch_review", "tape_waiting", "approval_digest"
 ]
 
+PrinterNotificationKind = Literal["empty_tape", "printer_blocked", "batch_review", "tape_waiting"]
+
 PRINTER_NOTIFICATION_KINDS = frozenset(
     {"empty_tape", "printer_blocked", "batch_review", "tape_waiting"}
 )

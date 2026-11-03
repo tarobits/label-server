@@ -7,6 +7,16 @@ import { useAuthStore } from '../auth'
 import { confirmAction } from '../confirmation'
 import { useWorkspaceStore } from '../workspace'
 import AdminDialog from './AdminDialog.vue'
+import MotionSurface from './MotionSurface.vue'
+import ExpandableContent from './ExpandableContent.vue'
+import PrinterNotificationKinds from './PrinterNotificationKinds.vue'
+import {
+  scopedPrinters,
+  selectedPrinterKinds,
+  priorityOptions,
+  type PrinterKinds,
+  type PrinterPriorities,
+} from '../notificationPreferences'
 import {
   useAdministrationStore,
   type NotificationEndpoint as Endpoint,
@@ -22,13 +32,6 @@ const eventKinds = [
   { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true, priority: 3 },
   { value: 'approval_digest', label: 'Pending print requests', scoped: false, priority: 3 },
 ]
-const priorityOptions = [
-  { value: 1, label: 'Min' },
-  { value: 2, label: 'Low' },
-  { value: 3, label: 'Normal' },
-  { value: 4, label: 'High' },
-  { value: 5, label: 'Urgent' },
-]
 const administration = useAdministrationStore()
 const { endpoints } = storeToRefs(administration)
 const busy = ref(false),
@@ -38,6 +41,8 @@ const busy = ref(false),
   editing = ref<Endpoint | null>(null)
 const defaults = () => ({
   name: '',
+  transport: 'ntfy' as 'ntfy' | 'email',
+  email: '',
   url: '',
   topic: '',
   token: '',
@@ -46,6 +51,8 @@ const defaults = () => ({
   all_printers: false,
   destination_ids: [] as string[],
   kinds: eventKinds.filter((kind) => !kind.scoped).map((kind) => kind.value),
+  printer_kinds: {} as PrinterKinds,
+  printer_priorities: {} as PrinterPriorities,
   priorities: Object.fromEntries(eventKinds.map((kind) => [kind.value, kind.priority])) as Record<
     string,
     number
@@ -55,7 +62,7 @@ const form = reactive(defaults())
 const search = ref('')
 const filteredEndpoints = computed(() =>
   endpoints.value.filter((endpoint) =>
-    `${endpoint.name} ${endpoint.url} ${endpoint.topic}`
+    `${endpoint.name} ${endpoint.url} ${endpoint.topic} ${endpoint.email}`
       .toLowerCase()
       .includes(search.value.trim().toLowerCase()),
   ),
@@ -64,6 +71,14 @@ const currentPrinters = computed(() =>
   w.destinations.filter((destination) => destination.kind === 'printer'),
 )
 const hasPrinterScope = computed(() => form.all_printers || form.destination_ids.length > 0)
+const customPrinters = computed(() =>
+  scopedPrinters(w.destinations, form.all_printers, form.destination_ids),
+)
+const printerKinds = computed(() => selectedPrinterKinds(form.printer_kinds, customPrinters.value))
+const hasEvents = computed(
+  () =>
+    form.kinds.length > 0 || Object.values(printerKinds.value).some((kinds) => kinds.length > 0),
+)
 watch(
   [hasPrinterScope, () => form.kinds],
   ([scoped]) => {
@@ -106,12 +121,23 @@ function edit(endpoint?: Endpoint) {
     endpoint
       ? {
           name: endpoint.name,
+          transport: endpoint.transport,
+          email: endpoint.email,
           url: endpoint.url,
           topic: endpoint.topic,
           enabled: endpoint.enabled,
           all_printers: endpoint.all_printers,
           destination_ids: [...endpoint.destination_ids],
           kinds: [...endpoint.kinds],
+          printer_kinds: Object.fromEntries(
+            Object.entries(endpoint.printer_kinds ?? {}).map(([id, kinds]) => [id, [...kinds]]),
+          ),
+          printer_priorities: Object.fromEntries(
+            Object.entries(endpoint.printer_priorities ?? {}).map(([id, priorities]) => [
+              id,
+              { ...priorities },
+            ]),
+          ),
           priorities: { ...defaults().priorities, ...endpoint.priorities },
         }
       : {},
@@ -149,12 +175,21 @@ async function save() {
       endpoint ? 'PUT' : 'POST',
       {
         name: form.name,
-        url: form.url,
-        topic: form.topic,
+        transport: form.transport,
+        email: form.transport === 'email' ? form.email : '',
+        url: form.transport === 'ntfy' ? form.url : '',
+        topic: form.transport === 'ntfy' ? form.topic : '',
         enabled: form.enabled,
         all_printers: form.all_printers,
         destination_ids: [...form.destination_ids],
         kinds: [...form.kinds],
+        printer_kinds: printerKinds.value,
+        printer_priorities:
+          form.transport === 'ntfy'
+            ? Object.fromEntries(
+                Object.entries(form.printer_priorities).filter(([id]) => id in printerKinds.value),
+              )
+            : {},
         priorities: { ...form.priorities },
         token: form.clear_token ? '' : form.token || null,
       },
@@ -201,9 +236,13 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     <article v-for="endpoint in filteredEndpoints" :key="endpoint.id" class="endpoint-row">
       <div class="grow">
         <strong>{{ endpoint.name }}</strong>
-        <small>{{ endpoint.url }} / {{ endpoint.topic }}</small>
+        <small>{{
+          endpoint.transport === 'email' ? endpoint.email : `${endpoint.url} / ${endpoint.topic}`
+        }}</small>
         <small
-          >{{ endpoint.has_token ? 'Token stored' : 'No token stored' }} ·
+          ><template v-if="endpoint.transport === 'ntfy'"
+            >{{ endpoint.has_token ? 'Token stored' : 'No token stored' }} ·
+          </template>
           {{
             endpoint.all_printers
               ? 'All current and future printers'
@@ -237,38 +276,55 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <form v-validate-form class="form-stack" @submit.prevent="save">
         <label>Endpoint name<input v-model="form.name" required maxlength="100" /></label>
-        <div class="field-row">
-          <label
-            >ntfy server URL<input
-              v-model="form.url"
-              type="url"
-              required
-              maxlength="2048"
-              placeholder="https://ntfy.example.com"
-          /></label>
-          <label
-            >ntfy topic<input v-model="form.topic" required maxlength="64" pattern="[-_A-Za-z0-9]+"
-          /></label>
-        </div>
         <label
-          >Access token<input
-            v-model="form.token"
-            type="password"
-            autocomplete="new-password"
-            :disabled="form.clear_token"
-          /><span class="help">{{
-            editing?.has_token
-              ? 'Leave blank to keep the stored token.'
-              : 'Optional. Tokens are stored privately and never shown again.'
-          }}</span></label
+          >Delivery method<select v-model="form.transport">
+            <option value="ntfy">ntfy</option>
+            <option value="email">Email</option>
+          </select></label
         >
-        <label v-if="editing?.has_token" class="checkbox"
-          ><input v-model="form.clear_token" type="checkbox" />Clear stored token</label
-        >
+        <MotionSurface :identity="form.transport" class="form-stack">
+          <label v-if="form.transport === 'email'"
+            >Recipient email<input v-model="form.email" type="email" required maxlength="254"
+          /></label>
+          <template v-else>
+            <div class="field-row">
+              <label
+                >ntfy server URL<input
+                  v-model="form.url"
+                  type="url"
+                  required
+                  maxlength="2048"
+                  placeholder="https://ntfy.example.com"
+              /></label>
+              <label
+                >ntfy topic<input
+                  v-model="form.topic"
+                  required
+                  maxlength="64"
+                  pattern="[-_A-Za-z0-9]+"
+              /></label>
+            </div>
+            <label
+              >Access token<input
+                v-model="form.token"
+                type="password"
+                autocomplete="new-password"
+                :disabled="form.clear_token"
+              /><span class="help">{{
+                editing?.has_token
+                  ? 'Leave blank to keep the stored token.'
+                  : 'Optional. Tokens are stored privately and never shown again.'
+              }}</span></label
+            >
+            <label v-if="editing?.has_token" class="checkbox"
+              ><input v-model="form.clear_token" type="checkbox" />Clear stored token</label
+            >
+          </template>
+        </MotionSurface>
         <label class="checkbox"
           ><input v-model="form.enabled" type="checkbox" />Enable this endpoint</label
         >
-        <fieldset class="form-stack">
+        <fieldset class="choice-list">
           <legend>Print destinations</legend>
           <label class="checkbox">
             <input v-model="form.all_printers" type="checkbox" />All current and future printers
@@ -324,9 +380,14 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           Select all chooses only current physical printers. Select groups individually to include
           their member printers’ operational alerts as membership changes.
         </p>
-        <fieldset class="event-types">
-          <legend>Event types</legend>
-          <div v-for="kind in eventKinds" :key="kind.value" class="event-type">
+        <fieldset class="notification-event-grid">
+          <legend>Default event types</legend>
+          <div
+            v-for="kind in eventKinds"
+            :key="kind.value"
+            class="notification-event-row"
+            :class="{ 'without-priority': form.transport !== 'ntfy' }"
+          >
             <label class="checkbox">
               <input
                 v-model="form.kinds"
@@ -335,29 +396,40 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 :disabled="kind.scoped && !hasPrinterScope"
               />{{ kind.label }}
             </label>
-            <label class="event-priority"
-              >Priority
-              <select
-                v-model.number="form.priorities[kind.value]"
-                :aria-label="`Priority for ${kind.label}`"
-                :disabled="!form.kinds.includes(kind.value) || (kind.scoped && !hasPrinterScope)"
-              >
-                <option
-                  v-for="priority in priorityOptions"
-                  :key="priority.value"
-                  :value="priority.value"
+            <ExpandableContent :open="form.transport === 'ntfy'">
+              <label class="event-priority"
+                >Priority
+                <select
+                  v-model.number="form.priorities[kind.value]"
+                  :aria-label="`Priority for ${kind.label}`"
+                  :disabled="!form.kinds.includes(kind.value) || (kind.scoped && !hasPrinterScope)"
                 >
-                  {{ priority.label }}
-                </option>
-              </select>
-            </label>
+                  <option
+                    v-for="priority in priorityOptions"
+                    :key="priority.value"
+                    :value="priority.value"
+                  >
+                    {{ priority.label }}
+                  </option>
+                </select>
+              </label>
+            </ExpandableContent>
           </div>
         </fieldset>
+        <PrinterNotificationKinds
+          v-model="form.printer_kinds"
+          v-model:priorities="form.printer_priorities"
+          :show-priorities="form.transport === 'ntfy'"
+          :default-priorities="form.priorities"
+          :printers="customPrinters"
+          :defaults="form.kinds"
+          :disabled="busy"
+        />
         <p v-if="!hasPrinterScope" class="help">
           Select a printer, group or all printers to enable cartridge, printer, batch and tape
           alerts. General alerts and pending print requests can be sent without a printer selection.
         </p>
-        <p v-if="!form.kinds.length" class="help">Select at least one event type.</p>
+        <p v-if="!hasEvents" class="help">Select at least one event type.</p>
         <div class="admin-actions">
           <button
             v-if="editing"
@@ -371,7 +443,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </button>
           <button
             class="primary"
-            :disabled="busy || !form.kinds.length || !!unavailableDestinations.length"
+            :disabled="busy || !hasEvents || !!unavailableDestinations.length"
           >
             Save notification endpoint
           </button>
@@ -429,17 +501,6 @@ h2 span {
 .unavailable-choice {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-.event-types {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
-  gap: 16px;
-}
-.event-type {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px;
-  align-items: center;
-  gap: 12px;
 }
 @media (max-width: 600px) {
   .endpoint-row > .grow {
