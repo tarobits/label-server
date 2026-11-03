@@ -37,6 +37,26 @@ For frontend development, keep the backend on port 8000 and run
 it proxies `/api` to the backend. Production serves `frontend/dist` by default;
 `LABEL_FRONTEND_DIST` overrides that path.
 
+## Install on a phone or tablet
+
+Open the production site over HTTPS. On iPhone or iPad, use Safari's Share menu
+and choose **Add to Home Screen** (enable **Open as Web App** if offered). On Android,
+use Chrome's **Install app** or **Add to Home screen** menu item. Launch the installed
+app from its icon to open Taro's Label Room in its own window.
+
+The installation currently requires a connection to the label server. Push
+notifications and an offline fallback are not yet available. The service worker
+caches public build assets only; API responses and account data are not stored in
+its cache. Updates wait until existing app windows and site tabs close.
+
+PWA registration runs only in production builds. For local testing, build the
+frontend and use the backend on `localhost` or `127.0.0.1`; plain HTTP on a LAN
+address does not support service workers. No Cloudflare upgrade is required when
+using an HTTPS tunnel hostname.
+
+Install icons are derived from `frontend/public/favicon.svg`. Regenerate them with
+`.venv/bin/python scripts/generate_app_icons.py` after changing the source icon.
+
 ## Install as a Linux service
 
 On Debian 13+ with Python 3.12+ and Git:

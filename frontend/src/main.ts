@@ -143,3 +143,11 @@ router.afterEach((to) => {
   document.title = `${String(to.meta.title)} · Taro's Label Room`
 })
 createApp(App).use(pinia).use(router).mount('#app')
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/', updateViaCache: 'none' })
+      .catch(() => console.warn('The app service worker could not be registered.'))
+  })
+}

@@ -213,11 +213,30 @@ def create_app(
     @app.get("/favicon.svg", include_in_schema=False)
     @app.get("/apple-touch-icon.png", include_in_schema=False)
     @app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+    @app.get("/pwa-192x192.png", include_in_schema=False)
+    @app.get("/pwa-512x512.png", include_in_schema=False)
+    @app.get("/pwa-maskable-512x512.png", include_in_schema=False)
     def browser_icon(request: Request) -> FileResponse:
         icon = settings.frontend_dist / request.url.path.lstrip("/")
         if not icon.is_file():
             raise HTTPException(404, "Icon not found")
         return FileResponse(icon, headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    @app.get("/sw.js", include_in_schema=False)
+    def pwa_asset(request: Request) -> FileResponse:
+        name = request.url.path.lstrip("/")
+        asset = settings.frontend_dist / name
+        if not asset.is_file():
+            raise HTTPException(404, "App asset not found")
+        media_type = (
+            "application/manifest+json" if name == "manifest.webmanifest" else "text/javascript"
+        )
+        return FileResponse(
+            asset,
+            media_type=media_type,
+            headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+        )
 
     @app.get("/", response_model=None)
     def root() -> FileResponse | JSONResponse:

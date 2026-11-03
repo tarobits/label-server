@@ -85,6 +85,9 @@ def test_frontend_is_served_without_masking_unknown_api_routes(
         "favicon.svg": "image/svg+xml",
         "apple-touch-icon.png": "image/png",
         "apple-touch-icon-precomposed.png": "image/png",
+        "pwa-192x192.png": "image/png",
+        "pwa-512x512.png": "image/png",
+        "pwa-maskable-512x512.png": "image/png",
     }
     public = Path(__file__).resolve().parent.parent / "frontend" / "public"
     for name in icons:
@@ -112,3 +115,30 @@ def test_frontend_is_served_without_masking_unknown_api_routes(
     assert static_client.get("/openapi.json").status_code == 200
     static_client.close()
     app.state.engine.dispose()
+
+
+def test_pwa_assets_have_explicit_types_and_require_revalidation(
+    client: TestClient, tmp_path: Path
+) -> None:
+    assets = {
+        "manifest.webmanifest": ('{"name":"Label Room"}', "application/manifest+json"),
+        "sw.js": ("self.addEventListener('install', () => {})", "text/javascript"),
+    }
+    for name, (content, _) in assets.items():
+        (tmp_path / name).write_text(content)
+    settings = client.app.state.settings.model_copy(update={"frontend_dist": tmp_path})
+    app = create_app(settings, start_worker=False)
+    static_client = TestClient(app)
+    try:
+        for name, (content, media_type) in assets.items():
+            response = static_client.get(f"/{name}")
+            assert response.status_code == 200
+            assert response.text == content
+            assert response.headers["content-type"].split(";")[0] == media_type
+            assert response.headers["cache-control"] == "no-cache"
+            assert response.headers["x-content-type-options"] == "nosniff"
+            (tmp_path / name).unlink()
+            assert static_client.get(f"/{name}").status_code == 404
+    finally:
+        static_client.close()
+        app.state.engine.dispose()
