@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, AsyncIterator
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -208,6 +208,16 @@ def create_app(
         app.mount(
             "/assets", StaticFiles(directory=settings.frontend_dist / "assets"), name="assets"
         )
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    @app.get("/favicon.svg", include_in_schema=False)
+    @app.get("/apple-touch-icon.png", include_in_schema=False)
+    @app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+    def browser_icon(request: Request) -> FileResponse:
+        icon = settings.frontend_dist / request.url.path.lstrip("/")
+        if not icon.is_file():
+            raise HTTPException(404, "Icon not found")
+        return FileResponse(icon, headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/", response_model=None)
     def root() -> FileResponse | JSONResponse:

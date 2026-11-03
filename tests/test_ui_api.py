@@ -80,6 +80,16 @@ def test_frontend_is_served_without_masking_unknown_api_routes(
     (tmp_path / "index.html").write_text("<html><body>Label room</body></html>")
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "main.js").write_text("console.log('test')")
+    icons = {
+        "favicon.ico": "image/vnd.microsoft.icon",
+        "favicon.svg": "image/svg+xml",
+        "apple-touch-icon.png": "image/png",
+        "apple-touch-icon-precomposed.png": "image/png",
+    }
+    public = Path(__file__).resolve().parent.parent / "frontend" / "public"
+    for name in icons:
+        (tmp_path / name).write_bytes((public / name).read_bytes())
+    (tmp_path / "private.txt").write_text("Must not be served")
     settings = client.app.state.settings.model_copy(update={"frontend_dist": tmp_path})
     # Static routes can be exercised without entering a second application lifespan.
     app = create_app(settings, start_worker=False)
@@ -87,6 +97,17 @@ def test_frontend_is_served_without_masking_unknown_api_routes(
     assert static_client.get("/").headers["content-type"].startswith("text/html")
     assert static_client.get("/").headers["cache-control"] == "no-cache"
     assert static_client.get("/assets/main.js").status_code == 200
+    for name, media_type in icons.items():
+        response = static_client.get(f"/{name}")
+        assert response.status_code == 200
+        # Python's MIME database can use either registered ICO type depending on the OS.
+        assert response.headers["content-type"] in (
+            {"image/x-icon", media_type} if name.endswith(".ico") else {media_type}
+        )
+        assert response.content == (public / name).read_bytes()
+    assert static_client.get("/private.txt").status_code == 404
+    (tmp_path / "favicon.ico").unlink()
+    assert static_client.get("/favicon.ico").status_code == 404
     assert static_client.get("/api/not-a-route").status_code == 404
     assert static_client.get("/openapi.json").status_code == 200
     static_client.close()
