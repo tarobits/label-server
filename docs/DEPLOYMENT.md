@@ -250,10 +250,15 @@ an uncertain physical result. Reconcile copies and tape consumption in the UI.
 
 `scripts/update.py` supports both the native systemd service and the `labels`
 Docker Compose service. Run it with Python 3.12+ on the deployment host. It uses
-GitHub's [latest release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release),
-which selects a published full release. It does not fall back to `main`, draft
-releases, prereleases, or unassociated Git tags. A missing/inaccessible release
-aborts before the application is stopped.
+GitHub's [latest release endpoint](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+by default (`--channel stable`), which selects a published full release.
+`--channel beta` selects the most recently published release, including
+prereleases and stable releases, by publication time across all release pages.
+`--tag RELEASE_TAG` selects that exact published release, including prereleases,
+and overrides `--channel`. Neither option falls back to branches, draft releases,
+or Git tags without a published GitHub release. A missing/inaccessible release
+aborts before the application is stopped. Channel selection applies to this
+invocation only; the in-app release notice continues to check stable releases.
 
 ### Private GitHub repository access
 
@@ -310,7 +315,9 @@ published release leaves the version visible without an update notice.
 The checkout must have a GitHub `origin` and no tracked or untracked local changes.
 Use `.env` for deployment settings. The updater fetches the release's exact tag
 and switches a local `release` branch to that commit, leaving `main` intact. If
-the existing `release` branch has diverged, it refuses to discard those commits.
+the existing `release` branch is not an ancestor of the selected release, it
+refuses to discard those commits. This also prevents downgrading to an older tag
+or returning from a beta to a stable release that does not include it.
 Finish current printing and review before scheduling an upgrade.
 
 Preview the selected release and plan without cloning, fetching, changing files,
@@ -320,6 +327,16 @@ backing up, or managing the service:
 python3 scripts/update.py --mode native --check
 python3 scripts/update.py --mode docker --check
 ```
+
+To preview the beta channel or a particular release (example tag):
+
+```sh
+python3 scripts/update.py --mode native --channel beta --check
+python3 scripts/update.py --mode native --tag v0.12.0-rc.1 --check
+```
+
+Remove `--check` to perform the selected update; native updates require `sudo`.
+Both options also work with `--mode docker`. Omitting `--channel` selects stable.
 
 For a native Git installation at `/opt/labels`, run:
 
