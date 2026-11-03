@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0] - 2026-11-03
+
+### Added
+
+- Sign in using a username or verified account email, ignoring case.
+- Administrator username editing with a review of the old and new names,
+  preserving account IDs, ownership, memberships, and existing sessions.
+
+### Changed
+
+- Renamed **Recovery email** to **Account email** in settings and related messages.
+
+### Security
+
+- Username and email sign-in share the same account rate limit.
+- Email verification prevents an address from being assigned to multiple accounts.
+  Sign-in rejects ambiguous email addresses already shared by older accounts;
+  those accounts can continue using their usernames.
+
+No database migration is required. Existing shared email addresses need separate
+verified addresses before they can be used for email sign-in.
+
 ## [0.10.0] - 2026-11-03
 
 ### Added
@@ -312,6 +334,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.11.0]: https://github.com/tarobits/label-server/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/tarobits/label-server/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/tarobits/label-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/tarobits/label-server/compare/v0.7.1...v0.8.0
