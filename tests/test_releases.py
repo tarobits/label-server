@@ -17,6 +17,7 @@ from app.releases import ReleaseChecker, fetch_release, stable_version
 accounts = account_fixture
 CURRENT = stable_version(__version__)
 NEXT_PATCH = f"{CURRENT[0]}.{CURRENT[1]}.{CURRENT[2] + 1}"
+NEXT_MINOR = f"{CURRENT[0]}.{CURRENT[1] + 1}.0"
 
 
 def complete(checker):
@@ -40,7 +41,7 @@ def test_version_numbers_match_release_metadata():
     "tag,newer",
     [
         (f"v{NEXT_PATCH}", True),
-        ("v0.10.0", True),
+        (f"v{NEXT_MINOR}", True),
         (__version__, False),
         ("v0.1.1", False),
         ("v0.0.9", False),

@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.10.0] - 2026-11-03
+
+### Added
+
+- Verified recovery email, single-use password reset links, and personal email
+  notification subscriptions.
+- SMTP email notification endpoints alongside ntfy, with per-printer event choices
+  and per-printer ntfy priorities.
+- Authorized printer changes for queued labels and complete CSV runs, preserving
+  saved labels and recording the authorizer, reason, and destination history.
+- Optional element names in the visual editor, including the element list,
+  inspector, and distance-holder selector.
+- Browser and home-screen icons.
+
+### Changed
+
+- Element duplication and deletion are available on the first inspector tab.
+- Manual printing explains blocked destinations, including offline printers,
+  pending reviews, tape mismatches, and incompatible saved label geometry.
+- More consistent mobile headers, touch targets, form spacing, disabled controls,
+  and animated settings disclosures.
+
+### Fixed
+
+- Saving a tape profile after clearing the reminder interval and disabling reminders.
+- Keyboard focus returns to the email control after saving recovery email changes.
+
+### Security
+
+- Authentication validation errors omit submitted credentials and recovery tokens.
+
+Stop existing servers and run `alembic upgrade head` before restarting. Existing
+ntfy endpoints retain their settings; email delivery requires SMTP configuration.
+Non-administrators need the `queue.change_printer` permission and Moderator access
+to both destinations to change a queued job's printer.
+
 ## [0.9.0] - 2026-10-30
 
 ### Added
@@ -276,6 +312,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.10.0]: https://github.com/tarobits/label-server/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/tarobits/label-server/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/tarobits/label-server/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/tarobits/label-server/compare/v0.7.0...v0.7.1
