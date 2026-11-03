@@ -239,6 +239,7 @@ def create_app(
         )
 
     @app.get("/", response_model=None)
+    @app.get("/index.html", response_model=None, include_in_schema=False)
     def root() -> FileResponse | JSONResponse:
         index = settings.frontend_dist / "index.html"
         if index.is_file():

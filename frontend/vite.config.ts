@@ -10,10 +10,10 @@ export default defineConfig({
       filename: 'sw.ts',
       injectRegister: null,
       registerType: 'prompt',
-      // Only public build assets belong in this cache. Navigation and API
-      // requests remain network-only until the offline experience is added.
+      // Only the public app shell and build assets belong in this cache.
+      // API responses, previews, and user uploads always stay on the network.
       injectManifest: {
-        globPatterns: ['assets/*.{js,css}', '*.png', '*.ico', '*.svg'],
+        globPatterns: ['index.html', 'assets/*.{js,css}', '*.png', '*.ico', '*.svg'],
       },
       manifest: {
         id: '/',

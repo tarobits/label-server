@@ -5,7 +5,8 @@ import { createServer } from 'node:net'
 import { delimiter, resolve } from 'node:path'
 
 export { expect }
-export const test = base.extend<{ seed: void }>({
+export const test = base.extend<{ seed: void; frontendDist: string }>({
+  frontendDist: [resolve('dist'), { option: true }],
   request: async ({ playwright, baseURL }, use) => {
     const login = await playwright.request.newContext({ baseURL })
     const response = await login.post('/api/auth/login', {
@@ -29,7 +30,7 @@ export const test = base.extend<{ seed: void }>({
     const session = await (await request.get('/api/auth/session')).json()
     await use({ 'X-CSRF-Token': session.csrf_token })
   },
-  baseURL: async ({}, use) => {
+  baseURL: async ({ frontendDist }, use) => {
     const listener = createServer()
     listener.listen(0, '127.0.0.1')
     await once(listener, 'listening')
@@ -42,6 +43,7 @@ export const test = base.extend<{ seed: void }>({
       env: {
         ...process.env,
         LABEL_UI_PORT: String(port),
+        LABEL_UI_FRONTEND_DIST: frontendDist,
         // Exercise this checkout even if the virtualenv contains an older installed package.
         PYTHONPATH: [resolve('..'), process.env.PYTHONPATH].filter(Boolean).join(delimiter),
       },

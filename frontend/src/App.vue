@@ -12,6 +12,8 @@ import MotionTrack from './components/MotionTrack.vue'
 import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import ChangelogNotice from './components/ChangelogNotice.vue'
+import ServerUnavailable from './components/ServerUnavailable.vue'
+import { serverUnavailable } from './serverConnection'
 import SignIn from './views/SignIn.vue'
 import AccountRecovery from './views/AccountRecovery.vue'
 import { useAuthStore } from './auth'
@@ -180,7 +182,12 @@ function skipToContent() {
   document.getElementById('main-content')?.focus()
 }
 useLiveRefresh(async () => {
-  if (auth.user) await w.refresh()
+  if (auth.user && !serverUnavailable.value) await w.refresh()
+})
+watch(serverUnavailable, async (unavailable, previouslyUnavailable) => {
+  if (unavailable || !previouslyUnavailable) return
+  await auth.refresh(true)
+  if (auth.user) await w.refresh(true)
 })
 watch(
   () => [auth.user?.id, route.path],
@@ -193,6 +200,7 @@ onMounted(auth.refresh)
 </script>
 <template>
   <ConfirmDialog />
+  <ServerUnavailable />
   <main v-if="!auth.ready" class="panel empty">
     <p>{{ auth.error || 'Opening your workspace…' }}</p>
     <button v-if="auth.error" @click="auth.refresh(true)">Retry</button>

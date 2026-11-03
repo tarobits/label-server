@@ -44,10 +44,18 @@ and choose **Add to Home Screen** (enable **Open as Web App** if offered). On An
 use Chrome's **Install app** or **Add to Home screen** menu item. Launch the installed
 app from its icon to open Taro's Label Room in its own window.
 
-The installation currently requires a connection to the label server. Push
-notifications and an offline fallback are not yet available. The service worker
-caches public build assets only; API responses and account data are not stored in
-its cache. Updates wait until existing app windows and site tabs close.
+After a successful visit has cached the app, opening it during a connection or
+Cloudflare tunnel outage shows **The label server is currently unable to be
+reached.** Choose **Retry**, or leave the app open for automatic recovery. An
+already-open editor keeps its unsaved work in memory during an outage; reloading
+or closing the app does not save that work. A first visit during an outage may
+still show the browser's or Cloudflare's error page.
+
+Updates wait until existing app windows and site tabs close.
+
+The service worker caches the public app shell and build assets only. API
+responses and account data stay out of its cache, and failed print submissions
+are never replayed automatically. Push notifications are not yet available.
 
 PWA registration runs only in production builds. For local testing, build the
 frontend and use the backend on `localhost` or `127.0.0.1`; plain HTTP on a LAN

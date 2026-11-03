@@ -1,3 +1,5 @@
+import { checkServer, serverUnavailable, serverUnavailableMessage } from './serverConnection'
+
 let csrfToken: string | null = null
 let unauthorized: (() => void) | undefined
 const mutationListeners = new Set<(path: string) => void>()
@@ -63,6 +65,8 @@ export async function api<T>(
   body?: unknown,
   headers: Record<string, string> = {},
 ): Promise<T> {
+  // Never queue or replay mutations during an outage.
+  if (serverUnavailable.value) throw new ApiError(serverUnavailableMessage, 0)
   const requestToken = csrfToken
   const readOnly = ['GET', 'HEAD', 'OPTIONS'].includes(method)
   const safeToRetry =
@@ -86,6 +90,7 @@ export async function api<T>(
   try {
     response = await fetch(`/api${path}`, options)
   } catch (error) {
+    void checkServer()
     throw transportError(error, safeToRetry)
   }
   let result = null
@@ -93,6 +98,7 @@ export async function api<T>(
     try {
       result = await response.json()
     } catch (error) {
+      void checkServer()
       if (response.ok) {
         if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))
           throw transportError(error, safeToRetry)
@@ -106,6 +112,7 @@ export async function api<T>(
     }
   }
   if (!response.ok) {
+    if (response.status >= 500) void checkServer()
     if (response.status === 401 && !path.startsWith('/auth/') && requestToken === csrfToken)
       unauthorized?.()
     const detail = result?.detail

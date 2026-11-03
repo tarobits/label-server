@@ -99,6 +99,8 @@ def test_frontend_is_served_without_masking_unknown_api_routes(
     static_client = TestClient(app)
     assert static_client.get("/").headers["content-type"].startswith("text/html")
     assert static_client.get("/").headers["cache-control"] == "no-cache"
+    assert static_client.get("/index.html").content == static_client.get("/").content
+    assert static_client.get("/index.html").headers["cache-control"] == "no-cache"
     assert static_client.get("/assets/main.js").status_code == 200
     for name, media_type in icons.items():
         response = static_client.get(f"/{name}")

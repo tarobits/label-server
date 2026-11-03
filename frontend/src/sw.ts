@@ -1,11 +1,22 @@
 /// <reference lib="webworker" />
-import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+import {
+  cleanupOutdatedCaches,
+  createHandlerBoundToURL,
+  precacheAndRoute,
+} from 'workbox-precaching'
 import type { PrecacheEntry } from 'workbox-precaching'
+import { NavigationRoute, registerRoute } from 'workbox-routing'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: PrecacheEntry[] }
 
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
 
-// Keep the normal waiting lifecycle: updates must not take over an open editor.
-// Push handlers and user-controlled activation are added in subsequent steps.
+// Serve the matching cached shell even if the tunnel returns an HTML error page.
+// The app probes /api/health before presenting a usable workspace. Hash routes
+// all use this entry point; API, downloads, and unknown paths are not rewritten.
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL('/index.html'), {
+    allowlist: [/^\/(?:index\.html)?(?:\?.*)?$/],
+  }),
+)

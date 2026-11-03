@@ -8,6 +8,8 @@ import uvicorn
 from alembic import command
 from alembic.config import Config
 from conftest import create_test_app as create_app
+from fastapi import Body, Request
+from fastapi.responses import HTMLResponse
 from printer_factory import browser_printer
 
 from app import notification_routing, recovery_api
@@ -30,7 +32,9 @@ if __name__ == "__main__":
             check_for_updates=False,
             database_url=url,
             worker_interval_seconds=0.1,
-            frontend_dist=root / "frontend" / "dist",
+            frontend_dist=Path(
+                os.environ.get("LABEL_UI_FRONTEND_DIST", root / "frontend" / "dist")
+            ),
             public_url=f"http://127.0.0.1:{port}",
             smtp_host="smtp.example.invalid",
             smtp_from="labels@example.invalid",
@@ -45,6 +49,25 @@ if __name__ == "__main__":
         notification_routing.send_email = capture_email
         application = create_app(settings, backend_factory=browser_printer)
         application.state.access_policy = None
+
+        outage_status: int | None = None
+
+        @application.middleware("http")
+        async def simulate_proxy_outage(request: Request, call_next):
+            if outage_status is not None and request.url.path != "/api/test/outage":
+                return HTMLResponse(
+                    "<html><body>Cloudflare error 1033: tunnel unavailable</body></html>",
+                    status_code=outage_status,
+                    headers={"Cache-Control": "no-store"},
+                )
+            return await call_next(request)
+
+        @application.post("/api/test/outage")
+        def set_outage(status: int | None = Body(default=None, embed=True)):
+            # This control exists only in the isolated browser-test process.
+            global outage_status
+            outage_status = status
+            return {"status": outage_status}
 
         @application.get("/api/test/emails")
         def captured_emails(session: DB):
