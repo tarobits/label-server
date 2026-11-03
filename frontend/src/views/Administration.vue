@@ -1255,6 +1255,9 @@ h2 span {
 .admin-record button {
   flex-shrink: 0;
 }
+.admin-table {
+  min-width: 440px;
+}
 .admin-table td {
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1262,6 +1265,8 @@ h2 span {
 }
 .admin-table .action-cell {
   text-align: right;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .settings-section form {
   max-width: 600px;

@@ -4,6 +4,7 @@ import { vValidateForm } from '../formValidation'
 import { storeToRefs } from 'pinia'
 import { confirmAction } from '../confirmation'
 import { reactive, ref } from 'vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
 import { api } from '../api'
 import { useWorkspaceStore, date } from '../workspace'
 import type { Profile, ProfileInput } from '../types'
@@ -24,6 +25,15 @@ const form = reactive(defaults()),
   intervalHours = ref(24)
 const snoozeProfile = ref<string | null>(null),
   snoozeUntil = ref('')
+let snoozeButton: HTMLElement | null = null
+function openSnooze(id: string, event: MouseEvent) {
+  snoozeButton = event.currentTarget as HTMLElement
+  snoozeProfile.value = id
+}
+function closeSnooze() {
+  snoozeProfile.value = null
+  snoozeButton?.focus()
+}
 function edit(profile?: Profile) {
   editing.value = profile?.id ?? null
   Object.assign(
@@ -39,9 +49,14 @@ function edit(profile?: Profile) {
   formOpen.value = true
 }
 async function save() {
+  const intervalSeconds = Math.round(intervalHours.value * 3600)
   const body = {
     ...form,
-    waiting_notification_interval_seconds: Math.round(intervalHours.value * 3600),
+    waiting_notification_interval_seconds:
+      !form.waiting_notification_enabled &&
+      (!Number.isFinite(intervalSeconds) || intervalSeconds < 60)
+        ? form.waiting_notification_interval_seconds
+        : intervalSeconds,
   }
   if (
     await w.action(
@@ -75,7 +90,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
       `Reminder setting updated.`,
     )
   )
-    snoozeProfile.value = null
+    if (snoozeProfile.value) closeSnooze()
 }
 </script>
 <template>
@@ -119,14 +134,17 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         ><input v-model="form.waiting_notification_enabled" type="checkbox" />Remind me when this
         tape is waiting above its threshold</label
       >
-      <label v-if="form.waiting_notification_enabled"
-        >Repeat reminder every (hours)<input
-          v-model.number="intervalHours"
-          type="number"
-          min="0.017"
-          step="any"
-          required
-      /></label>
+      <ExpandableContent :open="form.waiting_notification_enabled">
+        <label
+          >Repeat reminder every (hours)<input
+            v-model.number="intervalHours"
+            type="number"
+            min="0.017"
+            step="any"
+            required
+            :disabled="!form.waiting_notification_enabled"
+        /></label>
+      </ExpandableContent>
       <p class="help">
         Thresholds count physical copies. Lowering an installed tape’s threshold may start a batch
         immediately. Width cannot change after a profile has been used.
@@ -180,24 +198,27 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
       <div v-if="profile.waiting_notification_enabled" class="row wrap">
         <button class="small" :disabled="busy" @click="reminder(profile.id, 'silence')">
           Silence episode</button
-        ><button class="small" @click="snoozeProfile = profile.id">Snooze</button
+        ><button class="small" @click="openSnooze(profile.id, $event)">Snooze</button
         ><button class="small" :disabled="busy" @click="reminder(profile.id, 'resume')">
           Resume
         </button>
       </div>
-      <form
-        v-validate-form
-        v-if="snoozeProfile === profile.id"
-        class="form-stack inset"
-        @submit.prevent="reminder(profile.id, 'snooze')"
-      >
-        <label
-          >Snooze until (local time)<input
-            v-model="snoozeUntil"
-            type="datetime-local"
-            required /></label
-        ><button class="secondary" :disabled="busy">Set snooze</button>
-      </form>
+      <Transition name="panel-expand">
+        <form
+          v-if="snoozeProfile === profile.id"
+          v-validate-form
+          class="form-stack inset"
+          @submit.prevent="reminder(profile.id, 'snooze')"
+        >
+          <label
+            >Snooze until (local time)<input v-model="snoozeUntil" type="datetime-local" required
+          /></label>
+          <div class="row wrap">
+            <button class="secondary" :disabled="busy">Set snooze</button>
+            <button type="button" :disabled="busy" @click="closeSnooze">Cancel</button>
+          </div>
+        </form>
+      </Transition>
       <div class="card-actions">
         <button class="text-button" @click="edit(profile)">Edit profile</button
         ><button class="text-button danger-text" :disabled="busy" @click="remove(profile)">

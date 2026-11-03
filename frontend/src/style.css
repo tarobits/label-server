@@ -91,8 +91,17 @@ button:not(:disabled):hover,
   background: var(--overlay);
   text-decoration: none;
 }
-button:disabled {
+button:disabled,
+select:disabled,
+input:disabled:not([type='checkbox']):not([type='radio']),
+textarea:disabled {
   opacity: 0.45;
+  cursor: not-allowed;
+}
+label:has(> select:disabled),
+label:has(> input:disabled:not([type='checkbox']):not([type='radio'])),
+label:has(> textarea:disabled) {
+  color: var(--muted);
   cursor: not-allowed;
 }
 .primary {
@@ -212,7 +221,13 @@ input[type='checkbox'] {
 .checkbox-target input {
   margin: 0;
 }
-.checkbox-target:has(input:disabled) {
+.checkbox-target:has(input:disabled),
+label.checkbox:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.checkbox-target input:disabled,
+label.checkbox input:disabled {
   cursor: not-allowed;
 }
 label.checkbox {
@@ -242,6 +257,7 @@ label.checkbox {
 }
 label {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 7px;
   font-weight: 600;
@@ -828,6 +844,24 @@ progress::-moz-progress-bar {
 .form-stack > button {
   align-self: flex-start;
 }
+.notification-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 16px;
+}
+.notification-event-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(180px, 50%));
+  align-items: center;
+  gap: 12px;
+}
+.notification-event-row.without-priority {
+  grid-template-columns: minmax(0, 1fr);
+}
+.notification-event-row > label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .field-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -839,6 +873,12 @@ progress::-moz-progress-bar {
   align-items: center;
   gap: 10px;
   font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .label-stage {
   min-height: 220px;
@@ -1024,6 +1064,7 @@ dd,
   margin-bottom: 20px;
 }
 fieldset {
+  min-width: 0;
   border: 0;
   padding: 0;
   margin: 0;
@@ -1073,9 +1114,6 @@ dd {
   max-width: 670px;
   font-size: 13px;
   line-height: 1.8;
-}
-.card-grid .button {
-  margin-top: 20px;
 }
 .sr-only {
   position: absolute;
@@ -1196,6 +1234,7 @@ dd {
   }
   .sidebar nav a {
     white-space: nowrap;
+    min-height: 44px;
     padding: 8px 12px;
     font-size: 12px;
   }
@@ -1231,6 +1270,10 @@ dd {
     flex-direction: column;
     gap: 4px;
   }
+  .pagination button,
+  .card-actions .text-button {
+    min-height: 44px;
+  }
 }
 @media (max-width: 600px) {
   h1 {
@@ -1238,8 +1281,14 @@ dd {
   }
   .page-header {
     align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .page-header > div {
+    flex: 1 1 220px;
   }
   .page-header > .button {
+    min-height: 44px;
+    margin-left: auto;
     font-size: 12px;
     padding: 9px 11px;
     white-space: nowrap;
@@ -1310,6 +1359,26 @@ dd {
   }
   .review-resolution button {
     width: 100%;
+  }
+  .notification-event-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .notification-event-row .event-priority {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    margin-left: 27px;
+  }
+  .notification-event-row .event-priority select {
+    flex: 1;
+    width: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .notification-event-row .event-priority {
+    margin-left: 0;
   }
 }
 
