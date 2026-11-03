@@ -24,6 +24,7 @@ import {
   type DeletedItem,
 } from '../stores/administration'
 interface Effective {
+  username: string
   is_admin: boolean
   disabled: boolean
   permissions: string[]
@@ -226,6 +227,7 @@ const editorChanged = computed(() => {
       !!current &&
       !!selectedUser.value &&
       (password.value !== '' ||
+        current.username !== selectedUser.value.username ||
         current.disabled !== selectedUser.value.disabled ||
         normalized(sorted(current.role_ids)) !== normalized(sorted(selectedUser.value.role_ids)))
     )
@@ -458,6 +460,7 @@ function saveUser() {
       identifier: user.id,
       method: 'PUT',
       payload: {
+        username: user.username,
         disabled: user.disabled,
         role_ids: [...user.role_ids],
         ...(password.value ? { password: password.value } : {}),
@@ -852,6 +855,17 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     ><p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <template v-if="editor === 'user'">
       <form v-validate-form v-if="selectedUser" class="form-stack" @submit.prevent="saveUser">
+        <label
+          >Username<input
+            v-model="selectedUser.username"
+            autocomplete="off"
+            autocapitalize="none"
+            :spellcheck="false"
+            required
+            minlength="3"
+            maxlength="64"
+            pattern="[A-Za-z0-9_.-]+"
+        /></label>
         <label class="checkbox"
           ><input v-model="selectedUser.disabled" type="checkbox" />Disable account</label
         >
@@ -1125,7 +1139,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           <tbody>
             <tr v-for="item in changedUsers" :key="item.id">
               <td>
-                <strong>{{ item.username }}</strong
+                <strong>{{
+                  item.before && item.after && item.before.username !== item.after.username
+                    ? `${item.before.username} → ${item.after.username}`
+                    : item.username
+                }}</strong
                 ><small>{{ item.changed ? 'Changed' : 'Unchanged' }}</small>
               </td>
               <td>

@@ -4,6 +4,7 @@ import stat
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -196,6 +197,94 @@ def destinations(client):
                 PrinterGroup(id="station", name="Station", printer_ids=["first", "second"]),
             ]
         )
+
+
+def test_admin_can_rename_an_account_without_changing_its_identity(auth_client, tmp_path):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    created = change(
+        client,
+        "users",
+        "POST",
+        {"username": "original", "password": PASSWORD, "role_ids": ["member"]},
+    ).json()
+    group = change(
+        client, "groups", "POST", {"name": "Team", "members": [{"user_id": created["id"]}]}
+    ).json()
+    with closing(TestClient(client.app)) as member:
+        login(member, "original")
+        payload = {"username": "Renamed.User", "disabled": False, "role_ids": ["member"]}
+        reviewed = preview(client, "users", "PUT", payload, created["id"])
+        affected = next(
+            item for item in reviewed.json()["affected_users"] if item["id"] == created["id"]
+        )
+        assert affected["before"]["username"] == "original"
+        assert affected["after"]["username"] == "renamed.user"
+        assert affected["changed"]
+        assert member.get("/api/auth/session").json()["user"]["username"] == "original"
+        response = client.put(
+            f"/api/admin/users/{created['id']}",
+            json=payload,
+            headers={"X-Access-Confirmation": reviewed.json()["confirmation_token"]},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["id"] == created["id"]
+        current = member.get("/api/auth/session").json()["user"]
+        assert current["id"] == created["id"] and current["username"] == "renamed.user"
+        assert group["id"] in current["group_ids"]
+        assert (
+            member.post(
+                "/api/auth/login", json={"username": "original", "password": PASSWORD}
+            ).status_code
+            == 401
+        )
+        assert login(member, "RENAMED.USER")["user"]["id"] == created["id"]
+        assert (
+            member.post(
+                "/api/admin/access-preview",
+                json={
+                    "resource": "users",
+                    "identifier": created["id"],
+                    "method": "PUT",
+                    "payload": payload,
+                },
+            ).status_code
+            == 403
+        )
+
+
+@pytest.mark.parametrize(
+    "username,status",
+    [("ADMIN", 409), ("ab", 422), ("a" * 65, 422), ("a@b.invalid", 422), ("bad name", 422)],
+)
+def test_account_rename_enforces_username_rules(auth_client, tmp_path, username, status):
+    setup_admin(auth_client, tmp_path)
+    created = change(
+        auth_client, "users", "POST", {"username": "member", "password": PASSWORD}
+    ).json()
+    response = preview(
+        auth_client,
+        "users",
+        "PUT",
+        {"username": username, "disabled": False, "role_ids": ["member"]},
+        created["id"],
+    )
+    assert response.status_code == status
+    users = auth_client.get("/api/admin/users").json()
+    assert next(user for user in users if user["id"] == created["id"])["username"] == "member"
+
+
+def test_account_rename_confirmation_is_bound_to_the_reviewed_name(auth_client, tmp_path):
+    owner = setup_admin(auth_client, tmp_path)["user"]["id"]
+    payload = {"username": "reviewed", "disabled": False, "role_ids": ["administrator"]}
+    reviewed = preview(auth_client, "users", "PUT", payload, owner)
+    response = auth_client.put(
+        f"/api/admin/users/{owner}",
+        json={**payload, "username": "different"},
+        headers={"X-Access-Confirmation": reviewed.json()["confirmation_token"]},
+    )
+    assert response.status_code == 409
+    assert auth_client.get("/api/auth/session").json()["user"]["username"] == "admin"
 
 
 def permission(destination, level):

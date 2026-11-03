@@ -44,7 +44,7 @@ test('administration isolates sections and keeps account editing focused and rev
   await edit.click()
   const editor = page.getByRole('dialog', { name: 'Edit operator8', exact: true })
   await expect(editor).toBeVisible()
-  await expect(editor.getByRole('checkbox', { name: 'Disable account', exact: true })).toBeFocused()
+  await expect(editor.getByLabel('Username', { exact: true })).toBeFocused()
   await expect(
     editor.getByRole('button', { name: 'Review account changes', exact: true }),
   ).toBeDisabled()

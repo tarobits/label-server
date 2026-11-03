@@ -9,13 +9,13 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
-from app.auth_api import Credentials, Password
+from app.auth_api import Credentials, Password, Username
 from app.deletion import delete_account, is_deleted, restore_account, restore_content
 from app.history_cleanup import duplicate_history, purge_duplicate_history
 from app.models import (
@@ -141,6 +141,7 @@ class GroupInput(AdminInput):
 
 
 class UserInput(AdminInput):
+    username: Username | None = None
     disabled: bool
     role_ids: list[str] = Field(max_length=100)
     password: Password | None = None
@@ -404,6 +405,14 @@ def apply_change(
         if is_deleted(session, "users", user.id):
             raise HTTPException(404, "Account has been deleted")
         require_ids(session, Role, user_update.role_ids)
+        if user_update.username is not None:
+            if session.scalar(
+                select(User.id).where(
+                    func.lower(User.username) == user_update.username, User.id != user.id
+                )
+            ):
+                raise HTTPException(409, "That username is not available")
+            user.username = user_update.username
         user.disabled, user.role_ids = user_update.disabled, user_update.role_ids
         if user_update.password is not None:
             user.password_hash = "preview-only" if preview else hash_password(user_update.password)
