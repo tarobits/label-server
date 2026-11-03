@@ -26,6 +26,7 @@ class DistanceHolder(Input):
 
 class Element(Input):
     id: str = Field(min_length=1, max_length=80)
+    name: str = Field(default="", max_length=100)
     kind: Literal["text", "qr", "rectangle", "line", "image"]
     # The unrotated origin may be negative while the rotated bounds are inside the label.
     x: float = Field(ge=-1000, le=1000)

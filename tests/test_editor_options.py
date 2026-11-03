@@ -28,6 +28,23 @@ def document(**options):
     }
 
 
+def test_element_names_are_optional_bounded_metadata_preserved_by_templates(client):
+    doc = document()
+    original = render_document(TemplateDocument.model_validate(doc), {}, RenderSpec())
+    doc["elements"][0]["name"] = "Product title"
+    named = render_document(TemplateDocument.model_validate(doc), {}, RenderSpec())
+    assert original.image.tobytes() == named.image.tobytes()
+    response = client.post("/api/templates", json={"name": "Named elements", "document": doc})
+    assert response.status_code == 201, response.text
+    template = response.json()
+    saved = client.get(f"/api/templates/{template['id']}").json()
+    assert saved["document"]["elements"][0]["name"] == "Product title"
+    doc["elements"][0]["name"] = "x" * 101
+    assert (
+        client.post("/api/templates", json={"name": "Too long", "document": doc}).status_code == 422
+    )
+
+
 @pytest.mark.parametrize(
     "align,vertical", [("left", "top"), ("center", "center"), ("right", "bottom")]
 )

@@ -10,6 +10,7 @@ export interface TemplateField {
 }
 export interface Element {
   id: string
+  name?: string
   kind: 'text' | 'qr' | 'rectangle' | 'line' | 'image'
   x: number
   y: number

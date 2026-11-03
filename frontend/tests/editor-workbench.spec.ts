@@ -1,6 +1,84 @@
 import { test, expect } from './fixtures'
 import { showEditorSettings, showEditorTab } from './editor-settings'
 
+test('element names survive saving and support navigation, duplication, and undo', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/#/templates/new')
+  await page.getByLabel('Template name', { exact: true }).fill('Named elements')
+  await page.getByRole('button', { name: 'Add text', exact: true }).click()
+  const elementName = page.getByRole('textbox', { name: 'Element name', exact: true })
+  await elementName.fill('Product title')
+  await elementName.press('Tab')
+  await expect(page.getByRole('button', { name: '1. Product title', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(elementName).toHaveValue('')
+  await expect(page.getByRole('button', { name: '1. text', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(elementName).toHaveValue('Product title')
+  await page.getByRole('button', { name: 'Duplicate element', exact: true }).click()
+  await expect(elementName).toHaveValue('Product title')
+  await elementName.fill('Product details')
+  await elementName.press('Tab')
+  await showEditorSettings(page, 'Distance holder')
+  await expect(page.getByRole('combobox', { name: 'Follow element' })).toContainText(
+    '1. Product title',
+  )
+  await page
+    .getByRole('combobox', { name: 'Follow element' })
+    .selectOption({ label: '1. Product title' })
+  await page.getByRole('button', { name: 'Save template', exact: true }).click()
+  await expect(page).toHaveURL(/#\/templates\/[^/]+\/edit/)
+  const id = page.url().split('/templates/')[1]!.split('/')[0]!
+  const saved = await (await request.get(`/api/templates/${id}`)).json()
+  expect(saved.document.elements.map((element: { name: string }) => element.name)).toEqual([
+    'Product title',
+    'Product details',
+  ])
+  await page.reload()
+  await page.getByRole('button', { name: '1. Product title', exact: true }).click()
+  await showEditorTab(page, 'Content')
+  await expect(elementName).toHaveValue('Product title')
+  await page.getByRole('button', { name: '2. Product details', exact: true }).click()
+  await expect(elementName).toHaveValue('Product details')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('.editor-properties').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/named-elements-mobile.png', animations: 'disabled' })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.getByRole('button', { name: 'Delete element', exact: true }).click()
+  await expect(page.getByRole('button', { name: '2. Product details', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(page.getByRole('button', { name: '2. Product details', exact: true })).toBeVisible()
+})
+
+test('every element type exposes naming and icon actions in its first tab', async ({ page }) => {
+  await page.goto('/#/templates/new')
+  for (const kind of ['text', 'QR code', 'image', 'rectangle', 'line']) {
+    await page.getByRole('button', { name: `Add ${kind}`, exact: true }).click()
+    const firstTab = page
+      .getByRole('tablist', { name: 'Element settings' })
+      .getByRole('tab')
+      .first()
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('textbox', { name: 'Element name', exact: true })).toBeVisible()
+    for (const action of ['Duplicate element', 'Delete element']) {
+      await expect(page.getByRole('button', { name: action, exact: true })).toBeVisible()
+      await expect(
+        page.getByRole('button', { name: action, exact: true }).locator('svg'),
+      ).toBeVisible()
+    }
+    await showEditorTab(page, 'Layout')
+    await expect(page.getByRole('button', { name: 'Duplicate element', exact: true })).toBeHidden()
+    await firstTab.click()
+    await expect(page.getByRole('button', { name: 'Delete element', exact: true })).toBeVisible()
+  }
+  await page.screenshot({
+    path: 'test-results/element-actions-desktop.png',
+    animations: 'disabled',
+  })
+})
+
 test('task-based inspector keeps every setting editable and preserves values across tabs and reloads', async ({
   page,
   request,

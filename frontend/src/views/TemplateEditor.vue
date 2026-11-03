@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { confirmAction } from '../confirmation'
 import EditorRuler from '../components/EditorRuler.vue'
+import ElementDetails from '../components/ElementDetails.vue'
 import PropertySection from '../components/PropertySection.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
@@ -1083,7 +1084,7 @@ onUnmounted(() => {
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
         {{ warning }}
       </p>
-      <div v-if="document.elements.length" class="row wrap">
+      <div v-if="document.elements.length" class="row wrap element-list">
         <button
           v-for="(element, index) in document.elements"
           :key="element.id"
@@ -1091,7 +1092,7 @@ onUnmounted(() => {
           :aria-pressed="selectedId === element.id"
           @click="selectedId = element.id"
         >
-          {{ index + 1 }}. {{ element.kind }}
+          {{ index + 1 }}. {{ element.name?.trim() || element.kind }}
         </button>
       </div>
     </section>
@@ -1101,7 +1102,9 @@ onUnmounted(() => {
       class="panel editor-properties"
       aria-labelledby="element-properties-heading"
     >
-      <h2 id="element-properties-heading">{{ elementTitles[selected.kind] }}</h2>
+      <h2 id="element-properties-heading">
+        {{ selected.name?.trim() || elementTitles[selected.kind] }}
+      </h2>
       <MotionTrack
         class="inspector-tabs"
         :identity="`${selected.kind}:${activeInspector}`"
@@ -1138,6 +1141,12 @@ onUnmounted(() => {
           :inert="activeInspector !== 'content'"
           class="inspector-panel"
         >
+          <ElementDetails
+            v-model:name="selected.name"
+            @change="record"
+            @duplicate="duplicate"
+            @remove="remove"
+          />
           <label v-if="selected.kind === 'text' || selected.kind === 'qr'"
             >Content<textarea
               aria-label="Content"
@@ -1198,6 +1207,13 @@ onUnmounted(() => {
           :inert="activeInspector !== 'style'"
           class="inspector-panel"
         >
+          <ElementDetails
+            v-if="inspectorTabs[0]?.id === 'style'"
+            v-model:name="selected.name"
+            @change="record"
+            @duplicate="duplicate"
+            @remove="remove"
+          />
           <PropertySection v-if="selected.kind === 'text'" title="Typography" initially-open>
             <template v-if="selected.kind === 'text'">
               <div class="field-row typography-fonts">
@@ -1482,8 +1498,13 @@ onUnmounted(() => {
               >
                 <option value="">None (free position)</option>
                 <option v-for="element in distanceTargets" :key="element.id" :value="element.id">
-                  {{ document.elements.indexOf(element) + 1 }}. {{ element.kind
-                  }}{{ element.content ? ` · ${element.content.slice(0, 40)}` : '' }}
+                  {{ document.elements.indexOf(element) + 1 }}.
+                  {{ element.name?.trim() || element.kind
+                  }}{{
+                    !element.name?.trim() && element.content
+                      ? ` · ${element.content.slice(0, 40)}`
+                      : ''
+                  }}
                 </option>
               </select>
             </label>
@@ -1518,9 +1539,7 @@ onUnmounted(() => {
             </div>
             <div class="row wrap">
               <button class="small" @click="order(-1)">Send backward</button
-              ><button class="small" @click="order(1)">Bring forward</button
-              ><button class="small" @click="duplicate">Duplicate element</button
-              ><button class="small danger-text" @click="remove">Delete element</button>
+              ><button class="small" @click="order(1)">Bring forward</button>
             </div>
           </PropertySection>
         </div>
@@ -1560,6 +1579,11 @@ onUnmounted(() => {
   />
 </template>
 <style scoped>
+.element-list button,
+.editor-properties > h2 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .editor-settings-fields input:disabled {
   background: var(--surface-dense);
   color: var(--muted);
