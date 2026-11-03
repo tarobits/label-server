@@ -75,6 +75,8 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     separate=False,
     token=None,
     token_file=False,
+    channel="stable",
+    explicit_tag=None,
 ):
     root, data, previous, newest = deployment
     install = root
@@ -84,6 +86,11 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
         shutil.move(str(data), str(install / "storage"))
         data = install / "storage"
     args = update.options(["--mode", mode, "--checkout", str(root), "--install-dir", str(install)])
+    args.channel = channel
+    args.tag = explicit_tag
+    selected_tag = explicit_tag or ("v2.0.0-rc.1" if channel == "beta" else "v2.0.0")
+    if selected_tag != "v2.0.0":
+        git(root, "tag", selected_tag, newest)
     if token:
         if token_file:
             token_path = install / "credentials/github-token"
@@ -98,9 +105,25 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
 
     def release(repository, credential=None):
         assert credential == token
-        return "v2.0.0"
+        return selected_tag
 
-    monkeypatch.setattr(update, "latest_release", release)
+    def unexpected(*args):
+        pytest.fail("Wrong release selection path")
+
+    monkeypatch.setattr(
+        update,
+        "latest_release",
+        release if channel == "stable" and not explicit_tag else unexpected,
+    )
+    monkeypatch.setattr(
+        update, "beta_release", release if channel == "beta" and not explicit_tag else unexpected
+    )
+
+    def tagged(repository, tag, credential=None):
+        assert tag == explicit_tag
+        return release(repository, credential)
+
+    monkeypatch.setattr(update, "tagged_release", tagged if explicit_tag else unexpected)
     monkeypatch.setattr(update.shutil, "which", lambda value: f"/test/{value}")
     monkeypatch.setattr(update, "native_configuration", lambda _: (data, "labels", {}))
     config = {
@@ -212,6 +235,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
         "migrating" if metadata_failure else "failed" if failure else "complete"
     )
     assert record["previous_commit"] == previous
+    assert record["release"] == selected_tag
     if mode == "native":
         assert any(command[1:5] == ["-m", "pip", "install", "-c"] for command in events)
         assert ["npm", "ci", "--prefix", "frontend"] in events
@@ -461,3 +485,149 @@ def test_separate_native_install_preserves_custom_data_and_environment(deploymen
     test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
         deployment, monkeypatch, "native", None, separate=True
     )
+
+
+@pytest.mark.parametrize("mode", ["native", "docker"])
+@pytest.mark.parametrize(
+    "selection", [("beta", None), ("stable", "v2.0.0-rc.1"), ("beta", "v2.0.0")]
+)
+def test_channel_and_tag_install_the_selected_commit(deployment, monkeypatch, mode, selection):
+    channel, tag = selection
+    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+        deployment, monkeypatch, mode, None, channel=channel, explicit_tag=tag
+    )
+
+
+def test_release_selection_options():
+    assert update.options(["--mode", "native"]).channel == "stable"
+    args = update.options(["--mode", "docker", "--channel", "beta", "--tag", "v2.0.0-rc.1"])
+    assert args.channel == "beta"
+    assert args.tag == "v2.0.0-rc.1"
+
+
+@pytest.mark.parametrize(
+    "tag", ["", "--force", "../main", "v1..2", "v1.lock", "v1\n", "v1//test", "v1/."]
+)
+def test_invalid_explicit_tags_are_rejected_before_lookup(tag):
+    with pytest.raises(SystemExit):
+        update.options(["--mode", "native", "--tag", tag])
+
+
+def test_unknown_channel_is_rejected():
+    with pytest.raises(SystemExit):
+        update.options(["--mode", "native", "--channel", "nightly"])
+
+
+def test_beta_selects_latest_publication_across_pages_and_excludes_drafts(monkeypatch):
+    pages = [
+        [{"tag_name": "v3-draft", "draft": True}] * 99
+        + [{"tag_name": "v1.0.0", "published_at": "2026-10-01T00:00:00Z", "prerelease": False}],
+        [
+            {"tag_name": "v2.0.0-rc.1", "published_at": "2026-11-01T00:00:00Z", "prerelease": True},
+            {"tag_name": "v1.1.0", "published_at": "2026-10-15T00:00:00Z", "prerelease": False},
+        ],
+    ]
+    calls = []
+
+    def lookup(request, timeout):
+        calls.append(request.full_url)
+        assert request.get_header("Authorization") == "Bearer github_pat_apiTest"
+        assert request.full_url.endswith(f"?per_page=100&page={len(calls)}")
+        return io.BytesIO(json.dumps(pages[len(calls) - 1]).encode())
+
+    monkeypatch.setattr(update.urllib.request, "urlopen", lookup)
+    assert update.beta_release("tarobits/label-server", "github_pat_apiTest") == "v2.0.0-rc.1"
+    assert len(calls) == 2
+
+
+def test_beta_can_select_a_newer_stable_release(monkeypatch):
+    releases = [
+        {"tag_name": "v2.0.0-rc.1", "published_at": "2026-10-01T00:00:00Z", "prerelease": True},
+        {"tag_name": "v2.0.0", "published_at": "2026-11-01T00:00:00Z", "prerelease": False},
+    ]
+    monkeypatch.setattr(update, "release_request", lambda *args: releases)
+    assert update.beta_release("tarobits/label-server") == "v2.0.0"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        [],
+        [{"draft": True}],
+        {},
+        [{"tag_name": "v1"}],
+        [{"tag_name": "v1", "published_at": "invalid"}],
+        [{"tag_name": "v1", "published_at": "2026-11-01"}],
+    ],
+)
+def test_beta_rejects_missing_or_invalid_published_releases(monkeypatch, response):
+    monkeypatch.setattr(update, "release_request", lambda *args: response)
+    with pytest.raises(update.UpdateError):
+        update.beta_release("tarobits/label-server")
+
+
+def test_explicit_tag_uses_encoded_release_endpoint_and_accepts_prereleases(monkeypatch):
+    tag = "preview/v2.0.0-rc.1+build.2"
+
+    def lookup(request, timeout):
+        assert request.full_url.endswith("/releases/tags/preview%2Fv2.0.0-rc.1%2Bbuild.2")
+        assert request.get_header("Authorization") == "Bearer github_pat_apiTest"
+        return io.BytesIO(
+            json.dumps({"tag_name": tag, "prerelease": True, "draft": False}).encode()
+        )
+
+    monkeypatch.setattr(update.urllib.request, "urlopen", lookup)
+    assert update.tagged_release("tarobits/label-server", tag, "github_pat_apiTest") == tag
+
+
+@pytest.mark.parametrize("response", [{"tag_name": "v2", "draft": True}, {"tag_name": "v3"}, {}])
+def test_explicit_tag_rejects_drafts_or_mismatched_metadata(monkeypatch, response):
+    monkeypatch.setattr(update, "release_request", lambda *args: response)
+    with pytest.raises(update.UpdateError):
+        update.tagged_release("tarobits/label-server", "v2")
+
+
+@pytest.mark.parametrize("selection", [["--channel", "beta"], ["--tag", "v2.0.0-rc.1"]])
+def test_selected_release_lookup_failure_stops_before_deployment(
+    deployment, monkeypatch, selection
+):
+    root, _, previous, _ = deployment
+
+    def missing(request, timeout):
+        raise update.urllib.error.HTTPError(request.full_url, 404, "Not found", {}, None)
+
+    monkeypatch.setattr(update.urllib.request, "urlopen", missing)
+    monkeypatch.setattr(
+        update, "native_configuration", lambda _: pytest.fail("No service operations")
+    )
+    with pytest.raises(update.UpdateError, match="No published release"):
+        update.update(update.options(["--mode", "native", "--checkout", str(root), *selection]))
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert not (root / ".git/FETCH_HEAD").exists()
+    assert not (root.parent / "labels-backups").exists()
+
+
+@pytest.mark.parametrize(
+    "selection", [["--channel", "beta"], ["--channel", "beta", "--tag", "v2.0.0-rc.1"]]
+)
+def test_check_resolves_channel_or_tag_without_changing_checkout(
+    deployment, monkeypatch, capsys, selection
+):
+    root, _, previous, _ = deployment
+    release = {
+        "tag_name": "v2.0.0-rc.1",
+        "prerelease": True,
+        "published_at": "2026-11-01T00:00:00Z",
+    }
+
+    def lookup(repository, path, token):
+        assert path == ("/tags/v2.0.0-rc.1" if "--tag" in selection else "?per_page=100&page=1")
+        return release if "--tag" in selection else [release]
+
+    monkeypatch.setattr(update, "release_request", lookup)
+    update.update(
+        update.options(["--mode", "native", "--checkout", str(root), "--check", *selection])
+    )
+    assert "Selected release: tarobits/label-server v2.0.0-rc.1" in capsys.readouterr().out
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert not (root / ".git/FETCH_HEAD").exists()
