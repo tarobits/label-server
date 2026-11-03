@@ -16,6 +16,8 @@ Copy `scripts/api_session.py` alongside the client when installing it elsewhere.
 Add `--request-approval` to either submission script to create a pending request.
 
 Other clients first POST `{"username":"…","password":"…"}` to `/api/auth/login`.
+The `username` field accepts a username or verified account email, ignoring case.
+Administrators can rename accounts without changing their IDs or existing sessions.
 Retain the returned cookie and send the response's `csrf_token` in the
 `X-CSRF-Token` header on every mutation. Sessions expire after seven days; sign in
 again after a 401. Use HTTPS outside localhost. Never put credentials in a URL.

@@ -53,7 +53,7 @@ output, accurate previews, and clear control over queued and interrupted work.
   domain layers use the generic printer contract.
 - Run one server process per database. Preserve durable queue state, scoped
   permissions, approval boundaries, and historical attribution.
-- Verified recovery email supports password resets and personal alert subscriptions.
+- Verified account email supports sign-in, password resets, and personal alert subscriptions.
   Administrators can route existing alerts to ntfy or email destinations.
 - Existing REST integrations are implemented but are not the primary workflow.
 

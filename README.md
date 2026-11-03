@@ -374,12 +374,17 @@ Manage users, roles, template groups, and registration codes under
 **Administration**. Registration requires a code by default. Roles are assigned
 directly to users; the highest applicable permission wins.
 
-Add a recovery email in **Account settings** and confirm the emailed link before
+Add an **Account email** in **Account settings** and confirm the emailed link before
 using **Forgot password?** on the sign-in screen. Adding, changing, or removing
 the address requires your current password. Recovery links expire after 30 minutes
 and work once. Resetting a password ends all sessions and invalidates outstanding
 recovery links; sign in again afterward. Administrators can still set a replacement
 password through the user editor when email recovery is unavailable.
+
+Sign in with your username or verified account email. Administrators can change
+usernames through the user editor; account IDs, ownership, and existing sessions
+are preserved. Account emails are unique when verified. If older accounts already
+share an email, use their usernames until each has a separate verified address.
 
 Only administrators can delete accounts, after reviewing and confirming the impact.
 Deletion ends all sessions and removes the user's templates, images and fonts from
@@ -480,7 +485,7 @@ explicitly forward the SMTP settings into the container; see
 [email configuration](docs/DEPLOYMENT.md#email-configuration).
 
 Before starting this version, stop existing servers and run `alembic upgrade head`.
-Existing accounts start without a recovery email; existing ntfy endpoints are preserved.
+Existing accounts start without an account email; existing ntfy endpoints are preserved.
 Email delivery stays unavailable until SMTP is configured. Recovery emails are
 sent after the request returns; if delivery fails or the server restarts before
 sending, request another link. Operational email notifications use the durable

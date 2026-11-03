@@ -216,7 +216,7 @@ interrupted-batch review rules.
 
 ## Account recovery
 
-Users manage their recovery address under **Account settings**. Adding, changing,
+Users manage their **Account email** under **Account settings**. Adding, changing,
 or removing it requires their current password. A new address becomes usable only
 after verification; the existing verified address stays active until then.
 Removing it invalidates recovery links and disables the personal email subscription.

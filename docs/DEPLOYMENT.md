@@ -223,7 +223,7 @@ their queued jobs paused for an administrator release/cancel decision on the
 dashboard. Restoring permissions does not automatically resume those jobs.
 Set `LABEL_PUBLIC_URL` to the external HTTPS origin for notification and recovery
 links. Administrators configure ntfy or email endpoints and their event/destination
-filters in **Administration**. Personal subscriptions use verified recovery email
+filters in **Administration**. Personal subscriptions use verified account email
 addresses and recheck the subscriber's current permissions at delivery time.
 Configure ntfy topic read permissions separately. See
 [notification behavior](../README.md#notifications-and-integrations) and
@@ -483,7 +483,7 @@ untracked files blocking the release updater. An explicit allowlist avoids forwa
 such as `LABEL_DATABASE_URL` into the container. This override contains no secrets;
 keep its credential values in the restricted `.env`.
 
-For a functional check, add a recovery email in **Account settings**, open the
+For a functional check, add an account email in **Account settings**, open the
 verification link, and confirm the address. Then request **Forgot password?** for
 that account. Verification/reset links expire in 30 minutes and are single-use;
 a completed reset signs out every session. Recovery messages run after the request
