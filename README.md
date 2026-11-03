@@ -58,7 +58,13 @@ can also activate after all existing app windows and site tabs close.
 
 The service worker caches the public app shell and build assets only. API
 responses and account data stay out of its cache, and failed print submissions
-are never replayed automatically. Push notifications are not yet available.
+are never replayed automatically.
+
+After [configuring Web Push](docs/DEPLOYMENT.md#push-notifications), open **Account
+settings → Push notifications** on each device to enable alerts, select printer/event
+preferences, and send a test. iPhone/iPad notifications require a Home Screen app on
+iOS/iPadOS 16.4 or later. Device subscriptions can be removed from account settings;
+signing out or losing the associated session stops new delivery.
 
 PWA registration runs only in production builds. For local testing, build the
 frontend and use the backend on `localhost` or `127.0.0.1`; plain HTTP on a LAN

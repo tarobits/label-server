@@ -550,3 +550,76 @@ For reported hardware results and calibration checks, see
 [hardware verification](HARDWARE_VERIFICATION.md). The measured consumption
 baseline is limited to its recorded test conditions. Docker/LXC USB passthrough
 remains unverified.
+
+### Push notifications
+
+Push uses the browser's Web Push service and a persistent VAPID signing key.
+No paid Cloudflare plan, Firebase project, or Apple developer membership is needed.
+Use your existing HTTPS tunnel hostname as `LABEL_PUBLIC_URL`. The label server
+needs outbound HTTPS access to `fcm.googleapis.com`, `*.push.apple.com`, and
+`*.push.services.mozilla.com`; subscriptions to other providers are rejected.
+Cloudflare Access, if enabled, must allow the app's normal authenticated API calls.
+
+For a native installation, generate the key once as the service user:
+
+```sh
+cd /opt/labels
+sudo -u labels .venv/bin/python -m app.push_delivery --generate-key data/vapid-private.pem
+```
+
+Set these in the deployment's `.env`, using your own administrator contact address:
+
+```dotenv
+LABEL_PUBLIC_URL=https://labels.example.com
+LABEL_VAPID_PRIVATE_KEY_FILE=/opt/labels/data/vapid-private.pem
+LABEL_VAPID_SUBJECT=mailto:admin@example.com
+```
+
+Then restart with `sudo systemctl restart labels.service`. The key generator creates
+an owner-only file and refuses to overwrite an existing key. Keep this file in the
+persistent data directory and include it in backups. Changing the key requires
+removing and enabling notifications again on each device. A missing, unreadable,
+or invalid key leaves push unavailable without affecting printing or email.
+
+For Docker Compose, generate the key inside the persistent data volume:
+
+```sh
+docker compose exec labels python -m app.push_delivery --generate-key /srv/labels/data/vapid-private.pem
+```
+
+Set `LABEL_VAPID_SUBJECT` and `LABEL_PUBLIC_URL` in the host `.env`; leave
+`LABEL_VAPID_PRIVATE_KEY_FILE` unset to use the Compose default inside the container.
+Recreate it with `docker compose up -d`, retaining any USB or other Compose overrides.
+Do not supply a host filesystem path as the container's key path.
+
+On each device, open **Account settings → Push notifications**, name the device,
+and choose **Enable notifications**. On iPhone/iPad, first install the app on the
+Home Screen and launch it from there (iOS/iPadOS 16.4 or later). Permission is requested
+only when you choose Enable. If denied, allow notifications in the browser/device
+settings and try again. Chrome on Android also supports notifications in a browser tab.
+See [WebKit's mobile Web Push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+
+Use **Notification preferences** to select event categories and printers; the same
+moderator/admin permissions as personal email subscriptions apply. Each device has
+its own preferences, test button, and removal control. You can remove other devices
+from your account. Up to 20 devices can be registered per account.
+
+Subscriptions are tied to the sign-in that enabled them. Signing out revokes that
+session's push subscriptions; expired or revoked sessions also stop delivery. After
+signing in again, enable notifications again if the device is inactive. Account
+disabling and permission changes are checked before delivery. A push already handed
+to the browser's service can still arrive for up to five minutes; logout also attempts
+to unsubscribe the local browser and close its displayed notifications.
+
+The existing outbox retries temporary delivery failures independently per device;
+a 404/410 response disables that subscription. Test messages send immediately and
+are not retried. The server must be running to send new alerts. A notification tap
+opens its app screen (requiring sign-in when necessary), focusing an existing window
+at that exact screen if available, without navigating other open editors.
+
+Before relying on push, verify on both an actual iPhone/iPad Home Screen installation
+and Android device: enable, send a test, close the app and send a real scoped alert,
+tap it, then remove the device or sign out and verify that new alerts stop. Also
+stop the tunnel and reopen the previously cached app to check the server-unavailable
+screen. Automated tests exercise the API, encrypted payloads, offline worker display,
+and links; they do not prove delivery through Apple's or Google's live services.
