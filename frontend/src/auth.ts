@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, configureSession, errorMessage } from './api'
+import { clearBrowserPush } from './push'
 export type AccessLevel = 'none' | 'request' | 'print' | 'moderator' | 'full'
 export const accessLevels: { value: AccessLevel; label: string }[] = [
   { value: 'none', label: 'No access' },
@@ -125,6 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
   async function logout() {
     await api('/auth/logout', 'POST', {})
+    void clearBrowserPush()
     if (session.value) accept({ ...session.value, user: null, csrf_token: null })
     window.dispatchEvent(new Event('session-ended'))
     await refresh(true)

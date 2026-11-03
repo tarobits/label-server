@@ -12,12 +12,13 @@ from fastapi import Body, Request
 from fastapi.responses import HTMLResponse
 from printer_factory import browser_printer
 
-from app import notification_routing, recovery_api
+from app import notification_routing, push_api, recovery_api
 from app.admin_api import DB
 from app.auth import hash_password
 from app.config import Settings
 from app.identity import LOCAL_OWNER_ID
 from app.models import User
+from app.push_delivery import generate_key
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
@@ -28,7 +29,11 @@ if __name__ == "__main__":
         config.attributes["database_url"] = url
         command.upgrade(config, "head")
         port = int(os.environ.get("LABEL_UI_PORT", "8765"))
+        push_key = Path(directory) / "vapid.pem"
+        generate_key(push_key)
         settings = Settings(
+            vapid_private_key_file=push_key,
+            vapid_subject="mailto:ui-tests@example.invalid",
             check_for_updates=False,
             database_url=url,
             worker_interval_seconds=0.1,
@@ -40,6 +45,21 @@ if __name__ == "__main__":
             smtp_from="labels@example.invalid",
         )
         messages: list[dict[str, str]] = []
+        pushes: list[dict[str, str]] = []
+
+        def capture_push(settings, endpoint, notice):
+            pushes.append(
+                {
+                    "device": endpoint.id,
+                    "title": notice.title,
+                    "body": notice.message,
+                    "path": notice.path,
+                    "tag": notice.id,
+                }
+            )
+
+        push_api.send_push = capture_push
+        notification_routing.send_push = capture_push
 
         def capture_email(settings, recipient, subject, body):
             messages.append({"recipient": recipient, "subject": subject, "body": body})
@@ -68,6 +88,10 @@ if __name__ == "__main__":
             global outage_status
             outage_status = status
             return {"status": outage_status}
+
+        @application.get("/api/test/pushes")
+        def captured_pushes(session: DB):
+            return pushes
 
         @application.get("/api/test/emails")
         def captured_emails(session: DB):
