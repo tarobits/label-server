@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useLiveRefresh } from '../live'
 import { releaseHistory } from '../changelog'
 import ChangelogDialog from './ChangelogDialog.vue'
+import { showAppUpdate } from '../pwa'
 
 type VersionInfo = {
   current_version: string
@@ -24,7 +25,10 @@ useLiveRefresh(async () => {
   if (response.ok) version.value = await response.json()
 }, 5000)
 const showUpdate = computed(
-  () => version.value?.update_available && version.value.latest_version !== dismissed.value,
+  () =>
+    !showAppUpdate.value &&
+    version.value?.update_available &&
+    version.value.latest_version !== dismissed.value,
 )
 function openChangelog(event: MouseEvent) {
   ;(event.currentTarget as HTMLElement).focus({ preventScroll: true })

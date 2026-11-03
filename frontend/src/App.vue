@@ -13,6 +13,7 @@ import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import ChangelogNotice from './components/ChangelogNotice.vue'
 import ServerUnavailable from './components/ServerUnavailable.vue'
+import AppUpdateNotice from './components/AppUpdateNotice.vue'
 import { serverUnavailable } from './serverConnection'
 import SignIn from './views/SignIn.vue'
 import AccountRecovery from './views/AccountRecovery.vue'
@@ -201,6 +202,7 @@ onMounted(auth.refresh)
 <template>
   <ConfirmDialog />
   <ServerUnavailable />
+  <AppUpdateNotice />
   <main v-if="!auth.ready" class="panel empty">
     <p>{{ auth.error || 'Opening your workspace…' }}</p>
     <button v-if="auth.error" @click="auth.refresh(true)">Retry</button>

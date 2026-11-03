@@ -51,7 +51,10 @@ already-open editor keeps its unsaved work in memory during an outage; reloading
 or closing the app does not save that work. A first visit during an outage may
 still show the browser's or Cloudflare's error page.
 
-Updates wait until existing app windows and site tabs close.
+When a new frontend is ready, **App update ready** offers **Reload** or **Later**.
+Only the window where Reload is chosen reloads, and the template editor's unsaved
+changes warning still applies. Save other form changes before reloading. Updates
+can also activate after all existing app windows and site tabs close.
 
 The service worker caches the public app shell and build assets only. API
 responses and account data stay out of its cache, and failed print submissions

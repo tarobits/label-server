@@ -24,6 +24,7 @@ import './style.css'
 import './motion.css'
 import './focusVisibility'
 import { pinia } from './stores'
+import { registerAppWorker } from './pwa'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -144,10 +145,4 @@ router.afterEach((to) => {
 })
 createApp(App).use(pinia).use(router).mount('#app')
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js', { scope: '/', updateViaCache: 'none' })
-      .catch(() => console.warn('The app service worker could not be registered.'))
-  })
-}
+registerAppWorker()

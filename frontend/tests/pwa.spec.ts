@@ -44,6 +44,7 @@ test('production build exposes an installable manifest and activates its service
     return { scope: registration.scope, scriptURL: registration.active?.scriptURL }
   })
   expect(registration).toEqual({ scope: `${baseURL}/`, scriptURL: `${baseURL}/sw.js` })
+  await expect(page.getByRole('status', { name: 'App update', exact: true })).not.toBeVisible()
   await page.reload()
   expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL)).toBe(
     `${baseURL}/sw.js`,
