@@ -20,6 +20,10 @@ Retain the returned cookie and send the response's `csrf_token` in the
 `X-CSRF-Token` header on every mutation. Sessions expire after seven days; sign in
 again after a 401. Use HTTPS outside localhost. Never put credentials in a URL.
 
+Password resets revoke all sessions, including integration sessions. Administrators
+can set replacement passwords, and users can recover through a verified email.
+Update the integration's secret store and sign in again after a password reset.
+
 Administrator submission of another user's CSV draft can return HTTP 409 with
 `detail.code: "owner_access_discrepancy"`, an explanatory `detail.message` and
 `detail.override_allowed: true`. Present that discrepancy and obtain an explicit
@@ -27,6 +31,48 @@ administrator confirmation before retrying `POST /api/runs/{id}/submit` with
 `{"authorization_override": true}`. The first response creates no jobs. Do not
 automatically retry this response: the override uses the administrator's print
 authorization and records it in the immutable print-attempt attribution.
+
+## Recovery and email subscriptions
+
+Browser users can configure these under Account settings. API clients can use:
+
+| Endpoint | Input / behavior |
+| --- | --- |
+| `GET /api/auth/email` | Returns email availability, verified/pending addresses, and the current subscription; requires a session. |
+| `PUT /api/auth/email` | `email` and `current_password`; sends verification, or removes recovery when `email` is null. Requires session and CSRF. |
+| `POST /api/auth/email/verify` | `token` from the verification link; no session required. |
+| `POST /api/auth/password/forgot` | `username`; returns a generic acknowledgment and sends a link when recovery is available. No session required. |
+| `POST /api/auth/password/reset` | `token` and `new_password` (12–256 characters); consumes the link and revokes all sessions. No session required. |
+| `PUT /api/auth/email/subscription` | `enabled`, `all_printers`, `destination_ids`, `kinds`, and optional `printer_kinds`; requires session and CSRF. |
+
+Verification and reset tokens expire in 30 minutes and work once. Do not log or
+store recovery URLs as integration configuration. Personal subscriptions use the
+verified address, not a client-provided recipient, and enforce current destination
+access. See [access control](ACCESS_CONTROL.md#notifications) for routing rules.
+
+Administrator endpoints at `/api/admin/notification-endpoints` accept
+`transport: "ntfy"` with `url` and `topic`, or `transport: "email"` with a bare
+`email` address. Both use the existing event and destination filters. SMTP settings
+come from the service environment; they are not stored in each endpoint. Inspect
+the running server's `/docs` for complete schemas and allowed event names.
+
+Both endpoint and subscription inputs accept `printer_kinds`, an object keyed by
+physical printer ID, for example `{"PRINTER_ID": ["empty_tape", "batch_review"]}`.
+Allowed override events are `empty_tape`, `printer_blocked`, `batch_review`, and
+`tape_waiting`. Each entry replaces that printer's default operational `kinds`;
+an empty list silences it. Omit the entry to use defaults. Printer IDs must be
+within the selected scope and personal subscribers need direct moderation access.
+Group-wide events retain the defaults. An empty default `kinds` list is allowed
+when at least one printer override enables an event. Save the full override map
+on updates; omitted `printer_kinds` defaults to `{}`.
+
+Ntfy endpoints also accept `printer_priorities`, for example
+`{"PRINTER_ID": {"batch_review": 5}}`. Values are integers from 1 (Min) to 5
+(Urgent), and printer IDs must already have a `printer_kinds` entry. Missing event
+priorities inherit the endpoint's `priorities`. An empty or omitted map restores
+all inherited values. Email endpoints ignore and clear per-printer priorities.
+Combined tape-waiting messages use the highest effective priority among their
+included destinations, after scope and event filtering.
 
 ## Template labels
 
@@ -39,7 +85,7 @@ even if more printers are later added. Changing it with the same key returns 409
 
 ```sh
 .venv/bin/python scripts/submit_label.py \
-  --server http://labels.local:8000 --profile PROFILE_ID --template text \
+  --server https://labels.example.com --profile PROFILE_ID --template TEMPLATE_ID \
   --key inventory:event-123 --data '{"text":"Storage / Box 12"}'
 ```
 
@@ -86,7 +132,7 @@ Preview first; this uploads the asset but creates no queue items:
 
 ```sh
 python3 scripts/submit_image.py label.png \
-  --server http://labels.local:8000 --profile PROFILE_ID \
+  --server https://labels.example.com --profile PROFILE_ID \
   --resolution high --preview label-preview.html
 ```
 
@@ -95,7 +141,7 @@ Then submit with the same sizing and rendering options:
 
 ```sh
 python3 scripts/submit_image.py label.png \
-  --server http://labels.local:8000 --profile PROFILE_ID \
+  --server https://labels.example.com --profile PROFILE_ID \
   --resolution high --key inventory:image-event-123
 ```
 
@@ -166,9 +212,7 @@ new invocation; this hook cannot distinguish it from an intentional reprint.
 Integrations with a durable event ID should use `--key` instead.
 
 The bridge has automated retry tests but has not been verified in a live HomeBox
-deployment. Live verification was deferred on 2026-10-17; the current workflow
-preference is manual label creation with this server's native editor. To verify
-configuration without queuing if the bridge is revisited, temporarily add
+deployment. To verify configuration without queuing, temporarily add
 `--preview /tmp/label-preview.html` to the command and inspect that file. A
 successful submission means queued, not physically printed. For structured
 editable labels, map item fields to a saved template through `/api/jobs`.

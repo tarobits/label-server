@@ -1,11 +1,12 @@
 # Deployment and recovery
 
-The selected deployment path is the native service in a Debian VM: Python in a
-virtual environment, managed by systemd, with the printer attached through a
-Proxmox USB resource mapping. Docker and LXC remain alternatives. Native VM
-startup, application-level USB access, physical printing, VM reboot, hold
-persistence and printer disconnect/reconnect without a service restart passed
-on 2026-10-17.
+Run the application as a native systemd service or with Docker Compose. Both
+use one server process per database and need exclusive access to each printer.
+Virtual machines and containers also need USB passthrough configured by their host.
+
+Paths such as `/opt/labels`, service accounts such as `labels`, and port 8000
+below are project defaults or examples, not details of a particular installation.
+Replace placeholder device paths and IDs with values discovered on your host.
 
 ## GitHub installer
 
@@ -27,16 +28,19 @@ sudo systemctl status labels.service
 
 The default version is GitHub's latest published stable release. No release or
 missing repository access stops installation. To install a particular release
-or the current branch, pass `--ref v0.4.0` or `--ref main`. The install fetches
+or the current branch, pass `--ref RELEASE_TAG` or `--ref main`. The install fetches
 that ref from GitHub; local uncommitted changes are not copied. Use
 `--repository OWNER/REPOSITORY` for a fork.
 
 The default bind address is `127.0.0.1:8000`, for local access or a reverse proxy.
-For direct LAN access, choose the reachable URL for your server:
+For HTTPS behind a reverse proxy, set the externally reachable URL:
 
 ```sh
-sudo python3 scripts/install.py --host 0.0.0.0 --public-url http://labels.example:8000
+sudo python3 scripts/install.py --public-url https://labels.example.com
 ```
+
+For direct LAN access, `--host 0.0.0.0` exposes the service on all interfaces.
+Restrict access at the host firewall and use HTTPS for remote access.
 
 Options include `--install-dir /opt/labels`, `--port 8000`, `--skip-packages`
 (for pre-provisioned dependencies) and `--no-start` (enable without starting).
@@ -89,7 +93,8 @@ npm run build --prefix frontend
 .venv/bin/alembic upgrade head
 ```
 
-Edit `.env` for server configuration. Configure ntfy endpoints in **Administration**. Add the
+Edit `.env` for server configuration, including SMTP if using email recovery or
+notifications. Configure ntfy or email endpoints in **Administration**. Add the
 printer under **Printers & groups** in the web UI. USB serial is optional for one
 Brother device and required on every device when several are used. Locate USB
 devices with `lsusb -d 04f9:20af`; inspect `lsusb -v` for `iSerial`, which may differ
@@ -99,8 +104,9 @@ database and edited with **Configure**, including the first printer.
 Install `deploy/70-label-printer.rules` under `/etc/udev/rules.d/` on the host
 owning the USB device, reload udev rules and reconnect the printer. Add the service
 user to `labelprinter`. Ensure the data directory is writable by `labels`.
-Install `deploy/labels.service`, adjust paths/bind address if needed, and start it
-with systemd. Migrations remain an explicit stopped-service upgrade step.
+Install `deploy/labels.service` and adjust its paths and bind address before
+starting it with systemd. Unlike the installer, the sample unit binds to
+`0.0.0.0`; change that to `127.0.0.1` for a local reverse proxy. Migrations remain an explicit stopped-service upgrade step.
 Do not run P-touch Editor, CUPS or another process against the same printer.
 
 ## Proxmox VM USB access
@@ -116,49 +122,29 @@ inside the VM, where the application's USB access occurs. Verify status as the
 `labels` service user before starting any print test. Seeing the printer in
 `lsusb` alone does not establish application permissions or successful printing.
 
-On 2026-10-17, a native Linux AMD64 VM running Debian 13.7 and Python 3.13.5 was
-installed from the current checkout with a prebuilt frontend. The `labels`
-systemd service was active and enabled at boot, running as `labels:labels` with
-the supplementary `labelprinter` group. The mapped USB node was owned by
-`root:labelprinter` with mode `0660`. `/api/health` returned healthy, the frontend
-served built assets successfully, and administrator setup was complete. In the
-authenticated application, the registered PT-P710BT reported connected with
-24 mm tape and a 180 × 360 dpi default. Automatic printing was held for testing;
-no cartridge was installed at that check. These checks verify native service
-startup and live application USB status.
+After configuring passthrough, verify the installation:
 
-A subsequent label submission exposed `crypto.randomUUID()` being unavailable
-on the plain-HTTP LAN origin. A shared UUID generator using `getRandomValues()`
-when needed now covers label submission, CSV preparation and editor elements;
-blank required label fields are also checked before requesting a preview. The
-frontend build and six browser regression checks passed. The frontend-only update
-was applied without restarting the service. The VM was verified serving the new
-built assets, and the user then reported a successful physical print.
+1. Check `systemctl status labels.service` and `/api/health` after startup.
+2. Sign in and confirm that the application reports the printer and detected tape.
+3. Hold automatic printing, register the correct cartridge, and manually print a
+   test label. Inspect the physical output and reconcile any review prompt.
+4. Reboot the guest and verify service startup, USB access, and hold persistence.
+5. Disconnect and reconnect the printer while idle, then repeat the status and
+   print checks. Device node numbers may change; repair the mapping if needed.
 
-The VM was then rebooted on 2026-10-17. SSH checks confirmed a new boot session,
-automatic service startup, active/enabled service state and a healthy API.
-The authenticated dashboard showed the printer connected, automatic printing
-still held, no pending work or review, and a completed post-reboot batch. The
-user confirmed that the post-reboot physical print succeeded. The guest USB node
-changed from `/dev/bus/usb/002/002` to `/dev/bus/usb/001/002` across the VM reboot,
-with printing still working.
-
-The user then confirmed successful USB disconnect/reconnect and another physical
-print while the VM and service stayed running. SSH verification showed the same
-service activation timestamp, a healthy API and the printer at
-`/dev/bus/usb/001/003` instead of `/dev/bus/usb/001/002`. This completes the native
-VM deployment acceptance checks for startup, service-user USB access, printing,
-VM reboot and printer reconnect through the configured Proxmox mapping.
+These checks validate that installation. A healthy HTTP endpoint or a visible
+USB device alone does not establish successful physical printing.
 
 ## Proxmox LXC USB access
 
 The printer must be accessible on the Proxmox host first. On versions exposing
 `dev[n]`, pass the specific `/dev/bus/usb/BBB/DDD` node to the stopped container,
 with a writable mode and the intended in-container uid/gid. For example, adapting
-container ID, node and user IDs to your installation:
+container ID, node and user IDs to your installation. Set `CONTAINER_ID`,
+`USB_DEVICE`, `SERVICE_UID`, and `DEVICE_GID` to those values before running:
 
 ```sh
-pct set 123 -dev0 path=/dev/bus/usb/001/005,uid=10001,gid=10001,mode=0660
+pct set "$CONTAINER_ID" -dev0 "path=$USB_DEVICE,uid=$SERVICE_UID,gid=$DEVICE_GID,mode=0660"
 ```
 
 Confirm the option against your installed `pct help set` and the
@@ -182,7 +168,7 @@ For real USB, supply the specific node and its group in `.env` and use the expli
 override. It grants that device, not the entire USB bus:
 
 ```sh
-# .env: LABEL_USB_DEVICE=/dev/bus/usb/001/005
+# .env: LABEL_USB_DEVICE=/dev/bus/usb/BBB/DDD (replace with the actual node)
 # .env: LABEL_USB_GID=<numeric group owning the node>
 docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d --build
 ```
@@ -191,14 +177,9 @@ The image runs as UID 10001 and includes libusb. With Docker inside LXC, both
 layers need that device mapped and accessible. Recreate the service after USB
 node renumbering. The image applies migrations before starting one Uvicorn worker.
 Stop the old container before an upgrade; do not run a second service on the same
-database and printer. Compose configuration has been checked. On 2026-10-17, the
-image built successfully for Linux ARM64 using Docker Desktop on macOS. A separate
-test volume verified migrations through `c91d8e5a206b`, startup as UID 10001,
-`/api/health`, built frontend serving, administrator setup, authenticated API
-access, image upload and raster preview generation. Login, configuration and
-uploaded-artwork rendering also passed after a container restart. No labels were
-queued or printed. Physical USB passthrough and the intended LXC setup remain
-unverified; these checks do not establish Linux AMD64 behavior.
+database and printer. Image build and isolated application checks have passed;
+physical USB passthrough with Docker or LXC remains unverified. Validate permissions,
+reconnect behavior, and physical output on your host before relying on it.
 
 ## Settings and exposure
 
@@ -240,21 +221,14 @@ Access-changing role and membership edits require a before/after impact preview
 and confirmation. Accounts disabled or deprived of required printer access leave
 their queued jobs paused for an administrator release/cancel decision on the
 dashboard. Restoring permissions does not automatically resume those jobs.
-Set `LABEL_PUBLIC_URL` to a browser-reachable origin for notification links. ntfy
-server URLs, topics, credentials and routing filters are stored in the database
-and configured in **Administration**. Endpoints select event types, printers or
-distribution groups, and a severity per event type. Group channels also receive
-operational alerts from their members as membership changes. **Select all** snapshots
-only current physical printers; groups are selected manually. **All current and
-future printers** includes later additions. Empty scopes
-disable and clear printer event types. Configure ntfy topic read permissions
-separately; application filters do not grant or restrict topic subscriptions.
-Matching endpoints each have independent durable retries. Editing, disabling or
-deleting an endpoint cancels its pending deliveries without changing print state.
-The notification scope migration removes role/access filters, makes formerly
-unrestricted scopes explicitly include future printers, preserves selected IDs,
-and cancels pending deliveries under the old configuration. Apply it with the
-service stopped using `.venv/bin/alembic upgrade head`; rebuild the frontend too.
+Set `LABEL_PUBLIC_URL` to the external HTTPS origin for notification and recovery
+links. Administrators configure ntfy or email endpoints and their event/destination
+filters in **Administration**. Personal subscriptions use verified recovery email
+addresses and recheck the subscriber's current permissions at delivery time.
+Configure ntfy topic read permissions separately. See
+[notification behavior](../README.md#notifications-and-integrations) and
+[access boundaries](ACCESS_CONTROL.md#notifications).
+
 The anonymous `/api/health` healthcheck proves the server responds, not that the
 printer is connected. Workspace and printer APIs require sign-in.
 
@@ -284,7 +258,7 @@ aborts before the application is stopped.
 ### Private GitHub repository access
 
 Create a [fine-grained personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
-restricted to `tarobits/label-server`, with **Contents: read-only** repository
+restricted to the repository being deployed, with **Contents: read-only** repository
 permission. Add it to the installation's `.env` (not the source checkout's `.env`
 when `--install-dir` is separate):
 
@@ -354,7 +328,7 @@ cd /opt/labels
 sudo python3 scripts/update.py --mode native
 ```
 
-The existing VM was installed from a copied bundle. Place the updater on that VM
+For an installation copied without Git metadata, place the updater on the host
 and give it a separate, initially absent source checkout:
 
 ```sh
@@ -365,8 +339,8 @@ sudo python3 /path/to/scripts/update.py --mode native \
 It clones `tarobits/label-server` automatically in that case. `--repository OWNER/REPO`
 selects another repository for a new checkout and must match `origin` for an
 existing one. Separate source and installation directories must not be nested.
-Subsequent runs can use `/opt/labels-source/scripts/update.py` once a release
-includes the updater. No Git metadata is required in the copied installation.
+Subsequent runs can use `/opt/labels-source/scripts/update.py` after the first
+update. No Git metadata is required in the copied installation.
 
 Native prerequisites are the existing virtual environment, Git, Node 22.12+/npm,
 systemd/runuser, and rsync for separate source/install directories. Run as root.
@@ -395,7 +369,7 @@ then recreates `labels`; other Compose services are not restarted.
 
 Both modes stop the application before copying its complete data. Backups go to
 a new timestamped, restricted directory beside the installation by default
-(`/opt/labels-backups` for the VM). `--backup-dir` changes the parent; it must stay
+(`/opt/labels-backups` for the default native installation). `--backup-dir` changes the parent; it must stay
 outside the source, installation and data directories. Each backup contains
 `source.tar.gz`, `data.tar.gz`, `.env` as `environment.env` when present, and an
 `update.json` recovery record with old/new commits and Docker image/mount details.
@@ -429,11 +403,95 @@ udev/group permissions. A group is a routing destination, not a USB device.
 
 ## Environment configuration
 
-Supported application variables are `LABEL_DATABASE_URL`,
-`LABEL_WORKER_INTERVAL_SECONDS`, `LABEL_FRONTEND_DIST` and `LABEL_PUBLIC_URL`. Compose additionally
-uses `LABEL_BIND_ADDRESS`, `LABEL_USB_DEVICE` and `LABEL_USB_GID` for deployment.
-Printer connections, resolution, feed, cuts and timeout are configured in the UI.
-The anonymous health check uses `/api/health` and succeeds before a printer is registered.
+The application reads these variables from the process environment or `.env` in
+its working directory. Environment variables take precedence. Restart the service
+after changes. Start with [.env.example](../.env.example); keep credentials out of
+source control and restrict the populated `.env` to the service owner.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LABEL_DATABASE_URL` | `sqlite:///./data/labels.db` | Database location; Compose sets its persistent-volume path. |
+| `LABEL_WORKER_INTERVAL_SECONDS` | `2` | Worker polling interval in seconds; must be positive. |
+| `LABEL_PUBLIC_URL` | `http://localhost:8000` | Browser-reachable URL for notification and recovery links; use HTTPS remotely. |
+| `LABEL_FRONTEND_DIST` | `frontend/dist` beside the source tree | Built frontend directory. |
+| `LABEL_CHECK_FOR_UPDATES` | `true` | Enable cached GitHub release checks. |
+| `LABEL_GITHUB_TOKEN` | Unset | Optional repository-read token for release checks and updates. |
+| `LABEL_GITHUB_TOKEN_FILE` | Unset | Optional file containing that token; takes precedence over the inline token. |
+| `LABEL_SMTP_HOST` | Unset | SMTP server; required for email delivery. |
+| `LABEL_SMTP_PORT` | `587` | SMTP port; set explicitly for your provider. |
+| `LABEL_SMTP_SECURITY` | `starttls` | `starttls`, `ssl` (implicit TLS), or `plain` (unencrypted trusted local relay only). |
+| `LABEL_SMTP_USERNAME` | Unset | SMTP login name; leave empty if the relay needs no authentication. |
+| `LABEL_SMTP_PASSWORD` | Unset | SMTP login password. |
+| `LABEL_SMTP_FROM` | Unset | Bare sender email address; required for email delivery. |
+| `LABEL_SMTP_FROM_NAME` | Empty | Optional sender display name, formatted separately from the address. |
+
+Compose also uses `LABEL_BIND_ADDRESS` (default `127.0.0.1`), `LABEL_USB_DEVICE`,
+and `LABEL_USB_GID`. The USB override requires the latter two; neither is a printer
+registration. Connections, resolution, feed, cuts, timeout, and cartridge checks
+are stored in the database and configured in the UI.
+
+### Email configuration
+
+Use `starttls` with the provider's STARTTLS port (usually 587), or `ssl` with its
+implicit TLS port (usually 465). Both verify TLS certificates. STARTTLS failures
+never fall back to plain transport. The `plain` option is only for a trusted
+local relay. `LABEL_SMTP_FROM` accepts a bare address, not `Name <address>`;
+put the display name in `LABEL_SMTP_FROM_NAME`.
+
+```dotenv
+LABEL_PUBLIC_URL=https://labels.example.com
+LABEL_SMTP_HOST=smtp.example.com
+LABEL_SMTP_PORT=587
+LABEL_SMTP_SECURITY=starttls
+LABEL_SMTP_USERNAME=label-server
+LABEL_SMTP_PASSWORD=
+LABEL_SMTP_FROM=labels@example.com
+LABEL_SMTP_FROM_NAME="Label Server"
+```
+
+Enter the provider's password locally if authentication is required. Restart the
+native service after editing `.env`. Email recovery and alerts share this transport;
+recipients and event subscriptions are configured in the application.
+
+The base Compose file forwards only its listed environment variables; the host's
+`.env` is not automatically available inside the container. To enable email, create
+an override outside the managed source checkout, such as
+`/path/to/compose.email.yml`, with explicit SMTP forwarding:
+
+```yaml
+services:
+  labels:
+    environment:
+      LABEL_SMTP_HOST: ${LABEL_SMTP_HOST:-}
+      LABEL_SMTP_PORT: ${LABEL_SMTP_PORT:-587}
+      LABEL_SMTP_SECURITY: ${LABEL_SMTP_SECURITY:-starttls}
+      LABEL_SMTP_USERNAME: ${LABEL_SMTP_USERNAME:-}
+      LABEL_SMTP_PASSWORD: ${LABEL_SMTP_PASSWORD:-}
+      LABEL_SMTP_FROM: ${LABEL_SMTP_FROM:-}
+      LABEL_SMTP_FROM_NAME: ${LABEL_SMTP_FROM_NAME:-}
+```
+
+Recreate the container with this override, adding your USB or other overrides too:
+
+```sh
+docker compose -f docker-compose.yml -f /path/to/compose.email.yml up -d
+```
+
+Keep the same files on subsequent operations, including the updater's repeatable
+`--compose-file` arguments. Keeping the override outside the checkout avoids
+untracked files blocking the release updater. An explicit allowlist avoids forwarding host-only paths
+such as `LABEL_DATABASE_URL` into the container. This override contains no secrets;
+keep its credential values in the restricted `.env`.
+
+For a functional check, add a recovery email in **Account settings**, open the
+verification link, and confirm the address. Then request **Forgot password?** for
+that account. Verification/reset links expire in 30 minutes and are single-use;
+a completed reset signs out every session. Recovery messages run after the request
+returns and are not in the durable alert outbox: request another link if sending
+fails. Existing alert deliveries use independent durable retries. An administrator
+can set a replacement password when email recovery is unavailable.
+
+### Legacy configuration migrations
 
 For an existing installation, run the migration once with its old environment
 available before removing the obsolete printer entries. It imports the physical
@@ -473,5 +531,5 @@ printer settings remain visible on the printer card and can be repaired using
 
 For reported hardware results and calibration checks, see
 [hardware verification](HARDWARE_VERIFICATION.md). The measured consumption
-baseline was accepted on 2026-10-17. Docker/LXC USB passthrough remains unverified
-and is outside the current native-VM deployment path.
+baseline is limited to its recorded test conditions. Docker/LXC USB passthrough
+remains unverified.

@@ -7,19 +7,13 @@ USB printing, printer groups, CSV runs, REST integrations, and accounts with
 approval workflows. These features are implemented. See [README.md](README.md)
 for usage and [TODO.md](TODO.md) for remaining work.
 
-Physical printer testing was reported successful on 2026-10-04. Docker image build
-and isolated local runtime checks passed on 2026-10-17. The user accepted the
-consumption baseline and stopping after the current label on 2026-10-17; no
-repeat measurements or mid-label interruption are required. Simultaneous
-two-device USB testing is deferred until a second printer is available.
-Native VM service startup, health/frontend checks, application USB access,
-physical printing, VM reboot, hold persistence and USB reconnect without a
-service restart passed on 2026-10-17. The deployment uses a Python virtual
-environment and systemd directly inside the Debian VM, with a Proxmox USB resource
-mapping. Live HomeBox verification is deferred in favor of manual label creation
-with the native editor. Additional printer drivers,
-network printing, and native grayscale are not implemented. The documented
-PT-P710BT raster protocol provides no native grayscale mode; use dithering.
+Reported physical checks cover single-device printing, consumption estimates,
+stop/review behavior, and native-service recovery after reboot and USB reconnect.
+See [hardware verification](docs/HARDWARE_VERIFICATION.md) for evidence and limits.
+Simultaneous two-device printing, Docker/LXC USB passthrough, and live HomeBox
+integration remain unverified. Additional printer drivers, network printing, and
+native grayscale are not implemented. The documented PT-P710BT raster protocol
+provides no native grayscale mode; use dithering.
 
 ## Architecture constraints
 
@@ -74,7 +68,7 @@ swaps; manual printing warns before reserving copies when estimated consumption
 exceeds remaining tape, with an explicit Print anyway override for all affected
 printers. Automatic shortages retain their batch warning, and uncertain
 consumption stays flagged until review. The measured feed and leader defaults
-were accepted for the tested conditions; different settings need their own
+remain estimates for the tested conditions; different settings need their own
 physical validation before changing the estimates.
 
 An installed cartridge with zero estimated remaining tape blocks automatic
@@ -98,8 +92,10 @@ templates, external rendering resources, and active SVG content.
 
 The editor supports text, QR codes, shapes, images, visual and numeric geometry,
 90° rotation, layers, alignment, duplication, snapping, undo/redo, and revisioned
-saves. Warn before navigation with unsaved edits. Template changes must not alter
-saved jobs or drafts.
+saves. Optional element names identify objects in the list, inspector, and
+distance-holder selector without changing print content. Rename, duplicate, and
+delete controls belong on the first inspector tab. Warn before navigation with
+unsaved edits. Template changes must not alter saved jobs or drafts.
 
 Text uses shared backend fonts and metrics. Font size is a maximum; shrink to fit
 while respecting wrapping and alignment. Padding is independent on all four sides.
@@ -169,18 +165,42 @@ are optional per profile, with persistent interval, snooze, and episode silence.
 Request summaries use a fixed window from the first arrival so continuous arrivals
 cannot delay them indefinitely.
 
-Manage ntfy endpoints in Administration with masked server-side tokens, selected
-event types, printer/distribution-group scopes and per-type message priorities.
-Remove role and minimum-access filters. Explicitly select all current and future
-printers or snapshot only current physical printers with Select all. Groups remain
-manually selectable and follow membership changes. No selected scope disables
-and clears printer event types. Group channels include operational alerts from
-their members. Approval summaries can be global or limited to selected logical
-destinations. Topic subscriptions are configured separately in ntfy.
-Fan out each event to all matching endpoints with independent durable delivery
-attempts and retries. Endpoint changes cancel old pending deliveries; notification
-configuration and delivery never alter print state. Preserve an existing legacy
-environment channel once during migration only when the installation has accounts.
+Manage ntfy and email endpoints in Administration with selected event types and
+printer/distribution-group scopes. Ntfy tokens stay server-side, and message
+priorities apply only to ntfy. Explicitly select all current and future printers
+or snapshot current physical printers with Select all. Groups remain manually
+selectable and follow membership changes. No selected scope disables and clears
+printer event types. Group channels include operational alerts from their members.
+Approval summaries can be global or limited to selected logical destinations.
+Topic read permissions are configured separately in ntfy.
+
+Users can verify a recovery email and opt into personal subscriptions. Adding,
+changing, or removing the address requires the current password. Verification
+and reset tokens are single-use, expire in 30 minutes, and are stored only as
+hashes. Password resets invalidate all sessions and outstanding recovery tokens;
+forgot-password responses do not reveal whether the account has a recovery email.
+Use the configured public URL for links. Recovery emails run in a background task;
+a failed or interrupted send requires a new request.
+
+Personal subscriptions require current Moderator or Full destination access for
+printer alerts; physical printer alerts require direct access. Approval digests
+are administrator-only, and general personal alerts stay with their intended
+recipient. Recheck access, account status, and verified address before delivery.
+
+Optional per-printer event choices replace operational defaults within the
+existing destination scope. Empty overrides silence that printer; removing an
+override restores defaults. Filter combined waiting reminders per destination
+and preserve default choices for group-wide events. Custom choices must never
+grant personal subscribers physical printer access through group membership.
+Ntfy event priorities may also be customized per printer, inheriting endpoint
+priorities when unspecified. Combined reminders use the highest effective priority
+only among destinations surviving routing and event filters.
+
+Fan out each alert to matching endpoints with independent durable attempts and
+retries. Actual endpoint changes cancel pending deliveries; unchanged saves do
+not. Notification configuration and delivery never alter print state. Preserve
+an existing legacy environment channel once during migration only when the
+installation has accounts.
 
 ## Verification
 

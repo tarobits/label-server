@@ -1,46 +1,31 @@
-# Remaining work
+# Remaining verification and extensions
 
-No active TODOs remain for the current single-printer deployment.
+Implemented features and usage are documented in [README.md](README.md).
+This file tracks gaps in verification and possible extensions, rather than the
+status of any individual installation.
 
-Consumption measurements were accepted by the user on 2026-10-17 as within the
-margin of measurement error; no repeat measurements are required. The existing
-conservative feed and leader defaults are retained. See the
-[measurements](docs/HARDWARE_VERIFICATION.md#consumption-calibration).
+## Physical verification still needed
 
-Stop behavior was accepted on 2026-10-17: finishing the current label and stopping
-before the next is sufficient; mid-label interruption is not a requirement.
-Physical tests recorded review and automatic-print hold persistence, including
-after restart. The last label can remain uncut and needs inspection during review.
-Upload cancellation and stop-mode upgrade remain physically unverified, as optional
-future checks. See the [stop results](docs/HARDWARE_VERIFICATION.md#stop-controls).
+- Simultaneous printing with two physical USB printers, including interruption
+  and recovery on one device while the other continues.
+- Docker and LXC USB passthrough, permissions, and reconnect behavior.
+- Cancellation during raster upload and upgrading graceful stop to emergency stop.
+- Live HomeBox bridge submission and retry behavior with an actual deployment.
 
-Simultaneous printing with two physical USB printers is deferred until a second
-printer is available. Only one printer is currently available.
+Automated coverage exists for routing, recovery, stop intent, and bridge retries;
+it does not substitute for these physical or integration checks.
 
-Native Debian VM deployment verification completed on 2026-10-17: native service
-startup, application USB access, physical printing, VM reboot, hold persistence
-and USB disconnect/reconnect without a service restart all passed. The HTTP UUID
-compatibility fix was deployed and verified. See the
-[deployment record](docs/DEPLOYMENT.md#proxmox-vm-usb-access).
+## Known limitations
 
-Docker image build and isolated local runtime checks passed on 2026-10-17.
-Docker USB passthrough remains unverified and is outside the current native-VM
-deployment path.
+- Stop requests can finish the current label. The last output may remain uncut
+  and needs inspection during review; mid-label interruption is not guaranteed.
+- Feed and leader consumption remain estimates. The recorded calibration covers
+  four single runs at one resolution and feed setting, not statistical repeatability.
+- Only the Brother PT-P710BT USB driver is implemented. Additional printer models
+  and Wi-Fi/Ethernet drivers require separate implementations and validation.
+- The documented raster protocol provides binary pixels, not native grayscale.
+  Tonal artwork uses dithering.
 
-Live HomeBox bridge verification was deferred on 2026-10-17. The current workflow
-preference is to create labels manually with the native editor rather than use
-HomeBox's rendered-image bridge. Revisit live integration testing when needed.
-
-Native PT-P710BT grayscale investigation completed on 2026-10-17: Brother's
-documented raster protocol provides binary pixels and no grayscale mode. Keep
-1-bit dithering; revisit native grayscale only if a supported protocol is found.
-See the [protocol findings](docs/HARDWARE_VERIFICATION.md#grayscale-protocol-investigation).
-
-Additional printer models and Wi-Fi/Ethernet drivers are future extensions. Their
-connection types are defined, but no working drivers are provided.
-
-The editor, automatic-print holds, clipping, automatic sizing, CSV runs and
-previews, font/image uploads, multi-printer routing, and account/approval workflows
-are implemented. See [PLAN.md](PLAN.md) for constraints,
-[access control](docs/ACCESS_CONTROL.md) for permissions, and
-[hardware verification](docs/HARDWARE_VERIFICATION.md) for reported print results.
+See [hardware verification](docs/HARDWARE_VERIFICATION.md) for reported results and
+repeatable procedures, [deployment](docs/DEPLOYMENT.md) for setup, and
+[PLAN.md](PLAN.md) for implementation constraints.

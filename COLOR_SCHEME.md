@@ -18,8 +18,9 @@ use the selected tape profile's colors.
 | `--text-label` | `#f3f4f6` | Form labels |
 | `--text-secondary` | `#d1d5db` | Supporting text |
 | `--muted` | `#9ca3af` | Descriptions and metadata |
-| `--placeholder` | `#6b7280` | Placeholders |
-| `--accent` / `--accent-hover` | `#6366f1` / `#818cf8` | Primary actions |
+| `--placeholder` | `var(--muted)` (`#9ca3af`) | Placeholders |
+| `--accent` / `--accent-button-hover` | `#4f46e5` / `#4338ca` | Primary actions |
+| `--accent-hover` | `#818cf8` | Links and focus |
 | `--link-hover` | `#a5b4fc` | Link hover |
 | `--accent-compact` / `--accent-compact-hover` | `#4f46e5` / `#4338ca` | Compact actions |
 | `--danger` / `--danger-text` | `#ef4444` / `#f87171` | Errors and destructive actions |

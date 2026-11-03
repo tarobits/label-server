@@ -11,7 +11,7 @@ Wi-Fi/Ethernet printing, and native grayscale are not implemented.
 
 ## Run locally
 
-Requires Python 3.12+, Node.js 22.12+, and system libusb for USB printing on Linux
+Requires Python 3.12+, Node.js 20.19+ (20.x) or 22.12+, and system libusb for USB printing on Linux
 or macOS. Node.js is needed only to build or develop the UI. See
 [deployment](docs/DEPLOYMENT.md) for USB permissions and service setup.
 
@@ -165,6 +165,11 @@ with the server stopped before restarting to create the adjustment ledger.
 The visual editor supports text, QR codes, images, rectangles, and lines. Drag,
 resize, rotate in 90° steps, or enter dimensions in millimetres. Alignment,
 layer ordering, duplication, snapping, and undo/redo are available.
+
+Give elements an **Element name** to identify them in the element list, inspector,
+and distance-holder selector. Names do not print. Rename, duplicate, and delete
+controls are on the first inspector tab: Content for text, QR codes and images,
+or Style for shapes.
 
 - Define variable fields with names, labels, defaults, and sample values. Use
   `{{name}}` in text or QR content. Samples are used in the editor; submitted
@@ -338,8 +343,8 @@ retain their shortage flag in Activity.
 
 Automatic printing waits when the installed cartridge has an estimated **0 mm**
 remaining. Its printer card explains why, and administrators receive one saved
-alert per depletion, delivered through ntfy when configured. Group routing can use
-another matching printer with tape remaining; assigned CSV runs wait for their
+alert per depletion, delivered through matching ntfy or email endpoints. Group
+routing can use another matching printer with tape remaining; assigned CSV runs wait for their
 printer. Replacing the cartridge or correcting its remaining length allows
 automatic printing to resume, subject to existing holds and thresholds. Manual
 printing still offers the explicit **Print anyway** override.
@@ -368,6 +373,13 @@ submitted runs remain in history, with queued copies cancellable from the queue.
 Manage users, roles, template groups, and registration codes under
 **Administration**. Registration requires a code by default. Roles are assigned
 directly to users; the highest applicable permission wins.
+
+Add a recovery email in **Account settings** and confirm the emailed link before
+using **Forgot password?** on the sign-in screen. Adding, changing, or removing
+the address requires your current password. Recovery links expire after 30 minutes
+and work once. Resetting a password ends all sessions and invalidates outstanding
+recovery links; sign in again afterward. Administrators can still set a replacement
+password through the user editor when email recovery is unavailable.
 
 Only administrators can delete accounts, after reviewing and confirming the impact.
 Deletion ends all sessions and removes the user's templates, images and fonts from
@@ -401,9 +413,11 @@ access is insufficient. See [access control](docs/ACCESS_CONTROL.md) for details
 
 ## Notifications and integrations
 
-Notifications are stored in the app even when no ntfy endpoint is configured.
-Administrators add endpoints under **Administration**, choosing a server base URL
-(for example `https://ntfy.example.com`), topic, optional access token and event types.
+Notifications are stored in the app even when no delivery endpoint is configured.
+Administrators add endpoints under **Administration**, choosing ntfy or email
+and the event types. For ntfy, supply a server base URL
+(for example `https://ntfy.example.com`), topic, and optional access token.
+For email, supply a recipient address.
 Tokens stay on the server; editing an endpoint can preserve, replace or clear its token.
 Set `LABEL_PUBLIC_URL` to the browser-reachable server address for notification links.
 
@@ -414,10 +428,10 @@ alerts from their member printers as membership changes; select groups manually.
 With no scope selected, printer-related event
 types are disabled and cleared. General alerts remain global; pending-request
 summaries are global without a scope and narrow to selected destinations otherwise.
-Endpoint filters do not use application roles or access levels. Configure ntfy
+Administrator-managed endpoint filters do not use application roles or access levels. Configure ntfy
 topic subscription permissions separately to control who can read each topic.
 
-Set a severity per event type on each endpoint using ntfy's
+For ntfy endpoints, set a severity per event type using ntfy's
 [message priorities](https://docs.ntfy.sh/publish/#message-priority): Min, Low,
 Normal, High, or Urgent. Empty cartridges, blocked printers and batch reviews
 default to High; general alerts, waiting tape reminders and pending requests
@@ -427,6 +441,50 @@ A notification can go to several matching endpoints. Each delivery retries
 independently of other endpoints and printing. Changing, disabling or deleting an
 endpoint cancels its pending deliveries. Delivery may repeat after a crash; this
 does not duplicate a print.
+
+Users can enable personal emails under **Account settings** after verifying their
+recovery address. Printer alerts require Moderator or Full access to their destination;
+physical printer alerts require direct printer access. Pending-request summaries
+are available to administrators. Account alerts go only to their intended recipient.
+Personal deliveries recheck current access, account status, and the verified email
+before each attempt. Personal subscriptions are separate from administrator endpoints.
+
+Both administrator endpoints and personal subscriptions support **Per-printer
+event types**. Customize a printer to replace the default cartridge, blocker,
+batch-review, and tape-waiting choices for that device. Clear all its events to
+silence it, or turn off customization to restore the defaults. Other printers,
+including future additions covered by an all-printers selection, keep the defaults.
+Overrides apply to physical printer events, including those received through a
+selected printer group. Group-wide waiting reminders, general alerts, and
+pending-request summaries retain the default choices. Each customized ntfy event
+also has a priority selector: use Min through Urgent or **Default** to inherit the
+endpoint's priority for that event type. Combined tape-waiting reminders use the
+highest priority among the destinations included in the message. Personal overrides
+still require direct Moderator or Full access to the printer.
+
+Stop the server and run `alembic upgrade head` before using per-printer choices
+and priorities.
+Existing endpoints and subscriptions retain their current behavior after upgrading.
+
+Configure the shared mail service using `LABEL_SMTP_HOST`, `LABEL_SMTP_FROM`, and
+optional `LABEL_SMTP_USERNAME` and `LABEL_SMTP_PASSWORD`. Keep `LABEL_SMTP_FROM`
+as a bare email address; set `LABEL_SMTP_FROM_NAME` for an optional sender display name.
+`LABEL_SMTP_SECURITY` defaults to `starttls`, with `LABEL_SMTP_PORT=587`; use `ssl`
+and port `465` for implicit TLS. Certificate verification is enabled, and STARTTLS failures never
+fall back to an unencrypted connection. `plain` is available for a trusted local relay.
+Set `LABEL_PUBLIC_URL` to the browser-reachable HTTPS address in production so
+recovery links point to the correct installation. Keep SMTP credentials in the
+service environment or a restricted `.env`, never in templates or source control.
+Restart the service after changing these settings. Compose deployments must
+explicitly forward the SMTP settings into the container; see
+[email configuration](docs/DEPLOYMENT.md#email-configuration).
+
+Before starting this version, stop existing servers and run `alembic upgrade head`.
+Existing accounts start without a recovery email; existing ntfy endpoints are preserved.
+Email delivery stays unavailable until SMTP is configured. Recovery emails are
+sent after the request returns; if delivery fails or the server restarts before
+sending, request another link. Operational email notifications use the durable
+notification retry queue described above.
 
 The endpoint migration imports an existing installation's old `LABEL_NTFY_URL`,
 `LABEL_NTFY_TOPIC` and optional `LABEL_NTFY_TOKEN` once, when those values are
@@ -469,7 +527,7 @@ installations. It selects GitHub's latest published stable release, updates a lo
 `release` branch, backs up code/configuration/data, installs or builds dependencies,
 migrates, restarts and checks health. It refuses local changes and preserves `main`.
 
-For the private repository, set `LABEL_GITHUB_TOKEN` in the installation's `.env`
+For a private repository, set `LABEL_GITHUB_TOKEN` in the installation's `.env`
 and restrict that file with `chmod 600 .env`. Use a fine-grained GitHub token for
 this repository with **Contents: read-only** permission. The token authenticates
 both release lookup and Git clone/fetch, and is shared with the server's cached
@@ -492,29 +550,19 @@ python3 scripts/update.py --mode docker \
   --compose-file docker-compose.yml --compose-file docker-compose.usb.yml
 ```
 
-For the VM's copied `/opt/labels` installation, use a separate managed source
+For an installation copied without Git metadata, use a separate managed source
 checkout: `sudo python3 /path/to/scripts/update.py --mode native
 --checkout /opt/labels-source --install-dir /opt/labels`. The missing source checkout
 is cloned automatically. Native updates require Git, Node/npm and, with a separate
 source checkout, rsync. See [automated release updates](docs/DEPLOYMENT.md#automated-release-updates)
 for prerequisites, backups and failure recovery.
 
-Physical PT-P710BT testing was reported successful on 2026-10-04. Detailed
-measurements and remaining hardware checks are in the
-[verification record](docs/HARDWARE_VERIFICATION.md). Docker image build and isolated
-local runtime checks passed on 2026-10-17. Native Debian VM service startup, USB
-access, physical printing, VM reboot, hold persistence and printer reconnection
-without a service restart were also verified that day. The user accepted the
-consumption baseline and stopping after the current label; no repeat measurements
-or mid-label interruption are required. Simultaneous two-device USB testing is
-deferred until a second printer is available. Docker/LXC USB passthrough remains
-unverified outside the current deployment path. Live HomeBox bridge verification
-is deferred.
+See the [verification record](docs/HARDWARE_VERIFICATION.md) for reported physical
+results, calibration procedures, and limitations. Simultaneous two-printer USB
+printing, Docker/LXC USB passthrough, and the live HomeBox bridge remain physically
+unverified. Automated tests do not establish hardware compatibility.
 
 ## Development
-
-This project was designed and directed by Tarobits, with implementation assistance from OpenAI Codex.
-AI-generated code has been developed under human direction and remains subject to review and validation.
 
 The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite; the frontend uses Vue 3, Pinia,
 TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
@@ -548,6 +596,4 @@ npm run test:e2e
 ```
 
 Tests use isolated databases and simulated printer hardware, without contacting
-real printers or ntfy. Browser screenshots are written to `frontend/test-results`.
-
-Made with ♥ by Tarobits
+real printers, ntfy, or SMTP providers. Browser screenshots are written to `frontend/test-results`.

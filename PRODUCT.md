@@ -22,16 +22,15 @@ output, accurate previews, and clear control over queued and interrupted work.
 ## Operating Context
 
 - The intended workflows are user-initiated label creation in the visual editor
-  and CSV printing. External automation is outside the current intended workflow.
-- The current installation has one Brother PT-P710BT USB printer. Future
-  additional printers are part of the intended scope; do not assume a single
-  printer in navigation, destinations, or queue management.
+  and CSV printing. REST integrations also support external automation.
+- Installations can register multiple Brother PT-P710BT USB printers and printer
+  groups. Navigation, destinations, and queue management must support both.
 - Existing automatic batch thresholds, holds, and reminders remain supported
   queue features. User-initiated workflows do not imply removing those features.
 - Users select a print destination and tape profile. Design destination controls
   editor geometry and is separate from the submission destination.
-- The documented deployment is a native Python/systemd service in a Debian VM
-  with USB passthrough. The browser is the product interface.
+- Deployment options include a native Python/systemd service and Docker Compose.
+  Virtualized deployments require USB passthrough. The browser is the product interface.
 
 ## Capabilities and Constraints
 
@@ -54,6 +53,8 @@ output, accurate previews, and clear control over queued and interrupted work.
   domain layers use the generic printer contract.
 - Run one server process per database. Preserve durable queue state, scoped
   permissions, approval boundaries, and historical attribution.
+- Verified recovery email supports password resets and personal alert subscriptions.
+  Administrators can route existing alerts to ntfy or email destinations.
 - Existing REST integrations are implemented but are not the primary workflow.
 
 ## Brand Commitments
@@ -70,7 +71,7 @@ output, accurate previews, and clear control over queued and interrupted work.
 - `PLAN.md`: architecture and behavior that future work must preserve.
 - `docs/ACCESS_CONTROL.md`: roles and destination permissions.
 - `docs/HARDWARE_VERIFICATION.md`: physical printer verification and limitations.
-- `TODO.md`: accepted scope and deferred hardware and integration checks.
+- `TODO.md`: remaining hardware and integration checks.
 - `frontend/src`: the existing Vue interface; this initialization does not
   establish a replacement visual direction.
 

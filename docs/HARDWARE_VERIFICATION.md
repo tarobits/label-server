@@ -1,28 +1,23 @@
 # PT-P710BT verification record
 
-The user reported successful physical testing on 2026-10-04. No additional
-per-check measurements, device details, or consumption calibration were supplied.
-The table below retains earlier individual results.
+This record separates reported physical observations from automated coverage.
+Results came from single-device PT-P710BT tests; they do not establish compatibility
+with every host, firmware, tape, or deployment method. Device identifiers and
+installation-specific logs are intentionally omitted.
 
-On 2026-10-17, the user also reported a successful physical print from the native
-Debian VM through its Proxmox USB mapping, after applying the frontend's HTTP UUID
-compatibility fix. After a subsequent VM reboot, the service restarted
-automatically, the hold persisted, and another physical print succeeded.
-The user also confirmed successful USB reconnect and printing without restarting
-the VM or service; SSH checks confirmed the service stayed running and healthy. See
-[deployment verification](DEPLOYMENT.md#proxmox-vm-usb-access).
-
-On 2026-10-02, the user confirmed batch completion after a USB-reader fix, an
-exactly 10 mm test line, successful QR scanning, and excellent visual quality at
-180 × 360 dpi. The reader now skips empty USB transfers within the original
-timeout instead of treating them as disconnects.
+Reported checks include physical printing, a 10 mm scale line, QR scanning,
+high-resolution output, batch completion, and native-service recovery after reboot
+and USB reconnect. Simultaneous printing on two physical devices, Docker/LXC USB
+passthrough, and cancellation during raster upload remain unverified.
 
 Normal output is 180 × 180 dpi; high output is 180 × 360 dpi. The API uses physical
 widths, including 3.5 mm. Brother wire codes are translated only inside the adapter.
 Tonal artwork uses 1-bit dithering; native grayscale is not enabled.
 
-For new tests, record printer serial/firmware, tape SKU, host OS, settings, date,
-and measured results.
+For new public test records, include the printer model, firmware version, tape
+specification, OS family, print settings, and measured results. Use anonymous device
+labels when comparing units; omit serial numbers, hostnames, local usernames,
+network addresses, and deployment logs containing account information.
 
 ## Compare high-resolution output
 
@@ -50,7 +45,9 @@ Switch back to **180 × 180 dpi** in the same form if needed. No restart is requ
    automatic printing before adding labels.
 2. Register a 24 mm tape profile and cartridge, install it, and confirm detected
    width. Keep color selection manual: width detection does not establish color.
-3. Prepare a persistent draft (this command does not submit or print):
+3. Set `LABEL_API_USERNAME` and `LABEL_API_PASSWORD` in the client environment
+   for an account that can create personal templates, upload images, and use the
+   destination. Prepare a persistent draft (this command does not submit or print):
 
    ```sh
    .venv/bin/python scripts/prepare_acceptance.py --profile PROFILE_ID --destination PRINTER_ID
@@ -67,16 +64,16 @@ Blank results indicate measurements that have not been reported.
 | Check | Expected | Measured / result |
 | --- | --- | --- |
 | Orientation | Text and arrow readable; circle before shaded blocks | |
-| Scale | Short rule is 10 mm; measure text/image dimensions too | User measured exactly 10 mm (2026-10-02); other dimensions not measured |
+| Scale | Short rule is 10 mm; measure text/image dimensions too | Reported exactly 10 mm; other dimensions not measured |
 | Content band | Artwork lies within approximately 18 mm on 24 mm tape | |
-| Fine text | Compare 2 mm and 3 mm text with P-touch output | Missing strokes at very small sizes accepted; high-resolution comparison accepted |
+| Fine text | Compare 2 mm and 3 mm text with P-touch output | Missing strokes reported at very small sizes; high-resolution quality reported satisfactory |
 | Curves/diagonals | Circle and diagonal retain shape without extra scaling | |
-| QR | Scan all copies; decoded content is `https://example.org` | Scan confirmed (2026-10-02); payload and all-copy coverage not reported |
+| QR | Scan all copies; decoded content is `https://example.org` | Scan confirmed; payload and all-copy coverage not reported |
 | Tonal image | Three distinct dither densities; not native grayscale | Light block initially faint; raster smoothing fixed. No separate post-fix tonal measurement reported |
 | Copies/order | Exactly 01, 02, 03, in that order | |
 | Cuts | One cut per label with **Cut each label** enabled | |
 | Strip mode | With false: continuous sequence and final feed/cut | |
-| Batch completion | Queue clears without interruption/review | Passed per user after empty-USB-transfer fix (2026-10-02) |
+| Batch completion | Queue clears without interruption/review | Reported passed after empty-USB-transfer fix |
 
 A raster smoothing defect initially reduced the light dither block from about
 20% to 0.5% black pixels. Nearest-neighbor image sampling now preserves dot
@@ -98,76 +95,36 @@ changing raster ordering; do not compensate with a global template flip.
   replay. Inspect every uncertain copy before marking printed, requeueing or
   cancelling. The immediately preceding page can remain uncertain during feed.
 - Restart the server during an attempt: the durable in-flight batch becomes review.
-- Interrupt ntfy connectivity: alerts retry; printing state is independent.
+- Interrupt ntfy or SMTP connectivity: queued alerts retry; printing state is independent.
 - Repeat a REST submission with the same idempotency key: one job/copy set.
 
 ## Stop controls
 
-Use a small batch and retain the output for review. These controls have automated
-transport, concurrency and UI coverage. A first physical graceful-stop result was
-reported on 2026-10-17. Hold persistence after review and a server restart was
-also confirmed. An emergency-stop test prevented the following label. A repeat
-with a longer label also finished the active label, so mid-label interruption
-failed in the reported tests. Cancelling during upload remains unverified.
+Use a small batch and retain the output for review. Automated checks cover
+transport, concurrency, and UI behavior. Reported physical results are:
 
-On 2026-10-17, the user accepted stopping after the current label as sufficient
-and removed mid-label interruption as a requirement. Stop behavior is accepted
-for the current deployment. Upload cancellation and stop-mode upgrade remain
-physically unverified optional future checks, rather than acceptance blockers.
+- **Stop after current label** allowed a label to finish, left it uncut, and put
+  the batch into review. A subsequent manual feed/cut used additional tape.
+- **Emergency stop** allowed the active label to finish and prevented the next
+  label in one reported test. A repeat using a 200 mm label also finished the
+  active label. Mid-label interruption has not been demonstrated.
+- Automatic-print holds persisted after cancellation review and restart, and
+  after a separate requeue review. A restart after that requeue was not reported.
 
-During **Stop after current label**, the user reported that one label finished
-printing but was not cut, and the batch entered review. A subsequent manual
-feed/cut action fed an extra 10 mm and cut the output. The method used for that
-manual action, the total consumed tape, and whether any following label began
-were not reported. Include the extra 10 mm in the attempt's total consumption
-when saving review. The user subsequently saved the review using **Cancel** and
-confirmed that automatic printing remained held after a server restart. This
-verifies hold persistence through cancellation review and restart. After the
-longer-label emergency-stop test, the user also confirmed that saving review
-with unprinted copies requeued left automatic printing held. A restart after
-that requeue review was not reported. The total consumption entered during
-either review was not reported.
+These are observations, not guarantees about command timing or motor behavior.
+No USB trace established the reason the active label completed. Cancellation
+during upload, upgrading graceful stop to emergency stop, and independent
+operation of a second physical printer remain unverified.
 
-The current adapter ends a stopped chain with cancellation rather than the
-normal final-page feed/cut. This is consistent with the observed uncut output;
-graceful stopping has not established automatic delivery of a cut label. Keep
-the last output uncertain until it has been inspected and reconciled.
+The adapter checks stop intent between complete raster commands and during
+completion waits. It ends a stopped chain with cancellation rather than the normal
+final-page feed/cut, so the last label can remain uncut. Inspect it before marking
+it printed; include any additional feed and waste in total consumed tape.
 
-For **Emergency stop**, the user reported on 2026-10-17 that the first label
-finished printing, no other label started, review was triggered and automatic
-printing remained held. This verifies prevention of a following label and the
-review/hold outcome for that attempt. It does not demonstrate interruption of an
-active label midway. The label length, stop-request timing, cut behavior and
-total consumed tape were not reported for this test. The adapter checks emergency
-intent between raster commands and during completion waits; the observation
-alone does not distinguish request timing from device cancellation behavior.
-The test was then repeated using the requested longer-label procedure (a fixed
-200 mm label, with a request as soon as printing visibly began). The user reported
-that the entire first label still printed. No new second-label, cut, review or
-hold observation was supplied in the initial repeat report; hold persistence
-after requeue review was subsequently confirmed as described above. Mid-label
-interruption is a known limitation of the tested implementation; this result does not prove that a
-different supported implementation is impossible. No USB trace or request timing
-measurement has established the cause.
-
-The raster reference's printed page 4 instructs clients to wait for completion
-before sending another command; page 23 describes initialization as cancellation
-but gives no guarantee about stopping a physically executing label midway.
-Page 39 describes buffered printing, which this adapter uses. Keep the current
-label's possible completion explicit in the UI and documentation. A mock transport
-accepting cancellation bytes does not establish a physical motor-stop guarantee.
-
-Optional future physical checks cover cancellation during upload and upgrading a
-graceful stop to emergency without allowing another graceful request to undo it.
-Independent operation of another printer is deferred until a second printer is
-available. These checks have automated coverage but have not been physically
-verified. No further mid-label interruption investigation is required for the
-current scope.
-
-When stopping a real batch, inspect the last output, including any deferred
-feed/cut, and reconcile uncertain copies and consumed tape. Saving review must
-preserve the hold; resume explicitly when ready. **Select from here** can apply
-Requeue or Cancel to subsequent uncertain copies. Confirmed copies remain locked.
+When reviewing a stopped batch, reconcile every uncertain copy and preserve the
+automatic-print hold. **Select from here** can apply Requeue or Cancel to subsequent
+uncertain copies; confirmed copies remain locked. Resume printing explicitly.
+A mock transport accepting cancellation bytes does not prove a mid-label stop.
 
 The raster reference documents `ESC @` cancellation on printed page 23. The driver
 sends it from the hardware-owning thread between complete commands. It does not
@@ -180,17 +137,17 @@ documents double-pressing the physical power button to feed and cut (printed pag
 
 ## Short labels and chain printing
 
-On 2026-10-24, the user reported that several variable-length designs printed
-as equally long pieces with unused tape at the end on **12 mm tape**. No measured
-cut length was supplied. This is consistent with the 24.5 mm minimum fed-out
-length documented in the [Brother Raster Command Reference, printed page 18](https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf).
-This length is determined by the cutter position, independently of tape width.
+Short variable-length designs have been reported to produce equally long pieces
+with unused tape on 12 mm tape; no measured cut length was recorded. The
+[Brother Raster Command Reference, printed page 18](https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf)
+documents a 24.5 mm minimum fed-out length due to the cutter position, independent
+of tape width.
 
 The adapter already enables chain printing between pages in a batch, using FF
 for intermediate pages and Control-Z with final feeding/cutting for the last
 page (printed pages 33, 37–38). Chain printing defers the final feed; the reference
 does not guarantee individually cut pieces shorter than the cutting minimum.
-No cross-batch chain state or new printer commands were added for this report.
+The adapter does not retain chain state across batches.
 Sub-minimum individual cuts in chain mode remain unverified on hardware.
 
 With **Cut each label** enabled, the plan applies the minimum to each design
@@ -242,7 +199,7 @@ Add `--print` to print one batch. On macOS, USB kernel-driver capture may requir
 running that command with `sudo`. Repeat with `--copies 1` and `--copies 3` for
 each of `--cut each` and `--cut strip`, measuring all output after each batch.
 These direct prints create no queue/history records and do not update cartridge
-inventory. Record their measurements here and correct the cartridge's remaining
+inventory. Record anonymized measurements and correct the cartridge's remaining
 length separately after the test.
 
 For calibration through the web UI, follow the procedure below.
@@ -260,31 +217,22 @@ including detached blank leaders; do not measure only the printed label bodies.
 | Off | 1 | 60 | 88.45 | 85 (one piece, blank leader attached; automatic final cut) |
 | Off | 3 | 60 each | 216.35 | 212 (one continuous strip, blank leader attached; automatic final cut) |
 
-The calibration measurements were reported by the user on 2026-10-17 after
-running the direct helper: printer USB serial `000E6G210727`, detected 24 mm tape,
-normal resolution (180 × 180 dpi), 2 mm feed setting and 24.5 mm leader estimate.
-Firmware and tape SKU have not been reported. The estimates exceeded measured
-use in all four runs: by 3.45 mm for each one-label run, 1.85 mm for three
-individually cut labels and 4.35 mm for the three-label strip. Reported detached
-blank leaders varied from 22 to 24 mm, and the three individually cut printed
-pieces averaged 63.5 mm. The user confirmed that the three strip-mode labels
-remained joined, the blank leader stayed attached in both strip-mode runs, and
-each strip was cut automatically at the end.
+These four single-run measurements used 24 mm tape, normal resolution
+(180 × 180 dpi), 2 mm feed, and a 24.5 mm leader estimate. Firmware and tape SKU
+were not recorded. Estimates exceeded measured totals by 3.45 mm in each one-label
+run, 1.85 mm for three individually cut labels, and 4.35 mm for the three-label
+strip. Detached leaders ranged from 22 to 24 mm. In strip mode, the labels remained
+joined with the leader attached, and the strip was cut automatically at the end.
 
-The initial four-run baseline is complete. Retain the existing 2 mm feed setting
-and 24.5 mm leader estimate as conservative estimates for these tested conditions;
-do not fit new defaults to one run per case. On 2026-10-17, the user accepted the
-differences as within the margin of measurement error and requested no further
-repeat measurements. This closes consumption verification for the current scope;
-it does not establish statistical repeatability or consumption at
-other resolutions, feed settings, label lengths or tape types. They also do not
-turn the estimate into a sensor measurement or set the batch plan's `calibrated`
-flag. The four direct batches consumed a reported total of 596.5 mm; the helper
-did not deduct that amount from cartridge inventory.
+Retain the existing feed and leader defaults as conservative estimates for these
+tested conditions. One run per case does not establish statistical repeatability,
+other print settings, or other tape types. These observations do not turn an
+estimate into a sensor measurement or set the batch plan's `calibrated` flag.
 
-Record printer serial/firmware, tape SKU, resolution, feed and leader settings
-with these measurements. The estimate difference between the one-label and
-three-label runs helps distinguish per-label waste from a fixed batch leader.
+For further measurements, record anonymized device labels, firmware, tape
+specification, resolution, feed, and leader settings.
+The estimate difference between the one-label and three-label runs helps
+distinguish per-label waste from a fixed batch leader.
 If those differences disagree with the measurements, changing only the leader
 cannot calibrate both runs. Check actual feed and cut behavior before adjusting
 the estimate, then repeat all four runs to validate any changes.
@@ -304,9 +252,9 @@ measurements.
 
 ## Grayscale protocol investigation
 
-On 2026-10-17, the
+The
 [Brother Raster Command Reference v1.02](https://download.brother.com/welcome/docp100064/cv_pte550wp750wp710bt_eng_raster_102.pdf)
-was checked for native PT-P710BT grayscale support. Printed page 2 defines raster
+defines the documented PT-P710BT raster interface. Printed page 2 defines raster
 data as binary bitmap data. Pages 19–20 map individual bits to the 128 print-head
 pins; page 36 specifies 16 decompressed bytes per raster line. The command list
 and mode settings on pages 22 and 31–33 expose no per-pixel gray levels. The

@@ -201,6 +201,6 @@ outside the print head must be submitted again to use the corrected rendering.
 
 Automated tests cover migration, group matching, concurrent reservations, independent
 printing and review, CSV pinning, holds, reminders, and restart persistence.
-Physical PT-P710BT testing was reported successful on 2026-10-04; simultaneous
-two-device USB testing is deferred until a second printer is available. See
+Physical PT-P710BT testing has been reported for one device; simultaneous
+two-device USB printing remains physically unverified. See
 [hardware verification](HARDWARE_VERIFICATION.md).

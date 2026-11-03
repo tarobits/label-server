@@ -214,14 +214,36 @@ does not resolve that hold. A user can still cancel their own queued jobs. Work
 already being printed remains subject to the existing physical-outcome and
 interrupted-batch review rules.
 
-Administrators configure ntfy endpoints in Administration. Each endpoint selects
-event types, printer or distribution-group scopes, and severity per event type.
+## Account recovery
+
+Users manage their recovery address under **Account settings**. Adding, changing,
+or removing it requires their current password. A new address becomes usable only
+after verification; the existing verified address stays active until then.
+Removing it invalidates recovery links and disables the personal email subscription.
+
+Verification and password-reset links are single-use and expire after 30 minutes.
+Only token hashes are stored. Links are bound to the account's password state;
+reset links also require its current verified email. Disabled or deleted accounts
+cannot use them. Changing or resetting a password invalidates outstanding tokens.
+An administrator can set a replacement password when recovery is unavailable.
+
+**Forgot password?** accepts a username and gives the same response whether or
+not that account has a verified email. Completing a reset revokes every session
+and does not sign the user in automatically. A signed-in password change requires
+the current password and preserves only the current session. Recovery requests
+are rate-limited, and emailed links use the configured public URL.
+
+## Notifications
+
+Administrators configure ntfy or email endpoints in Administration. Each selects
+event types and printer or distribution-group scopes. Ntfy endpoints also select
+severity per event type; email uses the shared SMTP configuration.
 Group scopes include operational alerts from member printers as membership changes.
 Select all captures only current physical printers; groups remain manually selectable.
 All current and future printers is a separate,
 explicit choice. With neither option nor individual selections, printer event
 types are disabled and cleared. Roles and application access levels do not affect
-endpoint routing. Notification filters do not grant users access to printers or
+administrator-managed endpoint routing. Notification filters do not grant access to printers or
 topics: configure ntfy subscription permissions separately.
 
 Approval summaries sent to scoped endpoints include only requests addressed to
@@ -231,6 +253,34 @@ fixed interval starting with the first request. The interval survives restarts;
 later arrivals do not extend it. Matching endpoints receive independent deliveries
 and retries. Endpoint edits, disabling or deletion cancel pending deliveries.
 Notification retries never approve or print jobs.
+
+Personal subscriptions are managed separately under **Account settings** and send
+only to the user's verified recovery address. Printer alerts require current
+Moderator or Full access to the destination; physical printer alerts require
+direct printer access even when a selected group includes that printer.
+**All printers I can moderate** follows current access. Pending-request summaries
+are administrator-only. General alerts go to their intended recipient, including
+administrator alerts for administrator subscribers.
+
+Delivery rechecks the subscriber's account status, verified address, and current
+permissions. Revoking access or disabling an account prevents further matching
+personal deliveries. Confirming a new email cancels pending deliveries addressed
+to the old email. Subscriptions can be disabled when SMTP is unavailable.
+Saving an unchanged endpoint or subscription preserves pending deliveries.
+
+Per-printer event overrides replace the default operational event choices for
+that physical printer. They cannot add a printer outside the endpoint's selected
+scope, and personal overrides require direct Moderator or Full access. A selected
+group may include the printer in an administrator endpoint's scope; personal
+group access alone still cannot authorize its physical alerts. Group-wide waiting
+reminders use the default event choices. Empty overrides silence a printer's
+operational events; removing an override restores the defaults. Access and scope
+are rechecked even when a saved override exists.
+
+Ntfy priorities can be overridden for customized printer events, or inherited from
+the endpoint's defaults. Priority changes do not expand routing scope. Combined
+tape-waiting reminders use only the included destinations when choosing the
+highest effective priority. Email subscriptions have no ntfy priority controls.
 
 ## Printing attribution and delegated drafts
 
@@ -265,3 +315,27 @@ Automated checks cover role combinations, scoped access, template ownership,
 physical-printer review, confirmed access changes, revoked-access holds,
 delegated drafts, and retry-safe approvals. See [README.md](../README.md#development)
 for check commands.
+
+## Changing a queued printer
+
+The global `queue.change_printer` permission ("Change printers for queued work")
+allows printer substitutions only when the operator also has Moderator or Full
+access to both the original destination and the replacement printer.
+Administrators have all three permissions. Grant the global permission explicitly
+through a role; existing non-administrator roles do not receive it automatically.
+
+Select queued items and use **Change printer**. All remaining queued copies of
+an item or CSV run must move together. Printing, review-required, reserved, or
+access-held work cannot move. The replacement must support the saved resolution
+and printable area. Tape requirements remain unchanged; normal cartridge and
+readiness checks still apply. Automatic printing may start after the change.
+
+Activity records the operator, timestamp, original destination, replacement
+printer, prior CSV printer assignment, affected copies, and optional reason.
+Saved names survive later renames or account deletion. Future print attempts
+retain the substitution history alongside the original requester and approval.
+The substitution operator authorizes the new destination; losing their required
+permissions pauses the work under the existing access-hold rules. An explicit
+administrator release remains an audited exception to access holds.
+
+Stop the server and run `alembic upgrade head` before restarting after this update.
