@@ -4,11 +4,34 @@ type Block = { kind: 'heading' | 'paragraph'; text: string } | { kind: 'list'; i
 export type ReleaseNotes = { version: string; date: string | undefined; blocks: Block[] }
 
 function versionParts(version: string) {
-  const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[\w.-]+)?$/.exec(version)
-  return match ? match.slice(1, 4).map(Number) : undefined
+  const match =
+    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+      version,
+    )
+  if (!match) return undefined
+  const prerelease = match[4]?.split('.') ?? []
+  if (prerelease.some((part) => /^0\d+$/.test(part))) return undefined
+  return { core: match.slice(1, 4).map(Number), prerelease }
 }
-function compare(a: number[], b: number[]) {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! - b[i]!
+function compare(
+  a: NonNullable<ReturnType<typeof versionParts>>,
+  b: NonNullable<ReturnType<typeof versionParts>>,
+) {
+  for (let i = 0; i < 3; i++) if (a.core[i] !== b.core[i]) return a.core[i]! - b.core[i]!
+  if (!a.prerelease.length || !b.prerelease.length)
+    return Number(!a.prerelease.length) - Number(!b.prerelease.length)
+  for (let i = 0; i < Math.max(a.prerelease.length, b.prerelease.length); i++) {
+    const left = a.prerelease[i],
+      right = b.prerelease[i]
+    if (left === right) continue
+    if (left === undefined) return -1
+    if (right === undefined) return 1
+    const leftNumeric = /^\d+$/.test(left),
+      rightNumeric = /^\d+$/.test(right)
+    if (leftNumeric && rightNumeric) return BigInt(left) < BigInt(right) ? -1 : 1
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return left < right ? -1 : 1
+  }
   return 0
 }
 

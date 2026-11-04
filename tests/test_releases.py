@@ -12,10 +12,10 @@ from test_access_security import accounts as account_fixture
 
 from app import __version__
 from app.config import Settings
-from app.releases import ReleaseChecker, fetch_release, stable_version
+from app.releases import ReleaseChecker, fetch_release, release_version, stable_version
 
 accounts = account_fixture
-CURRENT = stable_version(__version__)
+CURRENT = release_version(__version__)[:3]
 NEXT_PATCH = f"{CURRENT[0]}.{CURRENT[1]}.{CURRENT[2] + 1}"
 NEXT_MINOR = f"{CURRENT[0]}.{CURRENT[1] + 1}.0"
 
@@ -42,7 +42,7 @@ def test_version_numbers_match_release_metadata():
     [
         (f"v{NEXT_PATCH}", True),
         (f"v{NEXT_MINOR}", True),
-        (__version__, False),
+        ("v" + ".".join(map(str, CURRENT)), "-" in __version__),
         ("v0.1.1", False),
         ("v0.0.9", False),
     ],
@@ -141,3 +141,29 @@ def test_version_endpoint_requires_signin_and_returns_no_token(accounts):
         assert anonymous.get("/api/version").status_code == 401
     finally:
         anonymous.close()
+
+
+@pytest.mark.parametrize(
+    "earlier,later",
+    [
+        ("0.11.0", "0.12.0-pre1"),
+        ("0.12.0-pre1", "0.12.0-pre2"),
+        ("0.12.0-rc.2", "0.12.0-rc.10"),
+        ("0.12.0-1", "0.12.0-alpha"),
+        ("0.12.0-alpha", "0.12.0-alpha.1"),
+        ("0.12.0-pre1", "0.12.0"),
+    ],
+)
+def test_prerelease_precedence(earlier, later):
+    assert release_version(earlier) < release_version(later)
+    assert release_version(later + "+build.1") == release_version(later)
+
+
+def test_stable_update_check_accepts_installed_prerelease(monkeypatch):
+    monkeypatch.setattr("app.releases.__version__", "0.12.0-pre1")
+    assert not complete(ReleaseChecker(Settings(), lambda: "v0.11.0"))["update_available"]
+    assert complete(ReleaseChecker(Settings(), lambda: "v0.12.0"))["update_available"]
+    assert (
+        complete(ReleaseChecker(Settings(), lambda: "v0.12.0-pre2"))["check_status"]
+        == "unavailable"
+    )

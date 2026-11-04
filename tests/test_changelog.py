@@ -19,11 +19,13 @@ NEXT_VERSION = f"{__version__.split('.')[0]}.{int(__version__.split('.')[1]) + 1
 
 def test_every_release_links_to_version_tags():
     source = (Path(__file__).resolve().parents[1] / "CHANGELOG.md").read_text()
-    versions = re.findall(r"^## \[([0-9]+\.[0-9]+\.[0-9]+)\]", source, re.MULTILINE)
+    versions = re.findall(
+        r"^## \[([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\]", source, re.MULTILINE
+    )
     references = dict(re.findall(r"^\[([^\]]+)\]:\s+(\S+)\s*$", source, re.MULTILINE))
     # Release references always use version tags, including tags not yet created.
     # Branch names and commit hashes must not become release references.
-    ref = r"v[0-9]+\.[0-9]+\.[0-9]+"
+    ref = r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?"
     target = re.compile(
         rf"https://github\.com/tarobits/label-server/(?:compare/{ref}\.\.\.{ref}|tree/{ref})"
     )
@@ -89,3 +91,16 @@ def test_simultaneous_tabs_claim_history_once_and_downgrades_do_not_rewind(
     assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
     monkeypatch.setattr("app.auth_api.__version__", NEXT_VERSION)
     assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
+
+
+def test_prerelease_visits_advance_to_stable_without_rewinding(auth_client, tmp_path, monkeypatch):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    previous = None
+    for version in ["0.11.0", "0.12.0-pre1", "0.12.0-pre2", "0.12.0"]:
+        monkeypatch.setattr("app.auth_api.__version__", version)
+        assert client.post("/api/auth/changelog").json()["previous_version"] == previous
+        previous = version
+    monkeypatch.setattr("app.auth_api.__version__", "0.12.0-pre1")
+    assert client.post("/api/auth/changelog").json()["previous_version"] == "0.12.0"
+    assert client.post("/api/auth/changelog").json()["previous_version"] == "0.12.0"

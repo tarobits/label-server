@@ -22,6 +22,26 @@ def stable_version(value: str) -> tuple[int, int, int]:
     return int(match[1]), int(match[2]), int(match[3])
 
 
+def release_version(
+    value: str,
+) -> tuple[int, int, int, int, tuple[tuple[int, int | str], ...]]:
+    """Semantic precedence for installed releases, including prereleases."""
+    match = re.fullmatch(
+        r"v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+        r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?",
+        value,
+    )
+    if not match:
+        raise ValueError("Expected a semantic version")
+    identifiers = match[4].split(".") if match[4] else []
+    if any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in identifiers):
+        raise ValueError("Numeric prerelease identifiers cannot have leading zeros")
+    prerelease: tuple[tuple[int, int | str], ...] = tuple(
+        (0, int(part)) if part.isdigit() else (1, part) for part in identifiers
+    )
+    return int(match[1]), int(match[2]), int(match[3]), int(not identifiers), prerelease
+
+
 def fetch_release(settings: Settings) -> str:
     token = settings.github_token.get_secret_value() if settings.github_token else ""
     if settings.github_token_file:
@@ -79,7 +99,7 @@ class ReleaseChecker:
                 "current_version": __version__,
                 "latest_version": latest,
                 "update_available": bool(
-                    latest and stable_version(latest) > stable_version(__version__)
+                    latest and release_version(latest) > release_version(__version__)
                 ),
                 "release_url": (
                     f"https://github.com/{REPOSITORY}/releases/tag/{quote(latest, safe='')}"

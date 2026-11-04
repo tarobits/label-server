@@ -34,7 +34,7 @@ from app.models import (
     User,
     UserGroup,
 )
-from app.releases import stable_version
+from app.releases import release_version
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 Password = Annotated[str, Field(min_length=12, max_length=256)]
@@ -250,7 +250,7 @@ def visit_release(request: Request) -> dict[str, str | None]:
         user, record = current
         check_csrf(request, record)
         previous = user.last_seen_version
-        if previous is None or stable_version(previous) < stable_version(__version__):
+        if previous is None or release_version(previous) < release_version(__version__):
             user.last_seen_version = __version__
         session.commit()
         return {"current_version": __version__, "previous_version": previous}
