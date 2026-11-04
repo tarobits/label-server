@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.12.0-pre5] - 2026-11-05
+
+### Added
+
+- Prebuilt frontend downloads for native updates with `--prebuilt-frontend`,
+  avoiding Node/npm installation and local builds on devices such as Raspberry Pi.
+  Downloads are checked against the release checksum and source commit before
+  stopping the service.
+
+### Changed
+
+- Updates now pause when a release contains a different updater and provide a
+  relaunch command before stopping the service or changing the installation.
+
+### Security
+
+- Updated frontend build dependencies to address the reported glob and minimatch
+  vulnerabilities.
+
+No new database migration is required when upgrading from 0.12.0-pre4.
+Refresh older updater scripts once to use the new flag and updater handoff;
+see the deployment guide. Wait for the release frontend build to finish before
+using `--prebuilt-frontend`.
+
+The low-severity deepmerge build-tool advisory remains unresolved upstream.
+
 ## [0.12.0-pre4] - 2026-11-04
 
 ### Changed
@@ -417,6 +443,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre5]: https://github.com/tarobits/label-server/compare/v0.12.0-pre4...v0.12.0-pre5
 [0.12.0-pre4]: https://github.com/tarobits/label-server/compare/v0.12.0-pre3...v0.12.0-pre4
 [0.12.0-pre3]: https://github.com/tarobits/label-server/compare/v0.12.0-pre2...v0.12.0-pre3
 [0.12.0-pre2]: https://github.com/tarobits/label-server/compare/v0.12.0-pre1...v0.12.0-pre2
