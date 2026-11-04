@@ -13,6 +13,7 @@ from app.identity import LOCAL_OWNER_ID
 from app.job_access_models import JobAccessHold
 from app.models import (
     Batch,
+    BatchItem,
     Cartridge,
     LabelCopy,
     Notification,
@@ -315,7 +316,66 @@ class NtfySender:
         response.raise_for_status()
 
 
+def enqueue_print_completions(session: Session, batch: Batch) -> None:
+    """Record confirmed completions in the same transaction as the print outcome."""
+    session.flush()
+    jobs = session.scalars(
+        select(PrintJob)
+        .join(LabelCopy)
+        .join(BatchItem, BatchItem.copy_id == LabelCopy.id)
+        .where(BatchItem.batch_id == batch.id)
+        .distinct()
+    )
+    now = time.time()
+    for job in jobs:
+        if job.completion_notified_at is not None:
+            continue
+        states = list(session.scalars(select(LabelCopy.state).where(LabelCopy.job_id == job.id)))
+        if len(states) != job.copies or any(state != State.PRINTED for state in states):
+            continue
+        job.completion_notified_at = now
+        if job.notify_on_completion:
+            name = (
+                job.template_snapshot.get("process_name")
+                or job.template_snapshot.get("name")
+                or "Label"
+            )
+            enqueue(
+                session,
+                "Your labels have printed",
+                f"{name}: {job.copies} {'copy' if job.copies == 1 else 'copies'} printed.",
+                "/#/queue?state=printed",
+                now=now,
+                recipient_id=job.owner_id,
+                kind="job_printed",
+                context={"job_id": job.id},
+            )
+    if batch.state == State.PRINTED and batch.completion_notified_at is None:
+        batch.completion_notified_at = now
+        count = (
+            session.scalar(
+                select(func.count()).select_from(BatchItem).where(BatchItem.batch_id == batch.id)
+            )
+            or 0
+        )
+        enqueue(
+            session,
+            "Print batch finished",
+            f"{count} {'label' if count == 1 else 'labels'} printed.",
+            f"/#/batches/{batch.id}",
+            now=now,
+            kind="batch_printed",
+            context={"printer_id": batch.printer_id, "batch_id": batch.id},
+        )
+
+
 def notification_valid(session: Session, notification: Notification, now: float) -> bool:
+    if notification.kind == "job_printed":
+        job = session.get(PrintJob, notification.context.get("job_id", ""))
+        return bool(job and job.notify_on_completion and job.owner_id == notification.recipient_id)
+    if notification.kind == "batch_printed":
+        batch = session.get(Batch, notification.context.get("batch_id", ""))
+        return batch is not None and batch.state == State.PRINTED
     if notification.kind == "tape_waiting":
         profile = session.get(TapeProfile, notification.profile_id or "")
         recorded = set(notification.context.get("destination_ids", []))

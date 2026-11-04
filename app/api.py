@@ -60,6 +60,7 @@ from app.schemas import (
     CartridgeInput,
     CartridgeNameInput,
     CartridgePriceInput,
+    CompletionNotificationInput,
     CopySelectionInput,
     ImageJobInput,
     JobInput,
@@ -972,6 +973,7 @@ def create_image_job(
                 process_name=body.process_name,
                 tape_profile=profile.id,
                 copies=body.copies,
+                notify_on_completion=body.notify_on_completion,
                 data={},
                 destination_id=body.destination_id,
             ),
@@ -1106,6 +1108,40 @@ def job_preview(
     if label is None:
         raise HTTPException(404, "Label copy not found")
     return label_preview_response(request, session, item, label)
+
+
+@router.put("/jobs/{identifier}/completion-notification")
+def update_completion_notification(
+    identifier: str,
+    body: CompletionNotificationInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    item = get(session, PrintJob, identifier)
+    if item.owner_id != access_context(request).actor.id:
+        raise HTTPException(403, "Only the owner can change this notification preference")
+    item.notify_on_completion = body.notify_on_completion
+    if not body.notify_on_completion:
+        from app.notification_routing import refresh_summary
+
+        for notice in session.scalars(
+            select(Notification).where(
+                Notification.kind == "job_printed",
+                Notification.context["job_id"].as_string() == item.id,
+                Notification.delivered_at.is_(None),
+            )
+        ):
+            notice.cancelled = True
+            for delivery in session.scalars(
+                select(NotificationDelivery).where(
+                    NotificationDelivery.notification_id == notice.id,
+                    NotificationDelivery.delivered_at.is_(None),
+                )
+            ):
+                delivery.cancelled = True
+            refresh_summary(session, notice)
+    session.flush()
+    return job_record(session, item)
 
 
 def label_preview_response(

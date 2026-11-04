@@ -603,6 +603,14 @@ moderator/admin permissions as personal email subscriptions apply. Each device h
 its own preferences, test button, and removal control. You can remove other devices
 from your account. Up to 20 devices can be registered per account.
 
+**My printed labels** sends one personal notification after all copies of a queued
+item are confirmed printed. Clear **Notify when printed** when submitting a label
+or CSV record, or in that item's queue details, to silence it. **Finished batches**
+is a per-printer event requiring moderator access to that printer (or an administrator
+account). Both categories are opt-in in notification preferences, including personal
+email subscriptions. Uncertain outcomes wait for batch review; failed batches do not
+send a completion alert.
+
 Subscriptions are tied to the sign-in that enabled them. Signing out revokes that
 session's push subscriptions; expired or revoked sessions also stop delivery. After
 signing in again, enable notifications again if the device is inactive. Account

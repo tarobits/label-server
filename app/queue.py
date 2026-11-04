@@ -29,7 +29,12 @@ from app.models import (
     State,
     TapeProfile,
 )
-from app.notifications import enqueue, schedule_reminders, sync_empty_cartridge_alert
+from app.notifications import (
+    enqueue,
+    enqueue_print_completions,
+    schedule_reminders,
+    sync_empty_cartridge_alert,
+)
 from app.printer.base import (
     ControlledPrinterBackend,
     PrintControl,
@@ -324,6 +329,7 @@ class QueueWorker:
                         item.outcome = State.PRINTED
                         copy = required(session, LabelCopy, item.copy_id)
                         copy.state = State.PRINTED
+                    enqueue_print_completions(session, batch)
             with self.lock, self.factory.begin() as session:
                 schedule_reminders(session, stamp)
 
@@ -525,6 +531,7 @@ class QueueWorker:
             item.outcome = State.PRINTED if index < confirmed else State.NEEDS_REVIEW
             copy = required(session, LabelCopy, item.copy_id)
             copy.state = item.outcome
+        enqueue_print_completions(session, batch)
         enqueue(
             session,
             "Print batch needs review",
@@ -571,6 +578,7 @@ def resolve_batch(
     batch.state = (
         State.PRINTED if all(item.outcome == State.PRINTED for item in items) else State.FAILED
     )
+    enqueue_print_completions(session, batch)
     session.flush()
     for affected in {original_cartridge, cartridge}:
         affected.consumption_uncertain = bool(

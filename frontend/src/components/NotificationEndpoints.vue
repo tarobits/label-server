@@ -29,6 +29,7 @@ const eventKinds = [
   { value: 'empty_tape', label: 'Empty cartridges', scoped: true, priority: 4 },
   { value: 'printer_blocked', label: 'Blocked printers', scoped: true, priority: 4 },
   { value: 'batch_review', label: 'Batch reviews', scoped: true, priority: 4 },
+  { value: 'batch_printed', label: 'Finished batches', scoped: true, priority: 3 },
   { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true, priority: 3 },
   { value: 'approval_digest', label: 'Pending print requests', scoped: false, priority: 3 },
 ]

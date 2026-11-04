@@ -54,7 +54,11 @@ class CartridgeCheckInput(Input):
     enabled: bool
 
 
-class JobInput(Input):
+class CompletionNotificationInput(Input):
+    notify_on_completion: bool = True
+
+
+class JobInput(CompletionNotificationInput):
     process_name: ProcessName | None = None
     destination_id: str | None = None
     template: str = Field(default="text", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
@@ -64,7 +68,7 @@ class JobInput(Input):
     data: dict[str, str] = Field(max_length=20)
 
 
-class ImageJobInput(Input):
+class ImageJobInput(CompletionNotificationInput):
     process_name: ProcessName | None = None
     destination_id: str | None = None
     image_asset: str = Field(pattern=r"^[a-f0-9]{64}$")

@@ -15,6 +15,8 @@ DEFAULT_PRIORITIES = {
     "batch_review": 4,
     "tape_waiting": 3,
     "approval_digest": 3,
+    "job_printed": 3,
+    "batch_printed": 3,
 }
 
 

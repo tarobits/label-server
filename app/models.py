@@ -233,6 +233,8 @@ class PrintJob(Base):
     width_mm: Mapped[float]
     length_mm: Mapped[float]
     copies: Mapped[int]
+    notify_on_completion: Mapped[bool] = mapped_column(default=True, server_default="1")
+    completion_notified_at: Mapped[float | None]
     created_at: Mapped[float] = mapped_column(default=time.time)
 
 
@@ -257,6 +259,7 @@ class Batch(Base):
     state: Mapped[State] = mapped_column(default=State.PRINTING)
     created_at: Mapped[float] = mapped_column(default=time.time)
     finished_at: Mapped[float | None]
+    completion_notified_at: Mapped[float | None]
     error: Mapped[str | None]
     estimated_mm: Mapped[float]
     consumed_mm: Mapped[float | None]

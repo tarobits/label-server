@@ -28,6 +28,7 @@ const form = reactive({
       ? route.query.profile
       : (activeProfile.value?.id ?? profiles.value[0]?.id ?? ''),
   copies: 1,
+  notify_on_completion: true,
   template:
     typeof route.query.template === 'string'
       ? route.query.template
@@ -291,6 +292,7 @@ async function submit() {
     template: form.template,
     tape_profile: form.tape_profile,
     copies: form.copies,
+    notify_on_completion: form.notify_on_completion,
     data: data.value,
   }
   const signature = JSON.stringify(body)
@@ -397,6 +399,9 @@ async function submit() {
             required
         /></label>
       </div>
+      <label class="checkbox"
+        ><input v-model="form.notify_on_completion" type="checkbox" />Notify when printed</label
+      >
       <CostEstimate :estimate="preview?.cost_estimate" :pending="rendering && !error" />
       <p class="help">{{ routingHint }}</p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>

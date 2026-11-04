@@ -75,6 +75,7 @@ def frozen_job(job: PrintJob) -> dict[str, Any]:
             "width_mm",
             "length_mm",
             "copies",
+            "notify_on_completion",
         )
     }
 
@@ -144,6 +145,7 @@ def create_request(
                 template="image",
                 tape_profile=profile.id,
                 copies=source.copies,
+                notify_on_completion=source.notify_on_completion,
                 data={},
                 destination_id=destination,
             )

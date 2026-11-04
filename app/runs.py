@@ -37,6 +37,7 @@ class CsvInput(Input):
 class RunRow(Input):
     source_row: int = Field(ge=2, le=251)
     copies: int = Field(default=1, ge=1, le=1000)
+    notify_on_completion: bool = True
 
 
 class RunInput(CsvInput):
@@ -105,7 +106,10 @@ def run_record(run: PrintRun) -> dict[str, Any]:
         "created_at": run.created_at,
         "submitted_at": run.submitted_at,
         "rows": [
-            {k: row[k] for k in ("source_row", "copies", "length_mm", "width_mm", "payload")}
+            {
+                **{k: row[k] for k in ("source_row", "copies", "length_mm", "width_mm", "payload")},
+                "notify_on_completion": row.get("notify_on_completion", True),
+            }
             for row in run.manifest["rows"]
         ],
         "template_name": run.manifest["template_name"],
@@ -220,6 +224,7 @@ def prepare_run(
                         tape_profile=profile.id,
                         data=data,
                         copies=selected.copies,
+                        notify_on_completion=selected.notify_on_completion,
                         length_mm=body.length_mm,
                     ),
                     profile,
@@ -233,6 +238,7 @@ def prepare_run(
                     {
                         "source_row": selected.source_row,
                         "copies": job.copies,
+                        "notify_on_completion": job.notify_on_completion,
                         "length_mm": job.length_mm,
                         "width_mm": job.width_mm,
                         "template_id": job.template_id,

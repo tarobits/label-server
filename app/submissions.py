@@ -142,16 +142,30 @@ def build_job(
         width_mm=profile.width_mm,
         length_mm=document["length_mm"],
         copies=body.copies,
+        notify_on_completion=body.notify_on_completion,
     )
 
 
 def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> str:
     # Keep retries of pre-multi-printer requests valid after upgrading.
     values = dict(values)
+    if values.get("notify_on_completion", True) is True:
+        values.pop("notify_on_completion", None)
+    if isinstance(values.get("rows"), list):
+        values["rows"] = [
+            {
+                key: value
+                for key, value in row.items()
+                if key != "notify_on_completion" or value is not True
+            }
+            for row in values["rows"]
+        ]
     if values.get("process_name") is None:
         values.pop("process_name", None)
     if isinstance(values.get("input"), dict):
         values["input"] = dict(values["input"])
+        if values["input"].get("notify_on_completion", True) is True:
+            values["input"].pop("notify_on_completion", None)
         if values["input"].get("process_name") is None:
             values["input"].pop("process_name", None)
     if values.get("destination_id") == "main":

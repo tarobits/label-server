@@ -76,6 +76,10 @@ def endpoint_message(
 ) -> Notification | None:
     if not endpoint.enabled or endpoint.deleted_at is not None:
         return None
+    if notice.kind == "job_printed" and (
+        not endpoint.owner_id or endpoint.owner_id != notice.recipient_id
+    ):
+        return None
     destination = notice.context.get("printer_id") or notice.context.get("destination_id")
 
     def wants_event(identifier: str | None) -> bool:
@@ -148,10 +152,13 @@ def endpoint_message(
         message = f"{profile.name} is needed: " + "; ".join(
             f"{count} queued copies at {name}" for _, name, count in waiting
         )
+    elif notice.kind == "job_printed":
+        # Personal completion does not require moderation or a printer subscription.
+        pass
     elif destination:
         if not scope_matches(session, endpoint, destination):
             return None
-        if notice.kind in ("printer_blocked", "batch_review"):
+        if notice.kind in ("printer_blocked", "batch_review", "batch_printed"):
             device = session.get(PrinterDevice, destination)
             message = f"{device.name if device else destination}: {message}"
     elif notice.kind in PRINTER_NOTIFICATION_KINDS:

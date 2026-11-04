@@ -18,6 +18,7 @@ interface Row {
   source_row: number
   values: string[]
   selected: boolean
+  notify_on_completion: boolean
   copies: number
 }
 interface Run {
@@ -161,7 +162,12 @@ async function parse() {
       rows: { source_row: number; values: string[] }[]
     }>('/csv/parse', 'POST', { csv_text: csv.value, delimiter: delimiter.value })
     headers.value = result.headers
-    rows.value = result.rows.map((r) => ({ ...r, selected: true, copies: 1 }))
+    rows.value = result.rows.map((r) => ({
+      ...r,
+      selected: true,
+      copies: 1,
+      notify_on_completion: true,
+    }))
     parsedText.value = csv.value
     parsedDelimiter.value = delimiter.value
     mapping.value = Object.fromEntries(
@@ -192,7 +198,11 @@ async function prepare() {
       csv_text: parsedText.value,
       delimiter: parsedDelimiter.value,
       mapping: Object.fromEntries(Object.entries(mapping.value).filter(([, v]) => v)),
-      rows: selected.value.map((r) => ({ source_row: r.source_row, copies: r.copies })),
+      rows: selected.value.map((r) => ({
+        source_row: r.source_row,
+        copies: r.copies,
+        notify_on_completion: r.notify_on_completion,
+      })),
     }
     const signature = JSON.stringify(body)
     if (keyBody !== signature) {
@@ -432,6 +442,7 @@ onUnmounted(() => {
                 <th>Record</th>
                 <th>Values</th>
                 <th>Copies</th>
+                <th>Notify when printed</th>
                 <th>Order</th>
               </tr>
             </thead>
@@ -455,6 +466,14 @@ onUnmounted(() => {
                     max="1000"
                     :aria-label="`Copies for record ${row.source_row}`"
                   />
+                </td>
+                <td>
+                  <label class="checkbox-target"
+                    ><input
+                      v-model="row.notify_on_completion"
+                      type="checkbox"
+                      :aria-label="`Notify when record ${row.source_row} is printed`"
+                  /></label>
                 </td>
                 <td>
                   <div class="row">

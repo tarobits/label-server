@@ -75,9 +75,11 @@ const destinations = computed(() =>
 )
 const kinds = computed(() => [
   { value: 'general', label: 'General alerts', scoped: false },
+  { value: 'job_printed', label: 'My printed labels', scoped: false },
   { value: 'empty_tape', label: 'Empty cartridges', scoped: true },
   { value: 'printer_blocked', label: 'Blocked printers', scoped: true },
   { value: 'batch_review', label: 'Batch reviews', scoped: true },
+  { value: 'batch_printed', label: 'Finished batches', scoped: true },
   { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true },
   ...(auth.user?.is_admin
     ? [{ value: 'approval_digest', label: 'Pending print requests', scoped: false }]

@@ -34,7 +34,7 @@ class NotificationPreferences(AdminInput):
     enabled: bool = True
     destination_ids: list[str] = Field(default_factory=list, max_length=1000)
     all_printers: bool = False
-    kinds: list[NotificationKind] = Field(max_length=6)
+    kinds: list[NotificationKind] = Field(max_length=8)
     printer_kinds: dict[str, list[PrinterNotificationKind]] = Field(
         default_factory=dict, max_length=1000
     )

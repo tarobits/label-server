@@ -3,13 +3,22 @@
 from typing import Literal
 
 NotificationKind = Literal[
-    "general", "empty_tape", "printer_blocked", "batch_review", "tape_waiting", "approval_digest"
+    "general",
+    "empty_tape",
+    "printer_blocked",
+    "batch_review",
+    "tape_waiting",
+    "approval_digest",
+    "job_printed",
+    "batch_printed",
 ]
 
-PrinterNotificationKind = Literal["empty_tape", "printer_blocked", "batch_review", "tape_waiting"]
+PrinterNotificationKind = Literal[
+    "empty_tape", "printer_blocked", "batch_review", "tape_waiting", "batch_printed"
+]
 
 PRINTER_NOTIFICATION_KINDS = frozenset(
-    {"empty_tape", "printer_blocked", "batch_review", "tape_waiting"}
+    {"empty_tape", "printer_blocked", "batch_review", "tape_waiting", "batch_printed"}
 )
 
 DEFAULT_NOTIFICATION_PRIORITIES: dict[NotificationKind, int] = {
@@ -19,4 +28,6 @@ DEFAULT_NOTIFICATION_PRIORITIES: dict[NotificationKind, int] = {
     "batch_review": 4,
     "tape_waiting": 3,
     "approval_digest": 3,
+    "job_printed": 3,
+    "batch_printed": 3,
 }

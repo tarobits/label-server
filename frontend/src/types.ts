@@ -114,6 +114,7 @@ export interface LabelInformation {
   fields: { name: string; label: string; value: string }[]
 }
 export interface Job extends LabelInformation {
+  notify_on_completion: boolean
   attribution: PrintAttribution
   owner_id: string
   can_change_printer?: boolean

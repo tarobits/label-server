@@ -15,6 +15,7 @@ export const printerEventKinds = [
   { value: 'empty_tape', label: 'Empty cartridges' },
   { value: 'printer_blocked', label: 'Blocked printers' },
   { value: 'batch_review', label: 'Batch reviews' },
+  { value: 'batch_printed', label: 'Finished batches' },
   { value: 'tape_waiting', label: 'Waiting tape reminders' },
 ]
 

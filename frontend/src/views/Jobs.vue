@@ -33,7 +33,7 @@ const route = useRoute(),
 const groups = ref<QueueGroup[]>([]),
   selectedIds = ref<string[]>([]),
   expanded = ref<string[]>([]),
-  filter = ref('queued'),
+  filter = ref(route.query.state === 'printed' ? 'printed' : 'queued'),
   profileFilter = ref(''),
   destinationFilter = ref(
     typeof route.query.destination === 'string' ? route.query.destination : '',
@@ -88,6 +88,12 @@ watch(
     destinationFilter.value = typeof destination === 'string' ? destination : ''
   },
 )
+watch(
+  () => route.query.state,
+  (state) => {
+    filter.value = state === 'printed' ? 'printed' : 'queued'
+  },
+)
 watch(page, () => {
   selectedIds.value = []
   void load()
@@ -98,6 +104,21 @@ onUnmounted(() => {
 })
 const jobs = computed(() => groups.value.flatMap((group) => group.jobs))
 const labelName = (job: Job) => job.process_name || job.template_name || 'Label'
+async function changeCompletionNotification(job: Job, event: Event) {
+  const input = event.target as HTMLInputElement
+  const enabled = input.checked
+  const previous = job.notify_on_completion
+  job.notify_on_completion = enabled
+  if (
+    await w.action(
+      () =>
+        api(`/jobs/${job.id}/completion-notification`, 'PUT', { notify_on_completion: enabled }),
+      '',
+    )
+  )
+    await load(false, true)
+  else job.notify_on_completion = previous
+}
 const canCancel = (job: Job) =>
   job.can_cancel ??
   (job.owner_id === auth.user?.id || auth.atLeast(job.destination_id, 'moderator'))
@@ -418,6 +439,14 @@ async function cancel(job: Job) {
                       <AnimatedDetails class="queue-label-details">
                         <template #summary>Details</template>
                         <LabelDetails :label="job" :attribution="job.attribution" />
+                        <label v-if="job.owner_id === auth.user?.id" class="checkbox">
+                          <input
+                            type="checkbox"
+                            :checked="job.notify_on_completion"
+                            :disabled="w.busy"
+                            @change="changeCompletionNotification(job, $event)"
+                          />Notify when printed
+                        </label>
                         <TapeUsage
                           v-if="!group.run_id"
                           :plan="group.print_plan"
