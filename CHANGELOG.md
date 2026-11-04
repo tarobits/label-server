@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.12.0-pre1] - 2026-11-04
+
+### Added
+
+- Installable web app for phones and tablets, with Home Screen icons.
+- Web Push notifications with per-device printer and event preferences, test
+  notifications, device removal, and automatic cleanup of expired subscriptions.
+- Server-unavailable screen with retry and automatic recovery during connection
+  or server outages, preserving unsaved work in an already-open editor.
+- App update prompts that let users defer reloading and preserve other open windows.
+- Updater release channels (`--channel stable|beta`) and exact release selection
+  with `--tag`; stable remains the default.
+
+### Fixed
+
+- Release checks and changelog tracking support installed prereleases, including
+  upgrades to the corresponding stable release.
+
+### Security
+
+- Push delivery rechecks account and printer permissions, stops after sign-out or
+  session revocation, and restricts subscription URLs to supported push providers.
+
+Apply database migrations before starting this version. Push notifications require
+one-time VAPID key and contact-address configuration; see the deployment guide.
+Offline use requires a previous successful visit and does not support editing or
+replaying print submissions. Verify push delivery on physical devices before relying on it.
+
 ## [0.11.0] - 2026-11-03
 
 ### Added
@@ -334,6 +362,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre1]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0-pre1
 [0.11.0]: https://github.com/tarobits/label-server/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/tarobits/label-server/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/tarobits/label-server/compare/v0.8.0...v0.9.0

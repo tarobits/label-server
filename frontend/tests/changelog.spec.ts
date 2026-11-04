@@ -54,6 +54,7 @@ test('the version link opens the full changelog repeatedly without changing visi
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
   await expect(dialog.getByRole('heading', { level: 3 })).toHaveText([
+    'v0.12.0-pre1',
     'v0.11.0',
     'v0.10.0',
     'v0.9.0',
@@ -210,3 +211,28 @@ test('release notes wait for an active dialog and preserve keyboard focus', asyn
   await page.keyboard.press('Escape')
   await expect(create).toBeFocused()
 })
+
+for (const installed of ['0.12.0-pre0', '0.12.0-pre1', '0.12.0']) {
+  test(`changelog respects prerelease precedence for ${installed}`, async ({ page }) => {
+    await page.route('**/api/version', (route) =>
+      route.fulfill({
+        json: {
+          current_version: installed,
+          latest_version: null,
+          update_available: false,
+          release_url: null,
+        },
+      }),
+    )
+    await page.route('**/api/auth/changelog', (route) =>
+      route.fulfill({ json: { current_version: installed, previous_version: null } }),
+    )
+    await page.goto('/#/')
+    await page.getByRole('button', { name: 'Changelog', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
+    await expect(dialog.getByRole('heading', { name: 'v0.11.0', exact: true })).toBeVisible()
+    const prerelease = dialog.getByRole('heading', { name: 'v0.12.0-pre1', exact: true })
+    if (installed === '0.12.0-pre0') await expect(prerelease).toHaveCount(0)
+    else await expect(prerelease).toBeVisible()
+  })
+}
