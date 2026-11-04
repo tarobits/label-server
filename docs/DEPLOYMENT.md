@@ -554,11 +554,10 @@ remains unverified.
 ### Push notifications
 
 Push uses the browser's Web Push service and a persistent VAPID signing key.
-No paid Cloudflare plan, Firebase project, or Apple developer membership is needed.
-Use your existing HTTPS tunnel hostname as `LABEL_PUBLIC_URL`. The label server
+Set `LABEL_PUBLIC_URL` to the application's externally reachable HTTPS origin. The label server
 needs outbound HTTPS access to `fcm.googleapis.com`, `*.push.apple.com`, and
 `*.push.services.mozilla.com`; subscriptions to other providers are rejected.
-Cloudflare Access, if enabled, must allow the app's normal authenticated API calls.
+Any authentication gateway must allow the app's normal authenticated API calls.
 
 For a native installation, generate the key once as the service user:
 
@@ -617,9 +616,9 @@ are not retried. The server must be running to send new alerts. A notification t
 opens its app screen (requiring sign-in when necessary), focusing an existing window
 at that exact screen if available, without navigating other open editors.
 
-Before relying on push, verify on both an actual iPhone/iPad Home Screen installation
-and Android device: enable, send a test, close the app and send a real scoped alert,
+Before relying on push, verify on each supported device and browser: enable,
+send a test, close the app and send a real scoped alert,
 tap it, then remove the device or sign out and verify that new alerts stop. Also
-stop the tunnel and reopen the previously cached app to check the server-unavailable
+simulate a connection outage and reopen the previously cached app to check the server-unavailable
 screen. Automated tests exercise the API, encrypted payloads, offline worker display,
 and links; they do not prove delivery through Apple's or Google's live services.

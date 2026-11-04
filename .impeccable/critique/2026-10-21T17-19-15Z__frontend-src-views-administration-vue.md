@@ -5,9 +5,9 @@ max_score: 40
 na_heuristics: 
 p0_count: 0
 p1_count: 1
-target_identity: "file:/Users/lois/Documents/Programming/LabelPrinterServer/frontend/src/views/Administration.vue"
+target_identity: "file:frontend/src/views/Administration.vue"
 target_fingerprint: "sha256:3b815a4cadb236bac77c7e17006fdde4042f24151d06b18220dc0069902373f1"
-target_path: /Users/lois/Documents/Programming/LabelPrinterServer/frontend/src/views/Administration.vue
+target_path: frontend/src/views/Administration.vue
 timestamp: 2026-10-21T17-19-15Z
 slug: frontend-src-views-administration-vue
 ---

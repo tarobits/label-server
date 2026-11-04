@@ -44,12 +44,12 @@ and choose **Add to Home Screen** (enable **Open as Web App** if offered). On An
 use Chrome's **Install app** or **Add to Home screen** menu item. Launch the installed
 app from its icon to open Taro's Label Room in its own window.
 
-After a successful visit has cached the app, opening it during a connection or
-Cloudflare tunnel outage shows **The label server is currently unable to be
+After a successful visit has cached the app, opening it during a connection,
+server, or reverse-proxy outage shows **The label server is currently unable to be
 reached.** Choose **Retry**, or leave the app open for automatic recovery. An
 already-open editor keeps its unsaved work in memory during an outage; reloading
 or closing the app does not save that work. A first visit during an outage may
-still show the browser's or Cloudflare's error page.
+still show the browser's or hosting provider's error page.
 
 When a new frontend is ready, **App update ready** offers **Reload** or **Later**.
 Only the window where Reload is chosen reloads, and the template editor's unsaved
@@ -68,8 +68,7 @@ signing out or losing the associated session stops new delivery.
 
 PWA registration runs only in production builds. For local testing, build the
 frontend and use the backend on `localhost` or `127.0.0.1`; plain HTTP on a LAN
-address does not support service workers. No Cloudflare upgrade is required when
-using an HTTPS tunnel hostname.
+address does not support service workers. Remote installations require HTTPS.
 
 Install icons are derived from `frontend/public/favicon.svg`. Regenerate them with
 `.venv/bin/python scripts/generate_app_icons.py` after changing the source icon.
