@@ -31,6 +31,9 @@ import {
   loadGraph,
   makeNode,
   nodeType,
+  pairedInputs,
+  pairedType,
+  validateGraphTypes,
   semanticProgram,
   socketLabel,
   title,
@@ -74,6 +77,23 @@ const catalog = ref<LogicCatalog | null>(null),
 const selectedId = ref(''),
   canvas = ref<HTMLElement | null>(null)
 const selected = computed(() => state.value.nodes.find((node) => node.id === selectedId.value))
+const valueTypeInputs = computed(() => {
+  const node = selected.value
+  if (!node || !catalog.value) return []
+  return node.inputs.flatMap((_, index) =>
+    pairedInputs(node).includes(index) ||
+    inputType(node, index, state.value.nodes, catalog.value!) === 'any'
+      ? [index]
+      : [],
+  )
+})
+const selectedValueType = computed(() => {
+  const node = selected.value
+  if (!node || !valueTypeInputs.value.length) return 'number'
+  return valueTypeInputs.value.length > 1
+    ? pairedType(node, state.value.nodes, catalog.value!)
+    : fallbackType(node, valueTypeInputs.value[0]!)
+})
 const literalField = computed(() => ({
   name: 'value',
   label: 'Value',
@@ -102,7 +122,7 @@ watch(target, () => {
 const operations = computed(
   () =>
     catalog.value?.operations.filter((operation) =>
-      `${operation.name} ${operation.description}`
+      `${title(operation.name)} ${operation.name} ${operation.description}`
         .toLowerCase()
         .includes(search.value.toLowerCase()),
     ) ?? [],
@@ -204,6 +224,7 @@ async function apply() {
             )
     }
     document.logic = compileGraph(state.value.nodes, document)
+    validateGraphTypes(state.value.nodes, catalog.value!)
     document.logic_editor = clone(state.value)
     const result = await api<LogicCatalog>('/logic/inspect', 'POST', document)
     if (stopped || ticket !== sequence) return
@@ -427,18 +448,54 @@ function addOutput() {
   changed()
 }
 function disconnect(node: LogicNode, index: number) {
-  node.inputs[index] = null
-  changed()
+  if (graphLocked.value) return
+  const candidate = clone(node)
+  const source = state.value.nodes.find((current) => current.id === node.inputs[index])
+  candidate.inputs[index] = null
+  const nodes = state.value.nodes.map((current) => (current.id === node.id ? candidate : current))
+  try {
+    try {
+      validateGraphTypes(nodes, catalog.value!, [node.id])
+    } catch (failure) {
+      if (!source) throw failure
+      // A hidden fallback from before this wire may have a different type.
+      candidate.defaults[index] = defaultValue(typeOf(source))
+      validateGraphTypes(nodes, catalog.value!, [node.id])
+    }
+    Object.assign(node, candidate)
+    changed()
+  } catch (failure) {
+    announcement.value = errorMessage(failure)
+  }
 }
 function removeSelected() {
   const node = selected.value
-  if (!node || node.kind === 'input') return
-  state.value.nodes = state.value.nodes.filter((candidate) => candidate.id !== node.id)
-  for (const candidate of state.value.nodes)
-    candidate.inputs = candidate.inputs.map((id) => (id === node.id ? null : id))
-  active.value = null
-  selectedId.value = ''
-  changed()
+  if (graphLocked.value || !node || node.kind === 'input') return
+  const nodes = clone(state.value.nodes).filter((candidate) => candidate.id !== node.id)
+  const disconnected: { node: LogicNode; index: number }[] = []
+  for (const candidate of nodes)
+    candidate.inputs.forEach((id, index) => {
+      if (id === node.id) {
+        candidate.inputs[index] = null
+        disconnected.push({ node: candidate, index })
+      }
+    })
+  const affected = disconnected.map(({ node }) => node.id)
+  try {
+    try {
+      validateGraphTypes(nodes, catalog.value!, affected)
+    } catch {
+      for (const connection of disconnected)
+        connection.node.defaults[connection.index] = defaultValue(typeOf(node))
+      validateGraphTypes(nodes, catalog.value!, affected)
+    }
+    state.value.nodes = nodes
+    active.value = null
+    selectedId.value = ''
+    changed()
+  } catch (failure) {
+    announcement.value = errorMessage(failure)
+  }
 }
 function label(node: LogicNode) {
   if (node.kind === 'input')
@@ -451,24 +508,52 @@ function label(node: LogicNode) {
   const element = props.document.elements.find((element) => element.id === node.target)
   return `${node.target === 'label' ? 'Label' : (element?.logic_name ?? node.target)}.${node.property}`
 }
-function typeOf(node: LogicNode) {
-  return catalog.value ? nodeType(node, state.value.nodes, catalog.value) : node.type
+function typeOf(node: LogicNode, depth = 0): SocketType {
+  const type = catalog.value ? nodeType(node, state.value.nodes, catalog.value) : node.type
+  // An empty image is still displayed as an image socket. Validation keeps null semantics.
+  if (type === 'null' && node.kind === 'variable' && depth < 32) {
+    const source = state.value.nodes.find((candidate) => candidate.id === node.inputs[0])
+    if (source) return typeOf(source, depth + 1)
+  }
+  return type === 'null' && node.type === 'image' ? 'image' : type
 }
 function portType(node: LogicNode, index: number): SocketType {
   if (!catalog.value) return 'any'
   const expected = inputType(node, index, state.value.nodes, catalog.value)
   if (expected !== 'any') return expected
   const source = state.value.nodes.find((candidate) => candidate.id === node.inputs[index])
-  return source ? typeOf(source) : valueType(node.defaults[index] ?? null)
+  const type = source ? typeOf(source) : valueType(node.defaults[index] ?? null)
+  return type === 'null' && node.type === 'image' ? 'image' : type
 }
 function fallbackType(node: LogicNode, index: number): ValueType {
   const type = portType(node, index)
   return type === 'null' || type === 'any' ? node.type : type
 }
-function setFallbackType(node: LogicNode, index: number, event: Event) {
-  node.type = (event.target as HTMLSelectElement).value as ValueType
-  node.defaults[index] = defaultValue(node.type)
-  changed()
+function changeValueType(node: LogicNode, indices: number[], event: Event) {
+  const control = event.target as HTMLSelectElement
+  const previous =
+    indices.length > 1
+      ? pairedType(node, state.value.nodes, catalog.value!)
+      : fallbackType(node, indices[0]!)
+  const candidate = clone(node)
+  candidate.type = control.value as ValueType
+  for (const index of indices)
+    if (valueType(candidate.defaults[index] ?? null) !== candidate.type)
+      candidate.defaults[index] = defaultValue(candidate.type)
+  const nodes = state.value.nodes.map((current) => (current.id === node.id ? candidate : current))
+  try {
+    validateGraphTypes(nodes, catalog.value!, [node.id])
+    Object.assign(node, candidate)
+    announcement.value = ''
+    changed()
+  } catch (failure) {
+    control.value = previous
+    announcement.value = errorMessage(failure)
+  }
+}
+function allowsNull(node: LogicNode, index: number) {
+  const type = inputType(node, index, state.value.nodes, catalog.value!)
+  return type === 'any' || type === 'image' || pairedInputs(node).includes(index)
 }
 function choose(id: string, port: number) {
   if (suppressClick) {
@@ -953,6 +1038,19 @@ onBeforeUnmount(() => {
                       nullable
                       @change="changed"
                     />
+                    <label v-if="valueTypeInputs.length"
+                      >Value type<select
+                        :value="selectedValueType"
+                        :disabled="
+                          graphLocked || valueTypeInputs.some((index) => !!selected!.inputs[index])
+                        "
+                        @change="changeValueType(selected, valueTypeInputs, $event)"
+                      >
+                        <option v-for="type in valueTypes" :key="type" :value="type">
+                          {{ title(type) }}
+                        </option>
+                      </select></label
+                    >
                     <template
                       v-for="(source, index) in selected.inputs"
                       :key="`${selected.id}:${index}`"
@@ -971,23 +1069,12 @@ onBeforeUnmount(() => {
                         </button>
                       </div>
                       <template v-else>
-                        <label v-if="inputType(selected, index, state.nodes, catalog) === 'any'"
-                          >{{ socketLabel(selected, index) }} type<select
-                            :value="fallbackType(selected, index)"
-                            :disabled="graphLocked"
-                            @change="setFallbackType(selected, index, $event)"
-                          >
-                            <option v-for="type in valueTypes" :key="type" :value="type">
-                              {{ title(type) }}
-                            </option>
-                          </select></label
-                        >
                         <VariableInput
                           v-model="selected.defaults[index]"
                           :field="fallbackFields[index]!"
                           :label="socketLabel(selected, index)"
                           :disabled="graphLocked"
-                          nullable
+                          :nullable="allowsNull(selected, index)"
                           @change="changed"
                         />
                       </template>

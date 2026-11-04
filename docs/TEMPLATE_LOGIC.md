@@ -57,6 +57,14 @@ canvas click, or clicking the selected endpoint again cancels. Connector shapes
 identify types independently of their colors. The Node picker frames individual
 nodes on smaller screens.
 
+Configurable nodes have one **Value type** control above their inputs, with no
+per-input type selectors. It sets both If branches or both Equal/Not equal
+operands together; If’s condition stays boolean. Set the type before connecting
+value inputs; disconnect those inputs to change it. Incompatible
+connections are rejected immediately, including changes that would invalidate
+later nodes or property outputs. Optional branches and equality checks can still
+use `null` to represent an absent value.
+
 ## Label length and other properties
 
 Logic runs before text sizing, distance holders, automatic length, and printable

@@ -387,6 +387,103 @@ export function nodeType(
   if (signature === 'conditional') return input(1) === 'null' ? input(2) : input(1)
   return 'boolean'
 }
+// If branches and equality operands have one shared value type.
+export function pairedInputs(node: LogicNode): number[] {
+  if (node.kind !== 'call') return []
+  if (node.operation === 'if') return [1, 2]
+  return node.operation === 'equal' || node.operation === 'not_equal' ? [0, 1] : []
+}
+export function pairedType(node: LogicNode, nodes: LogicNode[], catalog: LogicCatalog): ValueType {
+  for (const index of pairedInputs(node)) {
+    const source = nodes.find((candidate) => candidate.id === node.inputs[index])
+    const type = source ? nodeType(source, nodes, catalog) : valueType(node.defaults[index] ?? null)
+    if (type !== 'null' && type !== 'any') return type
+  }
+  return node.type
+}
+
+// Validate the affected consumers too: changing an intermediate can otherwise
+// invalidate a distant wire even when its immediate destination accepts any type.
+export function validateGraphTypes(nodes: LogicNode[], catalog: LogicCatalog, changed?: string[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const types = new Map<string, SocketType>(),
+    visiting = new Set<string>()
+  function infer(node: LogicNode, depth = 0): SocketType {
+    if (depth > 32 || visiting.has(node.id))
+      throw new Error('Connections cannot form a cycle or exceed 32 levels.')
+    const cached = types.get(node.id)
+    if (cached) return cached
+    visiting.add(node.id)
+    const args = node.inputs.map((id, index) => {
+      if (!id) return valueType(node.defaults[index] ?? null)
+      const source = byId.get(id)
+      if (!source || source.kind === 'output') throw new Error('A connection has no value source.')
+      return infer(source, depth + 1)
+    })
+    const require = (
+      actual: SocketType | undefined,
+      expected: SocketType,
+      label: string,
+      nullable = false,
+    ) => {
+      if (actual !== expected && !(nullable && actual === 'null'))
+        throw new Error(`${label} needs ${expected}; the value is ${actual ?? 'missing'}.`)
+    }
+    let result: SocketType
+    if (node.kind === 'input') result = node.type
+    else if (node.kind === 'literal') result = valueType(node.value ?? null)
+    else if (node.kind === 'variable') result = args[0] ?? 'null'
+    else if (node.kind === 'output') {
+      result = nodeType(node, nodes, catalog)
+      require(args[0], result, node.property ?? 'Output', result === 'image')
+    } else {
+      const operation = catalog.operations.find((operation) => operation.name === node.operation)
+      if (!operation) throw new Error(`Unknown operation: ${node.operation}`)
+      if (args.length < operation.minimum_arguments || args.length > operation.maximum_arguments)
+        throw new Error(`${title(operation.name)} has an invalid number of inputs.`)
+      if (operation.signature === 'conditional' || operation.signature === 'equality') {
+        const [a, b] = operation.signature === 'conditional' ? [1, 2] : [0, 1]
+        if (operation.signature === 'conditional') require(args[0], 'boolean', 'If Condition')
+        if (args[a!] !== args[b!] && args[a!] !== 'null' && args[b!] !== 'null')
+          throw new Error(
+            `${title(operation.name)} ${socketLabel(node, a!)} and ${socketLabel(node, b!)} must have the same type; received ${args[a!]} and ${args[b!]}.`,
+          )
+        result =
+          operation.signature === 'equality'
+            ? 'boolean'
+            : args[a!] === 'null'
+              ? args[b!]!
+              : args[a!]!
+      } else if (operation.signature === 'presence') result = 'boolean'
+      else {
+        const expected = operation.signature === 'boolean' ? 'boolean' : 'number'
+        args.forEach((actual, index) =>
+          require(actual, expected, `${title(operation.name)} ${socketLabel(node, index)}`),
+        )
+        result = operation.signature === 'numeric' ? 'number' : 'boolean'
+      }
+    }
+    visiting.delete(node.id)
+    types.set(node.id, result)
+    return result
+  }
+  const affected = changed ? new Set(changed) : new Set(nodes.map((node) => node.id))
+  if (changed) {
+    const pending = [...changed]
+    while (pending.length) {
+      const id = pending.pop()!
+      for (const node of nodes)
+        if (!affected.has(node.id) && node.inputs.includes(id)) {
+          affected.add(node.id)
+          pending.push(node.id)
+        }
+    }
+  }
+  for (const id of affected) {
+    const node = byId.get(id)
+    if (node) infer(node)
+  }
+}
 export function inputType(
   node: LogicNode,
   index: number,
@@ -395,6 +492,7 @@ export function inputType(
 ): SocketType {
   if (node.kind === 'output') return nodeType(node, nodes, catalog)
   if (node.kind === 'variable') return 'any'
+  if (pairedInputs(node).includes(index)) return pairedType(node, nodes, catalog)
   const signature = catalog.operations.find(
     (operation) => operation.name === node.operation,
   )?.signature
@@ -420,7 +518,8 @@ export function canConnect(
     throw new Error('Choose a value output and a different node’s input.')
   const expected = inputType(destination, index, nodes, catalog),
     actual = nodeType(source, nodes, catalog)
-  if (expected !== 'any' && actual !== expected && !(expected === 'image' && actual === 'null'))
+  const nullable = expected === 'image' || pairedInputs(destination).includes(index)
+  if (expected !== 'any' && actual !== expected && !(nullable && actual === 'null'))
     throw new Error(`This input needs ${expected}; the output is ${actual}.`)
   const candidate = nodes.map((node) =>
     node.id === destination.id
@@ -428,4 +527,5 @@ export function canConnect(
       : node,
   )
   compileGraph(candidate, doc)
+  validateGraphTypes(candidate, catalog, [destination.id])
 }

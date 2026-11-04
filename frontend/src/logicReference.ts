@@ -163,8 +163,9 @@ export function referenceEntries(
       summary: 'Connect values by clicking, dragging, or using the keyboard.',
       details: [
         'Click an output and an input, in either order, or drag between them. Focus connectors and press Enter/Space for the same interaction. Escape, a blank-canvas click, or selecting the same connector again cancels.',
-        'Text connectors are circles, numbers diamonds, booleans squares, and images triangles. A hexagon represents an absent or generic value. Polymorphic inputs such as Filled accept different types and adopt their connected value’s shape.',
+        'Text connectors are circles, numbers diamonds, booleans squares, and images triangles. A hexagon represents an untyped absent or generic value; an empty image keeps its triangle. Polymorphic inputs such as Filled accept different types and adopt their connected value’s shape.',
         'Pan on blank canvas; use the wheel or zoom buttons to zoom. Frame nodes shows the graph. The Node picker frames one node, including on touch screens. Focus a node header and use arrow keys to move it; Shift moves farther.',
+        'Configurable nodes have one Value type control above their inputs. It applies to both If branches or both Equal/Not equal operands. Disconnect the value inputs before changing it. Wires and type changes that would create incompatible inputs or outputs are rejected; null remains an absent value for optional branches and presence comparisons.',
         'Disconnected sockets use their editable default values. Disconnect removes a wire; Remove node removes that node and its wires. Disconnected anonymous nodes are editor drafts. Named intermediate nodes remain executable declarations.',
       ],
     },
