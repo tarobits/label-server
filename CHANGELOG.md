@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.0-pre2] - 2026-11-04
+
+### Added
+
+- Personal notifications when all copies of a queued item are confirmed printed,
+  with per-item opt-outs for labels and CSV rows, also editable in queue details.
+- Per-printer batch-completion notifications for moderators and administrators.
+  Both new notification types are opt-in in notification preferences.
+
+### Fixed
+
+- The sidebar now shows the number of pending print requests visible to you.
+
+Apply database migrations before starting this version.
+
 ## [0.12.0-pre1] - 2026-11-04
 
 ### Added
@@ -362,6 +377,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre2]: https://github.com/tarobits/label-server/compare/v0.12.0-pre1...v0.12.0-pre2
 [0.12.0-pre1]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0-pre1
 [0.11.0]: https://github.com/tarobits/label-server/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/tarobits/label-server/compare/v0.9.0...v0.10.0
