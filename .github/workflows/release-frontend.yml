@@ -1,0 +1,53 @@
+name: Release frontend
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-frontend-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Check public build inputs
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          if list(Path('frontend').glob('.env*')) or any(k.startswith('VITE_') for k in os.environ):
+              raise SystemExit('Release builds must not receive frontend environment settings')
+          PY
+      - run: npm ci --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: python3 -m scripts.package_frontend --tag "$RELEASE_TAG"
+      - name: Attach to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft == false' | grep -qx true
+          gh release upload "$RELEASE_TAG" dist/release/label-server-frontend.zip

@@ -345,6 +345,45 @@ cd /opt/labels
 sudo python3 scripts/update.py --mode native
 ```
 
+On small devices, use the release's prebuilt frontend to skip Node/npm and the
+local TypeScript/Vite build:
+
+```sh
+sudo python3 scripts/update.py --mode native --channel beta --prebuilt-frontend
+```
+
+The flag works with stable releases and `--tag` too. Local building remains the
+default; Docker builds do not accept this flag. The selected release must have
+`label-server-frontend.zip` attached. The updater downloads it before stopping the
+service, checks its size and GitHub-provided SHA-256 digest, validates the archive,
+and requires its recorded source commit to match the fetched release. Missing or
+invalid assets abort the update without stopping the application; there is no
+automatic fallback to a local build. `--check` shows the plan without downloading
+or verifying the asset. Public release downloads require no GitHub token; private
+repositories use the existing updater credential settings.
+
+If the selected release contains a different `scripts/update.py`, the updater
+saves that script in the backup directory, prints an exact relaunch command, and
+exits before shutdown, frontend downloads, dependency installation, or migrations.
+Run the printed command to continue with the release's updater. It preserves your
+options and pins the selected tag. Installed application files remain untouched
+during the handoff; the saved script is outside the checkout so the checkout stays
+clean. This behavior starts with the new updater: older installed scripts must
+be refreshed once before they can use these options or perform the handoff.
+
+To load a newer updater from `main` without changing tracked installation files,
+run this from the existing Git checkout after the feature has been published:
+
+```sh
+git fetch origin main &&
+updater_copy=$(mktemp /tmp/label-server-update.XXXXXX.py) &&
+git show origin/main:scripts/update.py > "$updater_copy" &&
+sudo python3 "$updater_copy" --mode native --checkout "$PWD" \
+  --channel beta --prebuilt-frontend
+```
+
+After the update completes, remove that temporary copy with `rm -- "$updater_copy"`.
+
 For an installation copied without Git metadata, place the updater on the host
 and give it a separate, initially absent source checkout:
 
@@ -361,6 +400,7 @@ update. No Git metadata is required in the copied installation.
 
 Native prerequisites are the existing virtual environment, Git, Node 22.12+/npm,
 systemd/runuser, and rsync for separate source/install directories. Run as root.
+Node/npm are unnecessary with `--prebuilt-frontend`.
 `--service` defaults to `labels.service`; its WorkingDirectory must match the
 installation. The supported layout uses `.env`, `.venv`, `frontend/dist`, and a
 dedicated SQLite data directory. Database/assets outside the installation are

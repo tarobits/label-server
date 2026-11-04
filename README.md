@@ -646,3 +646,51 @@ npm run test:e2e
 
 Tests use isolated databases and simulated printer hardware, without contacting
 real printers, ntfy, or SMTP providers. Browser screenshots are written to `frontend/test-results`.
+
+### Release frontend builds
+
+The `Release frontend` GitHub Actions workflow builds each published stable or
+prerelease tag and uploads `label-server-frontend.zip` directly to that release.
+It uses a standard Ubuntu runner without Actions artifact uploads or dependency
+caching. Standard runner compute is free for public repositories; release assets
+are separate from Actions artifact storage. See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+and [release storage](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
+
+Wait for the workflow to finish before using `--prebuilt-frontend` in the native
+updater. Builds are architecture-independent static files, including the service
+worker and install icons. See [deployment instructions](docs/DEPLOYMENT.md) for
+verification and updater handoffs. The workflow can also be run manually with a
+published release tag containing the packaging script. Existing assets are not
+overwritten. Repositories with immutable releases must attach assets before
+publication instead of using this post-publication workflow.
+
+Release builds use a clean tagged checkout and receive no deployment `.env`,
+database, uploads, VAPID private key, or application credentials. The packager
+accepts only static build files and records the source commit. Checkout credentials
+are not persisted, and `GH_TOKEN` is supplied only to the release-upload step.
+The workflow needs the built-in GitHub token with `contents: write`; no personal
+token or deployment secret is needed. All frontend code is public: never put
+secrets in source files or `VITE_*` settings, which Vite can embed in bundles.
+SHA-256 verifies the download against GitHub's metadata; it does not replace trust
+in the repository and its release maintainers.
+
+To reproduce packaging from a clean release checkout without frontend `.env*`
+files (example tag):
+
+```sh
+npm ci --prefix frontend
+npm run build --prefix frontend
+python3 -m scripts.package_frontend --tag v0.12.0-pre5
+```
+
+The frontend overrides Workbox's `glob` dependency to 14.0.3 or newer to include
+the `glob` cancellation and `minimatch` pattern-amplification security fixes.
+Remove this scoped override when Workbox adopts patched versions itself; verify
+the production build and PWA browser tests when changing it.
+
+As of 2026-11-04, `npm audit` still reports the low-severity
+[deepmerge advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4) through
+Workbox's Rollup resolver. No patched release is available. The installed resolver
+uses it only to clone its built-in defaults during the build, not to process label
+data or requests. Review this assessment when updating the resolver. Avoid
+`npm audit fix --force`: its suggested PWA downgrade is not a verified fix.

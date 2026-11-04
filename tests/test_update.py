@@ -1,15 +1,309 @@
 """Release updates with real temporary Git repositories and isolated fake runtimes."""
 
+import hashlib
 import io
 import json
+import shlex
 import shutil
+import stat
 import subprocess
 import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from scripts import update
+from scripts.package_frontend import package_frontend
+
+
+def frontend_bundle(path, commit, extra=None):
+    files = {
+        "index.html": b"new frontend",
+        "sw.js": b"worker",
+        "manifest.webmanifest": b"{}",
+        "assets/app.js": b"app",
+        update.FRONTEND_METADATA: json.dumps({"schema": 1, "commit": commit}).encode(),
+    }
+    files.update(extra or {})
+    with zipfile.ZipFile(path, "w") as bundle:
+        for name, value in files.items():
+            bundle.writestr(name, value)
+    return path
+
+
+@pytest.mark.parametrize("failure", [None, "migration", "health"])
+def test_prebuilt_update_without_npm(deployment, monkeypatch, failure):
+    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+        deployment, monkeypatch, "native", failure, prebuilt=True
+    )
+
+
+def test_prebuilt_separate_install(deployment, monkeypatch):
+    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+        deployment, monkeypatch, "native", None, prebuilt=True, separate=True
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../escape.js",
+        "/absolute.js",
+        "assets/../../escape.js",
+        "assets\\escape.js",
+        ".env",
+        "assets/file.map",
+        "private.pem",
+    ],
+)
+def test_prebuilt_rejects_unsafe_files_before_extracting(tmp_path, name):
+    archive = frontend_bundle(tmp_path / "bundle.zip", "commit", {name: b"unsafe"})
+    destination = tmp_path / "dist"
+    with pytest.raises(update.UpdateError):
+        update.unpack_frontend(archive, destination, "commit")
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize(
+    "invalid", ["symlink", "duplicate", "wrong_commit", "missing", "oversize", "bad_zip"]
+)
+def test_prebuilt_rejects_invalid_archives(tmp_path, monkeypatch, invalid):
+    archive = frontend_bundle(tmp_path / "bundle.zip", "commit")
+    if invalid == "symlink":
+        with zipfile.ZipFile(archive, "a") as bundle:
+            entry = zipfile.ZipInfo("assets/link.js")
+            entry.create_system = 3
+            entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+            bundle.writestr(entry, "../../target")
+    elif invalid == "duplicate":
+        with zipfile.ZipFile(archive, "a") as bundle, pytest.warns(UserWarning):
+            bundle.writestr("index.html", "duplicate")
+    elif invalid == "missing":
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("index.html", "only")
+    elif invalid == "oversize":
+        monkeypatch.setattr(update, "MAX_FRONTEND_UNPACKED", 1)
+    elif invalid == "bad_zip":
+        archive.write_bytes(b"invalid")
+    with pytest.raises(update.UpdateError):
+        update.unpack_frontend(
+            archive, tmp_path / "dist", "other" if invalid == "wrong_commit" else "commit"
+        )
+    assert not (tmp_path / "dist").exists()
+
+
+def mock_asset(monkeypatch, content, **changes):
+    asset = {
+        "id": 123,
+        "name": update.FRONTEND_ASSET,
+        "size": len(content),
+        "digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+        "state": "uploaded",
+    }
+    asset.update(changes)
+    monkeypatch.setattr(
+        update, "release_request", lambda *args: {"tag_name": "v2.0.0", "assets": [asset]}
+    )
+    calls = []
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(request)
+            return io.BytesIO(content)
+
+    monkeypatch.setattr(update.urllib.request, "build_opener", lambda *args: Opener())
+    return calls
+
+
+def test_download_verifies_digest_and_authenticates_only_api(tmp_path, monkeypatch):
+    calls = mock_asset(monkeypatch, b"archive")
+    path = update.download_frontend("example/repo", "v2.0.0", tmp_path, "token")
+    assert path.read_bytes() == b"archive"
+    assert calls[0].full_url == "https://api.github.com/repos/example/repo/releases/assets/123"
+    assert calls[0].get_header("Authorization") == "Bearer token"
+    redirected = update.AssetRedirectHandler().redirect_request(
+        calls[0],
+        None,
+        302,
+        "Found",
+        {},
+        "https://release-assets.githubusercontent.com/file?signature=test",
+    )
+    assert redirected.get_header("Authorization") is None
+    with pytest.raises(update.UpdateError, match="redirect"):
+        update.AssetRedirectHandler().redirect_request(
+            calls[0], None, 302, "Found", {}, "https://example.invalid/file"
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"digest": None},
+        {"digest": "sha256:" + "0" * 64},
+        {"size": 1},
+        {"size": 100},
+        {"id": "123"},
+        {"size": update.MAX_FRONTEND_DOWNLOAD + 1},
+    ],
+)
+def test_invalid_asset_download_is_rejected(tmp_path, monkeypatch, changes):
+    mock_asset(monkeypatch, b"archive", **changes)
+    with pytest.raises(update.UpdateError):
+        update.download_frontend("example/repo", "v2.0.0", tmp_path, None)
+
+
+def test_missing_asset_has_actionable_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        update, "release_request", lambda *args: {"tag_name": "v2.0.0", "assets": []}
+    )
+    with pytest.raises(update.UpdateError, match="omit --prebuilt-frontend"):
+        update.download_frontend("example/repo", "v2.0.0", tmp_path, None)
+
+
+def test_prebuilt_flag_native_only():
+    assert update.options(["--mode", "native", "--prebuilt-frontend"]).prebuilt_frontend
+    with pytest.raises(SystemExit):
+        update.options(["--mode", "docker", "--prebuilt-frontend"])
+
+
+def test_packager_round_trip_and_rejects_environment_files(deployment, tmp_path):
+    root, _, _, _ = deployment
+    (root / "frontend/package.json").write_text('{"version":"3.0.0"}')
+    git(root, "commit", "-am", "Prepare release")
+    git(root, "tag", "v3.0.0")
+    commit = git(root, "rev-parse", "HEAD")
+    source = frontend_bundle(tmp_path / "source.zip", commit)
+    update.unpack_frontend(source, root / "frontend/dist", commit)
+    (root / "frontend/dist" / update.FRONTEND_METADATA).unlink()
+    archive = package_frontend(root, tmp_path / "release", "v3.0.0")
+    update.unpack_frontend(archive, tmp_path / "unpacked", commit)
+    assert (tmp_path / "unpacked/index.html").read_bytes() == b"new frontend"
+    assert (tmp_path / "unpacked").stat().st_mode & 0o777 == 0o755
+    (root / "frontend/.env").write_text("VITE_NOT_FOR_RELEASE=example")
+    with pytest.raises(ValueError, match="environment"):
+        package_frontend(root, tmp_path / "release", "v3.0.0")
+
+
+def preflight_only(deployment, monkeypatch):
+    root, data, _, _ = deployment
+    monkeypatch.setattr(update, "latest_release", lambda *args: "v2.0.0")
+    monkeypatch.setattr(update, "native_configuration", lambda _: (data, "labels", {}))
+    monkeypatch.setattr(update, "docker_configuration", lambda _: {"project": "labels"})
+    monkeypatch.setattr(update.shutil, "which", lambda name: f"/test/{name}")
+    original = update.command
+
+    def command(command, cwd, **kwargs):
+        assert command[0] == "git", "No installation or service commands before validation"
+        if command[1] == "fetch":
+            command = [*command]
+            command[command.index("origin")] = str(root)
+        elif command[1] == "clone":
+            command = [*command]
+            command[command.index("https://github.com/tarobits/label-server.git")] = str(root)
+        return original(command, cwd, **kwargs)
+
+    monkeypatch.setattr(update, "command", command)
+
+
+def test_handoff_new_source_checkout_is_clean_and_installation_is_untouched(
+    deployment, monkeypatch
+):
+    root, data, previous, newest = deployment
+    old_script = root.parent / "old-updater.py"
+    old_script.write_text("# An older standalone updater\n")
+    monkeypatch.setattr(update, "__file__", str(old_script))
+    preflight_only(deployment, monkeypatch)
+    checkout = root.parent / "new-source"
+    args = update.options(
+        [
+            "--mode",
+            "native",
+            "--checkout",
+            str(checkout),
+            "--install-dir",
+            str(root),
+        ]
+    )
+    update.update(args)
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert git(checkout, "rev-parse", "HEAD") == newest
+    assert not git(checkout, "status", "--porcelain")
+    assert (data / "labels.db").read_bytes() == b"original database"
+    saved = next(args.backup_dir.glob("updater-*.py"))
+    monkeypatch.setattr(update, "__file__", str(saved))
+    assert not update.handoff_updater(args, newest, "v2.0.0")
+
+
+@pytest.mark.parametrize("failure", ["missing", "commit", "digest"])
+def test_prebuilt_failure_keeps_service_code_and_data_untouched(deployment, monkeypatch, failure):
+    root, data, previous, _ = deployment
+    preflight_only(deployment, monkeypatch)
+    args = update.options(["--mode", "native", "--checkout", str(root), "--prebuilt-frontend"])
+
+    def download(repository, tag, destination, token):
+        if failure == "missing":
+            raise update.UpdateError("missing asset")
+        if failure == "digest":
+            raise update.UpdateError("SHA-256 mismatch")
+        return frontend_bundle(destination / update.FRONTEND_ASSET, "wrong-commit")
+
+    monkeypatch.setattr(update, "download_frontend", download)
+    with pytest.raises(update.UpdateError):
+        update.update(args)
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert (data / "labels.db").read_bytes() == b"original database"
+    assert not list(args.backup_dir.glob("*/update.json"))
+
+
+@pytest.mark.parametrize("mode", ["native", "docker"])
+def test_changed_updater_exits_before_download_and_can_resume(
+    deployment, monkeypatch, capsys, mode
+):
+    root, data, previous, newest = deployment
+    git(root, "switch", "--detach", newest)
+    revised = Path(update.__file__).read_text() + "\n# A newer release updater.\n"
+    (root / "scripts/update.py").write_text(revised)
+    git(root, "commit", "-am", "Revise updater")
+    newest = git(root, "rev-parse", "HEAD")
+    git(root, "tag", "--force", "v2.0.0")
+    git(root, "switch", "main")
+    with monkeypatch.context() as patch:
+        preflight_only((root, data, previous, newest), patch)
+        patch.setattr(
+            update, "download_frontend", lambda *args: pytest.fail("Download must follow handoff")
+        )
+        args = update.options(
+            [
+                "--mode",
+                mode,
+                "--checkout",
+                str(root),
+                *(["--prebuilt-frontend"] if mode == "native" else []),
+            ]
+        )
+        update.update(args)
+    output = capsys.readouterr().out
+    invocation = shlex.split(output.strip().splitlines()[-1])
+    if mode == "native":
+        assert invocation.pop(0) == "sudo"
+    saved = Path(invocation[1])
+    assert saved.parent == args.backup_dir
+    assert saved.read_text().strip() == revised.strip()
+    assert saved.stat().st_mode & 0o777 == 0o600
+    resumed = update.options(invocation[2:])
+    assert resumed.tag == "v2.0.0" and resumed.prebuilt_frontend == (mode == "native")
+    assert resumed.checkout == root and resumed.install_dir == root
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert not git(root, "status", "--porcelain")
+    assert (data / "labels.db").read_bytes() == b"original database"
+    assert not list(args.backup_dir.glob("*/update.json"))
+    # Simulate the next invocation executing the saved release updater.
+    monkeypatch.setattr(update, "__file__", str(saved))
+    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+        (root, data, previous, newest), monkeypatch, mode, None, prebuilt=(mode == "native")
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +330,7 @@ def deployment(tmp_path):
     )
     (root / "version.txt").write_text("old")
     for filename in (
+        "scripts/update.py",
         "pyproject.toml",
         "requirements.lock",
         "alembic.ini",
@@ -47,6 +342,7 @@ def deployment(tmp_path):
         path = root / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("placeholder")
+    (root / "scripts/update.py").write_text(Path(update.__file__).read_text())
     git(root, "add", ".")
     git(root, "commit", "-m", "Previous installation")
     previous = git(root, "rev-parse", "HEAD")
@@ -77,6 +373,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     token_file=False,
     channel="stable",
     explicit_tag=None,
+    prebuilt=False,
 ):
     root, data, previous, newest = deployment
     install = root
@@ -88,6 +385,12 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     args = update.options(["--mode", mode, "--checkout", str(root), "--install-dir", str(install)])
     args.channel = channel
     args.tag = explicit_tag
+    args.prebuilt_frontend = prebuilt
+    if prebuilt:
+        dist = install / "frontend/dist"
+        dist.mkdir(parents=True)
+        (dist / "stale.js").write_text("old asset")
+        (dist / "index.html").write_text("old frontend")
     selected_tag = explicit_tag or ("v2.0.0-rc.1" if channel == "beta" else "v2.0.0")
     if selected_tag != "v2.0.0":
         git(root, "tag", selected_tag, newest)
@@ -182,7 +485,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
         elif command[:2] == ["docker", "run"]:
             assert "--network" in command and "none" in command
             assert config["image"] in command and "real-existing-data" in " ".join(command)
-            backup = next(args.backup_dir.iterdir())
+            backup = next(args.backup_dir.glob("*/update.json")).parent
             with tarfile.open(backup / "data.tar.gz", "w:gz") as archive:
                 archive.add(data, arcname="data")
         return ""
@@ -218,6 +521,17 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     monkeypatch.setattr(update, "compose", fake_compose)
     monkeypatch.setattr(update.subprocess, "run", fake_run)
     monkeypatch.setattr(update, "wait_healthy", healthy)
+    if prebuilt:
+
+        def download(repository, tag, destination, credential):
+            assert running  # Network and validation happen before stopping the service.
+            assert tag == selected_tag and credential == token
+            return frontend_bundle(destination / update.FRONTEND_ASSET, newest)
+
+        monkeypatch.setattr(update, "download_frontend", download)
+        monkeypatch.setattr(
+            update.shutil, "which", lambda name: None if name == "npm" else f"/test/{name}"
+        )
     if failure:
         with pytest.raises(update.UpdateError):
             update.update(args)
@@ -238,8 +552,15 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     assert record["release"] == selected_tag
     if mode == "native":
         assert any(command[1:5] == ["-m", "pip", "install", "-c"] for command in events)
-        assert ["npm", "ci", "--prefix", "frontend"] in events
-        assert ["npm", "run", "build", "--prefix", "frontend"] in events
+        if prebuilt:
+            assert not any(command[0] == "npm" for command in events)
+            assert (install / "frontend/dist/index.html").read_bytes() == b"new frontend"
+            assert not (install / "frontend/dist/stale.js").exists()
+            with tarfile.open(next(args.backup_dir.glob("*/source.tar.gz"))) as archive:
+                assert archive.extractfile("frontend/dist/index.html").read() == b"old frontend"
+        else:
+            assert ["npm", "ci", "--prefix", "frontend"] in events
+            assert ["npm", "run", "build", "--prefix", "frontend"] in events
 
 
 @pytest.mark.parametrize("mode", ["native", "docker"])

@@ -7,11 +7,13 @@ Failures after shutdown leave the application stopped and preserve the backup.
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -21,6 +23,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zipfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
@@ -28,6 +31,212 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_REPOSITORY = "tarobits/label-server"
+FRONTEND_ASSET = "label-server-frontend.zip"
+FRONTEND_METADATA = "frontend-build.json"
+MAX_FRONTEND_DOWNLOAD = 64 * 1024 * 1024
+MAX_FRONTEND_UNPACKED = 256 * 1024 * 1024
+
+
+def frontend_file(name: str) -> bool:
+    """Only public build outputs; no dotfiles, source maps or server state."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", name):
+        return False
+    if any(part.startswith(".") or not part for part in name.split("/")):
+        return False
+    if "/" in name:
+        return name.startswith("assets/") and Path(name).suffix in {
+            ".js",
+            ".css",
+            ".svg",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".ico",
+            ".woff",
+            ".woff2",
+        }
+    return name in {"index.html", "sw.js", "manifest.webmanifest", FRONTEND_METADATA} or (
+        Path(name).suffix in {".png", ".ico", ".svg"}
+    )
+
+
+class AssetRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        url = urllib.parse.urlsplit(newurl)
+        if url.scheme != "https" or url.netloc not in {
+            "api.github.com",
+            "github.com",
+            "release-assets.githubusercontent.com",
+            "objects.githubusercontent.com",
+        }:
+            raise UpdateError("Unexpected GitHub asset redirect")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and url.netloc != urllib.parse.urlsplit(req.full_url).netloc:
+            redirected.remove_header("Authorization")
+        return redirected
+
+
+def download_frontend(repository: str, tag: str, destination: Path, token: str | None) -> Path:
+    release = release_request(repository, f"/tags/{urllib.parse.quote(tag, safe='')}", token)
+    if release_tag(release) != tag:
+        raise UpdateError("GitHub returned a different release tag than requested")
+    assets = release.get("assets", [])
+    if not isinstance(assets, list):
+        raise UpdateError("GitHub returned an invalid release asset list")
+    matches = [a for a in assets if isinstance(a, dict) and a.get("name") == FRONTEND_ASSET]
+    if len(matches) != 1:
+        raise UpdateError(
+            "Selected release has no unique prebuilt frontend. Wait for its release workflow "
+            "to finish, or omit --prebuilt-frontend to build locally."
+        )
+    asset = matches[0]
+    asset_id, size, digest = asset.get("id"), asset.get("size"), asset.get("digest")
+    if (
+        type(asset_id) is not int
+        or asset_id <= 0
+        or type(size) is not int
+        or not 0 < size <= MAX_FRONTEND_DOWNLOAD
+        or not isinstance(digest, str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+        or asset.get("state") != "uploaded"
+    ):
+        raise UpdateError("Prebuilt frontend has missing or invalid size/SHA-256 metadata")
+    headers = {"Accept": "application/octet-stream", "User-Agent": "label-server-updater"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/releases/assets/{asset_id}", headers=headers
+    )
+    archive = destination / FRONTEND_ASSET
+    checksum = hashlib.sha256()
+    received = 0
+    try:
+        opener = urllib.request.build_opener(AssetRedirectHandler())
+        with opener.open(request, timeout=60) as response, archive.open("wb") as output:
+            while chunk := response.read(1024 * 1024):
+                received += len(chunk)
+                if received > size:
+                    raise UpdateError("Prebuilt frontend exceeds its declared size")
+                checksum.update(chunk)
+                output.write(chunk)
+    except (OSError, urllib.error.URLError) as error:
+        # Do not expose credentials, response bodies or signed redirect URLs.
+        raise UpdateError("Could not download the prebuilt frontend from GitHub") from error
+    if received != size or checksum.hexdigest() != digest.removeprefix("sha256:"):
+        raise UpdateError("Prebuilt frontend size or SHA-256 verification failed")
+    return archive
+
+
+def unpack_frontend(archive: Path, destination: Path, commit: str) -> None:
+    """Validate the whole archive before writing any file; never use extractall."""
+    try:
+        with zipfile.ZipFile(archive) as bundle:
+            entries = bundle.infolist()
+            names = [entry.filename for entry in entries]
+            if (
+                len(entries) > 4096
+                or len(set(names)) != len(names)
+                or sum(entry.file_size for entry in entries) > MAX_FRONTEND_UNPACKED
+                or not {"index.html", "sw.js", "manifest.webmanifest", FRONTEND_METADATA}
+                <= set(names)
+                or not any(name.startswith("assets/") and name.endswith(".js") for name in names)
+            ):
+                raise UpdateError("Prebuilt frontend has an invalid file list or size")
+            for entry in entries:
+                mode = stat.S_IFMT(entry.external_attr >> 16)
+                if (
+                    not frontend_file(entry.filename)
+                    or entry.is_dir()
+                    or mode not in {0, stat.S_IFREG}
+                    or entry.flag_bits & 1
+                ):
+                    raise UpdateError("Prebuilt frontend contains an unsafe file")
+            if bundle.getinfo(FRONTEND_METADATA).file_size > 4096:
+                raise UpdateError("Prebuilt frontend build metadata is too large")
+            metadata = json.loads(bundle.read(FRONTEND_METADATA))
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("schema") != 1
+                or metadata.get("commit") != commit
+            ):
+                raise UpdateError("Prebuilt frontend does not match the selected source commit")
+            destination.mkdir(mode=0o755)
+            destination.chmod(0o755)
+            for entry in entries:
+                target = destination / entry.filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(entry) as source, target.open("xb") as output:
+                    shutil.copyfileobj(source, output, 1024 * 1024)
+                target.chmod(0o644)
+            for directory in destination.rglob("*"):
+                if directory.is_dir():
+                    directory.chmod(0o755)
+    except (
+        zipfile.BadZipFile,
+        NotImplementedError,
+        RuntimeError,
+        UnicodeError,
+        ValueError,
+    ) as error:
+        raise UpdateError("Prebuilt frontend archive is invalid") from error
+
+
+def install_frontend(staged: Path, install_dir: Path) -> None:
+    frontend = install_dir / "frontend"
+    target = frontend / "dist"
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        raise UpdateError("Frontend dist must be a directory, not a file or symlink")
+    with tempfile.TemporaryDirectory(prefix=".frontend-install-", dir=frontend) as temporary:
+        temporary_path = Path(temporary)
+        replacement, previous = temporary_path / "dist", temporary_path / "previous"
+        shutil.copytree(staged, replacement)
+        if target.exists():
+            target.rename(previous)
+        try:
+            replacement.rename(target)
+        except OSError:
+            if previous.exists():
+                previous.rename(target)
+            raise
+
+
+def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
+    """Run each release with its own updater, without switching live application code."""
+    source = command(["git", "show", f"{commit}:scripts/update.py"], args.checkout, capture=True)
+    if source == Path(__file__).read_text().strip():
+        return False
+    if not source or len(source.encode()) > 1024 * 1024:
+        raise UpdateError("Selected release has an invalid updater")
+    try:
+        compile(source, "release-updater", "exec")
+    except SyntaxError as error:
+        raise UpdateError("Selected release updater is not compatible with this Python") from error
+    descriptor, filename = tempfile.mkstemp(
+        prefix=f"updater-{commit[:12]}-", suffix=".py", dir=args.backup_dir
+    )
+    with os.fdopen(descriptor, "w") as output:
+        output.write(source + "\n")
+    invocation = [
+        *(["sudo"] if args.mode == "native" else []),
+        sys.executable,
+        filename,
+        *args.invocation,
+        "--checkout",
+        str(args.checkout),
+        "--install-dir",
+        str(args.install_dir),
+        "--backup-dir",
+        str(args.backup_dir),
+        "--tag",
+        tag,
+    ]
+    print(
+        "The selected release contains a different updater. No shutdown or installation "
+        "has been performed. Relaunch the release's updater with:\n\n" + shlex.join(invocation),
+        flush=True,
+    )
+    return True
 
 
 class UpdateError(Exception):
@@ -215,6 +424,11 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--tag", help="Published release tag to install; overrides --channel")
     parser.add_argument(
+        "--prebuilt-frontend",
+        action="store_true",
+        help="Native only: download and verify the release frontend instead of running npm",
+    )
+    parser.add_argument(
         "--checkout",
         type=Path,
         default=Path(__file__).resolve().parents[1],
@@ -243,7 +457,9 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--check", action="store_true", help="Show the release and plan without changing anything"
     )
-    args = parser.parse_args(argv)
+    invocation = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(invocation)
+    args.invocation = invocation
     if args.tag is not None and not valid_tag(args.tag):
         parser.error("--tag must be a valid release tag name")
     args.checkout = args.checkout.resolve()
@@ -260,6 +476,8 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--health-timeout must be positive")
     if args.mode == "docker" and args.install_dir != args.checkout:
         parser.error("--install-dir is for native deployments; Compose runs from --checkout")
+    if args.mode == "docker" and args.prebuilt_frontend:
+        parser.error("--prebuilt-frontend is for native deployments only")
     if not args.service or args.service.startswith("-"):
         parser.error("Invalid service name")
     return args
@@ -521,12 +739,19 @@ def update(args: argparse.Namespace) -> None:
     )
     if args.check:
         print(
-            "Plan: stop app; back up code/config/data; switch release branch; install/build; migrate; start; verify health."
+            (
+                "Plan: download and verify prebuilt frontend; "
+                if args.prebuilt_frontend
+                else "Plan: "
+            )
+            + "stop app; back up code/config/data; switch release branch; install"
+            + (" prebuilt frontend" if args.prebuilt_frontend else "/build")
+            + "; migrate; start; verify health."
         )
         return
-    required = (
-        ["git", "systemctl", "runuser", "npm"] if args.mode == "native" else ["git", "docker"]
-    )
+    required = ["git", "systemctl", "runuser"] if args.mode == "native" else ["git", "docker"]
+    if args.mode == "native" and not args.prebuilt_frontend:
+        required.append("npm")
     if args.mode == "native" and args.install_dir != checkout:
         required.append("rsync")
     for executable in required:
@@ -582,6 +807,7 @@ def update(args: argparse.Namespace) -> None:
             ["git", "ls-tree", "-r", "--name-only", commit], checkout, capture=True
         ).splitlines()
         required_files = {
+            "scripts/update.py",
             "pyproject.toml",
             "requirements.lock",
             "alembic.ini",
@@ -636,6 +862,21 @@ def update(args: argparse.Namespace) -> None:
         old_commit = (
             command(["git", "rev-parse", "HEAD"], checkout, capture=True) if existing else None
         )
+        if not existing:
+            # This is a new, separate source checkout, not the running installation.
+            # Materialize it so a handoff can resume with a clean working tree.
+            command(["git", "switch", "--detach", commit], checkout)
+        if handoff_updater(args, commit, tag):
+            return
+        staged_frontend = None
+        if args.prebuilt_frontend:
+            temporary = Path(
+                runtime_locks.enter_context(tempfile.TemporaryDirectory(prefix="label-frontend-"))
+            )
+            print("Downloading and verifying the release frontend before shutdown...", flush=True)
+            archive = download_frontend(repository, tag, temporary, token)
+            staged_frontend = temporary / "dist"
+            unpack_frontend(archive, staged_frontend, commit)
         backup = args.backup_dir / (
             datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         )
@@ -749,8 +990,11 @@ def update(args: argparse.Namespace) -> None:
                     args.install_dir,
                     env=env,
                 )
-                command(["npm", "ci", "--prefix", "frontend"], args.install_dir)
-                command(["npm", "run", "build", "--prefix", "frontend"], args.install_dir)
+                if staged_frontend is not None:
+                    install_frontend(staged_frontend, args.install_dir)
+                else:
+                    command(["npm", "ci", "--prefix", "frontend"], args.install_dir)
+                    command(["npm", "run", "build", "--prefix", "frontend"], args.install_dir)
                 record("migrating")
                 command(
                     [
