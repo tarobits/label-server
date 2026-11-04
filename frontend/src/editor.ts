@@ -1,16 +1,59 @@
 import { randomUUID } from './uuid'
 import type { CostEstimate, PrintPlan } from './types'
 
+export type ValueType = 'text' | 'number' | 'boolean' | 'image'
+export interface ImageValue {
+  image_asset: string
+}
+export type VariableValue = string | number | boolean | ImageValue | null
+export type Expression = (
+  | { kind: 'literal'; value: VariableValue }
+  | { kind: 'reference'; name: string }
+  | { kind: 'call'; operation: string; arguments: Expression[] }
+) & { node_id?: string | null; span?: { start: number; end: number } | null }
+export interface LogicProgram {
+  version: 1
+  variables: Record<string, Expression>
+  bindings: { target: string; property: string; expression: Expression }[]
+}
+export interface LogicNode {
+  id: string
+  kind: 'input' | 'literal' | 'call' | 'variable' | 'output'
+  x: number
+  y: number
+  type: ValueType
+  name?: string | null
+  operation?: string | null
+  value?: VariableValue
+  target?: string | null
+  property?: string | null
+  inputs: (string | null)[]
+  defaults: VariableValue[]
+}
+export interface LogicEditorState {
+  version: 1
+  source?: string | null
+  nodes: LogicNode[]
+  x: number
+  y: number
+  zoom: number
+}
 export interface TemplateField {
   name: string
   label: string
   required: boolean
-  default: string
-  sample: string
+  type?: ValueType
+  default: VariableValue
+  sample: VariableValue
+  minimum?: number | null
+  maximum?: number | null
 }
 export interface Element {
   id: string
   name?: string
+  logic_name?: string | null
+  visible?: boolean
+  literal_content?: boolean
   kind: 'text' | 'qr' | 'rectangle' | 'line' | 'image'
   x: number
   y: number
@@ -44,7 +87,9 @@ export interface Element {
   qr_margin_mm?: number | null
 }
 export interface TemplateDocument {
-  version: 1
+  version: 1 | 2
+  logic?: LogicProgram | null
+  logic_editor?: LogicEditorState | null
   width_mm: number
   length_mm: number
   auto_length?: boolean

@@ -14,6 +14,10 @@ import type { CostEstimate as CostEstimateData, PrintPlan } from '../types'
 import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
+import ImageValueInput from '../components/ImageValueInput.vue'
+import type { ImageValue, VariableValue } from '../editor'
+import { displayValue } from '../variableInputs'
 interface Row {
   source_row: number
   values: string[]
@@ -41,7 +45,7 @@ interface Run {
     copies: number
     length_mm: number
     width_mm: number
-    payload: Record<string, string>
+    payload: Record<string, VariableValue>
   }[]
 }
 interface Preview {
@@ -119,6 +123,35 @@ const destination = computed(() =>
   w.destinations.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
 )
 const selected = computed(() => rows.value.filter((r) => r.selected))
+const imageChoices = ref(new Map<string, ImageValue | null>())
+const imageCells = computed(() =>
+  (template.value?.document.fields ?? [])
+    .filter((field) => field.type === 'image')
+    .flatMap((field) => {
+      const column = headers.value.indexOf(mapping.value[field.name] ?? '')
+      if (column < 0) return []
+      return [
+        ...new Set(
+          selected.value.map((row) => row.values[column] ?? '').filter((value) => value.trim()),
+        ),
+      ].map((value) => ({ field, value, key: JSON.stringify([field.name, value]) }))
+    }),
+)
+const imageMapping = computed(() =>
+  Object.fromEntries(
+    (template.value?.document.fields ?? [])
+      .filter((field) => field.type === 'image')
+      .map((field) => [
+        field.name,
+        Object.fromEntries(
+          imageCells.value
+            .filter((cell) => cell.field.name === field.name && imageChoices.value.get(cell.key))
+            .map((cell) => [cell.value, imageChoices.value.get(cell.key)]),
+        ),
+      ])
+      .filter(([, values]) => Object.keys(values!).length),
+  ),
+)
 let previewTicket = 0,
   generation = 0,
   stopped = false,
@@ -126,11 +159,13 @@ let previewTicket = 0,
   keyBody = '',
   requestKey = ''
 watch([csv, delimiter], () => {
+  imageChoices.value.clear()
   headers.value = []
   rows.value = []
   rowErrors.value = []
 })
 watch(templateId, () => {
+  imageChoices.value.clear()
   mapping.value = {}
   rowErrors.value = []
 })
@@ -197,6 +232,7 @@ async function prepare() {
       tape_profile: profileId.value,
       csv_text: parsedText.value,
       delimiter: parsedDelimiter.value,
+      image_mapping: imageMapping.value,
       mapping: Object.fromEntries(Object.entries(mapping.value).filter(([, v]) => v)),
       rows: selected.value.map((r) => ({
         source_row: r.source_row,
@@ -357,7 +393,11 @@ onUnmounted(() => {
       Your saved runs remain available. A role with destination access is needed to prepare or
       submit new labels.
     </p>
-    <fieldset v-if="w.destinations.length" :disabled="busy" class="panel form-stack csv-form">
+    <fieldset
+      v-if="w.destinations.length"
+      :disabled="busy || w.busy"
+      class="panel form-stack csv-form"
+    >
       <h2>Import CSV</h2>
       <label
         >Print destination<select v-model="destinationId">
@@ -425,6 +465,18 @@ onUnmounted(() => {
             </select></label
           >
         </div>
+        <ExpandableContent :open="imageCells.length > 0">
+          <div class="form-stack">
+            <h2>Map images</h2>
+            <ImageValueInput
+              v-for="cell in imageCells"
+              :key="`${templateId}:${cell.key}`"
+              :model-value="imageChoices.get(cell.key) ?? null"
+              :label="`${cell.field.label}: ${cell.value}`"
+              @update:model-value="imageChoices.set(cell.key, $event)"
+            />
+          </div>
+        </ExpandableContent>
         <p class="help">Row order below is print order.</p>
         <div class="row wrap">
           <button @click="rows.forEach((r) => (r.selected = true))">Select all</button
@@ -662,7 +714,9 @@ onUnmounted(() => {
                 </button>
               </td>
               <td>{{ row.source_row }}</td>
-              <td class="csv-values">{{ Object.values(row.payload).join(' · ') }}</td>
+              <td class="csv-values">
+                {{ Object.values(row.payload).map(displayValue).join(' · ') }}
+              </td>
               <td>{{ row.length_mm }} mm</td>
               <td>{{ row.copies }}</td>
             </tr>

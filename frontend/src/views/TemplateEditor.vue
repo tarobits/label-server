@@ -6,9 +6,18 @@ import PropertySection from '../components/PropertySection.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import TemplateHistory from '../components/TemplateHistory.vue'
+import VariableInput from '../components/VariableInput.vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
+import {
+  copyExpression,
+  nextElementName,
+  renameField,
+  setFieldType,
+  visitReferences,
+} from '../variableInputs'
 import { decodeLabel } from '../labelPreview'
 import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroicons/vue/24/outline'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { useAuthStore } from '../auth'
@@ -21,8 +30,11 @@ import {
   type Element,
   type Preview,
   type TemplateDocument,
+  type TemplateField,
+  type ValueType,
 } from '../editor'
 import type { ImageAsset, Template } from '../types'
+const LogicWorkspace = defineAsyncComponent(() => import('../components/LogicWorkspace.vue'))
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -35,6 +47,11 @@ const document = ref<TemplateDocument>(newDocument()),
 const scope = ref<'personal' | 'group' | 'global'>('personal'),
   groupId = ref<string | null>(null)
 const revisionHistoryOpen = ref(false)
+const logicBlocked = ref(false)
+function applyLogic(value: TemplateDocument) {
+  document.value = value
+  record()
+}
 function showRevisionHistory(event: MouseEvent) {
   ;(event.currentTarget as HTMLElement).focus()
   revisionHistoryOpen.value = true
@@ -191,24 +208,46 @@ const snapshot = () =>
     scope: scope.value,
     group_id: groupId.value,
   })
-const dirty = computed(() => ready.value && snapshot() !== saved.value)
+const dirty = computed(() => ready.value && (logicBlocked.value || snapshot() !== saved.value))
+const boundLength = computed(() =>
+  document.value.logic?.bindings.some((binding) => binding.target === 'label'),
+)
+const selectedBindings = computed(
+  () =>
+    document.value.logic?.bindings
+      .filter((binding) => binding.target === selectedId.value)
+      .map((binding) => binding.property) ?? [],
+)
 const canvasLength = computed(() =>
-  document.value.auto_length
+  document.value.auto_length || boundLength.value
     ? (preview.value?.length_mm ?? document.value.length_mm)
     : document.value.length_mm,
 )
 const canvasElements = computed(() =>
-  document.value.elements.map((element) => {
-    const resolved = preview.value?.resolved_elements.find((e) => e.id === element.id)
-    return resolved
-      ? {
-          ...element,
-          x: element.distance_holder?.axis === 'horizontal' ? resolved.x : element.x,
-          y: element.distance_holder?.axis === 'vertical' ? resolved.y : element.y,
-          width: element.auto_width ? resolved.width : element.width,
-        }
-      : element
-  }),
+  document.value.elements
+    .map((element) => {
+      const resolved = preview.value?.resolved_elements.find((e) => e.id === element.id)
+      const bound = (property: string) =>
+        document.value.logic?.bindings.some(
+          (binding) => binding.target === element.id && binding.property === property,
+        )
+      return resolved
+        ? {
+            ...element,
+            x:
+              element.distance_holder?.axis === 'horizontal' || bound('x') ? resolved.x : element.x,
+            y: element.distance_holder?.axis === 'vertical' || bound('y') ? resolved.y : element.y,
+            width:
+              element.auto_width || bound('width') || bound('auto_width')
+                ? resolved.width
+                : element.width,
+            height: bound('height') ? resolved.height : element.height,
+            rotation: bound('rotation') ? resolved.rotation : element.rotation,
+            visible: bound('visible') ? resolved.visible : element.visible,
+          }
+        : element
+    })
+    .filter((element) => element.visible !== false),
 )
 const scale = computed(() => (zoom.value / 100) * 8)
 const distanceTargets = computed(() =>
@@ -386,7 +425,7 @@ async function updatePreview() {
     const result = await resources.preview<Preview>(
       {
         destination_id: w.selectedPrinter || undefined,
-        document: document.value,
+        document: { ...document.value, logic_editor: undefined },
         use_samples: true,
       },
       w.destinationPrinter(w.selectedPrinter)?.capabilities,
@@ -440,6 +479,7 @@ watch(
 )
 function add(kind: Element['kind']) {
   const element = newElement(kind)
+  if (document.value.version === 2) element.logic_name = nextElementName(document.value, kind)
   element.x = margin.value
   element.y = verticalMargin.value
   element.width = Math.min(element.width, document.value.length_mm - 2 * margin.value)
@@ -460,6 +500,10 @@ function remove() {
     }
   }
   document.value.elements = document.value.elements.filter((e) => e.id !== selectedId.value)
+  if (document.value.logic)
+    document.value.logic.bindings = document.value.logic.bindings.filter(
+      (binding) => binding.target !== selectedId.value,
+    )
   selectedId.value = ''
   record()
 }
@@ -467,6 +511,19 @@ function duplicate() {
   if (selected.value) {
     const e = structuredClone({ ...selected.value })
     e.id = randomUUID()
+    if (document.value.version === 2) e.logic_name = nextElementName(document.value, e.kind)
+    if (document.value.logic) {
+      const bindings = document.value.logic.bindings.filter(
+        (binding) => binding.target === selected.value?.id,
+      )
+      document.value.logic.bindings.push(
+        ...bindings.map((binding) => ({
+          ...binding,
+          target: e.id,
+          expression: copyExpression(binding.expression),
+        })),
+      )
+    }
     document.value.elements.push(e)
     selectedId.value = e.id
     record()
@@ -569,6 +626,13 @@ function finish(event?: PointerEvent) {
 function interruptDrag() {
   finish()
   pointer.value = null
+}
+function changeAutomaticLength() {
+  if (document.value.auto_length && document.value.logic)
+    document.value.logic.bindings = document.value.logic.bindings.filter(
+      (binding) => binding.target !== 'label',
+    )
+  record()
 }
 function setManualLength(event: Event) {
   if (!document.value.auto_length)
@@ -717,19 +781,59 @@ async function save() {
       await router.replace({ path: `/templates/${result.id}/edit`, query: route.query })
   }
 }
+function changeFieldName(field: TemplateField, event: Event) {
+  const input = event.target as HTMLInputElement
+  try {
+    renameField(document.value, field, input.value)
+    record()
+  } catch (error) {
+    w.actionError = errorMessage(error)
+    input.value = field.name
+  }
+}
+function changeFieldType(field: TemplateField, event: Event) {
+  const select = event.target as HTMLSelectElement
+  try {
+    setFieldType(document.value, field, select.value as ValueType)
+    record()
+  } catch (error) {
+    w.actionError = errorMessage(error)
+    select.value = field.type ?? 'text'
+  }
+}
+function changeLimit(field: TemplateField, key: 'minimum' | 'maximum', event: Event) {
+  const value = (event.target as HTMLInputElement).valueAsNumber
+  field[key] = Number.isFinite(value) ? value : null
+  record()
+}
 function removeField(index: number) {
+  const name = document.value.fields[index]!.name
+  let referenced = false
+  visitReferences(document.value, (reference) => {
+    if (reference.name === name) referenced = true
+  })
+  if (referenced) {
+    w.actionError = 'Remove references to this variable from logic before deleting it.'
+    return
+  }
   document.value.fields.splice(index, 1)
   record()
 }
 function addField() {
   let index = document.value.fields.length + 1
-  while (document.value.fields.some((f) => f.name === `field${index}`)) index++
+  while (
+    document.value.fields.some((f) => f.name === `field${index}`) ||
+    Object.hasOwn(document.value.logic?.variables ?? {}, `field${index}`) ||
+    document.value.elements.some((e) => e.logic_name === `field${index}`)
+  )
+    index++
   document.value.fields.push({
     name: `field${index}`,
     label: `Field ${index}`,
     required: true,
     default: '',
     sample: 'Example',
+    ...(document.value.version === 2 ? { type: 'text' as const } : {}),
   })
   record()
 }
@@ -802,9 +906,9 @@ onUnmounted(() => {
       >
       <label
         >Label length (mm)<input
-          :value="document.auto_length ? canvasLength : document.length_mm"
+          :value="document.auto_length || boundLength ? canvasLength : document.length_mm"
           @input="setManualLength"
-          :disabled="!editable || document.auto_length"
+          :disabled="!editable || document.auto_length || boundLength"
           type="number"
           min="10"
           max="300"
@@ -863,9 +967,11 @@ onUnmounted(() => {
     <div class="editor-settings-footer">
       <div class="editor-settings-toggles">
         <label class="checkbox"
-          ><input v-model="document.auto_length" type="checkbox" @change="record" /><span
-            >Automatic label length</span
-          ></label
+          ><input
+            v-model="document.auto_length"
+            type="checkbox"
+            @change="changeAutomaticLength"
+          /><span>Automatic label length</span></label
         >
         <label class="checkbox"
           ><input
@@ -885,6 +991,7 @@ onUnmounted(() => {
           class="primary"
           :disabled="
             w.busy ||
+            logicBlocked ||
             !ready ||
             rendering ||
             !!error ||
@@ -1105,6 +1212,9 @@ onUnmounted(() => {
       <h2 id="element-properties-heading">
         {{ selected.name?.trim() || elementTitles[selected.kind] }}
       </h2>
+      <p v-if="selectedBindings.length" class="help">
+        Controlled by logic: {{ selectedBindings.join(', ') }}.
+      </p>
       <MotionTrack
         class="inspector-tabs"
         :identity="`${selected.kind}:${activeInspector}`"
@@ -1546,6 +1656,15 @@ onUnmounted(() => {
       </MotionSurface>
     </section>
   </div>
+  <LogicWorkspace
+    v-if="ready && w.profiles.length"
+    :document="document"
+    :preview="preview?.design_png"
+    :preview-error="error"
+    :disabled="!editable || w.busy"
+    @apply="applyLogic"
+    @blocked="logicBlocked = $event"
+  />
   <section v-if="ready && w.profiles.length" class="panel variable-fields">
     <div class="section-heading">
       <h2>Variable fields</h2>
@@ -1554,18 +1673,68 @@ onUnmounted(() => {
     <p v-if="document.fields.length" class="help">
       Samples are used in the editor. Defaults prefill the label submission form.
     </p>
-    <div v-for="(field, index) in document.fields" :key="index" class="variable-row">
+    <div
+      v-for="(field, index) in document.fields"
+      :key="index"
+      class="variable-row"
+      :class="{ 'image-variable': field.type === 'image' }"
+    >
       <label
         >Variable name<input
-          v-model="field.name"
+          :value="field.name"
           pattern="[A-Za-z][A-Za-z0-9_]*"
-          @change="record" /></label
-      ><label>Field label<input v-model="field.label" @change="record" /></label
-      ><label>Sample value<input v-model="field.sample" @change="record" /></label
-      ><label>Default value<input v-model="field.default" @change="record" /></label
-      ><label class="checkbox"
+          :maxlength="document.version === 2 ? 40 : undefined"
+          @change="changeFieldName(field, $event)" /></label
+      ><label>Field label<input v-model="field.label" @change="record" /></label>
+      <label
+        >Type<select :value="field.type ?? 'text'" @change="changeFieldType(field, $event)">
+          <option value="text">Text</option>
+          <option value="number">Number</option>
+          <option value="boolean">Boolean</option>
+          <option value="image">Image</option>
+        </select></label
+      >
+      <VariableInput
+        :key="`${field.name}:${field.type}:sample`"
+        v-model="field.sample"
+        :field="field"
+        label="Sample value"
+        nullable
+        @change="record"
+      />
+      <VariableInput
+        :key="`${field.name}:${field.type}:default`"
+        v-model="field.default"
+        :field="field"
+        label="Default value"
+        nullable
+        @change="record"
+      />
+      <label class="checkbox"
         ><input v-model="field.required" type="checkbox" @change="record" />Required</label
       ><button class="danger-text" @click="removeField(index)">Remove variable</button>
+      <ExpandableContent :open="field.type === 'number'" class="variable-limits">
+        <div class="field-row">
+          <label
+            >Minimum<input
+              type="number"
+              step="any"
+              min="-1000000000000"
+              max="1000000000000"
+              :value="field.minimum ?? ''"
+              @change="changeLimit(field, 'minimum', $event)"
+          /></label>
+          <label
+            >Maximum<input
+              type="number"
+              step="any"
+              min="-1000000000000"
+              max="1000000000000"
+              :value="field.maximum ?? ''"
+              @change="changeLimit(field, 'maximum', $event)"
+          /></label>
+        </div>
+      </ExpandableContent>
     </div>
   </section>
   <TemplateHistory
@@ -1599,5 +1768,15 @@ onUnmounted(() => {
 }
 .variable-fields > .section-heading:last-child {
   margin-bottom: 0;
+}
+.variable-limits {
+  flex-basis: 100%;
+}
+.image-variable {
+  align-items: start;
+}
+.variable-row > .image-value-input {
+  flex: 2;
+  min-width: min(240px, 100%);
 }
 </style>

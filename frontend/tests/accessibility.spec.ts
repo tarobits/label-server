@@ -145,6 +145,10 @@ test('the skip link reaches account fields without entering disabled or hidden c
 }) => {
   await page.goto('/#/account')
   await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add email', exact: true })).toBeEnabled()
+  await expect(
+    page.getByRole('button', { name: 'Enable notifications', exact: true }),
+  ).toBeEnabled()
   await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'Skip to content', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
@@ -154,6 +158,8 @@ test('the skip link reaches account fields without entering disabled or hidden c
   for (const control of [
     page.getByLabel('Reduced motion', { exact: true }),
     page.getByRole('button', { name: 'Add email', exact: true }),
+    page.getByLabel('Device name', { exact: true }),
+    page.getByRole('button', { name: 'Enable notifications', exact: true }),
     page.getByLabel('Current password', { exact: true }),
     page.getByLabel('New password', { exact: true }),
     page.getByLabel('Confirm new password', { exact: true }),

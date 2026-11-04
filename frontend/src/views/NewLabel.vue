@@ -8,7 +8,9 @@ import { useAuthStore } from '../auth'
 import { useWorkspaceStore } from '../workspace'
 import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
-import type { Preview } from '../editor'
+import type { Preview, VariableValue } from '../editor'
+import { initialValue, missingValue } from '../variableInputs'
+import VariableInput from '../components/VariableInput.vue'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import CostEstimate from '../components/CostEstimate.vue'
@@ -67,7 +69,7 @@ watch(
     if (typeof query.profile === 'string') form.tape_profile = query.profile
   },
 )
-const data = ref<Record<string, string>>({}),
+const data = ref<Record<string, VariableValue>>({}),
   preview = ref<Preview | null>(null),
   error = ref(''),
   rendering = ref(false),
@@ -204,7 +206,7 @@ watch(
   () => form.template,
   () => {
     data.value = Object.fromEntries(
-      (template.value?.document.fields ?? []).map((f) => [f.name, f.default]),
+      (template.value?.document.fields ?? []).map((f) => [f.name, initialValue(f)]),
     )
   },
   { immediate: true },
@@ -224,7 +226,7 @@ async function render() {
     if (document.value.width_mm !== selected.value?.width_mm)
       errors.tape_profile = 'Template and tape widths do not match.'
     const missing = document.value.fields.filter(
-      (field) => field.required && !(data.value[field.name] ?? field.default).trim(),
+      (field) => field.required && missingValue(data.value[field.name]),
     )
     for (const field of missing) errors[`data.${field.name}`] = `${field.label} is required`
     previewFieldErrors.value = errors
@@ -378,16 +380,18 @@ async function submit() {
             {{ profile.name }} · {{ profile.width_mm }} mm
           </option>
         </select></label
-      ><label v-for="field in template?.document.fields" :key="field.name"
-        >{{ field.label
-        }}<textarea
-          v-model="data[field.name]"
-          :name="`data.${field.name}`"
-          :required="field.required"
-          maxlength="2000"
-          rows="2"
-        ></textarea>
-      </label>
+      >
+      <VariableInput
+        v-for="field in template?.document.fields"
+        :key="`${form.template}:${field.name}:${field.type}`"
+        v-model="data[field.name]"
+        :field="field"
+        :label="field.label"
+        :name="`data.${field.name}`"
+        :required="field.required"
+        :nullable="!field.required"
+        multiline
+      />
       <div class="field-row">
         <label
           >Copies<input

@@ -129,7 +129,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           tasks.push(read<Template[]>('/templates', 60000).then((value) => apply(templates, value)))
         if (path === '/fonts' || path.startsWith('/templates/'))
           tasks.push(read<FontAsset[]>('/font-assets', 60000).then((value) => apply(fonts, value)))
-        if (path === '/images' || path.startsWith('/templates/'))
+        if (
+          ['/images', '/new'].includes(path) ||
+          path.startsWith('/templates/') ||
+          path.startsWith('/runs')
+        )
           tasks.push(
             read<ImageAsset[]>('/image-assets', 60000).then((value) => apply(images, value)),
           )

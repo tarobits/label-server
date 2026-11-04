@@ -70,7 +70,14 @@ export async function api<T>(
   const requestToken = csrfToken
   const readOnly = ['GET', 'HEAD', 'OPTIONS'].includes(method)
   const safeToRetry =
-    readOnly || ['/preview', '/runs/inspect', '/admin/access-preview'].includes(path)
+    readOnly ||
+    [
+      '/preview',
+      '/logic/inspect',
+      '/logic/compile',
+      '/runs/inspect',
+      '/admin/access-preview',
+    ].includes(path)
   const options: RequestInit = {
     method,
     credentials: 'same-origin',

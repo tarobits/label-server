@@ -1,0 +1,431 @@
+import type {
+  Expression,
+  LogicEditorState,
+  LogicNode,
+  LogicProgram,
+  TemplateDocument,
+  ValueType,
+  VariableValue,
+} from './editor'
+import { randomUUID } from './uuid'
+import { validVariableName } from './variableInputs'
+export type SocketType = ValueType | 'null' | 'any'
+export interface Operation {
+  name: string
+  minimum_arguments: number
+  maximum_arguments: number
+  signature: 'numeric' | 'comparison' | 'equality' | 'boolean' | 'conditional' | 'presence'
+  description: string
+}
+export interface SourceDiagnostic {
+  from: number
+  to: number
+  message: string
+  severity: 'error'
+  line: number
+  column: number
+}
+export interface CompileResult {
+  valid: boolean
+  program?: LogicProgram
+  formatted?: string
+  catalog?: LogicCatalog
+  diagnostics: SourceDiagnostic[]
+}
+export interface LogicCatalog {
+  source: string
+  operations: Operation[]
+  targets: Record<string, { id: string; properties: Record<string, ValueType> }>
+  types: Record<string, SocketType>
+  values: Record<string, VariableValue>
+  sample_error: string | null
+}
+export const valueTypes: ValueType[] = ['text', 'number', 'boolean', 'image']
+export const defaultValue = (type: SocketType): VariableValue =>
+  type === 'text' ? '' : type === 'boolean' ? false : type === 'number' ? 0 : null
+export const valueType = (value: VariableValue): SocketType =>
+  value === null
+    ? 'null'
+    : typeof value === 'object'
+      ? 'image'
+      : typeof value === 'string'
+        ? 'text'
+        : typeof value === 'boolean'
+          ? 'boolean'
+          : 'number'
+export const title = (name: string) =>
+  name.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
+export function makeNode(
+  kind: LogicNode['kind'],
+  state: LogicEditorState,
+  extra: Partial<LogicNode> = {},
+): LogicNode {
+  return {
+    id: randomUUID(),
+    kind,
+    x: 40 - state.x / state.zoom,
+    y: 40 - state.y / state.zoom,
+    type: 'number',
+    inputs: [],
+    defaults: [],
+    ...extra,
+  }
+}
+export function semanticProgram(program: LogicProgram | null | undefined): string {
+  function clean(expression: Expression): unknown {
+    if (expression.kind === 'literal') return ['literal', expression.value]
+    if (expression.kind === 'reference') return ['reference', expression.name]
+    return [expression.operation, expression.arguments.map(clean)]
+  }
+  return JSON.stringify([
+    Object.entries(program?.variables ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, expression]) => [name, clean(expression)]),
+    (program?.bindings ?? [])
+      .map((binding) => [binding.target, binding.property, clean(binding.expression)])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+  ])
+}
+export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicProgram {
+  if (nodes.length > 512) throw new Error('At most 512 nodes are supported.')
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const variables = nodes.filter((node) => node.kind === 'variable')
+  const names = new Set([
+    ...doc.fields.map((field) => field.name),
+    ...doc.elements.map((element) => element.logic_name),
+    'label',
+  ])
+  for (const node of variables) {
+    if (!node.name || !validVariableName(node.name) || names.has(node.name))
+      throw new Error('Intermediate variables need unique, non-reserved names.')
+    names.add(node.name)
+  }
+  // Check every wire, including detached draft nodes, before walking expression trees.
+  const visiting = new Set<string>(),
+    visited = new Set<string>()
+  function check(node: LogicNode, depth = 0) {
+    if (depth > 32 || visiting.has(node.id))
+      throw new Error('Connections cannot form a cycle or exceed 32 levels.')
+    if (visited.has(node.id)) return
+    visiting.add(node.id)
+    for (const id of node.inputs)
+      if (id) {
+        const input = byId.get(id)
+        if (!input || input.kind === 'output') throw new Error('A connection has no value source.')
+        check(input, depth + 1)
+      }
+    visiting.delete(node.id)
+    visited.add(node.id)
+  }
+  nodes.forEach((node) => check(node))
+  let budget = 0
+  function argument(node: LogicNode, index: number, depth: number): Expression {
+    const id = node.inputs[index]
+    return id
+      ? expression(byId.get(id)!, depth + 1)
+      : { kind: 'literal', value: node.defaults[index] ?? null }
+  }
+  function expression(node: LogicNode, depth = 0): Expression {
+    if (++budget > 512 || depth > 32)
+      throw new Error('This graph exceeds the expression size or depth limit.')
+    if (node.kind === 'input' || node.kind === 'variable')
+      return { kind: 'reference', name: node.name!, node_id: node.id }
+    if (node.kind === 'literal')
+      return { kind: 'literal', value: node.value ?? null, node_id: node.id }
+    if (node.kind === 'call')
+      return {
+        kind: 'call',
+        operation: node.operation!,
+        arguments: node.inputs.map((_, index) => argument(node, index, depth)),
+        node_id: node.id,
+      }
+    throw new Error('Output nodes cannot be used as inputs.')
+  }
+  return {
+    version: 1,
+    variables: Object.fromEntries(variables.map((node) => [node.name!, argument(node, 0, 0)])),
+    bindings: nodes
+      .filter((node) => node.kind === 'output' && !(node.target === 'label' && doc.auto_length))
+      .map((node) => ({
+        target: node.target!,
+        property: node.property!,
+        expression: argument(node, 0, 0),
+      })),
+  }
+}
+export function loadGraph(doc: TemplateDocument, restoreManualLength = true): LogicEditorState {
+  const saved = doc.logic_editor
+  if (saved) {
+    try {
+      const program = compileGraph(saved.nodes, doc)
+      const current = {
+        ...(doc.logic ?? { version: 1 as const, variables: {}, bindings: [] }),
+        bindings: (doc.logic?.bindings ?? []).filter(
+          (binding) => !(doc.auto_length && binding.target === 'label'),
+        ),
+      }
+      const comparable =
+        restoreManualLength &&
+        !doc.auto_length &&
+        !current.bindings.some((binding) => binding.target === 'label')
+          ? {
+              ...program,
+              bindings: program.bindings.filter((binding) => binding.target !== 'label'),
+            }
+          : program
+      if (
+        semanticProgram(comparable) === semanticProgram(current) &&
+        saved.nodes
+          .filter((node) => node.kind === 'input')
+          .every((node) =>
+            doc.fields.some(
+              (field) => field.name === node.name && (field.type ?? 'text') === node.type,
+            ),
+          )
+      ) {
+        const state: LogicEditorState = JSON.parse(JSON.stringify(saved))
+        for (const field of doc.fields)
+          if (!state.nodes.some((node) => node.kind === 'input' && node.name === field.name))
+            state.nodes.push(
+              makeNode('input', state, {
+                name: field.name,
+                type: field.type ?? 'text',
+                x: 0,
+                y: state.nodes.length * 110,
+              }),
+            )
+        return state
+      }
+    } catch {
+      /* Reconstruct when executable logic was edited outside this graph. */
+    }
+  }
+  const state: LogicEditorState = { version: 1, nodes: [], x: 24, y: 24, zoom: 0.85 }
+  const references = new Map<string, string>()
+  const positions = new Map(saved?.nodes.map((node) => [node.id, node]))
+  function insert(node: LogicNode) {
+    const position = positions.get(node.id)
+    if (position) {
+      node.x = position.x
+      node.y = position.y
+    }
+    state.nodes.push(node)
+    return node.id
+  }
+  doc.fields.forEach((field, index) =>
+    references.set(
+      field.name,
+      insert(
+        makeNode('input', state, {
+          id:
+            saved?.nodes.find((node) => node.kind === 'input' && node.name === field.name)?.id ??
+            `input:${field.name}`,
+          name: field.name,
+          type: field.type ?? 'text',
+          x: 0,
+          y: index * 130,
+        }),
+      ),
+    ),
+  )
+  Object.keys(doc.logic?.variables ?? {}).forEach((name, index) =>
+    references.set(
+      name,
+      insert(
+        makeNode('variable', state, {
+          id:
+            saved?.nodes.find((node) => node.kind === 'variable' && node.name === name)?.id ??
+            `variable:${name}`,
+          name,
+          inputs: [null],
+          defaults: [0],
+          x: 600,
+          y: index * 150,
+        }),
+      ),
+    ),
+  )
+  let row = 0
+  function unpack(expression: Expression, path: string, depth = 0): string {
+    if (expression.kind === 'reference' && references.has(expression.name))
+      return references.get(expression.name)!
+    const id = expression.node_id ?? `expression:${path}`
+    if (state.nodes.some((node) => node.id === id)) return id
+    const node = makeNode(expression.kind === 'literal' ? 'literal' : 'call', state, {
+      id,
+      x: 300 + depth * 280,
+      y: row++ * 150,
+    })
+    if (expression.kind === 'literal') {
+      node.value = expression.value
+      node.type =
+        valueType(expression.value) === 'null'
+          ? 'image'
+          : (valueType(expression.value) as ValueType)
+    } else if (expression.kind === 'call') {
+      node.operation = expression.operation
+      node.inputs = expression.arguments.map((argument, index) =>
+        argument.kind === 'literal' &&
+        !saved?.nodes.some((node) => node.kind === 'literal' && node.id === argument.node_id)
+          ? null
+          : unpack(argument, `${path}:${index}`, depth + 1),
+      )
+      node.defaults = expression.arguments.map((argument) =>
+        argument.kind === 'literal' ? argument.value : null,
+      )
+    } else throw new Error(`Unknown variable: ${expression.name}`)
+    return insert(node)
+  }
+  function setRoot(node: LogicNode, expression: Expression, path: string) {
+    if (
+      expression.kind === 'literal' &&
+      !saved?.nodes.some(
+        (candidate) => candidate.kind === 'literal' && candidate.id === expression.node_id,
+      )
+    ) {
+      node.inputs = [null]
+      node.defaults = [expression.value]
+    } else node.inputs = [unpack(expression, path)]
+  }
+  Object.entries(doc.logic?.variables ?? {}).forEach(([name, expression], index) => {
+    setRoot(
+      state.nodes.find((node) => node.id === references.get(name))!,
+      expression,
+      `v${index}`,
+    )
+  })
+  doc.logic?.bindings.forEach((binding, index) => {
+    const previous = saved?.nodes.find(
+      (node) =>
+        node.kind === 'output' &&
+        node.target === binding.target &&
+        node.property === binding.property,
+    )
+    const node = makeNode('output', state, {
+      id: previous?.id ?? (saved ? randomUUID() : `output:${index}`),
+      target: binding.target,
+      property: binding.property,
+      inputs: [null],
+      defaults: [null],
+      x: 900,
+      y: index * 150,
+    })
+    setRoot(node, binding.expression, `b${index}`)
+    insert(node)
+  })
+  if (saved) {
+    state.x = saved.x
+    state.y = saved.y
+    state.zoom = saved.zoom
+    const used = new Set<string>()
+    function visit(id: string) {
+      if (used.has(id)) return
+      used.add(id)
+      saved!.nodes
+        .find((node) => node.id === id)
+        ?.inputs.forEach((input) => {
+          if (input) visit(input)
+        })
+    }
+    saved.nodes
+      .filter((node) => node.kind === 'variable' || node.kind === 'output')
+      .forEach((node) => visit(node.id))
+    const retained = saved.nodes.filter((node) => !used.has(node.id) && node.kind !== 'input')
+    // An automatic-length template retains its inactive manual-length draft.
+    if (doc.auto_length) {
+      const inactive = new Set<string>()
+      function keep(id: string) {
+        if (inactive.has(id)) return
+        inactive.add(id)
+        const node = saved!.nodes.find((node) => node.id === id)
+        if (!node || node.kind === 'variable') return
+        retained.push(node)
+        node.inputs.forEach((input) => {
+          if (input) keep(input)
+        })
+      }
+      saved.nodes
+        .filter((node) => node.kind === 'output' && node.target === 'label')
+        .forEach((node) => keep(node.id))
+    }
+    for (const node of retained)
+      if (!state.nodes.some((candidate) => candidate.id === node.id))
+        state.nodes.push(JSON.parse(JSON.stringify(node)))
+    for (const node of state.nodes)
+      node.inputs = node.inputs.map((id) =>
+        state.nodes.some((candidate) => candidate.id === id) ? id : null,
+      )
+  }
+  return state
+}
+export function nodeType(
+  node: LogicNode,
+  nodes: LogicNode[],
+  catalog: LogicCatalog,
+  depth = 0,
+): SocketType {
+  if (depth > 32) return 'any'
+  const input = (index: number): SocketType => {
+    const source = nodes.find((candidate) => candidate.id === node.inputs[index])
+    return source
+      ? nodeType(source, nodes, catalog, depth + 1)
+      : valueType(node.defaults[index] ?? null)
+  }
+  if (node.kind === 'input') return node.type
+  if (node.kind === 'literal') return valueType(node.value ?? null)
+  if (node.kind === 'variable') return input(0)
+  if (node.kind === 'output')
+    return (
+      Object.values(catalog.targets).find((target) => target.id === node.target)?.properties[
+        node.property!
+      ] ?? 'any'
+    )
+  const signature = catalog.operations.find(
+    (operation) => operation.name === node.operation,
+  )?.signature
+  if (signature === 'numeric') return 'number'
+  if (signature === 'conditional') return input(1) === 'null' ? input(2) : input(1)
+  return 'boolean'
+}
+export function inputType(
+  node: LogicNode,
+  index: number,
+  nodes: LogicNode[],
+  catalog: LogicCatalog,
+): SocketType {
+  if (node.kind === 'output') return nodeType(node, nodes, catalog)
+  if (node.kind === 'variable') return 'any'
+  const signature = catalog.operations.find(
+    (operation) => operation.name === node.operation,
+  )?.signature
+  if (signature === 'numeric' || signature === 'comparison') return 'number'
+  if (signature === 'boolean' || (signature === 'conditional' && index === 0)) return 'boolean'
+  return 'any'
+}
+export function socketLabel(node: LogicNode, index: number) {
+  if (node.kind === 'output' || node.kind === 'variable') return 'Value'
+  if (node.operation === 'if') return ['Condition', 'Then', 'Else'][index]!
+  if (node.inputs.length === 1) return 'Value'
+  return ['A', 'B'][index]!
+}
+export function canConnect(
+  source: LogicNode,
+  destination: LogicNode,
+  index: number,
+  nodes: LogicNode[],
+  catalog: LogicCatalog,
+  doc: TemplateDocument,
+) {
+  if (source.kind === 'output' || source.id === destination.id)
+    throw new Error('Choose a value output and a different node’s input.')
+  const expected = inputType(destination, index, nodes, catalog),
+    actual = nodeType(source, nodes, catalog)
+  if (expected !== 'any' && actual !== expected && !(expected === 'image' && actual === 'null'))
+    throw new Error(`This input needs ${expected}; the output is ${actual}.`)
+  const candidate = nodes.map((node) =>
+    node.id === destination.id
+      ? { ...node, inputs: node.inputs.map((id, slot) => (slot === index ? source.id : id)) }
+      : node,
+  )
+  compileGraph(candidate, doc)
+}
