@@ -34,7 +34,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const printerStatuses = ref<Status[]>([])
   const destinations = ref<Destination[]>([])
   const status = ref<Status | null>(null)
-  const overview = ref({ notifications_enabled: false, total_queued: 0 })
+  const overview = ref({ notifications_enabled: false, total_queued: 0, pending_requests: 0 })
   const printers = ref<Printer[]>([])
   const profiles = ref<Profile[]>([])
   const cartridges = ref<Cartridge[]>([])
@@ -73,7 +73,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     actionError.value = ''
     success.value = ''
     connectionError.value = ''
-    overview.value = { notifications_enabled: false, total_queued: 0 }
+    overview.value = { notifications_enabled: false, total_queued: 0, pending_requests: 0 }
   }
   window.addEventListener('session-ended', clear)
   window.addEventListener('access-changed', clear)

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.access import Action, Resource, access_context
 from app.api import image_job_document
 from app.asset_access import require_document_assets
-from app.authorization import rendering_destination
+from app.authorization import rendering_destination, visible_requests
 from app.destinations import members
 from app.http import db, get, record
 from app.models import AuthSettings, LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
@@ -203,19 +203,9 @@ def create_request(
 def list_requests(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
-    context = access_context(request)
-    query = select(PrintRequest).order_by(PrintRequest.created_at.desc())
-    if not context.actor.is_admin:
-        from app.authorization import visible_destinations
-
-        query = query.where(
-            or_(
-                PrintRequest.owner_id == context.actor.id,
-                PrintRequest.destination_id.in_(
-                    visible_destinations(request, session, "moderator")
-                ),
-            )
-        )
+    query = visible_requests(
+        request, session, select(PrintRequest).order_by(PrintRequest.created_at.desc())
+    )
     return [request_record(session, value) for value in session.scalars(query.limit(200))]
 
 

@@ -20,6 +20,7 @@ from app.models import (
     State,
     TapeProfile,
 )
+from app.request_models import PrintRequest
 
 
 def require_record(request: Request, value: Base, action: Action = Action.READ) -> None:
@@ -122,6 +123,18 @@ def visible_jobs(request: Request, session: Session, query: Select[Any]) -> Sele
         or_(
             PrintJob.owner_id == context.actor.id,
             PrintJob.destination_id.in_(visible_destinations(request, session, "moderator")),
+        )
+    )
+
+
+def visible_requests(request: Request, session: Session, query: Select[Any]) -> Select[Any]:
+    context = access_context(request)
+    if context.actor.is_admin:
+        return query
+    return query.where(
+        or_(
+            PrintRequest.owner_id == context.actor.id,
+            PrintRequest.destination_id.in_(visible_destinations(request, session, "moderator")),
         )
     )
 

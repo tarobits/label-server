@@ -17,6 +17,7 @@ from app.authorization import (
     template_scope,
     visible_destinations,
     visible_jobs,
+    visible_requests,
 )
 from app.cartridge_confirmation import check_cartridge, configure_media
 from app.cartridge_inventory import archive_blockers, deletion_blockers
@@ -50,6 +51,7 @@ from app.printer.base import ConfirmableMediaBackend, LabelGeometry
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
 from app.render import RenderSpec, render_document, render_job
+from app.request_models import PrintRequest
 from app.reservations import reserve_flush
 from app.schemas import (
     ActiveTapeInput,
@@ -488,6 +490,11 @@ def workspace_info(
 ) -> dict[str, Any]:
     return {
         "notifications_enabled": notifications_enabled(session),
+        "pending_requests": session.scalar(
+            visible_requests(
+                request, session, select(func.count()).select_from(PrintRequest)
+            ).where(PrintRequest.status == "pending")
+        ),
         "total_queued": session.scalar(
             visible_jobs(
                 request, session, select(func.count()).select_from(LabelCopy).join(PrintJob)

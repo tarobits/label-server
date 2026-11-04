@@ -143,6 +143,10 @@ watch(
   { immediate: true },
 )
 const { loaded, connectionError, actionError, success } = storeToRefs(w)
+const navCounts = computed<Record<string, number>>(() => ({
+  '/queue': w.totalQueued,
+  '/requests': w.overview.pending_requests,
+}))
 const links = computed(() =>
   [
     ['/', 'Overview', 'overview'],
@@ -235,9 +239,11 @@ onMounted(auth.refresh)
               route.path === path ? 'page' : activeSection === path ? 'location' : undefined
             "
             ><Icon :name="icon!" />{{ label
-            }}<span v-if="path === '/queue' && w.totalQueued" class="nav-count">{{
-              w.totalQueued
-            }}</span></RouterLink
+            }}<Transition name="notice"
+              ><span v-if="navCounts[path!]" class="nav-count motion-reveal">{{
+                navCounts[path!]
+              }}</span></Transition
+            ></RouterLink
           >
         </MotionTrack>
         <div v-if="designPage && w.destinations.length > 1" class="printer-picker">
