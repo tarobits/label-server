@@ -207,9 +207,14 @@ and distance-holder selector. Names do not print. Rename, duplicate, and delete
 controls are on the first inspector tab: Content for text, QR codes and images,
 or Style for shapes.
 
-- Define variable fields with names, labels, defaults, and sample values. Use
-  `{{name}}` in text or QR content. Samples are used in the editor; submitted
-  values or defaults are used for printing.
+- Define text, number, boolean, or uploaded-image variable fields with defaults
+  and sample values. Numbers can have minimum and maximum limits. Use `{{name}}`
+  in text or QR content; bind image inputs through **Template logic**. Samples
+  drive the editor preview; submitted values or defaults drive printing.
+- **Template logic** provides connected nodes and an IDE-style **Source** editor
+  for conditions, calculations, intermediate variables, and property bindings.
+  **Reference** opens searchable documentation and examples. See the
+  [template logic guide](docs/TEMPLATE_LOGIC.md) for a conditional layout example.
 - **Print resolution** chooses the printer default, Normal, or High. New jobs and
   CSV drafts save that choice; changing it later does not affect them.
 - Text supports wrapping, alignment, padding on all four sides, and horizontal
@@ -390,7 +395,10 @@ printing still offers the explicit **Print anyway** override.
 Open **CSV runs** or **Use with CSV** on a template. Upload or paste UTF-8 CSV,
 choose comma, semicolon, or tab separation, then **Read CSV**. Map columns to
 fields, select records, set copies, and arrange print order. Quoted delimiters
-and multiline values are supported.
+and multiline values are supported. Numeric fields use a decimal point; booleans
+accept `true`, `false`, `1`, or `0` (case insensitive). Blank non-text cells are
+absent values. Image fields map each distinct CSV cell to an uploaded image;
+URLs and filesystem paths are not fetched automatically.
 
 **Validate and preview run** saves a draft only if every selected record is valid.
 The draft freezes the template, values, dimensions, assets, and rendering settings.
