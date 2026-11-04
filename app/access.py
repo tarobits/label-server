@@ -260,7 +260,14 @@ def authorize_current_request(request: Request) -> None:
     action = (
         Action.READ
         if request.method in ("GET", "HEAD")
-        or path in ("/api/preview", "/api/image-jobs/preview", "/api/csv/parse")
+        or path
+        in (
+            "/api/preview",
+            "/api/image-jobs/preview",
+            "/api/csv/parse",
+            "/api/logic/inspect",
+            "/api/logic/compile",
+        )
         else Action.DELETE
         if request.method == "DELETE"
         else Action.WRITE

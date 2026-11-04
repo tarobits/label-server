@@ -26,6 +26,10 @@ from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
 from app.image_jobs import image_document
+from app.logic_authoring import reconcile_program, same_program, source_diagnostic
+from app.logic_engine import OPERATIONS, LogicError, evaluate_program, validate_program
+from app.logic_schema import Program
+from app.logic_source import compile_source, format_source
 from app.models import (
     Batch,
     BatchItem,
@@ -78,7 +82,14 @@ from app.submissions import (
     submitted_job,
 )
 from app.template_dimensions import template_dimensions
-from app.template_schema import PreviewInput, RevisionRestoreInput, TemplateDocument, TemplateInput
+from app.template_logic import logic_fields, logic_targets
+from app.template_schema import (
+    LogicCompileInput,
+    PreviewInput,
+    RevisionRestoreInput,
+    TemplateDocument,
+    TemplateInput,
+)
 from app.templates import save_revision, template_record
 from app.usage_accounts import AdjustmentInput, account_names, adjust_account
 
@@ -793,6 +804,78 @@ def restore_revision(
     return template_record(value, session, request.app.state.fonts)
 
 
+@router.post("/logic/inspect")
+def inspect_logic(
+    body: TemplateDocument, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    require_document_assets(request, session, body.model_dump(mode="json"))
+    fields, targets = logic_fields(body), logic_targets(body)
+    program = body.logic or Program()
+    types = validate_program(program, fields, targets)
+    source = format_source(program, fields, targets)
+    if body.logic_editor and body.logic_editor.source is not None:
+        saved_source = body.logic_editor.source
+        try:
+            if same_program(compile_source(saved_source, fields, targets), program):
+                source = saved_source
+        except ValueError:
+            pass  # Editor metadata cannot replace executable logic.
+    values = {}
+    sample_error = None
+    try:
+        evaluation = evaluate_program(program, fields, targets, {}, samples=True)
+        values = {**evaluation.inputs, **evaluation.variables}
+    except ValueError as error:
+        sample_error = str(error)
+    return {
+        "operations": [asdict(operation) for operation in OPERATIONS.values()],
+        "targets": {name: target.model_dump() for name, target in targets.items()},
+        "types": types,
+        "values": values,
+        "sample_error": sample_error,
+        "source": source,
+    }
+
+
+@router.post("/logic/compile")
+def compile_logic(
+    body: LogicCompileInput, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    document = body.document
+    require_document_assets(request, session, document.model_dump(mode="json"))
+    fields, targets = logic_fields(document), logic_targets(document)
+    try:
+        program = compile_source(body.source, fields, targets)
+        if document.auto_length:
+            for binding in program.bindings:
+                if binding.target == "label":
+                    raise LogicError(
+                        "Disable automatic label length before binding label.length_mm",
+                        binding.expression,
+                    )
+        program = reconcile_program(document.logic or Program(), program)
+        candidate = document.model_dump(mode="json")
+        candidate.update(logic=program.model_dump(mode="json"), logic_editor=None)
+        resolved = TemplateDocument.model_validate(candidate)
+    except ValueError as error:
+        issue = (
+            error
+            if isinstance(error, LogicError)
+            else LogicError(
+                "The source is incompatible with this template. Check variables used in element text."
+            )
+        )
+        return {"valid": False, "diagnostics": [source_diagnostic(issue, body.source)]}
+    require_document_assets(request, session, resolved.model_dump(mode="json"))
+    return {
+        "valid": True,
+        "program": program.model_dump(mode="json"),
+        "formatted": format_source(program, fields, targets),
+        "catalog": inspect_logic(resolved, request, session),
+        "diagnostics": [],
+    }
+
+
 @router.post("/preview")
 def preview(
     body: PreviewInput, request: Request, session: Session = Depends(db, scope="function")
@@ -805,6 +888,7 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         get(session, LabelTemplate, body.template_id or "").document
     )
     require_document_assets(request, session, document.model_dump(), allow_missing=True)
+    require_document_assets(request, session, body.model_dump(mode="json")["data"])
     foreground = body.foreground or (
         document.preview_tape.foreground if document.preview_tape else "#000000"
     )
@@ -892,7 +976,9 @@ def create_job(
     template = get(session, LabelTemplate, body.template)
     if template.archived:
         raise HTTPException(409, "Template is archived")
-    with rendering(request, session, destination_id=body.destination_id):
+    with rendering(
+        request, session, body.model_dump(mode="json"), destination_id=body.destination_id
+    ):
         job = build_job(
             body,
             profile,

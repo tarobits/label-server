@@ -229,7 +229,7 @@ class PrintJob(Base):
     run_position: Mapped[int | None]
     source_row: Mapped[int | None]
     template_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
-    payload: Mapped[dict[str, str]] = mapped_column(JSON)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     width_mm: Mapped[float]
     length_mm: Mapped[float]
     copies: Mapped[int]

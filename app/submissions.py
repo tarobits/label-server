@@ -115,7 +115,11 @@ def build_job(
     try:
         parsed = TemplateDocument.model_validate(document)
         output = render_document(parsed, body.data, spec, fonts=fonts, images=images)
-        if parsed.auto_length or any(e.auto_width or e.distance_holder for e in parsed.elements):
+        if (
+            parsed.version == 2
+            or parsed.auto_length
+            or any(e.auto_width or e.distance_holder for e in parsed.elements)
+        ):
             document = output.document.model_dump()
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
@@ -138,7 +142,11 @@ def build_job(
             "warnings": output.warnings,
             "template_padding_mm": output.template_padding_mm,
         },
-        payload=body.data,
+        payload=body.model_copy(update={"data": output.resolved_inputs}).model_dump(mode="json")[
+            "data"
+        ]
+        if output.resolved_inputs is not None
+        else body.model_dump(mode="json")["data"],
         width_mm=profile.width_mm,
         length_mm=document["length_mm"],
         copies=body.copies,
@@ -149,6 +157,8 @@ def build_job(
 def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> str:
     # Keep retries of pre-multi-printer requests valid after upgrading.
     values = dict(values)
+    if values.get("image_mapping") == {}:
+        values.pop("image_mapping")
     if values.get("notify_on_completion", True) is True:
         values.pop("notify_on_completion", None)
     if isinstance(values.get("rows"), list):

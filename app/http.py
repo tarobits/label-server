@@ -35,6 +35,8 @@ def db(request: Request) -> Iterator[Session]:
     readonly = request.method in ("GET", "HEAD") or request.url.path in (
         "/api/preview",
         "/api/image-jobs/preview",
+        "/api/logic/inspect",
+        "/api/logic/compile",
     )
     with nullcontext() if readonly else request.app.state.fleet.lock:
         try:
@@ -131,6 +133,16 @@ def job_information(
         for name, value in job.payload.items()
         if name not in defined
     )
+    if snapshot.get("document", {}).get("version") == 2:
+        from app.template_logic import display_value
+
+        for field in fields:
+            value = field["value"]
+            field["value"] = (
+                "Uploaded image"
+                if isinstance(value, dict) and "image_asset" in value
+                else display_value(value)
+            )
     return {
         "process_name": snapshot.get("process_name") or template_name,
         "template_name": template_name,

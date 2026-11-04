@@ -15,6 +15,14 @@ class TemplateDimensions(TypedDict):
 def template_dimensions(
     document: TemplateDocument, fonts: FontStore | None = None
 ) -> TemplateDimensions:
+    if (
+        document.version == 2
+        and document.logic
+        and any(
+            binding.target == "label" or document.auto_length for binding in document.logic.bindings
+        )
+    ):
+        return {"variable_length": True, "length_mm": None}
     if not document.auto_length:
         return {"variable_length": False, "length_mm": document.length_mm}
 
@@ -22,7 +30,11 @@ def template_dimensions(
     dynamic_widths = {
         element.id
         for element in document.elements
-        if element.kind == "text" and element.auto_width and TOKEN.search(element.content)
+        if element.visible
+        and element.kind == "text"
+        and element.auto_width
+        and not element.literal_content
+        and TOKEN.search(element.content)
     }
     dynamic_edges: dict[str, bool] = {}
 

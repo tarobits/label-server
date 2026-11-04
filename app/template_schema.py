@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from app.logic_schema import LogicEditorState, LogicInput, Program, Symbol, Value, ValueType
 from app.schemas import Input
 
 TOKEN = re.compile(r"{{\s*([A-Za-z][A-Za-z0-9_]*)\s*}}")
@@ -27,6 +28,9 @@ class DistanceHolder(Input):
 class Element(Input):
     id: str = Field(min_length=1, max_length=80)
     name: str = Field(default="", max_length=100)
+    logic_name: Symbol | None = None
+    visible: bool = True
+    literal_content: bool = False
     kind: Literal["text", "qr", "rectangle", "line", "image"]
     # The unrotated origin may be negative while the rotated bounds are inside the label.
     x: float = Field(ge=-1000, le=1000)
@@ -69,7 +73,7 @@ class PreviewTape(Input):
 
 
 class TemplateDocument(Input):
-    version: Literal[1] = 1
+    version: Literal[1, 2] = 1
     width_mm: float = Field(default=24, gt=0, le=100)
     length_mm: float = Field(default=60, ge=10, le=300)
     auto_length: bool = False
@@ -77,22 +81,55 @@ class TemplateDocument(Input):
     print_resolution: Literal["printer", "normal", "high"] = "printer"
     preview_tape: PreviewTape | None = None
     elements: list[Element] = Field(default_factory=list, max_length=50)
-    fields: list[TemplateField] = Field(default_factory=list, max_length=20)
+    fields: list[TemplateField | LogicInput] = Field(default_factory=list, max_length=20)
+    logic: Program | None = None
+    logic_editor: LogicEditorState | None = None
 
     @model_validator(mode="after")
     def validate_document(self) -> "TemplateDocument":
+        types: dict[str, ValueType | Literal["null"]] = {}
         names = {field.name for field in self.fields}
         if len(names) != len(self.fields):
             raise ValueError("Variable names must be unique")
         if len({element.id for element in self.elements}) != len(self.elements):
             raise ValueError("Element IDs must be unique")
+        if self.version == 1:
+            if (
+                self.logic is not None
+                or self.logic_editor is not None
+                or any(isinstance(field, LogicInput) for field in self.fields)
+                or any(
+                    element.logic_name is not None or not element.visible or element.literal_content
+                    for element in self.elements
+                )
+            ):
+                raise ValueError(
+                    "Typed variables, visibility, and logic require template version 2"
+                )
+        else:
+            from app.logic_engine import validate_program
+            from app.template_logic import logic_fields, logic_targets
+
+            types = validate_program(
+                self.logic or Program(), logic_fields(self), logic_targets(self)
+            )
+            names.update(types)
         for element in self.elements:
-            if set(TOKEN.findall(element.content)) - names:
+            tokens = set() if element.literal_content else set(TOKEN.findall(element.content))
+            if tokens - names:
                 raise ValueError(f"Element {element.id} uses an undefined variable")
-            if element.kind == "qr" and abs(element.width - element.height) > 0.001:
+            if self.version == 2 and any(types[name] == "image" for name in tokens):
+                raise ValueError("Image variables must bind an image property, not text content")
+            if (
+                element.visible
+                and element.kind == "qr"
+                and abs(element.width - element.height) > 0.001
+            ):
                 raise ValueError("QR elements must be square")
-            if element.kind in ("line", "rectangle") and element.stroke > min(
-                element.width, element.height
+            if (
+                element.visible
+                and element.kind in ("line", "rectangle")
+                and element.stroke > min(element.width, element.height)
             ):
                 raise ValueError("Stroke exceeds element dimensions")
         elements = {element.id: element for element in self.elements}
@@ -132,13 +169,18 @@ class RevisionRestoreInput(Input):
     destination_id: str | None = None
 
 
+class LogicCompileInput(Input):
+    document: TemplateDocument
+    source: str = Field(max_length=16384)
+
+
 class PreviewInput(Input):
     tape_profile: str | None = None
     copies: int = Field(default=1, ge=1, le=1000)
     destination_id: str | None = None
     document: TemplateDocument | None = None
     template_id: str | None = None
-    data: dict[str, str] = Field(default_factory=dict)
+    data: dict[str, Value] = Field(default_factory=dict, max_length=20)
     use_samples: bool = False
     foreground: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     background: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")

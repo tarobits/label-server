@@ -155,7 +155,13 @@ def create_request(
             if template.archived:
                 raise HTTPException(409, "Template is archived")
             job_input = body.input
-        with rendering(request, session, template.document, destination_id=destination):
+        with rendering(
+            request,
+            session,
+            template.document,
+            body.model_dump(mode="json"),
+            destination_id=destination,
+        ):
             job = build_job(
                 job_input,
                 profile,

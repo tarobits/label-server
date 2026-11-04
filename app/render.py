@@ -4,6 +4,7 @@ import base64
 import io
 import math
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from html import escape
@@ -17,9 +18,10 @@ from PIL import Image, ImageFont, ImageOps
 
 from app.font_assets import FontStore
 from app.image_assets import ImageStore, image_svg
+from app.logic_schema import Value
 from app.models import LabelCopy, PrintJob
 from app.printer.base import RenderedLabel
-from app.template_schema import TOKEN, Element, TemplateDocument
+from app.template_schema import TOKEN, Element, TemplateDocument, TemplateField
 
 FONT_DIR = Path(__file__).parent / "fonts"
 
@@ -52,6 +54,7 @@ class RenderOutput:
     font_files: list[str]
     missing_assets: dict[str, str]
     template_padding_mm: float = 0
+    resolved_inputs: dict[str, Value] | None = None
 
     def preview(self, foreground: str, background: str, *, smooth: bool = False) -> str:
         source = self.image.convert("L")
@@ -71,14 +74,18 @@ class RenderOutput:
 
 
 def resolve_values(
-    document: TemplateDocument, data: dict[str, str], samples: bool
+    document: TemplateDocument, data: Mapping[str, object], samples: bool
 ) -> dict[str, str]:
     names = {field.name for field in document.fields}
     if set(data) - names:
         raise ValueError("Unknown input fields: " + ", ".join(sorted(set(data) - names)))
     values = {}
     for field in document.fields:
+        if not isinstance(field, TemplateField):
+            raise ValueError("Typed inputs require version 2 logic resolution")
         value = data.get(field.name, (field.sample or field.default) if samples else field.default)
+        if not isinstance(value, str):
+            raise ValueError(f"{field.label}: expected text")
         if len(value) > 2000:
             raise ValueError(f"{field.label}: input exceeds 2000 characters")
         if field.required and not value.strip():
@@ -290,6 +297,8 @@ def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
 
 
 def element_bounds(element: Element) -> tuple[float, float, float, float]:
+    if not element.visible:
+        return element.x, element.y, element.x, element.y
     width, height = (
         (element.height, element.width)
         if element.rotation in (90, 270)
@@ -309,8 +318,12 @@ def resolve_layout(
 ) -> TemplateDocument:
     resolved = document.model_copy(deep=True)
     for element in resolved.elements:
-        if element.kind == "text" and element.auto_width:
-            content = TOKEN.sub(lambda match: values[match.group(1)], element.content)
+        if element.visible and element.kind == "text" and element.auto_width:
+            content = (
+                element.content
+                if element.literal_content
+                else TOKEN.sub(lambda match: values[match.group(1)], element.content)
+            )
             font = font_for(element.font_size, element.bold, font_path(element, fonts))
             lines = content.replace("\t", "    ").splitlines() or [""]
             # Round outward so floating point measurement never forces an extra wrap.
@@ -341,10 +354,11 @@ def resolve_layout(
             position(anchor)
             left, top, _, _ = element_bounds(element)
             _, _, right, bottom = element_bounds(anchor)
+            gap = holder.gap_mm if anchor.visible else 0
             if holder.axis == "horizontal":
-                element.x += right + holder.gap_mm - left
+                element.x += right + gap - left
             else:
-                element.y += bottom + holder.gap_mm - top
+                element.y += bottom + gap - top
             if not -1000 <= element.x <= 1000 or not -100 <= element.y <= 100:
                 raise ValueError("Distance holder places an element beyond supported coordinates")
             # Freeze the resolved geometry, not a relation that could move an old job later.
@@ -370,7 +384,10 @@ def resolve_layout(
 
 
 def fitted_length(document: TemplateDocument, margin_mm: float) -> float:
-    return max(0, max((element_bounds(e)[2] for e in document.elements), default=0) + margin_mm)
+    return max(
+        0,
+        max((element_bounds(e)[2] for e in document.elements if e.visible), default=0) + margin_mm,
+    )
 
 
 def missing_asset_svg(element: Element, kind: str) -> str:
@@ -441,17 +458,28 @@ def artwork_bounds(
 
 def render_document(
     document: TemplateDocument,
-    data: dict[str, str],
+    data: Mapping[str, object],
     spec: RenderSpec,
     samples: bool = False,
     fonts: FontStore | None = None,
     images: ImageStore | None = None,
     allow_missing_assets: bool = False,
 ) -> RenderOutput:
+    resolved_inputs = None
+    if document.version == 2:
+        from app.template_logic import resolve_logic
+
+        document, evaluation = resolve_logic(document, data, samples=samples)
+        resolved_inputs = evaluation.inputs
+        values = {}
+    else:
+        values = resolve_values(document, data, samples)
     missing: dict[str, str] = {}
     if allow_missing_assets:
         document = document.model_copy(deep=True)
         for element in document.elements:
+            if not element.visible:
+                continue
             try:
                 if element.kind == "text":
                     font_path(element, fonts)
@@ -468,7 +496,6 @@ def render_document(
     if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
         raise ValueError("The selected printer does not support this physical tape width")
     printable_top, printable_bottom = printable_vertical_bounds(document.width_mm, spec)
-    values = resolve_values(document, data, samples)
     layout_warnings: list[str] = []
     automatic_length = document.auto_length
     document = resolve_layout(document, values, spec, fonts, warnings=layout_warnings)
@@ -481,7 +508,7 @@ def render_document(
             {
                 path
                 for e in document.elements
-                if e.kind == "text"
+                if e.visible and e.kind == "text"
                 if (path := font_path(e, fonts)) is not None
             }
         )
@@ -512,6 +539,8 @@ def render_document(
             '<g clip-path="url(#printable)">'
         )
     for element in document.elements:
+        if not element.visible:
+            continue
         x, y, right, bottom = element_bounds(element)
         outside = (
             x < spec.margin_mm - 0.001
@@ -526,7 +555,11 @@ def render_document(
                 )
         box = (x, y, right, bottom, element.id)
         boxes.append(box)
-        content = TOKEN.sub(lambda match: values[match.group(1)], element.content)
+        content = (
+            element.content
+            if element.literal_content
+            else TOKEN.sub(lambda match: values[match.group(1)], element.content)
+        )
         if element.id in missing:
             body = missing_asset_svg(element, missing[element.id])
         elif element.kind == "text":
@@ -596,7 +629,9 @@ def render_document(
     )
     source = Image.open(io.BytesIO(png)).convert("L")
     image = source.point(lambda value: 255 if value >= 128 else 0, mode="1")
-    return RenderOutput(svg, image, warnings, document, font_files, missing, template_padding)
+    return RenderOutput(
+        svg, image, warnings, document, font_files, missing, template_padding, resolved_inputs
+    )
 
 
 def render_job(

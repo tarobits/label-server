@@ -4,7 +4,7 @@ import csv
 import io
 import time
 from dataclasses import asdict, replace
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
@@ -17,6 +17,7 @@ from app.cost_estimates import estimate_cost
 from app.destinations import members
 from app.http import db, get, job_record
 from app.job_access import principal_access_reason
+from app.logic_schema import ImageValue
 from app.models import LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
 from app.preparation import rendering
 from app.print_audit import delegated_attribution, direct_attribution
@@ -24,6 +25,7 @@ from app.printer.base import LabelGeometry, RenderedLabel
 from app.render import RenderSpec, render_document, render_job
 from app.schemas import Input, JobInput, ProcessName
 from app.submissions import build_job, input_fingerprint, rendering_spec
+from app.template_logic import csv_values, logic_fields
 from app.template_schema import TemplateDocument
 
 router = APIRouter(prefix="/api")
@@ -50,6 +52,10 @@ class RunInput(CsvInput):
     tape_profile: str
     length_mm: float | None = Field(default=None, ge=10, le=300)
     mapping: dict[str, str] = Field(max_length=20)
+    image_mapping: dict[
+        str,
+        Annotated[dict[Annotated[str, Field(max_length=2000)], ImageValue], Field(max_length=250)],
+    ] = Field(default_factory=dict, max_length=20)
     rows: list[RunRow] = Field(min_length=1, max_length=250)
 
 
@@ -186,6 +192,14 @@ def prepare_run(
     if template.archived or template.revision != body.expected_revision:
         raise HTTPException(409, "Template changed or was archived; reload before preparing")
     fields = {f["name"] for f in template.document["fields"]}
+    document = TemplateDocument.model_validate(template.document)
+    image_fields = (
+        {field.name for field in logic_fields(document) if field.type == "image"}
+        if document.version == 2
+        else set()
+    )
+    if set(body.image_mapping) - image_fields:
+        raise HTTPException(422, "Image mappings must refer to image variables")
     if set(body.mapping) - fields or set(body.mapping.values()) - set(parsed["headers"]):
         raise HTTPException(422, "Mapping contains an unknown field or CSV column")
     if len({row.source_row for row in body.rows}) != len(body.rows):
@@ -207,7 +221,12 @@ def prepare_run(
     if configured_member is None:
         raise HTTPException(409, "No configured printer is available at this destination")
     backend = request.app.state.registry.backend(configured_member)
-    with rendering(request, session, destination_id=body.destination_id):
+    with rendering(
+        request,
+        session,
+        body.model_dump(mode="json")["image_mapping"],
+        destination_id=body.destination_id,
+    ):
         for selected in body.rows:
             if selected.source_row not in source:
                 raise HTTPException(422, "Selected CSV record does not exist")
@@ -216,13 +235,14 @@ def prepare_run(
                 for field, column in body.mapping.items()
             }
             try:
+                typed_data = csv_values(document, data, body.image_mapping)
                 job = build_job(
                     JobInput(
                         process_name=body.process_name,
                         template=template.id,
                         destination_id=body.destination_id,
                         tape_profile=profile.id,
-                        data=data,
+                        data=typed_data,
                         copies=selected.copies,
                         notify_on_completion=selected.notify_on_completion,
                         length_mm=body.length_mm,
@@ -248,6 +268,8 @@ def prepare_run(
                 )
             except HTTPException as error:
                 errors.append({"source_row": selected.source_row, "message": str(error.detail)})
+            except ValueError as error:
+                errors.append({"source_row": selected.source_row, "message": str(error)})
         if errors:
             return {"valid": False, "errors": errors, "run": None}
         labels: list[RenderedLabel] = []

@@ -113,6 +113,7 @@ def delete_asset(
             LabelTemplate.document,
             TemplateRevision.document,
             PrintJob.template_snapshot,
+            PrintJob.payload,
             PrintRun.manifest,
             PrintRequest.labels,
         )
@@ -188,6 +189,7 @@ def referenced_by_readable_document(
                     return True
     for model, field, resource_kind in (
         (PrintJob, PrintJob.template_snapshot, "job"),
+        (PrintJob, PrintJob.payload, "job"),
         (PrintRun, PrintRun.manifest, "run"),
         (PrintRequest, PrintRequest.labels, "request"),
     ):

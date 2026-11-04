@@ -2,6 +2,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.logic_schema import Value
+
 ProcessName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
 
@@ -65,7 +67,7 @@ class JobInput(CompletionNotificationInput):
     tape_profile: str
     copies: int = Field(default=1, ge=1, le=1000)
     length_mm: float | None = Field(default=None, ge=10, le=300)
-    data: dict[str, str] = Field(max_length=20)
+    data: dict[str, Value] = Field(max_length=20)
 
 
 class ImageJobInput(CompletionNotificationInput):
