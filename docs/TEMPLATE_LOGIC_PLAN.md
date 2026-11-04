@@ -4,7 +4,8 @@ Status: language, backend integration, typed input forms, the visual node worksp
 IDE-style source editing, and searchable reference are implemented. Version 1
 remains supported; typed variables or saved node edits upgrade a template to
 version 2. Automated regression checks are complete. Physical phone/tablet and
-printer verification remain; no release is prepared.
+printer verification remain. Release notes and version metadata are prepared for
+`0.12.0-pre3`.
 
 ## Agreed scope
 

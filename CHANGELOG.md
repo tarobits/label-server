@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.12.0-pre3] - 2026-11-04
+
+### Added
+
+- Conditional template logic with reusable intermediate variables and bindings for
+  element properties, visibility, and label length, alongside automatic sizing.
+- Number, boolean, and uploaded-image variables with typed input forms, numeric
+  limits, and CSV image mappings. Queued labels retain their resolved layout and values.
+- Visual node editor with pan/zoom, click, drag, keyboard, and touch connections,
+  plus distinct connector shapes for colorblind accessibility.
+- IDE-style source editor with syntax highlighting, completion, hover help, and
+  inline errors. Source and node edits share undo/redo and preserve matching node
+  positions; invalid drafts keep the last valid preview and block saving.
+- Searchable built-in reference with contextual help and copyable examples.
+
+Existing version 1 templates remain supported. Typed fields or saved logic edits
+upgrade a template to version 2, which older servers cannot read. Back up the
+database before upgrading if rollback may be needed. No new database migration is
+required when upgrading from 0.12.0-pre2.
+
+Physical phone/tablet and printer verification is still pending for this feature.
+
 ## [0.12.0-pre2] - 2026-11-04
 
 ### Added
@@ -377,6 +399,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre3]: https://github.com/tarobits/label-server/compare/v0.12.0-pre2...v0.12.0-pre3
 [0.12.0-pre2]: https://github.com/tarobits/label-server/compare/v0.12.0-pre1...v0.12.0-pre2
 [0.12.0-pre1]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0-pre1
 [0.11.0]: https://github.com/tarobits/label-server/compare/v0.10.0...v0.11.0
