@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.12.0-pre4] - 2026-11-04
+
+### Changed
+
+- Configurable logic nodes now use one shared value-type selector instead of
+  separate selectors for each input or operand.
+
+### Fixed
+
+- Reject incompatible node connections, including mismatched If branches and
+  equality operands, and preserve compatible types when changing node types,
+  disconnecting inputs, or removing nodes.
+- Image connectors remain triangular when no image is selected, including
+  connections through intermediate variables.
+- Node search matches displayed names such as "Not equal".
+
+No new database migration is required when upgrading from 0.12.0-pre3.
+
 ## [0.12.0-pre3] - 2026-11-04
 
 ### Added
@@ -399,6 +417,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre4]: https://github.com/tarobits/label-server/compare/v0.12.0-pre3...v0.12.0-pre4
 [0.12.0-pre3]: https://github.com/tarobits/label-server/compare/v0.12.0-pre2...v0.12.0-pre3
 [0.12.0-pre2]: https://github.com/tarobits/label-server/compare/v0.12.0-pre1...v0.12.0-pre2
 [0.12.0-pre1]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0-pre1
