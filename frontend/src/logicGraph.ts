@@ -8,6 +8,7 @@ import type {
   VariableValue,
 } from './editor'
 import { randomUUID } from './uuid'
+import { automaticDimension } from './editor'
 import { validVariableName } from './variableInputs'
 export type SocketType = ValueType | 'null' | 'any'
 export interface Operation {
@@ -71,7 +72,7 @@ export function automaticOutput(
   if (node.kind !== 'output') return false
   if (node.target === 'label') return node.property === 'length_mm' && !!doc.auto_length
   const element = doc.elements.find((element) => element.id === node.target)
-  return !!(element?.kind === 'text' && element.auto_width && node.property === 'width')
+  return !!(element && node.property === automaticDimension(element))
 }
 export function makeNode(
   kind: LogicNode['kind'],
@@ -204,7 +205,7 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
                 ) ||
                 !(
                   binding.target === 'label' ||
-                  (binding.property === 'width' &&
+                  (['width', 'height'].includes(binding.property) &&
                     doc.elements.some(
                       (element) => element.id === binding.target && element.kind === 'text',
                     ))

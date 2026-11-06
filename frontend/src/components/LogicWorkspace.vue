@@ -127,6 +127,12 @@ const fallbackFields = computed(
 const target = ref('label'),
   property = ref('length_mm')
 const writableProperties = computed(() => catalog.value?.targets[target.value]?.properties ?? {})
+const bindingDisabled = computed(() => {
+  const definition = catalog.value?.targets[target.value]
+  if (!definition?.properties[property.value] || property.value === 'auto_width') return true
+  const element = props.document.elements.find((element) => element.id === definition.id)
+  return element?.kind === 'line' && !!definition.disabled_properties?.[property.value]
+})
 const readableProperties = computed(
   () => catalog.value?.targets[target.value]?.readable_properties ?? writableProperties.value,
 )
@@ -445,7 +451,7 @@ function disabledOutput(node: LogicNode): string | undefined {
     : undefined
 }
 function addOutput() {
-  if (graphLocked.value || !catalog.value || !writableProperties.value[property.value]) return
+  if (graphLocked.value || !catalog.value || bindingDisabled.value) return
   const targetId = catalog.value.targets[target.value]!.id
   const existing = state.value.nodes.find(
     (node) =>
@@ -464,7 +470,8 @@ function addOutput() {
       ? props.document.length_mm
       : property.value === 'gap_mm'
         ? element?.distance_holder?.gap_mm
-        : element?.[property.value as keyof typeof element]
+        : (catalog.value.property_values?.[targetId]?.[property.value] ??
+          element?.[property.value as keyof typeof element])
   if (type === 'image') value = null
   const node = makeNode('output', state.value, {
     target: targetId,
@@ -957,12 +964,7 @@ onBeforeUnmount(() => {
                   <button :disabled="!readableProperties[property]" @click="addPropertyInput">
                     Read property
                   </button>
-                  <button
-                    :disabled="!writableProperties[property] || property === 'auto_width'"
-                    @click="addOutput"
-                  >
-                    Bind property
-                  </button>
+                  <button :disabled="bindingDisabled" @click="addOutput">Bind property</button>
                 </div>
               </div>
             </ExpandableContent>

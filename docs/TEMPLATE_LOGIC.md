@@ -73,6 +73,22 @@ followed by printable bounds checks. Bindings can change geometry, visibility, c
 image settings, and other properties listed in Reference. Units and allowed
 ranges are documented per property.
 
+In Layout and logic, `x` and `y` identify the rotated bounding box's top-left
+corner. `width` is its horizontal extent on the label; `height` is its vertical
+extent. Resizing one dimension preserves the other and the top-left position.
+At 90° and 270°, these dimensions exchange the object's local text axes.
+Automatic text sizing protects the dimension along the text: `height` for
+quarter-turned text, otherwise `width`.
+
+Lines have **Length**, **Stroke**, and **Direction** controls. They can be added
+directly as horizontal or vertical lines. Their bounds follow the actual stroke,
+without an empty surrounding rectangle. Logic changes a horizontal line's length
+through `width`, or a vertical line's length through `height`; use `stroke` for
+thickness. Assigning the cross-axis dimension is rejected.
+
+Existing saved prints retain their stored rendering geometry. Review existing
+logic that positioned or resized rotated objects using the old unrotated axes.
+
 Properties can also supply inputs. In **Add node**, choose a **Property target**
 and **Property**, then **Read property**. Its typed output connects to operations,
 intermediates, and property bindings. In Source, use `target.property` in an

@@ -9,13 +9,14 @@ export interface ReferenceEntry {
   example?: string
 }
 const propertyHelp: Record<string, string> = {
-  x: 'Horizontal origin in millimetres. Rotation can place the unrotated origin outside the label; printable bounds are checked after layout.',
-  y: 'Vertical origin in millimetres. The final object must respect the tape’s printable area unless clipping is enabled.',
+  x: 'Left edge of the rotated bounding box in millimetres along the label. Lines use the edge of their stroke.',
+  y: 'Top edge of the rotated bounding box in millimetres across the tape. Lines use the edge of their stroke.',
   width:
-    'Object width in millimetres, greater than zero and at most 1000. Automatic text width is measured before logic and cannot be overwritten by a binding.',
+    'Horizontal extent of the rotated object in millimetres. Resizing keeps its top-left position fixed. For a vertical line this is its stroke thickness; assign stroke instead. Automatically measured dimensions cannot be overwritten.',
   height:
-    'Object height in millimetres, greater than zero and at most 100. Use visible = false to hide an object; zero height is invalid.',
-  rotation: 'Rotation in degrees: 0, 90, 180, or 270. Other angles are invalid.',
+    'Vertical extent of the rotated object in millimetres. Resizing keeps its top-left position fixed. For a horizontal line this is its stroke thickness; assign stroke instead. Use visible = false to hide an object.',
+  rotation:
+    'Rotation in degrees: 0, 90, 180, or 270, keeping the top-left position fixed. Width and height follow the label axes, so quarter turns exchange the unbound extents.',
   visible:
     'Whether this object prints. Hidden objects do not extend automatic label length. Hidden distance-holder anchors have zero extent and no outgoing gap.',
   length_mm:

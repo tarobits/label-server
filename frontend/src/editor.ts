@@ -115,6 +115,35 @@ export interface Preview {
   width_mm: number
   resolved_elements: Element[]
 }
+export function elementGeometry(element: Element) {
+  const quarterTurn = element.rotation % 180 !== 0
+  const thickness = element.kind === 'line' ? element.stroke : element.height
+  const width = quarterTurn ? thickness : element.width
+  const height = quarterTurn ? element.width : thickness
+  const clean = (value: number) => Math.round(value * 1e9) / 1e9
+  return {
+    x: clean(element.x + (element.width - width) / 2),
+    y: clean(element.y + (element.height - height) / 2),
+    width,
+    height,
+  }
+}
+export function setElementGeometry(element: Element, geometry: ReturnType<typeof elementGeometry>) {
+  const quarterTurn = element.rotation % 180 !== 0
+  const width = quarterTurn ? geometry.height : geometry.width
+  const height = quarterTurn ? geometry.width : geometry.height
+  element.x = geometry.x + (geometry.width - width) / 2
+  element.y = geometry.y + (geometry.height - height) / 2
+  element.width = width
+  element.height = height
+}
+export function automaticDimension(element: Element): 'width' | 'height' | undefined {
+  return element.kind === 'text' && element.auto_width
+    ? element.rotation % 180
+      ? 'height'
+      : 'width'
+    : undefined
+}
 export function newDocument(): TemplateDocument {
   return {
     version: 1,
@@ -135,7 +164,7 @@ export function newElement(kind: Element['kind']): Element {
     x: 2,
     y: 2,
     width: kind === 'qr' ? 20 : 30,
-    height: kind === 'line' ? 1 : kind === 'qr' ? 20 : 8,
+    height: kind === 'line' ? 0.3 : kind === 'qr' ? 20 : 8,
     rotation: 0,
     content: kind === 'qr' ? 'https://example.org' : kind === 'text' ? 'Your label' : '',
     font: 'Noto Sans',

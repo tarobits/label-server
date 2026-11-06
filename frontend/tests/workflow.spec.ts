@@ -809,7 +809,7 @@ test('template resolution, text padding, rulers and object bounds work together'
   const properties = (await page.locator('.editor-properties').boundingBox())!
   expect(properties.x).toBeGreaterThanOrEqual(workspace.x + workspace.width)
   expect(properties.y).toBe(workspace.y)
-  await expect(page.getByRole('group', { name: 'Add elements' }).locator('svg')).toHaveCount(5)
+  await expect(page.getByRole('group', { name: 'Add elements' }).locator('svg')).toHaveCount(6)
   const heights = await page
     .locator('.editor-layout input[type=number]:visible, .editor-layout select:visible')
     .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))
@@ -996,16 +996,16 @@ test('rotated objects drag and resize with the opposite corner fixed', async ({ 
   await page.goto(`/#/templates/${template.id}/edit?element=box`)
   for (const rotation of [90, 180, 270, 0]) {
     await showEditorSettings(page, 'Position & size')
+    await page
+      .getByRole('combobox', { name: 'Rotation', exact: true })
+      .selectOption(String(rotation))
     await page.getByLabel('X (mm)', { exact: true }).fill('30')
     await showEditorSettings(page, 'Position & size')
     await page.getByLabel('Y (mm)', { exact: true }).fill('8')
     await showEditorSettings(page, 'Position & size')
-    await page.getByLabel('Width (mm)', { exact: true }).fill('8')
+    await page.getByLabel('Width (mm)', { exact: true }).fill(rotation % 180 ? '4' : '8')
     await showEditorSettings(page, 'Position & size')
-    await page.getByLabel('Height (mm)', { exact: true }).fill('4')
-    await page
-      .getByRole('combobox', { name: 'Rotation', exact: true })
-      .selectOption(String(rotation))
+    await page.getByLabel('Height (mm)', { exact: true }).fill(rotation % 180 ? '8' : '4')
     const handle = page.locator('.editor-canvas circle')
     await handle.scrollIntoViewIfNeeded()
     const corner = () =>
@@ -1027,8 +1027,12 @@ test('rotated objects drag and resize with the opposite corner fixed', async ({ 
     await page.mouse.down()
     await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy)
     await page.mouse.up()
-    await expect(page.getByLabel('Width (mm)', { exact: true })).toHaveValue('10')
-    await expect(page.getByLabel('Height (mm)', { exact: true })).toHaveValue('5')
+    await expect(page.getByLabel('Width (mm)', { exact: true })).toHaveValue(
+      rotation % 180 ? '5' : '10',
+    )
+    await expect(page.getByLabel('Height (mm)', { exact: true })).toHaveValue(
+      rotation % 180 ? '10' : '5',
+    )
     const after = await corner()
     expect(after.x).toBeCloseTo(fixed.x, 1)
     expect(after.y).toBeCloseTo(fixed.y, 1)

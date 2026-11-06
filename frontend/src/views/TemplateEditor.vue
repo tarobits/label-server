@@ -27,6 +27,9 @@ import { randomUUID } from '../uuid'
 import {
   newDocument,
   newElement,
+  elementGeometry,
+  setElementGeometry,
+  automaticDimension,
   type Element,
   type Preview,
   type TemplateDocument,
@@ -231,17 +234,24 @@ const canvasElements = computed(() =>
         document.value.logic?.bindings.some(
           (binding) => binding.target === element.id && binding.property === property,
         )
+      const geometryBound = ['x', 'y', 'width', 'height', 'rotation', 'stroke'].some(bound)
       return resolved
         ? {
             ...element,
             x:
-              element.distance_holder?.axis === 'horizontal' || bound('x') ? resolved.x : element.x,
-            y: element.distance_holder?.axis === 'vertical' || bound('y') ? resolved.y : element.y,
+              element.distance_holder?.axis === 'horizontal' || geometryBound
+                ? resolved.x
+                : element.x,
+            y:
+              element.distance_holder?.axis === 'vertical' || geometryBound
+                ? resolved.y
+                : element.y,
             width:
-              element.auto_width || bound('width') || bound('auto_width')
+              element.auto_width || geometryBound || bound('auto_width')
                 ? resolved.width
                 : element.width,
-            height: bound('height') ? resolved.height : element.height,
+            height: geometryBound ? resolved.height : element.height,
+            stroke: bound('stroke') ? resolved.stroke : element.stroke,
             rotation: bound('rotation') ? resolved.rotation : element.rotation,
             visible: bound('visible') ? resolved.visible : element.visible,
           }
@@ -270,8 +280,10 @@ function positionLocked(axis: 'x' | 'y') {
   return selected.value?.distance_holder?.axis === (axis === 'x' ? 'horizontal' : 'vertical')
 }
 function setPosition(axis: 'x' | 'y', event: Event) {
-  if (selected.value && !positionLocked(axis))
-    selected.value[axis] = Number((event.target as HTMLInputElement).value)
+  if (!selected.value || positionLocked(axis)) return
+  const geometry = elementGeometry(positionedElement(selected.value))
+  geometry[axis] = Number((event.target as HTMLInputElement).value)
+  setElementGeometry(selected.value, geometry)
 }
 function setDistanceTarget(event: Event) {
   if (!selected.value) return
@@ -291,10 +303,7 @@ function setDistanceTarget(event: Event) {
 const selectedBounds = computed(() => {
   const e = canvasElements.value.find((item) => item.id === selectedId.value)
   if (!e) return null
-  const rotated = e.rotation === 90 || e.rotation === 270
-  const width = rotated ? e.height : e.width,
-    height = rotated ? e.width : e.height
-  return { x: e.x + (e.width - width) / 2, y: e.y + (e.height - height) / 2, width, height }
+  return elementGeometry(e)
 })
 watch(
   () => w.selectedPrinter,
@@ -477,7 +486,7 @@ watch(
     selectedId.value = typeof query.element === 'string' ? query.element : ''
   },
 )
-function add(kind: Element['kind']) {
+function add(kind: Element['kind'], vertical = false) {
   const element = newElement(kind)
   if (document.value.version === 2) element.logic_name = nextElementName(document.value, kind)
   element.x = margin.value
@@ -485,6 +494,15 @@ function add(kind: Element['kind']) {
   element.width = Math.min(element.width, document.value.length_mm - 2 * margin.value)
   element.height = Math.min(element.height, printableBand.value.height)
   if (kind === 'qr') element.width = element.height
+  if (kind === 'line' && vertical) {
+    element.rotation = 90
+    setElementGeometry(element, {
+      x: margin.value,
+      y: verticalMargin.value,
+      width: element.stroke,
+      height: Math.min(30, printableBand.value.height),
+    })
+  }
   document.value.elements.push(element)
   selectedId.value = element.id
   activeInspector.value = ['text', 'qr', 'image'].includes(kind) ? 'content' : 'style'
@@ -540,17 +558,17 @@ function order(direction: number) {
 function align(axis: 'left' | 'center' | 'right' | 'middle') {
   if (!selected.value) return
   const e = selected.value
-  const drawn = positionedElement(e)
-  const rotatedWidth = e.rotation % 180 ? drawn.height : drawn.width
-  const inset = (drawn.width - rotatedWidth) / 2
-  if (axis === 'middle' && !positionLocked('y')) e.y = (document.value.width_mm - e.height) / 2
+  const geometry = elementGeometry(positionedElement(e))
+  if (axis === 'middle' && !positionLocked('y'))
+    geometry.y = (document.value.width_mm - geometry.height) / 2
   else if (axis !== 'middle' && !positionLocked('x'))
-    e.x =
+    geometry.x =
       axis === 'left'
-        ? margin.value - inset
+        ? margin.value
         : axis === 'right'
-          ? canvasLength.value - margin.value - rotatedWidth - inset
-          : (canvasLength.value - drawn.width) / 2
+          ? canvasLength.value - margin.value - geometry.width
+          : (canvasLength.value - geometry.width) / 2
+  setElementGeometry(e, geometry)
   record()
 }
 function point(event: PointerEvent) {
@@ -561,6 +579,11 @@ function start(event: PointerEvent, element: Element, mode: 'move' | 'size') {
   if (drag || !event.isPrimary || event.button !== 0) return
   event.preventDefault()
   selectedId.value = element.id
+  if (element.kind === 'line') {
+    element = { ...element }
+    setElementGeometry(element, elementGeometry(element))
+    setElementGeometry(selected.value!, elementGeometry(element))
+  }
   drag = { mode, pointerId: event.pointerId, ...point(event), element: { ...element } }
   canvas.value?.setPointerCapture(event.pointerId)
 }
@@ -575,16 +598,10 @@ function move(event: PointerEvent) {
   const round = (value: number) =>
     Math.round(value * (snap.value ? 2 : 100)) / (snap.value ? 2 : 100)
   if (drag.mode === 'move') {
-    if (!positionLocked('x'))
-      selected.value.x = Math.max(
-        drag.element.rotation % 180 ? (drag.element.height - drag.element.width) / 2 : 0,
-        round(drag.element.x + dx),
-      )
-    if (!positionLocked('y'))
-      selected.value.y = Math.max(
-        drag.element.rotation % 180 ? (drag.element.width - drag.element.height) / 2 : 0,
-        round(drag.element.y + dy),
-      )
+    const geometry = elementGeometry(drag.element)
+    if (!positionLocked('x')) geometry.x = Math.max(0, round(geometry.x + dx))
+    if (!positionLocked('y')) geometry.y = Math.max(0, round(geometry.y + dy))
+    setElementGeometry(selected.value, geometry)
   } else {
     const angle = (drag.element.rotation * Math.PI) / 180
     const cos = Math.round(Math.cos(angle)),
@@ -592,6 +609,7 @@ function move(event: PointerEvent) {
     const localX = cos * dx + sin * dy
     const localY = -sin * dx + cos * dy
     selected.value.auto_width = false
+    if (selected.value.kind === 'line') selected.value.height = selected.value.stroke
     selected.value.width = Math.max(1, round(drag.element.width + localX))
     if (selected.value.kind === 'image' && selected.value.preserve_aspect) {
       const ratio = imageRatio(selected.value) ?? drag.element.width / drag.element.height
@@ -604,9 +622,11 @@ function move(event: PointerEvent) {
       }
     } else
       selected.value.height =
-        selected.value.kind === 'qr'
-          ? selected.value.width
-          : Math.max(1, round(drag.element.height + localY))
+        selected.value.kind === 'line'
+          ? selected.value.stroke
+          : selected.value.kind === 'qr'
+            ? selected.value.width
+            : Math.max(1, round(drag.element.height + localY))
     const dw = selected.value.width - drag.element.width
     const dh = selected.value.height - drag.element.height
     // Keep the opposite rotated corner fixed while resizing around the moving center.
@@ -637,7 +657,11 @@ function changeAutomaticLength() {
 function changeAutomaticWidth() {
   if (selected.value?.auto_width && document.value.logic)
     document.value.logic.bindings = document.value.logic.bindings.filter(
-      (binding) => !(binding.target === selected.value?.id && binding.property === 'width'),
+      (binding) =>
+        !(
+          binding.target === selected.value?.id &&
+          binding.property === automaticDimension(selected.value!)
+        ),
     )
   record()
 }
@@ -708,9 +732,11 @@ function fitImageBox() {
   if (!element || element.kind !== 'image') return
   const ratio = imageRatio(element)
   if (ratio) {
+    const before = elementGeometry(element)
     // Fit within the existing box so selecting artwork does not enlarge the label.
     element.width = Math.min(element.width, element.height * ratio)
     element.height = element.width / ratio
+    setElementGeometry(element, { ...elementGeometry(element), x: before.x, y: before.y })
   }
   record()
 }
@@ -723,14 +749,36 @@ function resize(axis: 'width' | 'height', event: Event) {
   if (!element) return
   const value = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(value) || value <= 0) return
-  element[axis] = value
-  if (element.kind === 'qr') element.height = element.width
+  const geometry = elementGeometry(positionedElement(element))
+  geometry[axis] = value
+  if (element.kind === 'qr') geometry.height = geometry.width
   if (element.kind === 'image' && element.preserve_aspect) {
-    const ratio = imageRatio(element)
+    const sourceRatio = imageRatio(element)
+    const ratio = sourceRatio && (element.rotation % 180 ? 1 / sourceRatio : sourceRatio)
     if (ratio) {
-      if (axis === 'width') element.height = element.width / ratio
-      else element.width = element.height * ratio
+      if (axis === 'width') geometry.height = geometry.width / ratio
+      else geometry.width = geometry.height * ratio
     }
+  }
+  setElementGeometry(element, geometry)
+}
+function rotateElement(event: Event) {
+  const element = selected.value
+  if (!element) return
+  const previous = elementGeometry(positionedElement(element))
+  element.rotation = Number((event.target as HTMLSelectElement).value) as Element['rotation']
+  const rotated = elementGeometry(element)
+  setElementGeometry(element, { ...rotated, x: previous.x, y: previous.y })
+  changeAutomaticWidth()
+}
+function setStroke(event: Event) {
+  const element = selected.value
+  if (!element) return
+  const geometry = elementGeometry(positionedElement(element))
+  element.stroke = Number((event.target as HTMLInputElement).value)
+  if (element.kind === 'line') {
+    geometry[element.rotation % 180 ? 'width' : 'height'] = element.stroke
+    setElementGeometry(element, geometry)
   }
 }
 function key(event: KeyboardEvent) {
@@ -1031,7 +1079,12 @@ onUnmounted(() => {
           <button aria-label="Add rectangle" @click="add('rectangle')">
             <StopIcon />Rectangle
           </button>
-          <button aria-label="Add line" @click="add('line')"><MinusIcon />Line</button>
+          <button aria-label="Add horizontal line" @click="add('line')">
+            <MinusIcon />Horizontal line
+          </button>
+          <button aria-label="Add vertical line" @click="add('line', true)">
+            <MinusIcon style="transform: rotate(90deg)" />Vertical line
+          </button>
         </div>
       </div>
       <div class="editor-options">
@@ -1141,11 +1194,23 @@ onUnmounted(() => {
               :key="element.id"
               :transform="`rotate(${element.rotation},${element.x + element.width / 2},${element.y + element.height / 2})`"
             >
+              <line
+                v-if="element.kind === 'line'"
+                :x1="element.x"
+                :x2="element.x + element.width"
+                :y1="element.y + element.height / 2"
+                :y2="element.y + element.height / 2"
+                stroke="transparent"
+                :stroke-width="Math.max(element.stroke, 12 / scale)"
+                @pointerdown.stop="start($event, element, 'move')"
+              />
               <rect
                 :x="element.x"
-                :y="element.y"
+                :y="
+                  element.y + (element.kind === 'line' ? (element.height - element.stroke) / 2 : 0)
+                "
                 :width="element.width"
-                :height="element.height"
+                :height="element.kind === 'line' ? element.stroke : element.height"
                 :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
                 class="object-boundary"
                 :class="{ selected: selectedId === element.id }"
@@ -1160,10 +1225,19 @@ onUnmounted(() => {
               <circle
                 v-if="selectedId === element.id"
                 :cx="element.x + element.width"
-                :cy="element.y + element.height"
+                :cy="element.y + (element.kind === 'line' ? element.height / 2 : element.height)"
                 r="0.6"
                 fill="#6366f1"
-                :style="{ cursor: element.rotation % 180 ? 'nesw-resize' : 'nwse-resize' }"
+                :style="{
+                  cursor:
+                    element.kind === 'line'
+                      ? element.rotation % 180
+                        ? 'ns-resize'
+                        : 'ew-resize'
+                      : element.rotation % 180
+                        ? 'nesw-resize'
+                        : 'nwse-resize',
+                }"
                 @pointerdown.stop="start($event, element, 'size')"
               />
             </g>
@@ -1499,7 +1573,8 @@ onUnmounted(() => {
             <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
               ><label
                 >Stroke (mm)<input
-                  v-model.number="selected.stroke"
+                  :value="selected.stroke"
+                  @input="setStroke"
                   type="number"
                   min="0.1"
                   max="3"
@@ -1524,7 +1599,7 @@ onUnmounted(() => {
             <div class="field-row">
               <label
                 >X (mm)<input
-                  :value="positionLocked('x') ? positionedElement(selected).x : selected.x"
+                  :value="elementGeometry(positionedElement(selected)).x"
                   :disabled="positionLocked('x')"
                   @input="setPosition('x', $event)"
                   type="number"
@@ -1533,7 +1608,7 @@ onUnmounted(() => {
                   @change="record" /></label
               ><label
                 >Y (mm)<input
-                  :value="positionLocked('y') ? positionedElement(selected).y : selected.y"
+                  :value="elementGeometry(positionedElement(selected)).y"
                   :disabled="positionLocked('y')"
                   @input="setPosition('y', $event)"
                   type="number"
@@ -1544,18 +1619,28 @@ onUnmounted(() => {
             </div>
             <div class="field-row">
               <label
-                >Width (mm)<input
-                  :value="selected.width"
-                  :disabled="selected.kind === 'text' && selected.auto_width"
+                >{{ selected.kind === 'line' ? 'Length (mm)' : 'Width (mm)'
+                }}<input
+                  :value="
+                    elementGeometry(positionedElement(selected))[
+                      selected.kind === 'line' && selected.rotation % 180 ? 'height' : 'width'
+                    ]
+                  "
+                  :disabled="automaticDimension(selected) === 'width'"
                   type="number"
                   min="1"
                   step="0.5"
-                  @input="resize('width', $event)"
+                  @input="
+                    resize(
+                      selected.kind === 'line' && selected.rotation % 180 ? 'height' : 'width',
+                      $event,
+                    )
+                  "
                   @change="record" /></label
-              ><label
+              ><label v-if="selected.kind !== 'line'"
                 >Height (mm)<input
-                  :value="selected.height"
-                  :disabled="selected.kind === 'qr'"
+                  :value="elementGeometry(positionedElement(selected)).height"
+                  :disabled="selected.kind === 'qr' || automaticDimension(selected) === 'height'"
                   type="number"
                   min="1"
                   step="0.5"
@@ -1563,8 +1648,14 @@ onUnmounted(() => {
                   @change="record"
               /></label>
             </div>
-            <label
-              >Rotation<select v-model.number="selected.rotation" @change="record">
+            <label v-if="selected.kind === 'line'"
+              >Direction<select :value="selected.rotation % 180" @change="rotateElement">
+                <option :value="0">Horizontal</option>
+                <option :value="90">Vertical</option>
+              </select></label
+            >
+            <label v-else
+              >Rotation<select :value="selected.rotation" @change="rotateElement">
                 <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
               </select></label
             >
@@ -1583,7 +1674,11 @@ onUnmounted(() => {
                   v-model="selected.auto_width"
                   type="checkbox"
                   @change="changeAutomaticWidth"
-                />Fit text box width to content</label
+                />{{
+                  selected.rotation % 180
+                    ? 'Fit text box height to content'
+                    : 'Fit text box width to content'
+                }}</label
               >
               <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
             </template>
