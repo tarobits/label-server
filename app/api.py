@@ -22,7 +22,7 @@ from app.authorization import (
 from app.cartridge_confirmation import check_cartridge, configure_media
 from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.cost_estimates import estimate_cost
-from app.deletion import document_notices, retain
+from app.deletion import content_hold_reason, document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
 from app.image_jobs import image_document
@@ -1456,6 +1456,59 @@ def batch_item_preview(
     item = session.get(PrintJob, label.job_id)
     assert item is not None
     return label_preview_response(request, session, item, label)
+
+
+@router.post("/batches/{identifier}/items/{copy_id}/requeue", status_code=201)
+def requeue_batch_item(
+    identifier: str,
+    copy_id: str,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    batch = get(session, Batch, identifier)
+    access_context(request).require_destination(batch.printer_id, "print")
+    attempt = session.get(BatchItem, (identifier, copy_id))
+    if attempt is None:
+        raise HTTPException(404, "Batch item not found")
+    fingerprint = input_fingerprint({"batch_id": identifier, "copy_id": copy_id}, "requeue")
+    existing = submitted_job(request, session, fingerprint)
+    if existing is not None:
+        return existing
+    if attempt.outcome != State.PRINTED:
+        raise HTTPException(409, "Only confirmed printed labels can be requeued from Activity")
+    label = get(session, LabelCopy, copy_id)
+    # Batch access covers its frozen labels even when their original destination
+    # was a distribution group the moderator cannot otherwise access.
+    original = session.get(PrintJob, label.job_id)
+    assert original is not None
+    if reason := content_hold_reason(session, original):
+        raise HTTPException(409, reason)
+    destination = resolve_destination(session, batch.printer_id)
+    fleet = request.app.state.fleet
+    if destination not in fleet.workers:
+        raise HTTPException(409, "The original printer's configuration is unavailable")
+    if "render_spec" not in original.template_snapshot:
+        raise HTTPException(409, "This older print does not have saved rendering settings")
+    if not fleet.supports_geometry(original, destination):
+        raise HTTPException(409, "The printer no longer supports this label's saved settings")
+    # Validate the saved content, without substituting the template's current
+    # revision or accepting new assets through this history-only operation.
+    try:
+        render_job(original, label, request.app.state.fonts, request.app.state.images)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    job = PrintJob(
+        destination_id=destination,
+        profile_id=original.profile_id,
+        template_id=original.template_id,
+        template_snapshot=copy.deepcopy(original.template_snapshot),
+        payload=copy.deepcopy(original.payload),
+        width_mm=original.width_mm,
+        length_mm=original.length_mm,
+        copies=1,
+        notify_on_completion=original.notify_on_completion,
+    )
+    return save_submission(request, session, job, fingerprint)
 
 
 def notification_history_records(

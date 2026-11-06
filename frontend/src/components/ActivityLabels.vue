@@ -2,7 +2,9 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useResourceStore } from '../stores/resources'
 import { useAuthStore } from '../auth'
-import { errorMessage } from '../api'
+import { api, errorMessage } from '../api'
+import { useWorkspaceStore } from '../workspace'
+import { randomUUID } from '../uuid'
 import type { BatchDetail } from '../types'
 import LabelDetails from './LabelDetails.vue'
 import QueuePreview from './QueuePreview.vue'
@@ -11,7 +13,9 @@ import TapeUsage from './TapeUsage.vue'
 import PrintPlanNotice from './PrintPlanNotice.vue'
 const props = defineProps<{ batchId: string; state: string }>()
 const resources = useResourceStore(),
-  auth = useAuthStore()
+  auth = useAuthStore(),
+  w = useWorkspaceStore()
+const requeueKeys = new Map<string, string>()
 const detail = ref<BatchDetail | null>(null),
   opened = ref(false),
   loading = ref(false),
@@ -22,11 +26,31 @@ const labels = computed(() => {
   const grouped = new Map<string, { item: BatchDetail['items'][number]; copies: number }>()
   for (const item of detail.value?.items ?? []) {
     const existing = grouped.get(item.job_id)
-    if (existing) existing.copies++
-    else grouped.set(item.job_id, { item, copies: 1 })
+    if (existing) {
+      existing.copies++
+      if (item.outcome === 'printed') existing.item = item
+    } else grouped.set(item.job_id, { item, copies: 1 })
   }
   return [...grouped.values()]
 })
+async function requeue(item: BatchDetail['items'][number]) {
+  if (w.busy) return
+  const key = requeueKeys.get(item.copy_id) ?? randomUUID()
+  requeueKeys.set(item.copy_id, key)
+  await w.action(async () => {
+    await api(
+      `/batches/${encodeURIComponent(props.batchId)}/items/${encodeURIComponent(item.copy_id)}/requeue`,
+      'POST',
+      {},
+      { 'Idempotency-Key': key },
+    )
+    requeueKeys.delete(item.copy_id)
+  }, 'One copy added to the print queue.')
+}
+watch(
+  () => auth.user?.id,
+  () => requeueKeys.clear(),
+)
 async function load(force = false) {
   const ticket = ++generation,
     actor = auth.user?.id
@@ -75,7 +99,21 @@ onUnmounted(() => {
       <PrintPlanNotice :plan="detail.print_plan" />
     </template>
     <section v-for="entry in labels" :key="entry.item.job_id" class="activity-label">
-      <strong>{{ entry.item.process_name }}</strong>
+      <div class="row spread wrap">
+        <strong>{{ entry.item.process_name }}</strong>
+        <button
+          v-if="
+            entry.item.outcome === 'printed' && detail && auth.atLeast(detail.printer_id, 'print')
+          "
+          type="button"
+          class="secondary small"
+          :disabled="w.busy"
+          :aria-label="`Requeue ${entry.item.process_name}`"
+          @click="requeue(entry.item)"
+        >
+          Requeue
+        </button>
+      </div>
       <small>{{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}</small>
       <LabelDetails :label="entry.item" :attribution="entry.item.attribution" />
       <QueuePreview
@@ -110,7 +148,7 @@ details[data-expanded='true'] :deep(summary) {
 .activity-label:last-child {
   border-bottom: 0;
 }
-.activity-label > strong {
+.activity-label strong {
   overflow-wrap: anywhere;
 }
 .activity-label > small {
