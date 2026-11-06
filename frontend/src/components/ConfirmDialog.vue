@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onUnmounted, ref, watch } from 'vue'
-import { confirmation, resolveConfirmation } from '../confirmation'
+import { confirmation, resolveConfirmation, resolveChoice } from '../confirmation'
 const dialog = ref<HTMLDialogElement | null>(null)
 watch(confirmation, async (pending) => {
   await nextTick()
@@ -19,10 +19,19 @@ onUnmounted(() => resolveConfirmation(false))
       aria-describedby="confirmation-message"
       @cancel.prevent="resolveConfirmation(false)"
     >
-      <h2 id="confirmation-title">Confirm action</h2>
+      <h2 id="confirmation-title">{{ confirmation?.title ?? 'Confirm action' }}</h2>
       <p id="confirmation-message">{{ confirmation?.message }}</p>
-      <div class="dialog-actions">
-        <button class="secondary" autofocus @click="resolveConfirmation(false)">Cancel</button>
+      <div class="dialog-actions" :class="{ 'dialog-choices': confirmation?.alternateLabel }">
+        <button
+          v-if="confirmation?.alternateLabel"
+          class="secondary"
+          @click="resolveChoice('alternate')"
+        >
+          {{ confirmation.alternateLabel }}
+        </button>
+        <button class="secondary" autofocus @click="resolveConfirmation(false)">
+          {{ confirmation?.cancelLabel ?? 'Cancel' }}
+        </button>
         <button class="primary" @click="resolveConfirmation(true)">
           {{ confirmation?.confirmLabel }}
         </button>
@@ -56,5 +65,12 @@ onUnmounted(() => resolveConfirmation(false))
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+.dialog-choices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.dialog-choices button {
+  min-height: 44px;
 }
 </style>

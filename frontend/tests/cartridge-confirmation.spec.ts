@@ -1,17 +1,25 @@
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'wait' })
+})
+
 const detected = '12 mm · Incompatible tape · White on Red'
 const message =
   'Is this the correct cartridge?\n\nSelected: Yellow cassette 1 · Black on Yellow 24 mm · 24 mm\nDetected: ' +
   detected +
   '\n\nInstall supported TZe tape\nSelected width: 24 mm; detected width: 12 mm.\n\nConfirming uses the selected cartridge width for printing. Eligible queued labels may print.'
 
-async function detection(page: Page, coverCheck = false) {
+async function detection(page: Page, coverCheck = false, matching = false) {
   let accepted = false
   let pending = coverCheck
   let enabled = true
-  const attempts: { cartridge_id: string | null; media_confirmation?: string }[] = []
+  const attempts: {
+    cartridge_id: string | null
+    media_confirmation?: string
+    confirm_matching_cartridge?: boolean
+  }[] = []
   await page.route('**/api/printers/status', async (route) => {
     const response = await route.fetch()
     const statuses = await response.json()
@@ -25,8 +33,8 @@ async function detection(page: Page, coverCheck = false) {
           : accepted
             ? null
             : 'Install supported TZe tape',
-        detected_width_mm: 12,
-        effective_width_mm: accepted ? 24 : 12,
+        detected_width_mm: matching ? 24 : 12,
+        effective_width_mm: accepted || matching ? 24 : 12,
         detected_media: detected,
         media_warning: coverCheck ? null : 'Install supported TZe tape',
         media_confirmed: accepted,
@@ -56,14 +64,19 @@ async function detection(page: Page, coverCheck = false) {
   await page.route('**/api/printer/active-tape?*', async (route) => {
     const body = route.request().postDataJSON()
     attempts.push(body)
-    if (body.media_confirmation !== 'detection-token') {
+    if (
+      body.media_confirmation !== 'detection-token' &&
+      !(matching && body.confirm_matching_cartridge)
+    ) {
       await route.fulfill({
         status: 409,
         json: {
           detail: {
             code: 'cartridge_mismatch',
+            reason:
+              coverCheck && !body.confirm_matching_cartridge ? 'cartridge_check' : 'media_mismatch',
             message: coverCheck
-              ? 'The printer was opened. Is this still the correct cartridge?\n\nSelected: Yellow cassette 1\nDetected: ' +
+              ? 'The printer has been opened or the cartridge has changed. Is it still “Yellow cassette 1”?\n\nDetected: ' +
                 detected +
                 '\n\nEligible queued labels may print.'
               : message,
@@ -116,9 +129,11 @@ test('saving review accounts for tape without triggering installation confirmati
   expect(cartridges.find((c: { id: string }) => c.id === installed.id).remaining_mm).toBe(7900)
   // The outstanding physical-cartridge check remains available as its own action.
   await page.getByRole('link', { name: 'Printers & groups', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Confirm action' })).toBeVisible()
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'Confirm action' })).not.toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Confirm cartridge', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'No, I will change it later', exact: true }).click()
+  await expect(
+    page.getByRole('dialog', { name: 'Confirm cartridge', exact: true }),
+  ).not.toBeVisible()
   expect(attempts).toHaveLength(1)
 })
 
@@ -162,13 +177,16 @@ test('cover confirmation asks once across pages and can be disabled per printer'
 }) => {
   const attempts = await detection(page, true)
   await page.goto('/#/new')
-  const dialog = page.getByRole('dialog', { name: 'Confirm action' })
-  await expect(dialog).toContainText('The printer was opened. Is this still the correct cartridge?')
+  const dialog = page.getByRole('dialog', { name: 'Confirm cartridge', exact: true })
+  await expect(dialog).toContainText('Is it still “Yellow cassette 1”?')
   await page.screenshot({
     path: 'test-results/cartridge-cover-confirmation.png',
     animations: 'disabled',
   })
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(
+    dialog.getByRole('button', { name: 'No, I will change it later', exact: true }),
+  ).toBeFocused()
+  await dialog.getByRole('button', { name: 'No, I will change it later', exact: true }).click()
   await page.goto('/#/printers')
   await expect(dialog).not.toBeVisible()
   expect(attempts).toHaveLength(1)
@@ -187,15 +205,87 @@ test('cover confirmation asks once across pages and can be disabled per printer'
 test('accepting the cover prompt acknowledges the current cartridge', async ({ page }) => {
   const attempts = await detection(page, true)
   await page.goto('/#/')
-  const dialog = page.getByRole('dialog', { name: 'Confirm action' })
+  const dialog = page.getByRole('dialog', { name: 'Confirm cartridge', exact: true })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Yes, I’m sure', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Yes, it is', exact: true }).click()
   await expect(dialog).not.toBeVisible()
   expect(attempts).toHaveLength(2)
   expect(attempts.at(-1)?.media_confirmation).toBe('detection-token')
   await page.goto('/#/printers')
   await expect(page.getByRole('button', { name: 'Confirm cartridge', exact: true })).toHaveCount(0)
 })
+
+test('cover prompt opens the affected printer inventory without acknowledging the cartridge', async ({
+  page,
+  request,
+}) => {
+  const attempts = await detection(page, true)
+  const [printer] = await (await request.get('/api/printers')).json()
+  await page.setViewportSize({ width: 402, height: 874 })
+  await page.goto('/#/')
+  const dialog = page.getByRole('dialog', { name: 'Confirm cartridge', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toHaveCSS('animation-name', 'dialog-arrive')
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({
+    path: 'test-results/cartridge-cover-choices-mobile.png',
+    animations: 'disabled',
+  })
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await page.goto('/#/printers')
+  await page.getByRole('button', { name: 'Confirm cartridge', exact: true }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'No, take me to cartridges', exact: true }).click()
+  await expect(dialog).not.toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/cartridges\\?printer=${printer.id}$`))
+  expect(attempts).toHaveLength(2)
+  expect(attempts.every((attempt) => !attempt.media_confirmation)).toBe(true)
+  await expect(page.getByRole('button', { name: 'Confirm cartridge', exact: true })).toBeEnabled()
+})
+
+for (const location of ['printers', 'cartridges']) {
+  test(`deliberately selecting matching tape on ${location} does not ask again`, async ({
+    page,
+    request,
+  }) => {
+    const attempts = await detection(page, true, true)
+    const [profile] = await (await request.get('/api/tape-profiles')).json()
+    const created = await request.post('/api/cartridges', {
+      data: {
+        name: 'Replacement cassette',
+        profile_id: profile.id,
+        nominal_length_mm: 8000,
+      },
+    })
+    expect(created.ok()).toBeTruthy()
+    const cartridge = await created.json()
+    await page.goto(`/#/${location}`)
+    const dialog = page.getByRole('dialog', { name: 'Confirm cartridge', exact: true })
+    await dialog.getByRole('button', { name: 'No, I will change it later', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    if (location === 'printers') {
+      await page
+        .getByRole('combobox', { name: 'Installed cartridge', exact: true })
+        .selectOption(cartridge.id)
+    } else {
+      const card = page
+        .locator('article')
+        .filter({ has: page.getByRole('heading', { name: 'Replacement cassette', exact: true }) })
+      await card.getByRole('button', { name: 'Install cartridge', exact: true }).click()
+    }
+    await expect.poll(() => attempts.length).toBe(2)
+    expect(attempts[1]).toMatchObject({
+      cartridge_id: cartridge.id,
+      confirm_matching_cartridge: true,
+    })
+    expect(attempts[1]?.media_confirmation).toBeUndefined()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Confirm cartridge', exact: true })).toHaveCount(
+      0,
+    )
+  })
+}
 
 test('cartridge confirmation works in inventory and cancelled dropdown selection is restored', async ({
   page,
@@ -237,7 +327,8 @@ test('printer detection details show raw and decoded status with desktop and mob
   await detection(page)
   await page.goto('/#/printers')
   const opener = page.getByRole('button', { name: 'Detected details', exact: true })
-  await opener.click()
+  await opener.focus()
+  await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Desk printer · Detected details', exact: true })
   await expect(dialog).toContainText('Incompatible tape · 0xff (255)')
   await expect(dialog).toContainText('Red · 0x04 (4)')
@@ -252,7 +343,8 @@ test('printer detection details show raw and decoded status with desktop and mob
   await expect(dialog).not.toBeVisible()
   await expect(opener).toBeFocused()
   await page.setViewportSize({ width: 390, height: 844 })
-  await opener.click()
+  await opener.focus()
+  await page.keyboard.press('Enter')
   await expect(dialog).toBeVisible()
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
   await page.screenshot({

@@ -395,7 +395,14 @@ def active_tape(
         ):
             raise HTTPException(409, "Cartridge is already installed in another printer")
     confirmation, verification = (
-        check_cartridge(request, session, state, cartridge, body.media_confirmation)
+        check_cartridge(
+            request,
+            session,
+            state,
+            cartridge,
+            body.media_confirmation,
+            body.confirm_matching_cartridge,
+        )
         if cartridge
         else (None, None)
     )

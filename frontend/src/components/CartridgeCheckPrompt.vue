@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../auth'
 import { installCartridge } from '../cartridges'
 import { confirmation } from '../confirmation'
@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../workspace'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
 const shown = reactive(new Set<string>())
 const pending = computed(() =>
   w.printerStatuses.find(
@@ -32,7 +33,11 @@ watch(
     if (!status?.active_cartridge_id || busy || dialog || route.path.startsWith('/batches/')) return
     shown.add(`${status.printer_id}:${status.active_cartridge_id}:${status.cartridge_check_key}`)
     await w.action(
-      () => installCartridge(status.printer_id, status.active_cartridge_id),
+      () =>
+        installCartridge(status.printer_id, status.active_cartridge_id, {
+          chooseCartridge: () =>
+            router.push({ path: '/cartridges', query: { printer: status.printer_id } }),
+        }),
       'Cartridge confirmed. Eligible queued labels may now print.',
     )
   },

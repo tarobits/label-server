@@ -71,6 +71,7 @@ def check_cartridge(
     state: PrinterState,
     cartridge: Cartridge,
     confirmation: str | None,
+    confirm_matching_cartridge: bool = False,
 ) -> tuple[dict[str, Any] | None, str | None]:
     worker = request.app.state.fleet.workers.get(state.printer_id)
     if not worker or not isinstance(worker.backend, ConfirmableMediaBackend):
@@ -101,7 +102,7 @@ def check_cartridge(
         return None, None
     verification = hardware.media.verification_key
     needs_check = state.cartridge_check_enabled and hardware.media_changed
-    if not mismatch and not needs_check:
+    if not mismatch and (not needs_check or confirm_matching_cartridge):
         return None, verification
     fingerprint = hardware.media.fingerprint
     signature = profile_signature(profile)
@@ -125,22 +126,37 @@ def check_cartridge(
     ):
         return saved, verification
     if confirmation != token:
+        recheck = (
+            needs_check
+            and state.active_cartridge_id == cartridge.id
+            and not confirm_matching_cartridge
+        )
         raise HTTPException(
             409,
             {
                 "code": "cartridge_mismatch",
+                "reason": "cartridge_check" if recheck else "media_mismatch",
                 "message": (
                     (
-                        "The printer was opened or its tape changed. Is this still the correct cartridge?\n\n"
-                        if needs_check
+                        "The printer has been opened or the cartridge has changed. "
+                        f"Is it still “{cartridge.name}”?\n\n"
+                        if recheck
                         else "Is this the correct cartridge?\n\n"
                     )
                     + f"Printer: {request.app.state.registry.definition(state.printer_id).name}\n"
-                    + f"Selected: {cartridge.name} · {profile.name} · {profile.width_mm:g} mm\n"
-                    f"Detected: {hardware.media.description}\n\n"
+                    + (
+                        ""
+                        if recheck
+                        else f"Selected: {cartridge.name} · {profile.name} · {profile.width_mm:g} mm\n"
+                    )
+                    + f"Detected: {hardware.media.description}\n\n"
                     + (f"{mismatch}\n\n" if mismatch else "")
-                    + "Confirming uses the selected cartridge width for printing. "
-                    "Eligible queued labels may print."
+                    + (
+                        "Confirming uses the selected cartridge width for printing. "
+                        if mismatch
+                        else ""
+                    )
+                    + "Eligible queued labels may print."
                 ),
                 "confirmation": token,
             },

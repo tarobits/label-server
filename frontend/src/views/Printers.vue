@@ -123,7 +123,10 @@ async function install(id: string, event: Event) {
   const select = event.target as HTMLSelectElement
   const selected = select.value || null
   select.value = state(id)?.active_cartridge_id ?? ''
-  await w.action(() => installCartridge(id, selected), 'Installed cartridge updated.')
+  await w.action(
+    () => installCartridge(id, selected, { explicitSelection: true }),
+    'Installed cartridge updated.',
+  )
 }
 async function hold(id: string, held: boolean) {
   await w.action(

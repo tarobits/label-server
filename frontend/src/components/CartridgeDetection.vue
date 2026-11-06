@@ -4,10 +4,12 @@ import { useAuthStore } from '../auth'
 import { installCartridge } from '../cartridges'
 import { useWorkspaceStore } from '../workspace'
 import type { Status } from '../types'
+import { useRouter } from 'vue-router'
 
 const props = defineProps<{ status?: Status }>()
 const w = useWorkspaceStore()
 const auth = useAuthStore()
+const router = useRouter()
 const visible = computed(
   () =>
     props.status &&
@@ -21,7 +23,11 @@ async function confirm() {
   const status = props.status
   if (!status?.active_cartridge_id) return
   await w.action(
-    () => installCartridge(status.printer_id, status.active_cartridge_id),
+    () =>
+      installCartridge(status.printer_id, status.active_cartridge_id, {
+        chooseCartridge: () =>
+          router.push({ path: '/cartridges', query: { printer: status.printer_id } }),
+      }),
     'Cartridge confirmed. Eligible queued labels may now print.',
   )
 }

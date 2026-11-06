@@ -294,11 +294,53 @@ def test_cover_open_blocks_threshold_print_until_same_cartridge_is_confirmed(cli
     assert not any(data.startswith(b"\x1biz") for data in transport.writes)
     assert client.get(f"/api/jobs/{queued['id']}").json()["status"] == "queued"
     detail = challenge(client, cart)
-    assert "still the correct cartridge" in detail["message"]
+    assert detail["reason"] == "cartridge_check"
+    assert f"Is it still “{cart['name']}”?" in detail["message"]
     assert confirm(client, cart, detail["confirmation"]).status_code == 200
     assert not client.get("/api/status").json()["cartridge_check_pending"]
     worker.tick()
     assert client.get(f"/api/jobs/{queued['id']}").json()["status"] == "printed"
+
+
+@pytest.mark.parametrize("same", [False, True])
+def test_explicit_matching_selection_confirms_cover_change_without_second_prompt(client, same):
+    tape = profile(client, threshold=1)
+    current = cartridge(client, tape)
+    selected = current if same else cartridge(client, tape)
+    worker, transport = attach(client, media=1)
+    client.put("/api/printer/active-tape", json={"cartridge_id": current["id"]})
+    transport.errors = (0, 0x10)
+    worker.tick()
+    body = {"cartridge_id": selected["id"], "confirm_matching_cartridge": True}
+    assert client.put("/api/printer/active-tape", json=body).status_code == 409
+    transport.errors = (0, 0)
+    worker.tick()
+    queued = job(client, tape["id"])
+    assert client.get("/api/status").json()["cartridge_check_pending"]
+    response = client.put("/api/printer/active-tape", json=body)
+    assert response.status_code == 200, response.text
+    status = client.get("/api/status").json()
+    assert status["active_cartridge_id"] == selected["id"]
+    assert not status["cartridge_check_pending"]
+    worker.tick()
+    assert client.get(f"/api/jobs/{queued['id']}").json()["status"] == "printed"
+
+
+@pytest.mark.parametrize("width,media", [(12, 1), (24, 0xFF), (255, 1)])
+def test_explicit_selection_does_not_bypass_mismatched_or_unknown_media(client, width, media):
+    tape = profile(client)
+    cart = cartridge(client, tape)
+    attach(client, width=width, media=media)
+    response = client.put(
+        "/api/printer/active-tape",
+        json={
+            "cartridge_id": cart["id"],
+            "confirm_matching_cartridge": True,
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["reason"] == "media_mismatch"
+    assert client.get("/api/status").json()["active_cartridge_id"] is None
 
 
 def test_quick_cover_notifications_are_observed_and_pending_check_survives_restart(client):

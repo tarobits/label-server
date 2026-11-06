@@ -166,7 +166,7 @@ async function install(id: string | null) {
   const target = printerId.value
   const name = selectedPrinter.value?.name ?? 'printer'
   await w.action(
-    () => installCartridge(target, id),
+    () => installCartridge(target, id, { explicitSelection: true }),
     id
       ? `Cartridge installed in ${name}. Eligible queued labels may now print.`
       : `Cartridge removed from ${name}.`,
