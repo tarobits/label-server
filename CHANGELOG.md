@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.12.0-pre7] - 2026-11-06
+
+### Added
+
+- Add horizontal and vertical lines directly from the editor toolbar, with a
+  Horizontal/Vertical direction selector.
+
+### Changed
+
+- Lines use Length and Stroke controls. Selection bounds and distance-holder
+  spacing follow the visible stroke instead of an empty surrounding box.
+
+### Fixed
+
+- X/Y coordinates and Width/Height values follow the rotated bounding box in
+  Layout and template logic. Resizing one dimension preserves the other and the
+  top-left position.
+- Keep rotated objects aligned during positioning, resizing, dragging, and
+  snapping. Automatic text sizing protects the correct dimension after rotation.
+
+No new database migration is required when upgrading from 0.12.0-pre6.
+Review existing logic that positions or resizes rotated objects using the old
+unrotated axes. Use `stroke` to change line thickness; assignments to a line's
+cross-axis dimension are rejected. Existing queued prints retain their saved
+rendering geometry.
+
+Wait for the release frontend build to finish before using `--prebuilt-frontend`.
+Physical phone/tablet and printer verification of these changes is still pending.
+
 ## [0.12.0-pre6] - 2026-11-06
 
 ### Added
@@ -485,6 +514,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre7]: https://github.com/tarobits/label-server/compare/v0.12.0-pre6...v0.12.0-pre7
 [0.12.0-pre6]: https://github.com/tarobits/label-server/compare/v0.12.0-pre5...v0.12.0-pre6
 [0.12.0-pre5]: https://github.com/tarobits/label-server/compare/v0.12.0-pre4...v0.12.0-pre5
 [0.12.0-pre4]: https://github.com/tarobits/label-server/compare/v0.12.0-pre3...v0.12.0-pre4
