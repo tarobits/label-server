@@ -153,7 +153,7 @@ onUnmounted(() => {
         :key="`${selected.id}-${position}-${previewAttempt}`"
         :src="`/api/requests/${selected.id}/labels/${position}/preview${previewAttempt ? `?retry=${previewAttempt}` : ''}`"
         :alt="`Requested label ${position + 1}`"
-        :style="{ aspectRatio: `${label.length_mm} / ${label.width_mm}` }"
+        :style="{ '--label-ratio': label.length_mm / label.width_mm }"
         @error="previewFailed = true"
       />
       <p>
@@ -231,9 +231,11 @@ onUnmounted(() => {
   text-align: center;
 }
 .request-preview img {
-  max-width: 100%;
-  max-height: 320px;
-  object-fit: contain;
+  display: block;
+  width: min(100%, calc(320px * var(--label-ratio)));
+  height: auto;
+  aspect-ratio: var(--label-ratio);
+  margin-inline: auto;
   image-rendering: pixelated;
 }
 .request-preview .row {

@@ -13,6 +13,16 @@ defineExpose({ element: root })
 let bounds: { x: number; y: number; width: number; height: number } | undefined
 let animation: Animation | undefined
 let observer: ResizeObserver | undefined
+let childrenObserver: MutationObserver | undefined
+
+function observeItems() {
+  observer?.disconnect()
+  if (!root.value || !observer) return
+  observer.observe(root.value)
+  for (const child of root.value.children) {
+    if (child !== indicator.value) observer.observe(child)
+  }
+}
 
 function cancel() {
   animation?.cancel()
@@ -74,10 +84,17 @@ watch(reducedMotion, cancel)
 onMounted(() => {
   measure()
   observer = new ResizeObserver(() => measure())
-  if (root.value) observer.observe(root.value)
+  // Badges and loaded fonts can resize or move a tab without resizing the track.
+  observeItems()
+  childrenObserver = new MutationObserver(() => {
+    observeItems()
+    measure()
+  })
+  if (root.value) childrenObserver.observe(root.value, { childList: true })
 })
 onBeforeUnmount(() => {
   observer?.disconnect()
+  childrenObserver?.disconnect()
   cancel()
 })
 </script>
