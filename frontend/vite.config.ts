@@ -1,9 +1,29 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
+import { createHash } from 'node:crypto'
 export default defineConfig({
   plugins: [
     vue(),
+    {
+      name: 'app-build-identity',
+      apply: 'build',
+      transformIndexHtml: {
+        order: 'post',
+        handler(html) {
+          return [
+            {
+              tag: 'meta',
+              attrs: {
+                name: 'app-build',
+                content: createHash('sha256').update(html).digest('hex'),
+              },
+              injectTo: 'head',
+            },
+          ]
+        },
+      },
+    },
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',

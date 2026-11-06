@@ -2,6 +2,7 @@
 import {
   cleanupOutdatedCaches,
   createHandlerBoundToURL,
+  matchPrecache,
   precacheAndRoute,
 } from 'workbox-precaching'
 import type { PrecacheEntry } from 'workbox-precaching'
@@ -22,6 +23,20 @@ registerRoute(
 )
 
 self.addEventListener('message', (event) => {
+  if (event.data?.type === 'APP_BUILD' && event.ports[0]) {
+    const port = event.ports[0]
+    event.waitUntil(
+      (async () => {
+        try {
+          const html = await (await matchPrecache('/index.html'))?.text()
+          const build = html?.match(/<meta name="app-build" content="([^"]+)"/i)?.[1]
+          port.postMessage({ build: build ?? null })
+        } catch {
+          port.postMessage({ build: null })
+        }
+      })(),
+    )
+  }
   if (event.data?.type === 'SKIP_WAITING') event.waitUntil(self.skipWaiting())
   if (event.data?.type === 'CLEAR_NOTIFICATIONS') {
     event.waitUntil(

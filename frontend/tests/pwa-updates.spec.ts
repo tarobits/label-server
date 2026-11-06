@@ -22,10 +22,9 @@ const test = base.extend({
 
 async function publishUpdate(page: Page, directory: string, version: string) {
   const indexPath = join(directory, 'index.html')
-  const html = readFileSync(indexPath, 'utf8').replace(
-    /<html[^>]*>/,
-    `<html lang="en" data-test-build="${version}">`,
-  )
+  const html = readFileSync(indexPath, 'utf8')
+    .replace(/(<meta name="app-build" content=")[^"]+/, `$1test-${version}`)
+    .replace(/<html[^>]*>/, `<html lang="en" data-test-build="${version}">`)
   const revision = createHash('md5').update(html).digest('hex')
   writeFileSync(indexPath, html)
   const workerPath = join(directory, 'sw.js')
@@ -76,6 +75,55 @@ test('updates can be deferred and a newer build is offered again', async ({
   await notice.getByRole('button', { name: 'Reload', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-test-build', 'third')
   await expect(notice).not.toBeVisible()
+})
+
+test('worker-only changes do not announce an update to the already loaded app', async ({
+  page,
+  frontendDist,
+}) => {
+  await page.goto('/')
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined))
+  await page.reload()
+  const path = join(frontendDist, 'sw.js')
+  writeFileSync(path, readFileSync(path, 'utf8') + '\n// worker-only change\n')
+  await page.evaluate(async () => {
+    await (await navigator.serviceWorker.ready).update()
+  })
+  await expect
+    .poll(() => page.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting))
+    .toBe(true)
+  // Wait beyond the build handshake timeout, including any legacy fallback.
+  await page.waitForTimeout(2300)
+  await expect(page.getByRole('status', { name: 'App update', exact: true })).not.toBeVisible()
+  await page.evaluate(async () => {
+    const changed = new Promise<void>((resolve) =>
+      navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true }),
+    )
+    ;(await navigator.serviceWorker.ready).waiting!.postMessage({ type: 'SKIP_WAITING' })
+    await changed
+  })
+  await page.waitForTimeout(2300)
+  await expect(page.getByRole('status', { name: 'App update', exact: true })).not.toBeVisible()
+})
+
+test('deferring a build survives replacement by another worker for the same build', async ({
+  page,
+  frontendDist,
+}) => {
+  await page.goto('/')
+  await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined))
+  await page.reload()
+  await publishUpdate(page, frontendDist, 'second')
+  const notice = page.getByRole('status', { name: 'App update', exact: true })
+  await notice.getByRole('button', { name: 'Later' }).click()
+  const path = join(frontendDist, 'sw.js')
+  writeFileSync(path, readFileSync(path, 'utf8') + '\n// same app build\n')
+  await page.evaluate(async () => {
+    await (await navigator.serviceWorker.ready).update()
+  })
+  await page.waitForTimeout(2300)
+  await expect(notice).not.toBeVisible()
+  await publishUpdate(page, frontendDist, 'third')
 })
 
 test('updating another window never reloads an editor, and its reload guard can cancel', async ({

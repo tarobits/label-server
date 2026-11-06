@@ -10,11 +10,46 @@ export const showAppUpdate = computed(
 )
 let registration: ServiceWorkerRegistration | undefined
 let announcedWorker: ServiceWorker | null = null
+let announcedBuild: string | null = null
+let announcement = 0
 let checking: Promise<void> | undefined
 
-function announce(worker: ServiceWorker | null) {
-  if (!worker || worker === announcedWorker) return
+function workerBuild(worker: ServiceWorker): Promise<string | null> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel()
+    const timer = setTimeout(() => finish(null), 2000)
+    function finish(build: string | null) {
+      clearTimeout(timer)
+      channel.port1.close()
+      resolve(build)
+    }
+    channel.port1.onmessage = (event) =>
+      finish(typeof event.data?.build === 'string' ? event.data.build : null)
+    try {
+      worker.postMessage({ type: 'APP_BUILD' }, [channel.port2])
+    } catch {
+      finish(null)
+    }
+  })
+}
+
+async function announce(worker: ServiceWorker | null) {
+  if (!worker || worker === announcedWorker || worker.state === 'redundant') return
+  const ticket = ++announcement
+  const build = await workerBuild(worker)
+  if (ticket !== announcement || String(worker.state) === 'redundant') return
+  const currentBuild = document.querySelector<HTMLMetaElement>('meta[name="app-build"]')?.content
+  if (build && build === currentBuild) {
+    announcedWorker = worker
+    announcedBuild = build
+    updateAvailable.value = false
+    return
+  }
   announcedWorker = worker
+  // Different worker objects can represent the same app build after an iOS
+  // resume or another window's activation. Preserve "Later" for that build.
+  if (build && build === announcedBuild) return
+  announcedBuild = build
   dismissed.value = false
   updateAvailable.value = true
 }
