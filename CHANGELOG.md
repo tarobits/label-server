@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.12.0-pre6] - 2026-11-06
+
+### Added
+
+- Property inputs in template logic, available as visual nodes and source expressions.
+  Reads follow other bindings, support intermediate variables, and reject circular
+  dependencies. The built-in reference explains the new behavior.
+- Requeue individual confirmed prints from Activity to print another exact copy
+  using the saved label and original printer.
+
+### Changed
+
+- Automatic text widths are measured before logic runs. Automatically sized
+  dimensions have disabled assignment inlets; manual bindings are preserved when
+  switching sizing modes. Automatic label length still follows the final layout
+  and is not available as a logic input.
+- Cartridge rechecks name the previous cartridge and offer options to confirm it,
+  open cartridge management, or choose later. Deliberately selecting a matching
+  cartridge no longer prompts again.
+
+### Fixed
+
+- Keep mobile navigation highlights aligned when badges and layout sizes change.
+- Preserve label proportions in print-request and logic-editor previews.
+- Prevent accidental text selection on logic nodes and controls while keeping
+  text fields, source, and documentation selectable.
+- Avoid app-update prompts for the same frontend build and preserve deferred
+  updates when the waiting service worker is replaced.
+
+No new database migration is required when upgrading from 0.12.0-pre5.
+Templates using property inputs require this version or newer. Existing logic
+that assigns automatic text width or uses intermediate text tokens with automatic
+width must be adjusted to the new sizing order; see the template logic guide.
+Wait for the release frontend build to finish before using `--prebuilt-frontend`.
+
+Physical verification of the new property inputs and the iPhone PWA fixes is
+still pending. Both subtitle branches and saved-layout preservation from pre3
+have been verified on a printer.
+
 ## [0.12.0-pre5] - 2026-11-05
 
 ### Added
@@ -64,7 +103,10 @@ upgrade a template to version 2, which older servers cannot read. Back up the
 database before upgrading if rollback may be needed. No new database migration is
 required when upgrading from 0.12.0-pre2.
 
-Physical phone/tablet and printer verification is still pending for this feature.
+Physical verification update (2026-11-06): both conditional subtitle branches and
+saved-label layout preservation after template edits were successfully printed.
+Phone editing also passed, with occasional accidental text selection reported.
+Tablet editing and the remaining print scenarios still need physical verification.
 
 ## [0.12.0-pre2] - 2026-11-04
 
@@ -443,6 +485,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0-pre6]: https://github.com/tarobits/label-server/compare/v0.12.0-pre5...v0.12.0-pre6
 [0.12.0-pre5]: https://github.com/tarobits/label-server/compare/v0.12.0-pre4...v0.12.0-pre5
 [0.12.0-pre4]: https://github.com/tarobits/label-server/compare/v0.12.0-pre3...v0.12.0-pre4
 [0.12.0-pre3]: https://github.com/tarobits/label-server/compare/v0.12.0-pre2...v0.12.0-pre3
