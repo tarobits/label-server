@@ -32,7 +32,7 @@ def rendering_spec(
 ) -> RenderSpec:
     with request.app.state.factory() as session:
         authoring = request.url.path == "/api/preview" or request.url.path.startswith(
-            "/api/templates"
+            ("/api/templates", "/api/logic/")
         )
         destination_id = rendering_destination(
             request, session, destination_id, allow_unassigned=authoring

@@ -9,6 +9,7 @@ export type VariableValue = string | number | boolean | ImageValue | null
 export type Expression = (
   | { kind: 'literal'; value: VariableValue }
   | { kind: 'reference'; name: string }
+  | { kind: 'property'; target: string; property: string }
   | { kind: 'call'; operation: string; arguments: Expression[] }
 ) & { node_id?: string | null; span?: { start: number; end: number } | null }
 export interface LogicProgram {
@@ -18,7 +19,7 @@ export interface LogicProgram {
 }
 export interface LogicNode {
   id: string
-  kind: 'input' | 'literal' | 'call' | 'variable' | 'output'
+  kind: 'input' | 'property' | 'literal' | 'call' | 'variable' | 'output'
   x: number
   y: number
   type: ValueType

@@ -315,10 +315,12 @@ def resolve_layout(
     spec: RenderSpec,
     fonts: FontStore | None = None,
     warnings: list[str] | None = None,
+    *,
+    measure_hidden: bool = False,
 ) -> TemplateDocument:
     resolved = document.model_copy(deep=True)
     for element in resolved.elements:
-        if element.visible and element.kind == "text" and element.auto_width:
+        if (element.visible or measure_hidden) and element.kind == "text" and element.auto_width:
             content = (
                 element.content
                 if element.literal_content
@@ -456,6 +458,48 @@ def artwork_bounds(
     )
 
 
+def measure_logic_layout(
+    document: TemplateDocument,
+    data: Mapping[str, object],
+    spec: RenderSpec,
+    *,
+    samples: bool = False,
+    fonts: FontStore | None = None,
+    allow_missing_assets: bool = False,
+    warnings: list[str] | None = None,
+) -> TemplateDocument:
+    """Measure automatic sizes from template inputs before evaluating logic."""
+    from app.logic_engine import resolve_inputs
+    from app.logic_schema import ImageValue
+    from app.template_logic import display_value, logic_fields
+
+    inputs = resolve_inputs(logic_fields(document), data, samples=samples)
+    values = {
+        name: display_value(value)
+        for name, value in inputs.items()
+        if not isinstance(value, ImageValue)
+    }
+    source = document.model_copy(deep=True)
+    # Label length is fitted only after logic and is not a readable input while
+    # automatic length is enabled. This pass measures object geometry only.
+    source.auto_length = False
+    for element in source.elements:
+        if element.kind != "text" or not element.auto_width:
+            continue
+        if not element.literal_content and any(
+            name not in values for name in TOKEN.findall(element.content)
+        ):
+            raise ValueError(
+                "Automatic text width needs template inputs; logic intermediates are calculated after sizing. Use a fixed width for this text."
+            )
+        if allow_missing_assets:
+            try:
+                font_path(element, fonts)
+            except ValueError:
+                element.auto_width = False
+    return resolve_layout(source, values, spec, fonts, warnings=warnings, measure_hidden=True)
+
+
 def render_document(
     document: TemplateDocument,
     data: Mapping[str, object],
@@ -466,10 +510,25 @@ def render_document(
     allow_missing_assets: bool = False,
 ) -> RenderOutput:
     resolved_inputs = None
+    layout_warnings: list[str] = []
+    automatic_length = document.auto_length
+    template_padding = 0.0
     if document.version == 2:
         from app.template_logic import resolve_logic
 
-        document, evaluation = resolve_logic(document, data, samples=samples)
+        measured = measure_logic_layout(
+            document,
+            data,
+            spec,
+            samples=samples,
+            fonts=fonts,
+            allow_missing_assets=allow_missing_assets,
+            warnings=layout_warnings,
+        )
+        document, evaluation = resolve_logic(document, data, samples=samples, measured=measured)
+        # Text widths are fixed before logic. The physical label still fits the
+        # final positions and visibility afterward.
+        document.auto_length = automatic_length
         resolved_inputs = evaluation.inputs
         values = {}
     else:
@@ -496,12 +555,9 @@ def render_document(
     if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
         raise ValueError("The selected printer does not support this physical tape width")
     printable_top, printable_bottom = printable_vertical_bounds(document.width_mm, spec)
-    layout_warnings: list[str] = []
-    automatic_length = document.auto_length
     document = resolve_layout(document, values, spec, fonts, warnings=layout_warnings)
-    template_padding = (
-        max(0, 10 - fitted_length(document, spec.margin_mm)) if automatic_length else 0
-    )
+    if automatic_length:
+        template_padding = max(0, 10 - fitted_length(document, spec.margin_mm))
     font_files = [str(FONT_DIR / "NotoSans.ttf"), str(FONT_DIR / "NotoSans-Bold.ttf")]
     font_files.extend(
         sorted(

@@ -634,6 +634,13 @@ function changeAutomaticLength() {
     )
   record()
 }
+function changeAutomaticWidth() {
+  if (selected.value?.auto_width && document.value.logic)
+    document.value.logic.bindings = document.value.logic.bindings.filter(
+      (binding) => !(binding.target === selected.value?.id && binding.property === 'width'),
+    )
+  record()
+}
 function setManualLength(event: Event) {
   if (!document.value.auto_length)
     document.value.length_mm = Number((event.target as HTMLInputElement).value)
@@ -1572,8 +1579,11 @@ onUnmounted(() => {
             </template>
             <template v-if="selected.kind === 'text'">
               <label class="checkbox"
-                ><input v-model="selected.auto_width" type="checkbox" @change="record" />Fit text
-                box width to content</label
+                ><input
+                  v-model="selected.auto_width"
+                  type="checkbox"
+                  @change="changeAutomaticWidth"
+                />Fit text box width to content</label
               >
               <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
             </template>
@@ -1659,7 +1669,10 @@ onUnmounted(() => {
   <LogicWorkspace
     v-if="ready && w.profiles.length"
     :document="document"
+    :destination-id="w.selectedPrinter || undefined"
     :preview="preview?.design_png"
+    :preview-length-mm="preview?.length_mm"
+    :preview-width-mm="preview?.width_mm"
     :preview-error="error"
     :disabled="!editable || w.busy"
     @apply="applyLogic"

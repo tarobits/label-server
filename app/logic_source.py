@@ -22,6 +22,7 @@ from app.logic_schema import (
     LiteralExpression,
     LogicInput,
     Program,
+    PropertyExpression,
     ReferenceExpression,
     Span,
     Target,
@@ -155,7 +156,20 @@ class Parser:
         elif token.kind == "name":
             if not _SYMBOL.fullmatch(token.text):
                 raise LogicError("Identifier exceeds 40 characters", offset=start)
-            if self.token.text == "(":
+            if self.token.text == ".":
+                self.take()
+                property_name = self.name()
+                target = self.targets.get(token.text)
+                if target is None:
+                    raise LogicError(f"Unknown property target {token.text}", offset=start)
+                left = self.count(
+                    PropertyExpression(
+                        target=target.id,
+                        property=property_name.text,
+                        span=Span(start=start, end=property_name.end),
+                    )
+                )
+            elif self.token.text == "(":
                 self.take()
                 arguments: list[Expression] = []
                 if self.token.text != ")":
@@ -268,6 +282,8 @@ def format_source(program: Program, fields: list[LogicInput], targets: dict[str,
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
         if isinstance(expression, ReferenceExpression):
             return expression.name
+        if isinstance(expression, PropertyExpression):
+            return f"{aliases[expression.target]}.{expression.property}"
         args = [source(argument) for argument in expression.arguments]
         if expression.operation in INFIX_SYMBOLS:
             return f"({args[0]} {INFIX_SYMBOLS[expression.operation]} {args[1]})"

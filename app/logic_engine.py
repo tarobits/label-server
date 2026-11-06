@@ -19,6 +19,7 @@ from app.logic_schema import (
     LiteralExpression,
     LogicInput,
     Program,
+    PropertyExpression,
     ReferenceExpression,
     Target,
     Value,
@@ -163,7 +164,22 @@ def validate_program(
     target_ids = {target.id: target for target in targets.values()}
     if len(target_ids) != len(targets):
         raise LogicError("Target IDs must be unique")
+    aliases = {target.id: alias for alias, target in targets.items()}
+    bindings = {}
+    for binding in program.bindings:
+        target = target_ids.get(binding.target)
+        if target is None or binding.property not in target.properties:
+            raise LogicError(
+                f"Unknown target property {binding.target}.{binding.property}", binding.expression
+            )
+        if reason := target.disabled_properties.get(binding.property):
+            raise LogicError(reason, binding.expression)
+        key = (binding.target, binding.property)
+        if key in bindings:
+            raise LogicError("A property may only be bound once", binding.expression)
+        bindings[key] = binding
     visiting: set[str] = set()
+    property_types: dict[tuple[str, str], ResolvedType] = {}
     heights: dict[int, int] = {}
     source_sizes: dict[int, int] = {}
     nodes = 0
@@ -203,6 +219,29 @@ def validate_program(
             definition = program.variables.get(expression.name)
             remember_height(expression, heights[id(definition)] + 1 if definition else 0)
             source_sizes[id(expression)] = len(expression.name)
+            return result
+        if isinstance(expression, PropertyExpression):
+            target = target_ids.get(expression.target)
+            readable = (
+                (
+                    target.readable_properties
+                    if target.readable_properties is not None
+                    else target.properties
+                )
+                if target
+                else {}
+            )
+            if expression.property not in readable:
+                raise LogicError(
+                    f"Property {aliases.get(expression.target, expression.target)}.{expression.property} cannot be read during logic",
+                    expression,
+                )
+            result = infer_property(expression.target, expression.property, depth, expression)
+            binding = bindings.get((expression.target, expression.property))
+            remember_height(expression, heights[id(binding.expression)] + 1 if binding else 0)
+            source_sizes[id(expression)] = (
+                len(aliases[expression.target]) + 1 + len(expression.property)
+            )
             return result
         operation = OPERATIONS.get(expression.operation)
         if operation is None:
@@ -244,24 +283,39 @@ def validate_program(
             raise LogicError(f"{operation.name} requires {required} arguments", expression)
         return "number" if operation.signature == "numeric" else "boolean"
 
+    def infer_property(
+        target_id: str, name: str, depth: int, expression: Expression
+    ) -> ResolvedType:
+        key = (target_id, name)
+        marker = f"property:{target_id}.{name}"
+        if marker in visiting:
+            raise LogicError(
+                f"Circular dependency involving {aliases[target_id]}.{name}", expression
+            )
+        if key in property_types:
+            return property_types[key]
+        binding = bindings.get(key)
+        target = target_ids[target_id]
+        if binding is None:
+            readable = (
+                target.readable_properties
+                if target.readable_properties is not None
+                else target.properties
+            )
+            return readable[name]
+        visiting.add(marker)
+        result_type = infer(binding.expression, depth + 1)
+        visiting.remove(marker)
+        expected = target.properties[name]
+        if result_type != expected and not (expected == "image" and result_type == "null"):
+            raise LogicError(f"{name} requires a {expected} value", binding.expression)
+        property_types[key] = expected
+        return expected
+
     for name, expression in program.variables.items():
         reference(name, expression, -1)
-    bound: set[tuple[str, str]] = set()
     for binding in program.bindings:
-        target = target_ids.get(binding.target)
-        if target is None or binding.property not in target.properties:
-            raise LogicError(
-                f"Unknown target property {binding.target}.{binding.property}", binding.expression
-            )
-        key = (binding.target, binding.property)
-        if key in bound:
-            raise LogicError("A property may only be bound once", binding.expression)
-        bound.add(key)
-        result_type = infer(binding.expression)
-        expected = target.properties[binding.property]
-        if result_type != expected and not (expected == "image" and result_type == "null"):
-            raise LogicError(f"{binding.property} requires a {expected} value", binding.expression)
-    aliases = {target.id: alias for alias, target in targets.items()}
+        infer_property(binding.target, binding.property, -1, binding.expression)
     lines = [
         8 + len(name) + source_sizes[id(expression)]
         for name, expression in program.variables.items()
@@ -315,11 +369,42 @@ def evaluate_program(
     data: Mapping[str, object],
     *,
     samples: bool = False,
+    property_values: Mapping[str, Mapping[str, Value]] | None = None,
 ) -> Evaluation:
     validate_program(program, fields, targets)
     inputs = resolve_inputs(fields, data, samples=samples)
     variables: dict[str, Value] = {}
+    bindings = {(binding.target, binding.property): binding for binding in program.bindings}
+    resolved_properties: dict[tuple[str, str], Value] = {}
+    target_ids = {target.id: target for target in targets.values()}
     steps = 0
+
+    def property_value(target: str, name: str, expression: Expression, depth: int) -> Value:
+        key = (target, name)
+        if key in resolved_properties:
+            return resolved_properties[key]
+        binding = bindings.get(key)
+        if binding is not None:
+            value = evaluate(binding.expression, depth + 1)
+            expected = target_ids[target].properties[name]
+        else:
+            available = (property_values or {}).get(target, {})
+            if name not in available:
+                raise LogicError(f"No saved value for property {target}.{name}", expression)
+            value = available[name]
+            definition = target_ids[target]
+            expected = (
+                definition.readable_properties
+                if definition.readable_properties is not None
+                else definition.properties
+            )[name]
+        bounded_value(value)
+        if value_type(value) != expected and not (
+            value is None and (expected == "image" or binding is None)
+        ):
+            raise LogicError(f"{name} requires a present {expected} value", expression)
+        resolved_properties[key] = value
+        return value
 
     def evaluate(expression: Expression, depth: int = 0) -> Value:
         nonlocal steps
@@ -334,6 +419,8 @@ def evaluate_program(
             if expression.name not in variables:
                 variables[expression.name] = evaluate(program.variables[expression.name], depth + 1)
             return variables[expression.name]
+        if isinstance(expression, PropertyExpression):
+            return property_value(expression.target, expression.property, expression, depth)
         operation, args = expression.operation, expression.arguments
         first = evaluate(args[0], depth + 1)
         if operation == "filled":
@@ -379,13 +466,7 @@ def evaluate_program(
         if name not in variables:
             variables[name] = evaluate(expression)
     properties: dict[str, dict[str, Value]] = {}
-    target_ids = {target.id: target for target in targets.values()}
     for binding in program.bindings:
-        value = evaluate(binding.expression)
-        expected = target_ids[binding.target].properties[binding.property]
-        if value_type(value) != expected and not (expected == "image" and value is None):
-            raise LogicError(
-                f"{binding.property} requires a present {expected} value", binding.expression
-            )
+        value = property_value(binding.target, binding.property, binding.expression, -1)
         properties.setdefault(binding.target, {})[binding.property] = value
     return Evaluation(inputs=inputs, variables=variables, properties=properties)

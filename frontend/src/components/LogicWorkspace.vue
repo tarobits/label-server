@@ -28,6 +28,7 @@ import {
   compileGraph,
   defaultValue,
   inputType,
+  automaticOutput,
   loadGraph,
   makeNode,
   nodeType,
@@ -47,10 +48,20 @@ import {
 
 const props = defineProps<{
   document: TemplateDocument
+  destinationId?: string
   disabled?: boolean
   preview?: string
+  previewLengthMm?: number
+  previewWidthMm?: number
   previewError?: string
 }>()
+const previewGeometry = computed(() => ({
+  '--label-ratio':
+    (props.previewLengthMm ?? props.document.length_mm) /
+    (props.previewWidthMm ?? props.document.width_mm),
+}))
+const logicEndpoint = (name: string) =>
+  `/logic/${name}${props.destinationId ? `?destination_id=${encodeURIComponent(props.destinationId)}` : ''}`
 const emit = defineEmits<{ apply: [document: TemplateDocument]; blocked: [blocked: boolean] }>()
 const mode = ref<'nodes' | 'source'>('nodes'),
   sourceMounted = ref(false),
@@ -115,7 +126,14 @@ const fallbackFields = computed(
 )
 const target = ref('label'),
   property = ref('length_mm')
-const availableProperties = computed(() => catalog.value?.targets[target.value]?.properties ?? {})
+const writableProperties = computed(() => catalog.value?.targets[target.value]?.properties ?? {})
+const readableProperties = computed(
+  () => catalog.value?.targets[target.value]?.readable_properties ?? writableProperties.value,
+)
+const availableProperties = computed(() => ({
+  ...writableProperties.value,
+  ...readableProperties.value,
+}))
 watch(target, () => {
   property.value = Object.keys(availableProperties.value)[0] ?? ''
 })
@@ -158,7 +176,7 @@ async function initialize() {
   loading.value = true
   try {
     const document = upgraded()
-    const result = await api<LogicCatalog>('/logic/inspect', 'POST', document)
+    const result = await api<LogicCatalog>(logicEndpoint('inspect'), 'POST', document)
     if (stopped || ticket !== sequence) return
     catalog.value = result
     if (!sourceDirty.value) {
@@ -187,6 +205,12 @@ function toggle() {
   open.value = !open.value
   if (open.value && !catalog.value) void initialize()
 }
+watch(
+  () => props.destinationId,
+  () => {
+    if (catalog.value) void initialize()
+  },
+)
 watch(
   () => props.document,
   () => {
@@ -226,7 +250,7 @@ async function apply() {
     document.logic = compileGraph(state.value.nodes, document)
     validateGraphTypes(state.value.nodes, catalog.value!)
     document.logic_editor = clone(state.value)
-    const result = await api<LogicCatalog>('/logic/inspect', 'POST', document)
+    const result = await api<LogicCatalog>(logicEndpoint('inspect'), 'POST', document)
     if (stopped || ticket !== sequence) return
     state.value.source =
       semanticProgram(document.logic) === semanticProgram(props.document.logic)
@@ -282,13 +306,15 @@ function nodeHelp(node: LogicNode) {
   showReference(
     node.kind === 'call'
       ? `operation:${node.operation}`
-      : node.kind === 'output'
-        ? `property:${node.property}`
-        : node.kind === 'input'
-          ? `input:${node.name}`
-          : node.kind === 'variable'
-            ? 'variables'
-            : `type:${node.type}`,
+      : node.kind === 'property'
+        ? 'property-inputs'
+        : node.kind === 'output'
+          ? `property:${node.property}`
+          : node.kind === 'input'
+            ? `input:${node.name}`
+            : node.kind === 'variable'
+              ? 'variables'
+              : `type:${node.type}`,
   )
 }
 function editSource(text: string) {
@@ -306,7 +332,7 @@ async function compileSource() {
     source = sourceText.value
   try {
     const document = upgraded()
-    const result = await api<CompileResult>('/logic/compile', 'POST', { document, source })
+    const result = await api<CompileResult>(logicEndpoint('compile'), 'POST', { document, source })
     if (stopped || ticket !== sourceSequence) return
     if (!result.valid || !result.program || !result.catalog) {
       sourceDiagnostics.value = result.diagnostics
@@ -321,7 +347,7 @@ async function compileSource() {
     graph.source = source
     document.logic_editor = graph
     // Validate retained draft nodes/assets and the editor size limit before committing.
-    await api<LogicCatalog>('/logic/inspect', 'POST', document)
+    await api<LogicCatalog>(logicEndpoint('inspect'), 'POST', document)
     if (stopped || ticket !== sourceSequence) return
     state.value = graph
     catalog.value = { ...result.catalog, source }
@@ -412,8 +438,14 @@ function add(kind: 'literal' | 'call' | 'variable', name: string) {
   palette.value = false
   changed()
 }
+function disabledOutput(node: LogicNode): string | undefined {
+  return node.kind === 'output'
+    ? Object.values(catalog.value?.targets ?? {}).find((target) => target.id === node.target)
+        ?.disabled_properties?.[node.property!]
+    : undefined
+}
 function addOutput() {
-  if (graphLocked.value || !catalog.value || !property.value) return
+  if (graphLocked.value || !catalog.value || !writableProperties.value[property.value]) return
   const targetId = catalog.value.targets[target.value]!.id
   const existing = state.value.nodes.find(
     (node) =>
@@ -446,6 +478,26 @@ function addOutput() {
   palette.value = false
   // An explicit length is activated only by choosing manual sizing in the editor.
   changed()
+}
+function addPropertyInput() {
+  if (graphLocked.value || !catalog.value || !readableProperties.value[property.value]) return
+  const targetId = catalog.value.targets[target.value]!.id
+  let node = state.value.nodes.find(
+    (node) =>
+      node.kind === 'property' && node.target === targetId && node.property === property.value,
+  )
+  if (!node) {
+    node = makeNode('property', state.value, {
+      target: targetId,
+      property: property.value,
+      type: readableProperties.value[property.value],
+    })
+    place(node)
+    changed()
+  }
+  selectedId.value = node.id
+  frame(node)
+  palette.value = false
 }
 function disconnect(node: LogicNode, index: number) {
   if (graphLocked.value) return
@@ -506,7 +558,7 @@ function label(node: LogicNode) {
   if (node.kind === 'literal') return `${title(node.type)} value`
   if (node.kind === 'call') return title(node.operation ?? '')
   const element = props.document.elements.find((element) => element.id === node.target)
-  return `${node.target === 'label' ? 'Label' : (element?.logic_name ?? node.target)}.${node.property}`
+  return `${node.kind === 'property' ? 'Read ' : ''}${node.target === 'label' ? 'Label' : (element?.logic_name ?? node.target)}.${node.property}`
 }
 function typeOf(node: LogicNode, depth = 0): SocketType {
   const type = catalog.value ? nodeType(node, state.value.nodes, catalog.value) : node.type
@@ -885,7 +937,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="field-row">
                   <label
-                    >Output target<select v-model="target">
+                    >Property target<select v-model="target">
                       <option
                         v-for="alias in Object.keys(catalog.targets)"
                         :key="alias"
@@ -902,7 +954,15 @@ onBeforeUnmount(() => {
                       </option>
                     </select></label
                   >
-                  <button :disabled="!property" @click="addOutput">Bind property</button>
+                  <button :disabled="!readableProperties[property]" @click="addPropertyInput">
+                    Read property
+                  </button>
+                  <button
+                    :disabled="!writableProperties[property] || property === 'auto_width'"
+                    @click="addOutput"
+                  >
+                    Bind property
+                  </button>
                 </div>
               </div>
             </ExpandableContent>
@@ -934,7 +994,7 @@ onBeforeUnmount(() => {
                     class="logic-node"
                     :class="{
                       selected: selectedId === node.id,
-                      inactive: node.target === 'label' && document.auto_length,
+                      inactive: automaticOutput(node, document),
                     }"
                     :style="{ left: `${node.x}px`, top: `${node.y}px` }"
                     :aria-label="label(node)"
@@ -953,12 +1013,18 @@ onBeforeUnmount(() => {
                       <span class="node-value">{{
                         node.kind === 'input'
                           ? displayValue(catalog.values[node.name!] ?? null)
-                          : displayValue(node.value ?? null) || title(node.type)
+                          : node.kind === 'property'
+                            ? displayValue(
+                                catalog.property_values?.[node.target!]?.[node.property!] ?? null,
+                              )
+                            : displayValue(node.value ?? null) || title(node.type)
                       }}</span>
                     </div>
                     <div v-for="(source, index) in node.inputs" :key="index" class="node-port-row">
                       <LogicSocket
                         :type="portType(node, index)"
+                        :disabled="!!disabledOutput(node)"
+                        :title="disabledOutput(node)"
                         :label="`${label(node)} ${socketLabel(node, index)} input (${portType(node, index)})`"
                         :node="node.id"
                         :port="index"
@@ -991,10 +1057,8 @@ onBeforeUnmount(() => {
                     <small v-if="node.kind === 'variable'" class="node-result">{{
                       displayValue(catalog.values[node.name!] ?? null)
                     }}</small>
-                    <small
-                      v-if="node.target === 'label' && document.auto_length"
-                      class="node-result"
-                      >Inactive · automatic length</small
+                    <small v-if="automaticOutput(node, document)" class="node-result"
+                      >Inactive · automatic sizing</small
                     >
                   </article>
                 </TransitionGroup>
@@ -1073,7 +1137,7 @@ onBeforeUnmount(() => {
                           v-model="selected.defaults[index]"
                           :field="fallbackFields[index]!"
                           :label="socketLabel(selected, index)"
-                          :disabled="graphLocked"
+                          :disabled="graphLocked || !!disabledOutput(selected)"
                           :nullable="allowsNull(selected, index)"
                           @change="changed"
                         />
@@ -1092,6 +1156,7 @@ onBeforeUnmount(() => {
                 <img
                   v-if="preview"
                   :src="preview"
+                  :style="previewGeometry"
                   alt="Logic label preview"
                   class="logic-preview"
                 />
@@ -1126,7 +1191,12 @@ onBeforeUnmount(() => {
                 @help="showReference"
               />
               <div class="source-preview">
-                <img v-if="preview" :src="preview" alt="Source label preview" />
+                <img
+                  v-if="preview"
+                  :src="preview"
+                  :style="previewGeometry"
+                  alt="Source label preview"
+                />
                 <p v-if="previewError || catalog.sample_error" class="alert danger" role="alert">
                   {{ previewError || catalog.sample_error }}
                 </p>
@@ -1154,6 +1224,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.logic-canvas,
+.logic-workspace button {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .logic-modes {
   justify-content: space-between;
   margin-top: 16px;
@@ -1185,9 +1260,12 @@ onBeforeUnmount(() => {
   min-height: 60vh;
   max-height: 75vh;
 }
-.source-preview img {
-  max-width: 100%;
-  max-height: 140px;
+.source-preview img,
+.logic-preview {
+  display: block;
+  width: min(100%, calc(140px * var(--label-ratio)));
+  height: auto;
+  aspect-ratio: var(--label-ratio);
 }
 .logic-heading {
   display: flex;
@@ -1361,7 +1439,6 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 .logic-preview {
-  width: 100%;
   margin-top: 12px;
   image-rendering: pixelated;
 }

@@ -7,6 +7,7 @@ defineProps<{
   connected: boolean
   node: string
   port: number
+  disabled?: boolean
 }>()
 defineEmits<{ choose: []; start: [event: PointerEvent] }>()
 </script>
@@ -14,6 +15,7 @@ defineEmits<{ choose: []; start: [event: PointerEvent] }>()
   <button
     type="button"
     class="logic-socket"
+    :disabled="disabled"
     :class="[`socket-${type}`, { connected }]"
     :aria-label="label"
     :aria-pressed="selected"
@@ -49,6 +51,10 @@ defineEmits<{ choose: []; start: [event: PointerEvent] }>()
   fill: var(--surface-deepest);
   stroke: currentColor;
   stroke-width: 2;
+}
+.logic-socket:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .socket-text {
   color: var(--ink);

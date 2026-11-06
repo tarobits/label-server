@@ -41,7 +41,9 @@ async function add(workspace: Locator, name: string) {
 }
 async function output(workspace: Locator, target: string, property: string) {
   await workspace.getByRole('button', { name: 'Add node', exact: true }).click()
-  await workspace.getByRole('combobox', { name: 'Output target', exact: true }).selectOption(target)
+  await workspace
+    .getByRole('combobox', { name: 'Property target', exact: true })
+    .selectOption(target)
   await workspace.getByRole('combobox', { name: 'Property', exact: true }).selectOption(property)
   await workspace.getByRole('button', { name: 'Bind property', exact: true }).click()
   await settled(workspace)
@@ -170,7 +172,7 @@ test('socket cancellation, incompatible types, cycles, dragging and length modes
   await expect(page.getByLabel('Label length (mm)', { exact: true })).toBeDisabled()
   await page.getByLabel('Automatic label length', { exact: true }).check()
   await settled(workspace)
-  await expect(workspace.getByText('Inactive · automatic length', { exact: true })).toBeVisible()
+  await expect(workspace.getByText('Inactive · automatic sizing', { exact: true })).toBeVisible()
   await save(page, 3)
   let saved = await (await request.get(`/api/templates/${original.id}`)).json()
   expect(saved.document.logic.bindings).toHaveLength(0)

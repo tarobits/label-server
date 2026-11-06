@@ -77,7 +77,7 @@ export async function api<T>(
       '/logic/compile',
       '/runs/inspect',
       '/admin/access-preview',
-    ].includes(path)
+    ].includes(path.split('?')[0]!)
   const options: RequestInit = {
     method,
     credentials: 'same-origin',

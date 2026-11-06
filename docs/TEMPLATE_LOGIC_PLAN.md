@@ -3,9 +3,13 @@
 Status: language, backend integration, typed input forms, the visual node workspace,
 IDE-style source editing, and searchable reference are implemented. Version 1
 remains supported; typed variables or saved node edits upgrade a template to
-version 2. Automated regression checks are complete. Physical phone/tablet and
-printer verification remain. Release notes and version metadata are prepared for
-`0.12.0-pre3`.
+version 2. Automated regression checks are complete. Physical printing of the
+conditional subtitle example and saved-layout preservation after template edits
+have been verified. Phone editing also passed, with accidental text selection
+reported. Tablet editor interactions and the remaining physical print scenarios
+still need verification. The initial feature shipped in `0.12.0-pre3`; property
+inputs and the revised sizing order are implemented as a follow-up and still need
+physical print verification.
 
 ## Agreed scope
 
@@ -26,9 +30,11 @@ printer verification remain. Release notes and version metadata are prepared for
 Version 1 documents continue to render unchanged. Version 2 will introduce typed
 inputs and a data-only expression tree: literals, references, and whitelisted
 operations. Intermediate variables form a directed acyclic dependency graph.
-Property bindings are outputs; they cannot read other output properties. Duplicate
+Properties can also be inputs. Reads follow other property bindings in dependency
+order, falling back to measured template values for unbound properties. Duplicate
 outputs, undefined references, circular dependencies, and incompatible types are
-errors. Branches must have compatible types; conditions must be booleans.
+errors. Automatic label length is excluded from inputs and fits the final layout.
+Branches must have compatible types; conditions must be booleans.
 
 Example source:
 
@@ -66,10 +72,12 @@ there is no automatic downloading of URLs or reading filesystem paths.
 ## Layout semantics
 
 1. Validate and resolve typed inputs.
-2. Evaluate intermediate values and property bindings.
-3. Validate final element properties and applicable geometry constraints.
-4. Resolve text sizing and distance holders.
-5. Compute automatic label length, when selected, from visible elements.
+2. Measure automatic text widths. Automatic label length is not a logic input.
+3. Evaluate intermediate values and property bindings in dependency order; property
+   reads use other bindings or the measured template value. Reject cycles and
+   assignments to automatic dimensions. Automatic width configuration is read-only.
+4. Validate final properties and resolve distance-holder positions.
+5. Fit automatic label length to the final visible layout. Text widths stay measured.
 6. Apply printable-area checks and render.
 
 Visibility is explicit: hidden elements do not print or extend automatic length.
@@ -123,8 +131,27 @@ defaults. Existing ownership, approval attribution, and usage accounting remain 
 6. **End-to-end validation — automated checks complete.** Cross-editor equivalence,
    simulated narrow-screen/touch interactions, keyboard access, ownership/asset
    boundaries, saved jobs/retries, and user documentation are checked. Physical
-   phone/tablet editing and representative printed labels still need verification.
+   subtitle printing and saved-layout preservation have also been verified;
+   phone editing also passed. Tablet editing and the other representative print
+   scenarios remain.
    Prepare release notes and logical commits, and publish, only when requested.
+
+## Physical verification — 2026-11-06
+
+User-reported checks:
+
+- The original conditional subtitle example printed successfully with both
+  filled and empty subtitles.
+- After two text fields were swapped in the template, the previously saved label
+  still printed its original layout.
+- An initial print failure was resolved by fully inserting the tape cartridge.
+- Phone editing worked, with occasional accidental text selection. Selection is
+  now disabled on the node canvas and workspace buttons; verification of this fix
+  on the physical phone is pending. Inputs, source code, and reference text retain
+  normal selection.
+
+These checks do not yet cover all input types, automatic label length, CSV and
+approval paths, or physical tablet editor interactions.
 
 ## Acceptance checks
 
@@ -217,6 +244,14 @@ defaults. Existing ownership, approval attribution, and usage accounting remain 
   were reviewed. Physical device/print verification remains before release.
 
 ## Implemented version 2 API contract
+
+Property-input follow-up: visual read nodes and source expressions share typed,
+dependency-ordered evaluation with cycle rejection. Automatic text widths are
+measured before logic, including hidden objects; automatic label length fits the
+final layout and cannot be read by logic. Automatic assignment inlets are disabled,
+and switching sizing modes preserves manual node bindings. Backend regression
+checks, production build, type checks, and Chromium/mobile WebKit editor checks
+pass. The in-app reference and user guide describe the new behavior.
 
 - Set `document.version` to `2`. Each element has a unique `logic_name`, separate
   from its stable `id`; `label` is reserved. Version 1 remains the default.

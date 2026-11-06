@@ -35,9 +35,18 @@ export interface CompileResult {
 export interface LogicCatalog {
   source: string
   operations: Operation[]
-  targets: Record<string, { id: string; properties: Record<string, ValueType> }>
+  targets: Record<
+    string,
+    {
+      id: string
+      properties: Record<string, ValueType>
+      readable_properties?: Record<string, ValueType> | null
+      disabled_properties?: Record<string, string>
+    }
+  >
   types: Record<string, SocketType>
   values: Record<string, VariableValue>
+  property_values?: Record<string, Record<string, VariableValue>>
   sample_error: string | null
 }
 export const valueTypes: ValueType[] = ['text', 'number', 'boolean', 'image']
@@ -55,6 +64,15 @@ export const valueType = (value: VariableValue): SocketType =>
           : 'number'
 export const title = (name: string) =>
   name.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
+export function automaticOutput(
+  node: Pick<LogicNode, 'kind' | 'target' | 'property'>,
+  doc: TemplateDocument,
+): boolean {
+  if (node.kind !== 'output') return false
+  if (node.target === 'label') return node.property === 'length_mm' && !!doc.auto_length
+  const element = doc.elements.find((element) => element.id === node.target)
+  return !!(element?.kind === 'text' && element.auto_width && node.property === 'width')
+}
 export function makeNode(
   kind: LogicNode['kind'],
   state: LogicEditorState,
@@ -75,6 +93,7 @@ export function semanticProgram(program: LogicProgram | null | undefined): strin
   function clean(expression: Expression): unknown {
     if (expression.kind === 'literal') return ['literal', expression.value]
     if (expression.kind === 'reference') return ['reference', expression.name]
+    if (expression.kind === 'property') return ['property', expression.target, expression.property]
     return [expression.operation, expression.arguments.map(clean)]
   }
   return JSON.stringify([
@@ -89,6 +108,11 @@ export function semanticProgram(program: LogicProgram | null | undefined): strin
 export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicProgram {
   if (nodes.length > 512) throw new Error('At most 512 nodes are supported.')
   const byId = new Map(nodes.map((node) => [node.id, node]))
+  const outputs = new Map(
+    nodes
+      .filter((node) => node.kind === 'output' && !automaticOutput(node, doc))
+      .map((node) => [`${node.target}.${node.property}`, node]),
+  )
   const variables = nodes.filter((node) => node.kind === 'variable')
   const names = new Set([
     ...doc.fields.map((field) => field.name),
@@ -108,6 +132,10 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
       throw new Error('Connections cannot form a cycle or exceed 32 levels.')
     if (visited.has(node.id)) return
     visiting.add(node.id)
+    if (node.kind === 'property') {
+      const binding = outputs.get(`${node.target}.${node.property}`)
+      if (binding) check(binding, depth + 1)
+    }
     for (const id of node.inputs)
       if (id) {
         const input = byId.get(id)
@@ -132,6 +160,8 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
       return { kind: 'reference', name: node.name!, node_id: node.id }
     if (node.kind === 'literal')
       return { kind: 'literal', value: node.value ?? null, node_id: node.id }
+    if (node.kind === 'property')
+      return { kind: 'property', target: node.target!, property: node.property!, node_id: node.id }
     if (node.kind === 'call')
       return {
         kind: 'call',
@@ -145,7 +175,7 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
     version: 1,
     variables: Object.fromEntries(variables.map((node) => [node.name!, argument(node, 0, 0)])),
     bindings: nodes
-      .filter((node) => node.kind === 'output' && !(node.target === 'label' && doc.auto_length))
+      .filter((node) => node.kind === 'output' && !automaticOutput(node, doc))
       .map((node) => ({
         target: node.target!,
         property: node.property!,
@@ -161,18 +191,27 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
       const current = {
         ...(doc.logic ?? { version: 1 as const, variables: {}, bindings: [] }),
         bindings: (doc.logic?.bindings ?? []).filter(
-          (binding) => !(doc.auto_length && binding.target === 'label'),
+          (binding) => !automaticOutput({ ...binding, kind: 'output' }, doc),
         ),
       }
-      const comparable =
-        restoreManualLength &&
-        !doc.auto_length &&
-        !current.bindings.some((binding) => binding.target === 'label')
-          ? {
-              ...program,
-              bindings: program.bindings.filter((binding) => binding.target !== 'label'),
-            }
-          : program
+      const comparable = restoreManualLength
+        ? {
+            ...program,
+            bindings: program.bindings.filter(
+              (binding) =>
+                current.bindings.some(
+                  (item) => item.target === binding.target && item.property === binding.property,
+                ) ||
+                !(
+                  binding.target === 'label' ||
+                  (binding.property === 'width' &&
+                    doc.elements.some(
+                      (element) => element.id === binding.target && element.kind === 'text',
+                    ))
+                ),
+            ),
+          }
+        : program
       if (
         semanticProgram(comparable) === semanticProgram(current) &&
         saved.nodes
@@ -251,17 +290,28 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
       return references.get(expression.name)!
     const id = expression.node_id ?? `expression:${path}`
     if (state.nodes.some((node) => node.id === id)) return id
-    const node = makeNode(expression.kind === 'literal' ? 'literal' : 'call', state, {
-      id,
-      x: 300 + depth * 280,
-      y: row++ * 150,
-    })
+    const node = makeNode(
+      expression.kind === 'literal'
+        ? 'literal'
+        : expression.kind === 'property'
+          ? 'property'
+          : 'call',
+      state,
+      {
+        id,
+        x: 300 + depth * 280,
+        y: row++ * 150,
+      },
+    )
     if (expression.kind === 'literal') {
       node.value = expression.value
       node.type =
         valueType(expression.value) === 'null'
           ? 'image'
           : (valueType(expression.value) as ValueType)
+    } else if (expression.kind === 'property') {
+      node.target = expression.target
+      node.property = expression.property
     } else if (expression.kind === 'call') {
       node.operation = expression.operation
       node.inputs = expression.arguments.map((argument, index) =>
@@ -331,8 +381,8 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
       .filter((node) => node.kind === 'variable' || node.kind === 'output')
       .forEach((node) => visit(node.id))
     const retained = saved.nodes.filter((node) => !used.has(node.id) && node.kind !== 'input')
-    // An automatic-length template retains its inactive manual-length draft.
-    if (doc.auto_length) {
+    // Automatic dimensions retain their inactive manual drafts.
+    {
       const inactive = new Set<string>()
       function keep(id: string) {
         if (inactive.has(id)) return
@@ -344,9 +394,7 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
           if (input) keep(input)
         })
       }
-      saved.nodes
-        .filter((node) => node.kind === 'output' && node.target === 'label')
-        .forEach((node) => keep(node.id))
+      saved.nodes.filter((node) => automaticOutput(node, doc)).forEach((node) => keep(node.id))
     }
     for (const node of retained)
       if (!state.nodes.some((candidate) => candidate.id === node.id))
@@ -372,6 +420,10 @@ export function nodeType(
       : valueType(node.defaults[index] ?? null)
   }
   if (node.kind === 'input') return node.type
+  if (node.kind === 'property') {
+    const target = Object.values(catalog.targets).find((target) => target.id === node.target)
+    return (target?.readable_properties ?? target?.properties)?.[node.property!] ?? 'any'
+  }
   if (node.kind === 'literal') return valueType(node.value ?? null)
   if (node.kind === 'variable') return input(0)
   if (node.kind === 'output')
@@ -431,7 +483,10 @@ export function validateGraphTypes(nodes: LogicNode[], catalog: LogicCatalog, ch
     }
     let result: SocketType
     if (node.kind === 'input') result = node.type
-    else if (node.kind === 'literal') result = valueType(node.value ?? null)
+    else if (node.kind === 'property') {
+      result = nodeType(node, nodes, catalog)
+      if (result === 'any') throw new Error('This property cannot be read during logic.')
+    } else if (node.kind === 'literal') result = valueType(node.value ?? null)
     else if (node.kind === 'variable') result = args[0] ?? 'null'
     else if (node.kind === 'output') {
       result = nodeType(node, nodes, catalog)
@@ -516,6 +571,11 @@ export function canConnect(
 ) {
   if (source.kind === 'output' || source.id === destination.id)
     throw new Error('Choose a value output and a different node’s input.')
+  if (destination.kind === 'output') {
+    const reason = Object.values(catalog.targets).find((target) => target.id === destination.target)
+      ?.disabled_properties?.[destination.property!]
+    if (reason) throw new Error(reason)
+  }
   const expected = inputType(destination, index, nodes, catalog),
     actual = nodeType(source, nodes, catalog)
   const nullable = expected === 'image' || pairedInputs(destination).includes(index)

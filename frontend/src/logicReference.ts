@@ -12,7 +12,7 @@ const propertyHelp: Record<string, string> = {
   x: 'Horizontal origin in millimetres. Rotation can place the unrotated origin outside the label; printable bounds are checked after layout.',
   y: 'Vertical origin in millimetres. The final object must respect the tape’s printable area unless clipping is enabled.',
   width:
-    'Object width in millimetres, greater than zero and at most 1000. Automatic text width and distance holders run after logic.',
+    'Object width in millimetres, greater than zero and at most 1000. Automatic text width is measured before logic and cannot be overwritten by a binding.',
   height:
     'Object height in millimetres, greater than zero and at most 100. Use visible = false to hide an object; zero height is invalid.',
   rotation: 'Rotation in degrees: 0, 90, 180, or 270. Other angles are invalid.',
@@ -20,6 +20,8 @@ const propertyHelp: Record<string, string> = {
     'Whether this object prints. Hidden objects do not extend automatic label length. Hidden distance-holder anchors have zero extent and no outgoing gap.',
   length_mm:
     'Explicit label length, from 10 to 300 millimetres, subject to the selected media. Disable automatic length before assigning this property. Invalid lengths never silently fall back to automatic sizing.',
+  width_mm: 'Label tape width in millimetres. Read-only in logic.',
+  auto_length: 'Whether automatic label length is enabled. Read-only in logic.',
   gap_mm:
     'Distance-holder gap in millimetres, from 0 to 300. Available only on objects with a distance holder; the holder resolves position after logic.',
   content:
@@ -30,7 +32,7 @@ const propertyHelp: Record<string, string> = {
   bold: 'Enable or disable bold text.',
   wrap: 'Enable or disable line wrapping within the text box.',
   auto_width:
-    'Fit text width to resolved content. This runs before distance holders and automatic label length.',
+    'Fit text width to template content and input values before logic. Configure this in Layout; it is read-only in logic.',
   align: 'Horizontal text alignment: "left", "center", or "right".',
   vertical_align: 'Vertical text alignment: "top", "center", or "bottom".',
   image_asset:
@@ -139,21 +141,36 @@ export function referenceEntries(
       summary: 'Assignments, expressions, comments, and literal values.',
       details: [
         'End each declaration or property assignment with a semicolon. Use // for a line comment. Arithmetic, comparisons, and/or/not, parentheses, and the listed functions are supported. This is a small expression language, not JavaScript or Python.',
-        'Assign output properties with target.property = expression. Target aliases shown in completions identify objects; bindings use stable object IDs internally. Outputs cannot be read as inputs. Each property can be assigned only once.',
+        'Assign output properties with target.property = expression. Read a property with the same target.property notation inside an expression. References use stable object IDs internally. Each property can be assigned only once.',
         'Code editing preserves comments and formatting when saved. Editing executable logic in Nodes regenerates canonical source; moving nodes or editing disconnected nodes keeps existing source text.',
         'Ctrl/Cmd+Z undoes typing. The template Undo/Redo controls restore committed changes across both editors. Invalid source stays in its draft, leaves the last valid preview intact, and blocks saving. Tab leaves the editor; completion uses Ctrl+Space and Enter.',
       ],
       example: '// A fixed title height\ntext1.height = 12;',
     },
     {
+      id: 'property-inputs',
+      group: 'Nodes',
+      title: 'Property inputs',
+      summary: 'Use another property’s logic result as a typed input.',
+      details: [
+        'Choose a Property target and Property in Add node, then Read property. The read node has a typed output that connects by click, drag, keyboard, or touch. Bind property creates an assignment instead.',
+        'A read uses the result of the property’s binding, or its saved template value when unbound. Node and statement order do not matter. Dependencies can pass through intermediate variables; cycles, including self-references, are rejected.',
+        'Automatic text widths are measured before logic. Reads use those measurements unless a writable property has a logic binding. Unbound content is the saved text, including any {{tokens}}. label.width_mm and label.auto_length are read-only.',
+        'Automatic label length is fitted after logic changes positions or visibility and is unavailable as a logic input. Disable automatic length to read or bind label.length_mm.',
+      ],
+      example:
+        'let titleHeight = text1.height;\ntext2.height = titleHeight / 2;\ntext1.height = 12;',
+    },
+    {
       id: 'layout',
       group: 'Layout',
       title: 'Layout and automatic length',
-      summary: 'Logic resolves before text sizing and label length.',
+      summary: 'Measure text first, evaluate logic, then fit the final label.',
       details: [
-        'The renderer resolves inputs and intermediate variables, then property bindings, text width, distance holders, automatic length, and printable-area checks, in that order.',
+        'The renderer resolves template inputs and measures automatic text widths. It then evaluates intermediate variables and property bindings, resolves distance holders, fits the final automatic label length, and checks printable bounds.',
         'Automatic length uses visible objects and obeys media limits. Hidden anchors have zero extent. Geometry still requires positive widths and heights; hide objects with visible = false.',
-        'Automatic sizing and label.length_mm are exclusive modes. The node editor retains an inactive manual-length output while automatic sizing is enabled. Queued labels keep their resolved layout and values even if the template later changes.',
+        'Automatic text width and automatic label length have disabled assignment inlets. Source assignments to them are rejected. Manual node drafts are retained while automatic sizing is enabled. Queued labels keep their resolved layout and values even if the template later changes.',
+        'Automatic text width uses template inputs, not logic-generated content or intermediate text tokens. Use a fixed width when text contains logic-generated intermediate tokens. Logic may change its displayed content but does not remeasure its width.',
       ],
     },
     {
@@ -225,7 +242,11 @@ export function referenceEntries(
     })
   for (const [name, summary] of Object.entries(propertyHelp)) {
     const targets = Object.entries(catalog.targets)
-      .filter(([, target]) => Object.hasOwn(target.properties, name))
+      .filter(
+        ([, target]) =>
+          Object.hasOwn(target.properties, name) ||
+          Object.hasOwn(target.readable_properties ?? {}, name),
+      )
       .map(([alias]) => alias)
     entries.push({
       id: `property:${name}`,

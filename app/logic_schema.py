@@ -146,6 +146,12 @@ class ReferenceExpression(ExpressionBase):
     name: Symbol
 
 
+class PropertyExpression(ExpressionBase):
+    kind: Literal["property"] = "property"
+    target: str = Field(min_length=1, max_length=80)
+    property: Symbol
+
+
 class CallExpression(ExpressionBase):
     kind: Literal["call"] = "call"
     operation: str = Field(min_length=1, max_length=40)
@@ -153,7 +159,8 @@ class CallExpression(ExpressionBase):
 
 
 Expression: TypeAlias = Annotated[
-    LiteralExpression | ReferenceExpression | CallExpression, Field(discriminator="kind")
+    LiteralExpression | ReferenceExpression | PropertyExpression | CallExpression,
+    Field(discriminator="kind"),
 ]
 CallExpression.model_rebuild()
 
@@ -175,13 +182,15 @@ class Target(LogicModel):
 
     id: str = Field(min_length=1, max_length=80)
     properties: dict[Symbol, ValueType] = Field(min_length=1, max_length=64)
+    readable_properties: dict[Symbol, ValueType] | None = Field(default=None, max_length=64)
+    disabled_properties: dict[Symbol, str] = Field(default_factory=dict, max_length=64)
 
 
 class EditorNode(LogicModel):
     """Bounded authoring metadata. Never interpreted by the rendering engine."""
 
     id: str = Field(min_length=1, max_length=80)
-    kind: Literal["input", "literal", "call", "variable", "output"]
+    kind: Literal["input", "property", "literal", "call", "variable", "output"]
     x: float = Field(ge=-100000, le=100000)
     y: float = Field(ge=-100000, le=100000)
     type: ValueType = "number"

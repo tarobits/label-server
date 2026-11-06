@@ -31,7 +31,7 @@ when it should only run in that branch.
 Create an optional text input named `subtitle` and two text elements with valid
 positions and positive widths/heights. Logic assigns element aliases such as
 `text1` and `text2`; use the aliases shown in source completion or the node
-picker's **Output target** list. Put `{{subtitle}}` in the second element's
+picker's **Property target** list. Put `{{subtitle}}` in the second element's
 content. For aliases `text1` and `text2`, enter this in **Source**:
 
 ```text
@@ -67,10 +67,41 @@ use `null` to represent an absent value.
 
 ## Label length and other properties
 
-Logic runs before text sizing, distance holders, automatic length, and printable
-bounds checks. Bindings can change geometry, visibility, content, text style,
+Automatic text sizing runs before logic. After logic, distance holders are
+positioned and automatic label length is fitted to the final visible layout,
+followed by printable bounds checks. Bindings can change geometry, visibility, content, text style,
 image settings, and other properties listed in Reference. Units and allowed
 ranges are documented per property.
+
+Properties can also supply inputs. In **Add node**, choose a **Property target**
+and **Property**, then **Read property**. Its typed output connects to operations,
+intermediates, and property bindings. In Source, use `target.property` in an
+expression:
+
+```text
+let halfHeight = text1.height / 2;
+text2.height = halfHeight;
+text1.height = 12;
+```
+
+Here `text2.height` becomes 6 mm, even though the assignment to `text1.height`
+appears last. A bound property supplies its logic result; an unbound property
+supplies its saved template value. Self-references and indirect cycles through
+properties or intermediate variables are rejected.
+
+Reads of automatic dimensions use the measurements made before logic. Automatic
+label length is fitted afterward, so moving or hiding objects still changes
+the final label length. It is unavailable as an input while automatic length is
+enabled. Disable automatic length to read or bind `label.length_mm`. `label.width_mm` and
+`label.auto_length` are read-only inputs.
+
+When **Fit text width** or **Automatic label length** is enabled, its assignment
+inlet is disabled and source assignments are rejected. Disable the automatic
+setting before assigning that dimension. Automatic text width itself is configured
+in Layout, not through logic. Its measurement uses template content and input
+values; use fixed widths for content containing logic-generated intermediate
+tokens. Logic may change the displayed content without remeasuring the text box.
+Unbound `content` inputs return the stored string, including any `{{tokens}}`.
 
 For a number input `quantity`, disable **Automatic label length** and assign:
 
@@ -118,3 +149,8 @@ Existing version 1 templates remain supported. Typed fields or saved logic edits
 upgrade a template to version 2; older server versions cannot read that format.
 No new database migration is required for template logic itself. Keep a database
 backup before rolling back to a server without version 2 support.
+
+Templates using property-input expressions require a server that supports this
+feature; earlier version 2 implementations cannot read those expressions.
+Automatic text sizing now precedes logic. Review templates that previously relied
+on logic changing text or font settings before automatic width measurement.

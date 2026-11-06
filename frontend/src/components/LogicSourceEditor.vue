@@ -104,14 +104,20 @@ function complete(context: CompletionContext) {
   let options: Completion[]
   if (split >= 0) {
     const alias = fragment.slice(0, split)
-    options = Object.entries(props.catalog.targets[alias]?.properties ?? {}).map(
-      ([label, type]) => ({
-        label,
-        type: 'property',
-        detail: type,
-        info: helpFor(`${alias}.${label}`).summary,
-      }),
+    const target = props.catalog.targets[alias]
+    const before = context.state.sliceDoc(
+      context.state.doc.lineAt(context.pos).from,
+      word?.from ?? context.pos,
     )
+    const properties = /[=(,]/.test(before)
+      ? (target?.readable_properties ?? target?.properties)
+      : { ...target?.properties, ...target?.readable_properties }
+    options = Object.entries(properties ?? {}).map(([label, type]) => ({
+      label,
+      type: 'property',
+      detail: type,
+      info: helpFor(`${alias}.${label}`).summary,
+    }))
     return { from: (word?.from ?? context.pos) + split + 1, options, validFor: /^[A-Za-z0-9_]*$/ }
   }
   const inputs = props.document.fields.map((field) => ({
@@ -135,7 +141,7 @@ function complete(context: CompletionContext) {
     ...Object.keys(props.catalog.targets).map((label) => ({
       label,
       type: 'class',
-      detail: 'output target',
+      detail: 'property target',
     })),
     ...props.catalog.operations.map((operation) =>
       snippetCompletion(

@@ -27,7 +27,7 @@ from app.destinations import printer_state, resolve_destination
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
 from app.image_jobs import image_document
 from app.logic_authoring import reconcile_program, same_program, source_diagnostic
-from app.logic_engine import OPERATIONS, LogicError, evaluate_program, validate_program
+from app.logic_engine import OPERATIONS, LogicError, validate_program
 from app.logic_schema import Program
 from app.logic_source import compile_source, format_source
 from app.models import (
@@ -54,7 +54,7 @@ from app.print_planning import geometry_plan, planning_backend, queued_plan
 from app.printer.base import ConfirmableMediaBackend, LabelGeometry
 from app.printer_status import status_record
 from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
-from app.render import RenderSpec, render_document, render_job
+from app.render import RenderSpec, measure_logic_layout, render_document, render_job
 from app.request_models import PrintRequest
 from app.reservations import reserve_flush
 from app.schemas import (
@@ -82,7 +82,7 @@ from app.submissions import (
     submitted_job,
 )
 from app.template_dimensions import template_dimensions
-from app.template_logic import logic_fields, logic_targets
+from app.template_logic import logic_fields, logic_property_values, logic_targets, resolve_logic
 from app.template_schema import (
     LogicCompileInput,
     PreviewInput,
@@ -813,7 +813,10 @@ def restore_revision(
 
 @router.post("/logic/inspect")
 def inspect_logic(
-    body: TemplateDocument, request: Request, session: Session = Depends(db, scope="function")
+    body: TemplateDocument,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+    destination_id: str | None = None,
 ) -> dict[str, Any]:
     require_document_assets(request, session, body.model_dump(mode="json"))
     fields, targets = logic_fields(body), logic_targets(body)
@@ -828,10 +831,21 @@ def inspect_logic(
         except ValueError:
             pass  # Editor metadata cannot replace executable logic.
     values = {}
+    property_values = logic_property_values(body)
     sample_error = None
     try:
-        evaluation = evaluate_program(program, fields, targets, {}, samples=True)
+        spec = rendering_spec(request, body, destination_id)
+        measured = measure_logic_layout(body, {}, spec, samples=True, fonts=request.app.state.fonts)
+        _, evaluation = resolve_logic(body, {}, samples=True, measured=measured)
         values = {**evaluation.inputs, **evaluation.variables}
+        # Keep sizing switches from the authored template, alongside measured
+        # geometry and logic results (the printable document freezes switches).
+        property_values["label"]["length_mm"] = measured.length_mm
+        for element in measured.elements:
+            for name in ("x", "y", "width", "height"):
+                property_values[element.id][name] = getattr(element, name)
+        for target_id, properties in evaluation.properties.items():
+            property_values[target_id].update(properties)
     except ValueError as error:
         sample_error = str(error)
     return {
@@ -839,6 +853,7 @@ def inspect_logic(
         "targets": {name: target.model_dump() for name, target in targets.items()},
         "types": types,
         "values": values,
+        "property_values": property_values,
         "sample_error": sample_error,
         "source": source,
     }
@@ -846,7 +861,10 @@ def inspect_logic(
 
 @router.post("/logic/compile")
 def compile_logic(
-    body: LogicCompileInput, request: Request, session: Session = Depends(db, scope="function")
+    body: LogicCompileInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+    destination_id: str | None = None,
 ) -> dict[str, Any]:
     document = body.document
     require_document_assets(request, session, document.model_dump(mode="json"))
@@ -878,7 +896,7 @@ def compile_logic(
         "valid": True,
         "program": program.model_dump(mode="json"),
         "formatted": format_source(program, fields, targets),
-        "catalog": inspect_logic(resolved, request, session),
+        "catalog": inspect_logic(resolved, request, session, destination_id=destination_id),
         "diagnostics": [],
     }
 

@@ -104,9 +104,7 @@ def save_template(client, doc):
 
 
 @pytest.mark.parametrize("subtitle,height,length", [("", 14, 23), ("Present", 12, 38)])
-def test_logic_resolves_before_automatic_length_and_never_mutates_template(
-    subtitle, height, length
-):
+def test_final_automatic_length_follows_logic_and_never_mutates_template(subtitle, height, length):
     doc = document(automatic=True)
     before = doc.model_dump_json()
     result = render_document(doc, {"variable1": subtitle}, RenderSpec())
