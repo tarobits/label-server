@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
+from app.element_geometry import element_geometry, local_geometry
 from app.logic_engine import Evaluation, evaluate_program
 from app.logic_schema import ImageValue, LogicInput, Program, Target, Value, ValueType
 
@@ -89,7 +90,11 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
         if element.kind == "text":
             disabled["auto_width"] = "Configure automatic text width in Layout before running logic"
             if element.auto_width:
-                disabled["width"] = f"Disable automatic text width before binding {alias}.width"
+                axis = "height" if element.rotation in (90, 270) else "width"
+                disabled[axis] = f"Disable automatic text width before binding {alias}.{axis}"
+        if element.kind == "line":
+            axis = "width" if element.rotation in (90, 270) else "height"
+            disabled[axis] = "Use stroke to set line thickness"
         targets[alias] = Target(id=element.id, properties=properties, disabled_properties=disabled)
     return targets
 
@@ -117,6 +122,7 @@ def logic_property_values(document: "TemplateDocument") -> dict[str, dict[str, V
                 value = getattr(element, name)
             properties[name] = cast(Value, value)
         values[element.id] = properties
+        properties.update(element_geometry(element))
     return values
 
 
@@ -145,8 +151,7 @@ def resolve_logic(
     if measured is not None:
         property_values["label"]["length_mm"] = measured.length_mm
         for element in measured.elements:
-            for name in ("width", "height", "x", "y"):
-                property_values[element.id][name] = getattr(element, name)
+            property_values[element.id].update(element_geometry(element))
     result = evaluate_program(
         document.logic or Program(),
         logic_fields(document),
@@ -167,8 +172,42 @@ def resolve_logic(
     resolved["logic_editor"] = None
     resolved.update(result.properties.get("label", {}))
     values = {**result.inputs, **result.variables}
+    originals = {element.id: element for element in document.elements}
     for element in resolved["elements"]:
         changes = dict(result.properties.get(element["id"], {}))
+        # Logic speaks label axes. Persist the established local geometry so
+        # existing saved prints keep exactly the same rendering convention.
+        base = property_values[element["id"]]
+        rotation = changes.get("rotation", element["rotation"])
+        quarter_turn = rotation in (90, 270)
+        geometry = {
+            "x": cast(float, base["x"]),
+            "y": cast(float, base["y"]),
+            "width": element["height"] if quarter_turn else element["width"],
+            "height": element["width"] if quarter_turn else element["height"],
+        }
+        original = originals[element["id"]]
+        if original.kind == "text" and original.auto_width:
+            axis = "height" if quarter_turn else "width"
+            if axis in changes:
+                raise ValueError(
+                    f"Disable automatic text width before binding {original.logic_name}.{axis}"
+                )
+        if original.kind == "line":
+            axis = "width" if quarter_turn else "height"
+            if axis in changes:
+                raise ValueError("Use stroke to set line thickness")
+            geometry[axis] = cast(float, changes.get("stroke", original.stroke))
+        geometry_changed = any(
+            name in changes for name in ("x", "y", "width", "height", "rotation")
+        )
+        if original.kind == "line" and "stroke" in changes:
+            geometry_changed = True
+        for name in geometry:
+            if name in changes:
+                geometry[name] = cast(float, changes.pop(name))
+        if geometry_changed:
+            element.update(local_geometry(geometry, cast(int, rotation)))
         if "image_asset" in changes:
             image = changes["image_asset"]
             changes["image_asset"] = image.image_asset if isinstance(image, ImageValue) else None

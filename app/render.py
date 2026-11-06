@@ -16,6 +16,7 @@ import resvg_py
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import Image, ImageFont, ImageOps
 
+from app.element_geometry import element_geometry
 from app.font_assets import FontStore
 from app.image_assets import ImageStore, image_svg
 from app.logic_schema import Value
@@ -299,14 +300,9 @@ def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
 def element_bounds(element: Element) -> tuple[float, float, float, float]:
     if not element.visible:
         return element.x, element.y, element.x, element.y
-    width, height = (
-        (element.height, element.width)
-        if element.rotation in (90, 270)
-        else (element.width, element.height)
-    )
-    x = element.x + (element.width - width) / 2
-    y = element.y + (element.height - height) / 2
-    return x, y, x + width, y + height
+    geometry = element_geometry(element)
+    x, y = geometry["x"], geometry["y"]
+    return x, y, x + geometry["width"], y + geometry["height"]
 
 
 def resolve_layout(

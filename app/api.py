@@ -24,6 +24,7 @@ from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.cost_estimates import estimate_cost
 from app.deletion import content_hold_reason, document_notices, retain
 from app.destinations import printer_state, resolve_destination
+from app.element_geometry import element_geometry
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
 from app.image_jobs import image_document
 from app.logic_authoring import reconcile_program, same_program, source_diagnostic
@@ -842,8 +843,7 @@ def inspect_logic(
         # geometry and logic results (the printable document freezes switches).
         property_values["label"]["length_mm"] = measured.length_mm
         for element in measured.elements:
-            for name in ("x", "y", "width", "height"):
-                property_values[element.id][name] = getattr(element, name)
+            property_values[element.id].update(element_geometry(element))
         for target_id, properties in evaluation.properties.items():
             property_values[target_id].update(properties)
     except ValueError as error:

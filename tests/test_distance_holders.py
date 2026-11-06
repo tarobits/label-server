@@ -107,10 +107,11 @@ def test_rotated_bounds_and_negative_unrotated_origins_can_be_positioned(axis):
     )
     output = render_document(doc, {}, RenderSpec()).document
     anchor, follower = [element_bounds(element) for element in output.elements]
-    assert anchor == (1, 4, 3, 16)
-    assert (
-        follower[0 if axis == "horizontal" else 1] - anchor[2 if axis == "horizontal" else 3] == 2
-    )
+    # Spacing starts at the actual 0.3 mm stroke, not its old padded box.
+    assert anchor == pytest.approx((1.85, 4, 2.15, 16))
+    assert follower[0 if axis == "horizontal" else 1] - anchor[
+        2 if axis == "horizontal" else 3
+    ] == pytest.approx(2)
 
 
 @pytest.mark.parametrize("target", ["right", "missing", "divider"])
