@@ -1,5 +1,98 @@
 # Changelog
 
+## [0.12.0] - 2026-11-07
+
+### Added
+
+- Installable web app for phones and tablets, with Home Screen icons, a
+  server-unavailable screen, automatic reconnection, and deferrable app updates.
+- Web Push notifications with per-device printer and event preferences, test
+  notifications, and device removal. Personal print-completion notifications
+  support per-item opt-outs; moderators can subscribe to finished printer batches.
+- Conditional template logic with reusable intermediate variables, property
+  inputs, and bindings for element properties, visibility, and label length.
+- Number, boolean, and uploaded-image variables, with typed forms, numeric limits,
+  and CSV image mappings. Queued labels preserve their resolved layout and values.
+- Visual node editor with pan/zoom, click, drag, keyboard, and touch connections,
+  plus distinct connector shapes for colorblind accessibility. The source editor
+  provides highlighting, completion, inline errors, and shared undo/redo.
+- Searchable built-in logic reference with contextual help and examples.
+- Horizontal and vertical line tools with Length, Stroke, and direction controls.
+- Requeue individual confirmed prints from Activity using their saved label and
+  original printer.
+- Edit copy counts on unstarted queued items and pending requests. Request owners
+  can edit their own pending requests; approvals require reviewing the latest revision.
+- View and revoke logged-in sessions, including IP address, browser, OS, device,
+  user agent, first sign-in, last-seen time, and optional approximate location.
+- Updater release channels (`--channel stable|beta`), exact release selection
+  (`--tag`), and prebuilt frontend downloads (`--prebuilt-frontend`) for native updates.
+- Automatic rollback after update or health-check failures, restoring the previous
+  application, configuration, data, and dependencies. Failed recovery retains the
+  backup and leaves the service stopped.
+
+### Changed
+
+- Property inputs follow other logic bindings and reject circular dependencies.
+  Automatic text sizing runs before logic; automatically sized dimensions cannot
+  be assigned. Automatic label length continues to follow the final layout.
+- Rotated objects use their visible bounding box for X/Y and Width/Height in both
+  Layout and logic. Lines use the visible stroke for bounds and spacing.
+- Logic nodes use a shared value-type selector for related inputs and operands.
+- Cartridge rechecks identify the previous cartridge and offer confirmation,
+  cartridge management, or deferral. Explicitly selecting a matching cartridge
+  no longer prompts again.
+- Updates pause for relaunch when the updater itself changes. Printing and
+  notifications remain paused while an updated installation is health-checked.
+
+### Fixed
+
+- Show pending print-request counts in navigation and keep mobile selection
+  highlights aligned as badges and layout sizes change.
+- Preserve label proportions in print-request and logic-editor previews.
+- Keep rotated objects anchored when resizing, dragging, and snapping, and protect
+  the correct automatically sized dimension after rotation.
+- Reject incompatible logic connections, including mismatched If branches and
+  equality operands, and preserve connector types through intermediate variables.
+- Prevent accidental text selection on logic controls and allow dragging nodes
+  from their body while preserving socket connections and editable text.
+- Avoid duplicate app-update prompts for the same build and correctly track
+  upgrades from prereleases to stable releases.
+- Enabling print-completion notifications no longer sends historical completions.
+- Distinguish denied notification permission from an unanswered prompt, and reuse
+  permission that has already been granted.
+
+### Security
+
+- Push delivery rechecks account, printer, and session permissions, restricts
+  subscription URLs to supported providers, and stops after session revocation.
+- Updated frontend build dependencies to address reported glob and minimatch
+  vulnerabilities.
+
+Apply database migrations before starting this version, including when upgrading
+from 0.12.0-pre7. API clients approving print requests must send the reviewed
+`expected_revision`. Existing sessions and queued label snapshots are preserved.
+
+Version 1 templates remain supported. Saving typed fields or logic upgrades a
+template to version 2, which older servers cannot read. Review logic written for
+earlier prereleases that assigns automatic dimensions or uses unrotated axes;
+use `stroke` for line thickness. Back up the database before upgrading.
+
+Push notifications require VAPID configuration and a supported browser. Offline
+fallback requires a previous successful visit and does not support offline editing
+or replaying print submissions. Approximate session location requires explicitly
+trusted Cloudflare visitor headers; see the deployment guide.
+
+Wait for the release frontend build to finish before using `--prebuilt-frontend`.
+Automatic rollback cannot recover from power loss or a forcibly terminated updater;
+uncertain activation leaves the service stopped to avoid replaying print work.
+
+Physical checks have confirmed subtitle branches, saved layouts, rotated objects,
+property sizing, number inputs, cartridge handling, Activity requeueing, and Android
+notifications. Tablet interactions, boolean/image inputs, the latest iPhone node
+dragging fix, and native/Docker rollback still need physical verification.
+
+The known low-severity deepmerge build-tool advisory remains reported by npm audit.
+
 ## [0.12.0-pre7] - 2026-11-06
 
 ### Added
@@ -514,6 +607,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.0]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0
 [0.12.0-pre7]: https://github.com/tarobits/label-server/compare/v0.12.0-pre6...v0.12.0-pre7
 [0.12.0-pre6]: https://github.com/tarobits/label-server/compare/v0.12.0-pre5...v0.12.0-pre6
 [0.12.0-pre5]: https://github.com/tarobits/label-server/compare/v0.12.0-pre4...v0.12.0-pre5
