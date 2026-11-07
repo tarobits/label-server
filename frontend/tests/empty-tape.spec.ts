@@ -59,7 +59,11 @@ test('an empty cassette pauses automatic printing, alerts once, and resumes afte
   await expect(notice).toContainText('Desk printer')
   await expect(notice).toContainText('Yellow cassette 1')
   await expect(notice).toContainText('estimated 0 mm')
-  await expect(page.getByText('ntfy not configured', { exact: true })).toBeVisible()
+  await expect(
+    page
+      .getByRole('region', { name: 'Notifications' })
+      .getByText('Delivery not configured', { exact: true }),
+  ).toBeVisible()
   // Allow repeated worker ticks so one depletion episode cannot generate repeated alerts.
   await page.waitForTimeout(1100)
   const notices = await (await request.get('/api/notifications')).json()

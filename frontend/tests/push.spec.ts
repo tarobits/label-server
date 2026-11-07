@@ -110,7 +110,10 @@ test('enable, scope, test, remove, and sign out revoke this installation', async
   await push.getByRole('button', { name: 'Enable notifications', exact: true }).click()
   await expect(push.getByRole('status')).toHaveText('Notifications enabled.')
   await page.locator('.account-menu > summary').click()
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await page
+    .locator('.account-flyout')
+    .getByRole('button', { name: 'Sign out', exact: true })
+    .click()
   await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
   const login = await request.post('/api/auth/login', {
     data: { username: 'owner', password: 'browser-owner-password' },

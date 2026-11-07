@@ -54,7 +54,14 @@ test('element names survive saving and support navigation, duplication, and undo
 
 test('every element type exposes naming and icon actions in its first tab', async ({ page }) => {
   await page.goto('/#/templates/new')
-  for (const kind of ['text', 'QR code', 'image', 'rectangle', 'line']) {
+  for (const kind of [
+    'text',
+    'QR code',
+    'image',
+    'rectangle',
+    'horizontal line',
+    'vertical line',
+  ]) {
     await page.getByRole('button', { name: `Add ${kind}`, exact: true }).click()
     const firstTab = page
       .getByRole('tablist', { name: 'Element settings' })

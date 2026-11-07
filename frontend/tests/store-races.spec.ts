@@ -74,7 +74,7 @@ test('saving a cartridge refreshes an already-applied snapshot after an overlapp
   await expect(card).toBeVisible()
   await installHarness(page)
   const fetchedAt = await page.evaluate(
-    () => window.__storeRaces.resources.entries['/cartridges']!.fetchedAt,
+    () => window.__storeRaces.resources.entries['/cartridges?include_archived=true']!.fetchedAt,
   )
   let cartridgeReads = 0
   page.on('request', (request) => {
@@ -101,7 +101,10 @@ test('saving a cartridge refreshes an already-applied snapshot after an overlapp
     await intercepted
     await expect
       .poll(() =>
-        page.evaluate(() => window.__storeRaces.resources.entries['/cartridges']!.fetchedAt),
+        page.evaluate(
+          () =>
+            window.__storeRaces.resources.entries['/cartridges?include_archived=true']!.fetchedAt,
+        ),
       )
       .toBeGreaterThan(fetchedAt)
     expect(cartridgeReads).toBe(1)
