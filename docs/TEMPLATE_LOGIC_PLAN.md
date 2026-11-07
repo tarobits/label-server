@@ -5,11 +5,11 @@ IDE-style source editing, and searchable reference are implemented. Version 1
 remains supported; typed variables or saved node edits upgrade a template to
 version 2. Automated regression checks are complete. Physical printing of the
 conditional subtitle example and saved-layout preservation after template edits
-have been verified. Phone editing also passed, with accidental text selection
-reported. Tablet editor interactions and the remaining physical print scenarios
-still need verification. The initial feature shipped in `0.12.0-pre3`; property
-inputs and the revised sizing order are implemented as a follow-up and still need
-physical print verification.
+have been verified. User verification also covers rotated objects, property inputs
+and sizing, number inputs, and the iPhone text-selection and preview-proportion
+fixes. Boolean and image inputs, tablet editor interactions, and the remaining
+physical print scenarios still need verification. The initial feature shipped in
+`0.12.0-pre3`; property inputs and revised sizing followed in `0.12.0-pre6`.
 
 ## Agreed scope
 
@@ -154,6 +154,21 @@ These checks do not yet cover all input types, automatic label length, CSV and
 approval paths, or physical tablet editor interactions.
 
 ## Acceptance checks
+
+Verification update (2026-11-07): the user confirmed rotated objects, property
+inputs and sizing, number inputs, cartridge rechecks, and Activity requeueing.
+iPhone text selection and preview proportions also passed. Node dragging was
+reported to work only from certain points; dragging is now extended from the
+header to the node body and still needs a physical iPhone retest. Boolean and
+uploaded-image inputs remain open. Navigation highlights, same-build update
+prompts, tablet interactions, and CSV/approval print scenarios have not received
+separate user confirmation.
+
+Android follow-up (2026-11-07): installation through the default /e/OS browser
+was reported successful. Enabling notifications immediately returned the blocked
+message despite device notifications being enabled. The user then installed Chrome,
+accepted its permission prompt, and confirmed notifications worked after resolving
+a push-service registration error through the device's microG settings.
 
 - The conditional subtitle example produces matching layouts with empty and filled
   inputs, in both editors, previews, CSV rows, approved submissions, and print jobs.

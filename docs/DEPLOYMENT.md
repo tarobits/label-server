@@ -10,6 +10,11 @@ Replace placeholder device paths and IDs with values discovered on your host.
 
 ## GitHub installer
 
+The request quantity-editing and session-management updates add database migrations
+for request revisions and session metadata. Apply migrations before starting them.
+API clients that approve requests
+must send the reviewed `expected_revision`; see [access control](ACCESS_CONTROL.md).
+
 Use a fresh Debian 13+ host or VM with systemd, Python 3.12+ and Git. The script
 installs apt packages (including Node, Python venv and libusb), fetches the selected
 GitHub version into a separate installation, builds the UI and Python environment,
@@ -232,6 +237,39 @@ Configure ntfy topic read permissions separately. See
 The anonymous `/api/health` healthcheck proves the server responds, not that the
 printer is connected. Workspace and printer APIs require sign-in.
 
+### Session details
+
+Account settings lists active login sessions and allows signing out one session
+or all other sessions. Revocation also disables that session's push subscription.
+Apply database migrations before starting this update; existing logins are
+preserved. Their original sign-in dates remain available, while previously
+unrecorded details populate when those sessions next make an authenticated request.
+
+Last seen means the most recent successful authenticated HTTP request, including
+background refreshes, and is recorded at most once per minute when the server is
+not busy with another operation. IP address,
+location, and user agent describe that latest recorded activity. Browser, OS,
+and device labels are inferred from the user agent and may be generic or inaccurate;
+browsers often hide exact models. These values never grant access or identify a
+device reliably.
+
+By default the application uses the request's client address and ignores
+Cloudflare-specific headers. Approximate location is unavailable unless configured:
+
+1. Restrict origin access to the Cloudflare Tunnel or otherwise authenticated
+   Cloudflare traffic. Direct access would allow forged visitor headers. Keep
+   Uvicorn's trusted proxy configuration restricted to your actual proxies.
+2. Enable Cloudflare's **Add visitor location headers** Managed Transform for
+   the hostname ([Cloudflare documentation](https://developers.cloudflare.com/rules/transform/managed-transforms/reference/)).
+3. Set `LABEL_TRUST_CLOUDFLARE_HEADERS=true` in the deployment environment and
+   restart the service. Docker Compose forwards this setting too.
+
+This uses `CF-Connecting-IP`, `CF-IPCity`, `CF-Region`, and `CF-IPCountry` without
+an external IP lookup service or GPS permission. Country-only headers give a
+country-only result; missing or unknown location remains unavailable. IP-based
+location may reflect a VPN or network gateway instead of the device's location.
+Keep the setting disabled when the same origin accepts untrusted direct traffic.
+
 ## Backup, restore, and upgrades
 
 Stop the service and copy the entire data directory/volume, including database,
@@ -430,6 +468,10 @@ a new timestamped, restricted directory beside the installation by default
 outside the source, installation and data directories. Each backup contains
 `source.tar.gz`, `data.tar.gz`, `.env` as `environment.env` when present, and an
 `update.json` recovery record with old/new commits and Docker image/mount details.
+Native backups also include `venv.tar.gz`, so the previous Python dependencies
+can be restored without downloading them. Allow enough free disk space for these
+archives and their temporary extraction during recovery. A native `.venv` must be
+a local directory, not a symlink to a shared environment.
 Backups contain credentials and should retain restricted permissions. Docker
 data backups use the old image with networking disabled and a read-only data mount.
 No backup or old Docker image is automatically pruned.
@@ -438,16 +480,38 @@ The default final check is `http://127.0.0.1:8000/api/health`; use `--health-url
 for a different local port and `--health-timeout` for a slower startup. This proves
 application startup, without submitting or printing a label.
 
-If backup, installation, migration or health validation fails after shutdown, the
-updater stops the application and exits unsuccessfully. Inspect the reported
-backup and logs, fix the cause, then rerun. There is no automatic database downgrade
-or restoration that could replay uncertain print work. To roll back manually,
-keep the application stopped, restore the matching source, `.env` and **complete**
-data archive together, reinstall the old dependencies/rebuild the UI for native
-deployments or restore the saved old image for Docker, then start one service.
+During validation, printing, notifications and user requests are paused; the health
+endpoint remains available. They resume automatically after validation succeeds.
+The selected release must support this validation pause. The existing updater
+handoff still happens before shutdown when the release includes a different updater.
+
+If installation, migration, startup or health validation fails, the updater
+automatically restores the previous Git revision and branch, source, frontend,
+configuration and **complete** data backup. Native recovery restores the saved
+Python environment; Docker recovery uses the original local image and Compose
+configuration without rebuilding or pulling it. Database recovery restores the
+snapshot rather than attempting to reverse migrations. Failures during backup
+restart the unchanged installation. A previously running service is restarted and
+health-checked; a previously stopped service stays stopped after rollback.
+
+The updater still exits unsuccessfully when an update fails, even if rollback
+succeeds. It reports the result and backup location; `update.json` records
+`rolled_back` or `rollback_failed`. Inspect the original failure before retrying.
+Backups and old images are retained after both success and failure.
+
+If recovery fails, the updater stops the service and retains the backup for manual
+recovery. If activation was attempted but its outcome is uncertain, it also leaves
+the service stopped instead of restoring a queue that might already have printed.
+A power loss or forcibly killed updater cannot perform automatic recovery.
+An existing `.update-in-progress` file in the data directory blocks another update
+until recovery is resolved; do not simply delete it to bypass validation.
+
+For manual recovery, keep the application stopped and restore the matching source,
+configuration, full data and Python environment (or saved Docker image) together.
 For a native data archive, its `data/` prefix maps to the original `data_dir` in
-`update.json`. For Docker it maps to the recorded entire data mount. Reconcile any
-interrupted physical output in the application after restart.
+`update.json`; `.venv/` in `venv.tar.gz` maps to the installation's `.venv` directory.
+For Docker, `data/` maps to the recorded entire data mount. Reconcile any uncertain
+physical output before allowing printing to resume.
 
 ## Multiple USB printers
 
@@ -670,3 +734,10 @@ tap it, then remove the device or sign out and verify that new alerts stop. Also
 simulate a connection outage and reopen the previously cached app to check the server-unavailable
 screen. Automated tests exercise the API, encrypted payloads, offline worker display,
 and links; they do not prove delivery through Apple's or Google's live services.
+
+Installation or a Home Screen shortcut does not establish Web Push support.
+Some privacy-focused browsers disable the push service even when notification
+APIs are present and Android notifications are allowed. For example,
+[Cromite documents that Web Push is disabled](https://github.com/uazo/cromite/blob/master/docs/FAQ.md#why-do-push-notifications-not-work-on-this-website).
+Check the installing browser's capabilities and site permissions. The application
+cannot override a browser restriction; ntfy or email delivery are alternatives.

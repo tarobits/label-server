@@ -314,6 +314,16 @@ request freezes its selected copies when accepted; newly submitted copies wait
 for another batch. Removing queue items cancels queued copies and retains history.
 Printing and uncertain copies require batch review.
 
+Use **Change copies** on an unstarted queued item to set its quantity (1–1000).
+This requires Print access to its destination and either ownership or Moderator
+access. Reserved, previously attempted, partially printed, and held items cannot
+be resized. Saved content and ownership remain unchanged.
+
+Owners can also change quantities in their own pending print requests without
+Print access; moderators can edit requests for their destinations. Each edit
+invalidates older approval views, which must be reloaded and reviewed. Changes
+apply to the selected label, including individual CSV rows.
+
 **Print selected** prints only the selected compatible copies. Moderator selections
 also hold automatic printing for that destination so other copies stay queued;
 resume from its Overview card when ready. Print-level users can select their own
@@ -583,8 +593,11 @@ both release lookup and Git clone/fetch, and is shared with the server's cached
 update check. The footer displays the running version and opens the full changelog;
 a bottom-right notice links to newer releases. After an upgrade, each account sees
 the releases since its last visit once, across browsers. The first visit establishes
-a baseline. Account settings provide password changes and per-browser reduced-motion
-preferences. See [private repository access](docs/DEPLOYMENT.md#private-github-repository-access)
+a baseline. Account settings provide password changes, active login sessions with
+individual or bulk sign-out, and per-browser reduced-motion preferences. Session
+details include sign-in and last-seen times, IP address, browser, OS, device, and
+user agent. Approximate location requires [trusted Cloudflare headers](docs/DEPLOYMENT.md#session-details).
+See [private repository access](docs/DEPLOYMENT.md#private-github-repository-access)
 for token-file configuration and credential handling.
 
 ```sh

@@ -3,6 +3,16 @@
 Roles control application and printer access. Ownership and group membership
 control template, font and image sharing. These rules are implemented.
 
+## Personal sessions
+
+Every signed-in user can list and revoke their own login sessions in Account
+settings. These endpoints are owner-only, including for administrators:
+`GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`, and
+`DELETE /api/auth/sessions/others`. Deletion requires the current session's CSRF
+token and same-origin checks. Listing returns separate public identifiers,
+never login tokens, their hashes, or another session's CSRF token. Expired
+sessions are omitted. Revocation also removes the session's push subscription.
+
 ## Roles and user groups
 
 Roles contain permission objects and are assigned directly to users. A role can
@@ -206,6 +216,19 @@ Requests freeze label content and copy counts before review. Approval rechecks
 the submitter's current access and the reviewer's scope. Only approval creates
 executable jobs for a request, and repeating approval must not duplicate jobs.
 Pending requests do not count toward printing thresholds.
+
+Pending request owners may change individual label quantities without Print
+access; other editors need Moderator access to the request's destination.
+Queued quantities require Print access plus ownership or Moderator access, and
+only unstarted, unreserved items without access/content holds may change.
+
+Request responses include a monotonically increasing `revision`. Approval now
+requires JSON `{"expected_revision": REVISION}`; the server rejects an outdated
+revision with 409, even if quantities were changed back to their original values.
+Clients must reload and review the updated request before retrying approval.
+Quantity edits use `PUT /api/requests/{id}/labels/{position}/copies` with `copies`
+and `expected_revision`, or `PUT /api/jobs/{id}/copies` with `copies` and
+`expected_copies` for queued items. Counts must be integers from 1 through 1000.
 
 If an account is disabled or loses the access required for queued work, pause the
 affected queued jobs and show an administrator a dashboard notice. The
