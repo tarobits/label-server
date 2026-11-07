@@ -143,11 +143,17 @@ async function perform(task: () => Promise<string>) {
 async function enable() {
   // Request permission directly in the click handler, before any network/worker wait.
   await perform(async () => {
-    if ((await Notification.requestPermission()) !== 'granted') {
+    const permission =
+      Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+    if (permission === 'denied') {
       throw new Error(
-        'Notifications are blocked. Allow them in your browser or device settings, then try again.',
+        'The browser denied notification permission. Check this site’s notification permission and device settings. Some browsers disable web notifications entirely.',
       )
     }
+    if (permission !== 'granted')
+      throw new Error(
+        'Notification permission was not granted. Try again and accept the browser’s permission prompt.',
+      )
     const worker = registration.value
     if (!worker || !settings.value?.public_key) throw new Error('Reload the app and try again.')
     // Fresh keys prevent a different account on this installation from inheriting a subscription.

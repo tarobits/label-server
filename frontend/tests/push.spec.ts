@@ -131,11 +131,37 @@ test('denied permission stays recoverable without creating a device', async ({ p
   await page.goto('/#/account')
   const push = page.getByRole('region', { name: 'Push notifications', exact: true })
   await push.getByRole('button', { name: 'Enable notifications', exact: true }).click()
-  await expect(push.getByRole('alert')).toContainText('Notifications are blocked.')
+  await expect(push.getByRole('alert')).toContainText('The browser denied notification permission.')
   await expect(
     push.getByRole('button', { name: 'Enable notifications', exact: true }),
   ).toBeEnabled()
   expect((await (await request.get('/api/auth/push')).json()).devices).toEqual([])
+})
+
+test('an unanswered permission prompt is not reported as a browser block', async ({
+  page,
+  request,
+}) => {
+  await mockSubscription(page, 'default')
+  await page.goto('/#/account')
+  const push = page.getByRole('region', { name: 'Push notifications', exact: true })
+  await push.getByRole('button', { name: 'Enable notifications', exact: true }).click()
+  await expect(push.getByRole('alert')).toContainText('Notification permission was not granted.')
+  await expect(push.getByRole('alert')).not.toContainText('denied')
+  expect((await (await request.get('/api/auth/push')).json()).devices).toEqual([])
+})
+
+test('existing notification permission does not request permission again', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['notifications'])
+  // If a redundant permission request is made, the simulated prompt denies it.
+  await mockSubscription(page, 'denied')
+  await page.goto('/#/account')
+  const push = page.getByRole('region', { name: 'Push notifications', exact: true })
+  await push.getByRole('button', { name: 'Enable notifications', exact: true }).click()
+  await expect(push.getByRole('status')).toHaveText('Notifications enabled.')
 })
 
 test('iPhone browser explains the Home Screen requirement', async ({ page }) => {
