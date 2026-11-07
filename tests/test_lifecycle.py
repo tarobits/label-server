@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from threading import Event
 
 import pytest
 from alembic import command
@@ -10,6 +11,42 @@ from fastapi.testclient import TestClient
 from mock_backend import MockPrinterBackend
 
 from app.config import Settings
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_update_validation_blocks_requests_and_external_effects(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, resume: bool
+) -> None:
+    tape = profile(client, threshold=1)
+    install(client, tape["id"])
+    queued = job(client, tape["id"])
+    settings = client.app.state.settings.model_copy(update={"worker_interval_seconds": 0.02})
+    marker = client.app.state.fonts.root.parent.parent / ".update-in-progress"
+    client.__exit__(None, None, None)
+    marker.touch()
+    notifications = Event()
+    monkeypatch.setattr("app.main.deliver_routed_pending", lambda *_: notifications.set())
+    backend = MockPrinterBackend()
+    with TestClient(create_app(settings, {"main": backend})) as validating:
+        assert validating.get("/api/health").json()["healthy"]
+        assert not validating.app.state.fleet.running
+        assert not notifications.wait(0.3)
+        for method, path in (("GET", "/api/status"), ("POST", "/api/jobs"), ("GET", "/")):
+            response = validating.request(method, path)
+            assert response.status_code == 503
+            assert response.headers["cache-control"] == "no-store"
+        assert not backend.batches
+        if resume:
+            marker.unlink()
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if validating.get(f"/api/jobs/{queued['id']}").json()["status"] == "printed":
+                    break
+                time.sleep(0.01)
+            assert validating.get(f"/api/jobs/{queued['id']}").json()["status"] == "printed"
+            assert notifications.wait(1)
+    assert len(backend.batches) == (1 if resume else 0)
+    assert notifications.is_set() is resume
 
 
 def test_queue_and_silence_survive_app_restart(client: TestClient) -> None:

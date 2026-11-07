@@ -32,15 +32,15 @@ def frontend_bundle(path, commit, extra=None):
     return path
 
 
-@pytest.mark.parametrize("failure", [None, "migration", "health"])
+@pytest.mark.parametrize("failure", [None, "dependencies", "migration", "start", "health"])
 def test_prebuilt_update_without_npm(deployment, monkeypatch, failure):
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, "native", failure, prebuilt=True
     )
 
 
 def test_prebuilt_separate_install(deployment, monkeypatch):
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, "native", None, prebuilt=True, separate=True
     )
 
@@ -301,7 +301,7 @@ def test_changed_updater_exits_before_download_and_can_resume(
     assert not list(args.backup_dir.glob("*/update.json"))
     # Simulate the next invocation executing the saved release updater.
     monkeypatch.setattr(update, "__file__", str(saved))
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         (root, data, previous, newest), monkeypatch, mode, None, prebuilt=(mode == "native")
     )
 
@@ -343,6 +343,8 @@ def deployment(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("placeholder")
     (root / "scripts/update.py").write_text(Path(update.__file__).read_text())
+    (root / "app").mkdir()
+    (root / "app/main.py").write_text("UPDATE_VALIDATION_PROTOCOL = 1\n")
     git(root, "add", ".")
     git(root, "commit", "-m", "Previous installation")
     previous = git(root, "rev-parse", "HEAD")
@@ -357,12 +359,16 @@ def deployment(tmp_path):
     (data / "labels.db").write_bytes(b"original database")
     (data / "assets/images/art.image").write_bytes(b"original image")
     (root / ".env").write_text("LABEL_PUBLIC_URL=http://label-server\n")
+    (root / ".venv/bin").mkdir(parents=True)
+    (root / ".venv/bin/python").write_text("original runtime")
     return root, data, previous, newest
 
 
 @pytest.mark.parametrize("mode", ["native", "docker"])
-@pytest.mark.parametrize("failure", [None, "migration", "health"])
-def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+@pytest.mark.parametrize(
+    "failure", [None, "backup", "dependencies", "build", "migration", "start", "health"]
+)
+def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
     deployment,
     monkeypatch,
     mode,
@@ -374,6 +380,10 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     channel="stable",
     explicit_tag=None,
     prebuilt=False,
+    initially_running=True,
+    recovery_unhealthy=False,
+    activation_error=False,
+    restore_failure=False,
 ):
     root, data, previous, newest = deployment
     install = root
@@ -386,6 +396,10 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     args.channel = channel
     args.tag = explicit_tag
     args.prebuilt_frontend = prebuilt
+    if mode == "native":
+        args.database_lock = data / "labels.worker.lock"
+        args.database_lock.touch()
+        lock_inode = args.database_lock.stat().st_ino
     if prebuilt:
         dist = install / "frontend/dist"
         dist.mkdir(parents=True)
@@ -433,6 +447,15 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
         "image": "sha256:old",
         "container_image": "labels:old",
         "project": "existing-project",
+        "compose": {
+            "services": {
+                "labels": {
+                    "image": "labels:old",
+                    "build": ".",
+                    "environment": {"EXAMPLE": "literal$value"},
+                }
+            }
+        },
         "mount": {
             "Type": "volume",
             "Name": "real-existing-data",
@@ -443,7 +466,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
     original_command = update.command
     original_run = subprocess.run
     events = []
-    running = True
+    running = initially_running
 
     def migrate():
         backup = next(args.backup_dir.glob("*/data.tar.gz"))
@@ -455,6 +478,9 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
             assert archive.extractfile("version.txt").read() == b"old"
         assert git(root, "rev-parse", "HEAD") == newest
         (data / "labels.db").write_bytes(b"migrated database")
+        (data / "labels.db-wal").write_bytes(b"new WAL")
+        (data / "assets/images/art.image").write_bytes(b"changed image")
+        (data / "new-file").write_text("new data")
         if failure == "migration":
             raise update.UpdateError("Migration failed")
 
@@ -480,11 +506,34 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
             running = False
         elif command[:2] == ["systemctl", "start"]:
             running = True
+            if failure == "start" and (install / "version.txt").read_text() == "new":
+                raise update.UpdateError("Startup failed")
+        elif len(command) > 3 and command[1:4] == ["-m", "pip", "install"]:
+            (install / ".venv/bin/python").write_text("new runtime")
+            if failure == "dependencies":
+                raise update.UpdateError("Dependency installation failed")
+        elif command[:3] == ["npm", "run", "build"] and failure == "build":
+            raise update.UpdateError("Frontend build failed")
+        elif command[:2] == ["docker", "ps"]:
+            return "container" if running else ""
+        elif command[:2] == ["docker", "stop"]:
+            running = False
         elif command[0] == "runuser":
             migrate()
         elif command[:2] == ["docker", "run"]:
             assert "--network" in command and "none" in command
             assert config["image"] in command and "real-existing-data" in " ".join(command)
+            if kwargs.get("input"):
+                backup = next(
+                    args.backup_dir.glob("*/update.json"), args.backup_dir / "unused"
+                ).parent
+                script = (
+                    kwargs["input"]
+                    .replace("/update-data", str(data))
+                    .replace("/update-backup", str(backup))
+                )
+                exec(script, {})
+                return ""
             backup = next(args.backup_dir.glob("*/update.json")).parent
             with tarfile.open(backup / "data.tar.gz", "w:gz") as archive:
                 archive.add(data, arcname="data")
@@ -504,7 +553,18 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
             assert f"{root / '.env'}:/srv/labels/.env:ro" in command
             migrate()
         elif command[0] == "up":
+            if (install / "version.txt").read_text() == "old" and failure != "backup":
+                restored = json.loads(Path(options.compose_file[0]).read_text())
+                service = restored["services"]["labels"]
+                assert service["image"] == config["image"]
+                assert "build" not in service
+                assert service["environment"]["EXAMPLE"] == "literal$$value"
+                assert "--no-build" in command and "never" in command
             running = True
+            if failure == "start" and (install / "version.txt").read_text() == "new":
+                raise update.UpdateError("Startup failed")
+        elif command[0] == "build" and failure in ("dependencies", "build"):
+            raise update.UpdateError("Image build failed")
         return ""
 
     def fake_run(command, **kwargs):
@@ -514,13 +574,39 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
 
     def healthy(*_):
         assert running
-        if failure == "health":
+        new = (install / "version.txt").read_text() == "new"
+        assert (data / update.UPDATE_MARKER).exists() is new
+        if (failure == "health" and new) or (recovery_unhealthy and not new):
             raise update.UpdateError("Unhealthy")
 
     monkeypatch.setattr(update, "command", fake_command)
     monkeypatch.setattr(update, "compose", fake_compose)
     monkeypatch.setattr(update.subprocess, "run", fake_run)
     monkeypatch.setattr(update, "wait_healthy", healthy)
+    if failure == "backup":
+
+        def failed_backup(*_):
+            raise update.UpdateError("Backup failed")
+
+        monkeypatch.setattr(update, "archive_source", failed_backup)
+    if restore_failure:
+        original_restore = update.restore_archive
+
+        def failed_restore(archive, *params, **kwargs):
+            if archive.name == "data.tar.gz":
+                raise update.UpdateError("Cannot extract data backup")
+            return original_restore(archive, *params, **kwargs)
+
+        monkeypatch.setattr(update, "restore_archive", failed_restore)
+    if activation_error:
+        original_marker = update.validation_marker
+
+        def uncertain_activation(*params):
+            original_marker(*params)
+            if params[-1] is False:
+                raise update.UpdateError("Lost connection after activation")
+
+        monkeypatch.setattr(update, "validation_marker", uncertain_activation)
     if prebuilt:
 
         def download(repository, tag, destination, credential):
@@ -537,30 +623,174 @@ def test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
             update.update(args)
     else:
         update.update(args)
-    assert running is (failure is None)
-    assert git(root, "branch", "--show-current") == "release"
+    if activation_error or restore_failure:
+        assert not running
+        assert git(root, "rev-parse", "HEAD") == (newest if activation_error else previous)
+        assert (data / "labels.db").read_bytes() == b"migrated database"
+        record = json.loads(next(args.backup_dir.glob("*/update.json")).read_text())
+        assert record["status"] == "rollback_failed"
+        return
+    assert running is (not failure or (initially_running and not recovery_unhealthy))
+    assert git(root, "branch", "--show-current") == ("main" if failure else "release")
     assert git(root, "rev-parse", "main") == previous
-    assert git(root, "rev-parse", "release") == newest
-    assert (install / "version.txt").read_text() == "new"
+    if failure:
+        assert not git(root, "branch", "--list", "release")
+        assert git(root, "rev-parse", "HEAD") == previous
+        assert (data / "labels.db").read_bytes() == b"original database"
+        assert (data / "assets/images/art.image").read_bytes() == b"original image"
+        assert not (data / "labels.db-wal").exists()
+        assert not (data / "new-file").exists()
+        if mode == "native":
+            assert (install / ".venv/bin/python").read_text() == "original runtime"
+    else:
+        assert git(root, "rev-parse", "release") == newest
+    assert not (data / update.UPDATE_MARKER).exists()
+    assert (install / "version.txt").read_text() == ("old" if failure else "new")
     if token_file:
         assert token_path.read_text() == token
     record = json.loads(next(args.backup_dir.glob("*/update.json")).read_text())
     assert record["status"] == (
-        "migrating" if metadata_failure else "failed" if failure else "complete"
+        "migrating"
+        if metadata_failure
+        else "rollback_failed"
+        if recovery_unhealthy
+        else "rolled_back"
+        if failure
+        else "complete"
     )
     assert record["previous_commit"] == previous
     assert record["release"] == selected_tag
     if mode == "native":
-        assert any(command[1:5] == ["-m", "pip", "install", "-c"] for command in events)
+        assert args.database_lock.stat().st_ino == lock_inode
+        assert any(command[1:5] == ["-m", "pip", "install", "-c"] for command in events) is (
+            failure != "backup"
+        )
         if prebuilt:
             assert not any(command[0] == "npm" for command in events)
-            assert (install / "frontend/dist/index.html").read_bytes() == b"new frontend"
-            assert not (install / "frontend/dist/stale.js").exists()
+            assert (install / "frontend/dist/index.html").read_bytes() == (
+                b"old frontend" if failure else b"new frontend"
+            )
+            assert (install / "frontend/dist/stale.js").exists() is bool(failure)
             with tarfile.open(next(args.backup_dir.glob("*/source.tar.gz"))) as archive:
                 assert archive.extractfile("frontend/dist/index.html").read() == b"old frontend"
-        else:
+        elif failure not in ("dependencies", "backup"):
             assert ["npm", "ci", "--prefix", "frontend"] in events
             assert ["npm", "run", "build", "--prefix", "frontend"] in events
+
+
+@pytest.mark.parametrize("mode", ["native", "docker"])
+def test_failed_recovery_health_check_leaves_service_stopped(deployment, monkeypatch, mode):
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, mode, "health", recovery_unhealthy=True
+    )
+
+
+@pytest.mark.parametrize("mode", ["native", "docker"])
+def test_rollback_preserves_stopped_service(deployment, monkeypatch, mode):
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, mode, "health", initially_running=False
+    )
+
+
+def test_rollback_restores_separate_installation_and_custom_data(deployment, monkeypatch):
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, "native", "health", separate=True, prebuilt=True
+    )
+
+
+@pytest.mark.parametrize("mode", ["native", "docker"])
+def test_uncertain_activation_does_not_restore_queue_that_might_have_printed(
+    deployment, monkeypatch, mode
+):
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, mode, "activation", activation_error=True
+    )
+
+
+def test_failed_data_restoration_never_starts_mixed_deployment(deployment, monkeypatch):
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, "native", "health", restore_failure=True
+    )
+
+
+def test_docker_recovery_does_not_read_replaced_updater_source(deployment, monkeypatch):
+    monkeypatch.setattr(
+        update.inspect,
+        "getsource",
+        lambda _: pytest.fail("Updater on disk may already be restored"),
+    )
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, "docker", "health"
+    )
+
+
+def test_restore_preserves_lock_inode_modes_and_interpreter_symlinks(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    lock = data / "database.worker.lock"
+    lock.touch()
+    original_inode = lock.stat().st_ino
+    (data / "secret").write_text("original")
+    (data / "secret").chmod(0o600)
+    (data / "python").symlink_to("/usr/bin/python3")
+    archive_path = tmp_path / "backup.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(data, arcname="data")
+    (data / "secret").write_text("changed")
+    (data / "new-wal").touch()
+    with update.update_lock(lock):
+        update.restore_archive(archive_path, data, "data", (lock.name,))
+        assert lock.stat().st_ino == original_inode
+        with pytest.raises(update.UpdateError):
+            with update.update_lock(lock):
+                pytest.fail("Restoration must preserve the exclusive lock")
+    assert (data / "secret").read_text() == "original"
+    assert (data / "secret").stat().st_mode & 0o777 == 0o600
+    assert (data / "python").readlink() == Path("/usr/bin/python3")
+    assert not (data / "new-wal").exists()
+
+
+@pytest.mark.parametrize("entry", ["../outside", "/outside", "./link/escaped"])
+def test_restore_rejects_unsafe_archive_before_touching_installation(tmp_path, entry):
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "keep").write_text("original")
+    archive_path = tmp_path / "backup.tar.gz"
+    with tarfile.open(archive_path, "w:gz") as archive:
+        symlink = tarfile.TarInfo("./link")
+        symlink.type = tarfile.SYMTYPE
+        symlink.linkname = str(tmp_path)
+        archive.addfile(symlink)
+        archive.addfile(tarfile.TarInfo(entry), io.BytesIO())
+    with pytest.raises(ValueError, match="Unsafe"):
+        update.restore_archive(archive_path, target)
+    assert (target / "keep").read_text() == "original"
+
+
+def test_validation_protocol_and_unfinished_update_checks(tmp_path):
+    update.require_validation_protocol("UPDATE_VALIDATION_PROTOCOL = 1")
+    for source in ("", "UPDATE_VALIDATION_PROTOCOL = 2", "# UPDATE_VALIDATION_PROTOCOL = 1"):
+        with pytest.raises(update.UpdateError, match="safe update validation"):
+            update.require_validation_protocol(source)
+    args = update.options(["--mode", "native", "--checkout", str(tmp_path)])
+    update.validation_marker(args, tmp_path, None, None)
+    update.validation_marker(args, tmp_path, None, True)
+    with pytest.raises(update.UpdateError, match="unfinished update"):
+        update.validation_marker(args, tmp_path, None, None)
+
+
+@pytest.mark.parametrize("branch", ["main", "release", None])
+def test_restore_checkout_restores_branch_and_existing_release_ref(deployment, branch):
+    root, _, previous, newest = deployment
+    git(root, "branch", "release", previous)
+    git(root, "switch", "--force-create", "release", newest)
+    args = update.options(["--mode", "native", "--checkout", str(root)])
+    update.restore_checkout(
+        args, {"previous_commit": previous, "previous_branch": branch, "previous_release": previous}
+    )
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert git(root, "rev-parse", "release") == previous
+    assert git(root, "branch", "--show-current") == (branch or "")
 
 
 @pytest.mark.parametrize("mode", ["native", "docker"])
@@ -568,7 +798,7 @@ def test_private_repository_update_authenticates_fetch_without_saving_token(
     deployment, monkeypatch, capsys, mode
 ):
     token = "github_pat_privateTest"
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, mode, None, token=token
     )
     root = deployment[0]
@@ -578,7 +808,7 @@ def test_private_repository_update_authenticates_fetch_without_saving_token(
 
 
 def test_separate_native_install_preserves_token_file(deployment, monkeypatch):
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment,
         monkeypatch,
         "native",
@@ -783,18 +1013,20 @@ def test_docker_discovery_preserves_real_volume_and_rejects_nested_data(
         assert config["project"] == "real-project"
 
 
-def test_backup_metadata_failure_still_stops_application(deployment, monkeypatch):
-    # The error handler must attempt shutdown even if it cannot write failure metadata.
+def test_backup_metadata_failure_still_restores_application(deployment, monkeypatch):
+    # Recovery must proceed even if failure metadata cannot be written.
     original = Path.write_text
 
     def failed_metadata(path, text, *args, **kwargs):
-        if path.name == "update.json" and '"failed"' in text:
+        if path.name == "update.json" and any(
+            status in text for status in ['"rolling_back"', '"rolled_back"', '"complete"']
+        ):
             raise OSError("No disk space")
         return original(path, text, *args, **kwargs)
 
     monkeypatch.setattr(Path, "write_text", failed_metadata)
     # Exercise the common end-to-end path, injecting a failing health check.
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, "native", "health", metadata_failure=True
     )
 
@@ -803,7 +1035,7 @@ def test_backup_metadata_failure_still_stops_application(deployment, monkeypatch
     shutil.which("rsync") is None, reason="rsync is a native deployment prerequisite"
 )
 def test_separate_native_install_preserves_custom_data_and_environment(deployment, monkeypatch):
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, "native", None, separate=True
     )
 
@@ -814,7 +1046,7 @@ def test_separate_native_install_preserves_custom_data_and_environment(deploymen
 )
 def test_channel_and_tag_install_the_selected_commit(deployment, monkeypatch, mode, selection):
     channel, tag = selection
-    test_updates_exact_tag_preserves_main_and_backups_and_stops_on_failure(
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, mode, None, channel=channel, explicit_tag=tag
     )
 

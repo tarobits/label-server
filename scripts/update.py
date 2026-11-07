@@ -2,12 +2,14 @@
 """Update a native or Compose deployment to a published GitHub release.
 
 Uses only the standard library so it also works before installing dependencies.
-Failures after shutdown leave the application stopped and preserve the backup.
+Failures restore the previous deployment; failed recovery leaves it stopped.
 """
 
 import argparse
+import ast
 import fcntl
 import hashlib
+import inspect
 import json
 import os
 import re
@@ -27,7 +29,7 @@ import zipfile
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 DEFAULT_REPOSITORY = "tarobits/label-server"
@@ -35,6 +37,7 @@ FRONTEND_ASSET = "label-server-frontend.zip"
 FRONTEND_METADATA = "frontend-build.json"
 MAX_FRONTEND_DOWNLOAD = 64 * 1024 * 1024
 MAX_FRONTEND_UNPACKED = 256 * 1024 * 1024
+UPDATE_MARKER = ".update-in-progress"
 
 
 def frontend_file(name: str) -> bool:
@@ -62,7 +65,15 @@ def frontend_file(name: str) -> bool:
 
 
 class AssetRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
         url = urllib.parse.urlsplit(newurl)
         if url.scheme != "https" or url.netloc not in {
             "api.github.com",
@@ -244,10 +255,15 @@ class UpdateError(Exception):
 
 
 def command(
-    args: list[str], cwd: Path, *, capture: bool = False, env: dict[str, str] | None = None
+    args: list[str],
+    cwd: Path,
+    *,
+    capture: bool = False,
+    env: dict[str, str] | None = None,
+    input: str | None = None,
 ) -> str:
     print("+ " + shlex.join(args), flush=True)
-    result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=capture)
+    result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=capture, input=input)
     if result.returncode:
         # Captured configuration/inspection output can contain credentials.
         raise UpdateError(f"Command failed (exit {result.returncode}): {shlex.join(args)}")
@@ -496,6 +512,8 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
     if os.geteuid() != 0:
         raise UpdateError("Native updates must run as root (sudo) to manage systemd and ownership")
     python = args.install_dir / ".venv/bin/python"
+    if (args.install_dir / ".venv").is_symlink():
+        raise UpdateError("Automatic rollback requires a local .venv directory, not a symlink")
     if not python.is_file():
         raise UpdateError(
             "Existing native installation needs .venv/bin/python; this is an updater, not an installer"
@@ -616,6 +634,7 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
         "container_image": container["Config"]["Image"],
         "project": container["Config"]["Labels"].get("com.docker.compose.project"),
         "compose": json.loads(compose(args, "config", "--format", "json", capture=True)),
+        "data_relative": database.parent.relative_to(Path(mount["Destination"])).as_posix(),
     }
 
 
@@ -673,6 +692,288 @@ def docker_backup(args: argparse.Namespace, config: dict[str, Any], backup: Path
         ],
         args.checkout,
     )
+
+
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        path.unlink(missing_ok=True)
+    else:
+        shutil.rmtree(path)
+
+
+def restore_archive(
+    archive: Path, target: Path, member: str | None = None, preserve: tuple[str, ...] = ()
+) -> None:
+    """Restore a local backup exactly, keeping protected runtime paths/inodes."""
+    with tempfile.TemporaryDirectory(prefix=".restore-", dir=archive.parent) as temporary:
+        staged = Path(temporary)
+        with tarfile.open(archive) as bundle:
+            entries = bundle.getmembers()
+            links = {PurePosixPath(entry.name).as_posix() for entry in entries if entry.issym()}
+            for entry in entries:
+                entry_path = PurePosixPath(entry.name)
+                if (
+                    entry_path.is_absolute()
+                    or ".." in entry_path.parts
+                    or not (entry.isfile() or entry.isdir() or entry.issym() or entry.islnk())
+                    or any(parent.as_posix() in links for parent in entry_path.parents)
+                ):
+                    raise ValueError("Unsafe recovery archive entry")
+                if entry.islnk():
+                    linked = PurePosixPath(entry.linkname)
+                    if (
+                        linked.is_absolute()
+                        or ".." in linked.parts
+                        or linked.as_posix() in links
+                        or any(parent.as_posix() in links for parent in linked.parents)
+                    ):
+                        raise ValueError("Unsafe recovery archive link")
+            # Backups are locally generated in a restricted directory. Keep
+            # absolute interpreter symlinks and original ownership/modes.
+            bundle.extractall(staged, filter="fully_trusted")
+        source = staged / member if member else staged
+        if not source.is_dir() or source.is_symlink():
+            raise ValueError("Recovery archive has no expected root directory")
+
+        def protected(relative: str) -> bool:
+            return any(relative == name or relative.startswith(name + "/") for name in preserve)
+
+        def prune(path: Path, relative: str) -> None:
+            if protected(relative):
+                return
+            if (
+                any(name.startswith(relative + "/") for name in preserve)
+                and path.is_dir()
+                and not path.is_symlink()
+            ):
+                for child in path.iterdir():
+                    prune(child, relative + "/" + child.name)
+            else:
+                remove_path(path)
+
+        if target.is_symlink() or (target.exists() and not target.is_dir()):
+            raise ValueError("Recovery target must be a real directory")
+        target.mkdir(parents=True, exist_ok=True)
+        for path in target.iterdir():
+            prune(path, path.name)
+
+        def copy(path: Path, destination: Path, relative: str) -> None:
+            if protected(relative):
+                return
+            if path.is_dir() and not path.is_symlink():
+                destination.mkdir(exist_ok=True)
+                for child in path.iterdir():
+                    copy(child, destination / child.name, relative + "/" + child.name)
+                shutil.copystat(path, destination, follow_symlinks=False)
+            else:
+                remove_path(destination)
+                shutil.copy2(path, destination, follow_symlinks=False)
+            if os.geteuid() == 0:
+                info = path.lstat()
+                os.chown(destination, info.st_uid, info.st_gid, follow_symlinks=False)
+
+        for path in source.iterdir():
+            copy(path, target / path.name, path.name)
+        if member:
+            shutil.copystat(source, target)
+            if os.geteuid() == 0:
+                info = source.stat()
+                os.chown(target, info.st_uid, info.st_gid)
+
+
+# Keep the helper source in memory: restoring the checkout can replace the
+# updater file on disk before Docker's data restoration runs.
+DOCKER_RESTORE_SCRIPT = (
+    "import os, shutil, tarfile, tempfile\nfrom pathlib import Path, PurePosixPath\n"
+    + inspect.getsource(remove_path)
+    + "\n"
+    + inspect.getsource(restore_archive)
+    + "\nrestore_archive(Path('/update-backup/data.tar.gz'), Path('/update-data'), 'data')\n"
+)
+
+
+def docker_data_command(
+    args: argparse.Namespace, config: dict[str, Any], code: str, backup: Path | None = None
+) -> None:
+    mount = config["mount"]
+    source = mount["Name"] if mount["Type"] == "volume" else mount["Source"]
+    if "," in source or (backup and "," in str(backup)):
+        raise UpdateError("Docker recovery paths must not contain commas")
+    mounts = ["--mount", f"type={mount['Type']},source={source},target=/update-data"]
+    if backup:
+        mounts += ["--mount", f"type=bind,source={backup},target=/update-backup"]
+    command(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--interactive",
+            "--network",
+            "none",
+            "--user",
+            "0:0",
+            *mounts,
+            "--entrypoint",
+            "python",
+            config["image"],
+            "-",
+        ],
+        args.checkout,
+        input=code,
+    )
+
+
+def validation_marker(
+    args: argparse.Namespace,
+    data: Path | None,
+    docker: dict[str, Any] | None,
+    enabled: bool | None,
+) -> None:
+    if data:
+        marker = data / UPDATE_MARKER
+        if enabled is None:
+            if marker.exists() or marker.is_symlink():
+                raise UpdateError("An unfinished update needs recovery before updating again")
+        elif enabled:
+            marker.touch(mode=0o644, exist_ok=False)
+        else:
+            marker.unlink()
+    elif docker:
+        path = str(Path("/update-data") / docker.get("data_relative", ".") / UPDATE_MARKER)
+        if enabled is None:
+            code = (
+                f"from pathlib import Path\np = Path({path!r})\n"
+                "if p.exists() or p.is_symlink():\n"
+                "    raise RuntimeError('An unfinished update needs recovery before updating again')\n"
+            )
+        else:
+            action = "touch(mode=0o644, exist_ok=False)" if enabled else "unlink()"
+            code = f"from pathlib import Path\nPath({path!r}).{action}\n"
+        docker_data_command(args, docker, code)
+
+
+def require_validation_protocol(source: str) -> None:
+    """Do not start a release that could print before rollback is committed."""
+    for statement in ast.parse(source).body:
+        if (
+            isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "UPDATE_VALIDATION_PROTOCOL"
+                for target in statement.targets
+            )
+            and isinstance(statement.value, ast.Constant)
+            and statement.value.value == 1
+        ):
+            return
+    raise UpdateError("Selected release does not support safe update validation")
+
+
+def running(args: argparse.Namespace) -> bool:
+    if args.mode == "native":
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", args.service], cwd=args.install_dir
+        )
+        if result.returncode not in (0, 3):
+            raise UpdateError("Could not determine the systemd service state")
+        return result.returncode == 0
+    return bool(compose(args, "ps", "--quiet", "labels", capture=True))
+
+
+def stop_application(args: argparse.Namespace) -> None:
+    if args.mode == "native":
+        command(["systemctl", "stop", args.service], args.install_dir)
+        if running(args):
+            raise UpdateError("Application remained running after stop; recovery is unsafe")
+    else:
+        if not args.project_name:
+            raise UpdateError("Cannot safely stop Docker without its existing project name")
+        query = [
+            "docker",
+            "ps",
+            "--quiet",
+            "--filter",
+            f"label=com.docker.compose.project={args.project_name}",
+            "--filter",
+            "label=com.docker.compose.service=labels",
+        ]
+        identifiers = command(query, args.checkout, capture=True).splitlines()
+        if identifiers:
+            command(["docker", "stop", *identifiers], args.checkout)
+        if command(query, args.checkout, capture=True):
+            raise UpdateError("Application remained running after stop; recovery is unsafe")
+
+
+def restore_checkout(args: argparse.Namespace, metadata: dict[str, Any]) -> None:
+    if not metadata["previous_commit"]:
+        return  # A newly created source checkout has no previous application state.
+    command(["git", "switch", "--detach", "--force", metadata["previous_commit"]], args.checkout)
+    if metadata["previous_release"]:
+        command(
+            ["git", "update-ref", "refs/heads/release", metadata["previous_release"]], args.checkout
+        )
+    else:
+        command(["git", "update-ref", "-d", "refs/heads/release"], args.checkout)
+    if metadata["previous_branch"]:
+        command(["git", "switch", metadata["previous_branch"]], args.checkout)
+
+
+def restore_deployment(
+    args: argparse.Namespace,
+    metadata: dict[str, Any],
+    backup: Path,
+    data: Path | None,
+    docker: dict[str, Any] | None,
+) -> argparse.Namespace:
+    restore_checkout(args, metadata)
+    preserved = [".git", ".venv", "frontend/node_modules"]
+    mount_data = (
+        Path(docker["mount"]["Source"]) if docker and docker["mount"]["Type"] == "bind" else data
+    )
+    if mount_data and mount_data.is_relative_to(args.install_dir):
+        preserved.append(mount_data.relative_to(args.install_dir).as_posix())
+    restore_archive(backup / "source.tar.gz", args.install_dir, preserve=tuple(preserved))
+    if data:
+        lock = getattr(args, "database_lock", None)
+        preserved_locks = (lock.relative_to(data).as_posix(),) if lock else ()
+        restore_archive(backup / "data.tar.gz", data, "data", preserved_locks)
+        restore_archive(backup / "venv.tar.gz", args.install_dir / ".venv", ".venv")
+    elif docker:
+        docker_data_command(args, docker, DOCKER_RESTORE_SCRIPT, backup)
+        for item in metadata.get("compose_files", []):
+            shutil.copy2(item["backup"], item["original"])
+        configuration = json.loads(json.dumps(docker["compose"]))
+        service = configuration["services"]["labels"]
+        service.pop("build", None)
+        service["image"] = docker["image"]
+        service["pull_policy"] = "never"
+
+        def literal_values(value: Any) -> Any:
+            # `compose config` has already interpolated these values, including
+            # credentials. Prevent a second interpolation in the recovery file.
+            if isinstance(value, str):
+                return value.replace("$", "$$")
+            if isinstance(value, list):
+                return [literal_values(item) for item in value]
+            if isinstance(value, dict):
+                return {key: literal_values(item) for key, item in value.items()}
+            return value
+
+        pinned = backup / "rollback-compose.json"
+        pinned.write_text(json.dumps(literal_values(configuration)))
+        original_tag = docker["container_image"]
+        if not original_tag.startswith("sha256:") and "@" not in original_tag:
+            command(["docker", "tag", docker["image"], original_tag], args.checkout)
+        args = argparse.Namespace(**vars(args))
+        args.compose_file = [str(pinned)]
+    return args
+
+
+def start_application(args: argparse.Namespace) -> None:
+    if args.mode == "native":
+        command(["systemctl", "daemon-reload"], args.install_dir)
+        command(["systemctl", "start", args.service], args.install_dir)
+    else:
+        compose(args, "up", "--detach", "--no-deps", "--no-build", "--pull", "never", "labels")
 
 
 def wait_healthy(url: str, timeout: float) -> None:
@@ -746,7 +1047,7 @@ def update(args: argparse.Namespace) -> None:
             )
             + "stop app; back up code/config/data; switch release branch; install"
             + (" prebuilt frontend" if args.prebuilt_frontend else "/build")
-            + "; migrate; start; verify health."
+            + "; migrate; start with printing paused; verify health; resume. Roll back on failure."
         )
         return
     required = ["git", "systemctl", "runuser"] if args.mode == "native" else ["git", "docker"]
@@ -775,7 +1076,7 @@ def update(args: argparse.Namespace) -> None:
         args.project_name = docker["project"] or args.project_name
     args.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = args.install_dir.parent / f".{args.install_dir.name}.update.lock"
-    with update_lock(lock_path), ExitStack() as runtime_locks:
+    with update_lock(lock_path), ExitStack() as runtime_locks, ExitStack() as database_locks:
         with git_credentials(token) as git_env:
             git = ["git", "-c", "credential.helper="] if token else ["git"]
             if not existing:
@@ -862,12 +1163,26 @@ def update(args: argparse.Namespace) -> None:
         old_commit = (
             command(["git", "rev-parse", "HEAD"], checkout, capture=True) if existing else None
         )
+        old_branch = (
+            subprocess.run(
+                ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+                cwd=checkout,
+                capture_output=True,
+                text=True,
+            )
+            if existing
+            else None
+        )
         if not existing:
             # This is a new, separate source checkout, not the running installation.
             # Materialize it so a handoff can resume with a clean working tree.
             command(["git", "switch", "--detach", commit], checkout)
         if handoff_updater(args, commit, tag):
             return
+        require_validation_protocol(
+            command(["git", "show", f"{commit}:app/main.py"], checkout, capture=True)
+        )
+        validation_marker(args, data, docker, None)
         staged_frontend = None
         if args.prebuilt_frontend:
             temporary = Path(
@@ -887,6 +1202,10 @@ def update(args: argparse.Namespace) -> None:
             "release": tag,
             "commit": commit,
             "previous_commit": old_commit,
+            "previous_branch": old_branch.stdout.strip()
+            if old_branch and old_branch.returncode == 0
+            else None,
+            "previous_release": branch.stdout.strip() if branch.returncode == 0 else None,
             "mode": args.mode,
             "install_dir": str(args.install_dir),
             "data_dir": str(data) if data else None,
@@ -898,28 +1217,19 @@ def update(args: argparse.Namespace) -> None:
             metadata["status"] = status
             (backup / "update.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
+        was_running = running(args)
+        metadata["was_running"] = was_running
         record("preparing")
-        stopped = False
+        changed = False
+        database_locked = False
+        activated = False
         try:
-            stopped = True  # A failed stop can still have changed service state.
-            if args.mode == "native":
-                command(["systemctl", "stop", args.service], args.install_dir)
-                if (
-                    subprocess.run(
-                        ["systemctl", "is-active", "--quiet", args.service], cwd=args.install_dir
-                    ).returncode
-                    == 0
-                ):
-                    raise UpdateError("Service remained active after stop")
-            else:
-                compose(args, "stop", "labels")
-                ids = compose(args, "ps", "--quiet", "labels", capture=True)
-                if ids:
-                    raise UpdateError("Compose service remained running after stop")
+            stop_application(args)
             record("stopped")
             if args.mode == "native" and getattr(args, "database_lock", None):
                 try:
-                    runtime_locks.enter_context(update_lock(args.database_lock))
+                    database_locks.enter_context(update_lock(args.database_lock))
+                    database_locked = True
                 except UpdateError as error:
                     raise UpdateError(
                         "Another process still owns the database; no backup or migration was attempted"
@@ -946,11 +1256,14 @@ def update(args: argparse.Namespace) -> None:
                         {"original": str(source), "backup": str(target)}
                     )
             if data:
-                with tarfile.open(backup / "data.tar.gz", "w:gz") as archive:
-                    archive.add(data, arcname="data")
+                with tarfile.open(backup / "data.tar.gz", "w:gz") as bundle:
+                    bundle.add(data, arcname="data")
+                with tarfile.open(backup / "venv.tar.gz", "w:gz") as bundle:
+                    bundle.add(args.install_dir / ".venv", arcname=".venv")
             elif docker:
                 docker_backup(args, docker, backup)
             record("backed_up")
+            changed = True  # Even a failed Git switch may have touched application files.
             command(["git", "switch", "--force-create", "release", commit], checkout)
             if args.mode == "native":
                 if args.install_dir != checkout:
@@ -1009,9 +1322,10 @@ def update(args: argparse.Namespace) -> None:
                     args.install_dir,
                     env=env,
                 )
-                runtime_locks.close()
-                command(["systemctl", "daemon-reload"], args.install_dir)
-                command(["systemctl", "start", args.service], args.install_dir)
+                validation_marker(args, data, docker, True)
+                database_locks.close()
+                database_locked = False
+                start_application(args)
             else:
                 compose(args, "build", "--pull", "labels")
                 migration = ["run", "--rm", "--no-deps"]
@@ -1019,38 +1333,69 @@ def update(args: argparse.Namespace) -> None:
                     migration += ["--volume", f"{args.install_dir / '.env'}:/srv/labels/.env:ro"]
                 record("migrating")
                 compose(args, *migration, "labels", "alembic", "upgrade", "head")
-                compose(args, "up", "--detach", "--no-deps", "labels")
+                validation_marker(args, data, docker, True)
+                start_application(args)
             wait_healthy(args.health_url, args.health_timeout)
-            if args.mode == "native":
-                command(["systemctl", "is-active", "--quiet", args.service], args.install_dir)
-            elif not compose(args, "ps", "--quiet", "labels", capture=True):
-                raise UpdateError("Compose service is not running after startup")
+            if not running(args):
+                raise UpdateError("Application is not running after startup")
             record("complete")
-            print(f"Updated to {tag} ({commit[:12]}). Health check passed. Backup: {backup}")
+            # This is the commit point: once activation is attempted, a remote
+            # Docker error cannot prove that printing has not already resumed.
+            activated = True
+            validation_marker(args, data, docker, False)
         except BaseException:
-            if stopped:
+            try:
+                record("rolling_back")
+            except OSError:
+                print("Could not save failure status; attempting recovery anyway.", file=sys.stderr)
+            recovery_args = args
+            try:
+                stop_application(args)
+                if activated:
+                    raise UpdateError(
+                        "Activation outcome is uncertain; automatic data restore could replay prints"
+                    )
+                if changed:
+                    if data and getattr(args, "database_lock", None) and not database_locked:
+                        database_locks.enter_context(update_lock(args.database_lock))
+                    recovery_args = restore_deployment(args, metadata, backup, data, docker)
+                database_locks.close()
+                if was_running:
+                    start_application(recovery_args)
+                    wait_healthy(args.health_url, args.health_timeout)
+                    if not running(recovery_args):
+                        raise UpdateError("Previous application did not remain running")
+            except BaseException as recovery_error:
                 try:
-                    if args.mode == "native":
-                        command(["systemctl", "stop", args.service], args.install_dir)
-                    else:
-                        compose(args, "stop", "labels")
-                except Exception:
+                    stop_application(recovery_args)
+                except BaseException:
                     print(
-                        "Could not confirm shutdown; check the service before recovery.",
+                        "Could not confirm shutdown; check the service state before recovery.",
                         file=sys.stderr,
                     )
+                status = "rollback_failed"
+                reason = (
+                    str(recovery_error)
+                    if isinstance(recovery_error, UpdateError)
+                    else type(recovery_error).__name__
+                )
                 print(
-                    f"Update failed; application left stopped. Backup/recovery record: {backup}. Do not start old code against a migrated database; restore code AND data together.",
+                    f"Automatic rollback failed: {reason}. "
+                    f"Application must remain stopped; recovery backup: {backup}",
+                    file=sys.stderr,
+                )
+            else:
+                status = "rolled_back"
+                print(
+                    f"Update failed; previous deployment restored{' and healthy' if was_running else ' (left stopped)'}. Backup: {backup}",
                     file=sys.stderr,
                 )
             try:
-                record("failed")
+                record(status)
             except OSError:
-                print(
-                    "Could not save failure status; inspect the backup and service state.",
-                    file=sys.stderr,
-                )
+                print("Could not save recovery status; the backup is retained.", file=sys.stderr)
             raise
+        print(f"Updated to {tag} ({commit[:12]}). Health check passed. Backup: {backup}")
 
 
 def main(argv: list[str] | None = None) -> int:

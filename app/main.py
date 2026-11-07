@@ -3,7 +3,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, AsyncIterator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -33,6 +33,8 @@ from app.template_previews import TemplatePreviews
 from app.templates import seed_templates
 
 logger = logging.getLogger(__name__)
+# Checked by the updater before relying on the startup/HTTP validation gate.
+UPDATE_VALIDATION_PROTOCOL = 1
 
 
 def create_app(
@@ -62,6 +64,8 @@ def create_app(
     registry = PrinterRegistry()
     fleet = PrinterFleet(factory, settings, fonts, images, registry, backends, backend_factory)
     stop, wake = fleet.stop, fleet.wake
+    update_marker = fonts.root.parent.parent / ".update-in-progress"
+    activation_lock = Lock()
 
     def run_notifications() -> None:
         import time
@@ -110,16 +114,32 @@ def create_app(
             fleet.sync()
             for device in fleet.workers.values():
                 device.recover()
-            if start_worker:
-                fleet.start()
-                threads.append(
-                    Thread(target=run_notifications, name="notification-worker", daemon=True)
-                )
-                for thread in threads:
-                    thread.start()
+
+            def activate() -> None:
+                # The updater validates startup before allowing external effects.
+                while update_marker.exists():
+                    if stop.wait(0.25):
+                        return
+                with activation_lock:
+                    if stop.is_set():
+                        return
+                    fleet.start()
+                    notifications = Thread(
+                        target=run_notifications, name="notification-worker", daemon=True
+                    )
+                    threads.append(notifications)
+                    notifications.start()
+
+            if start_worker and update_marker.exists():
+                starter = Thread(target=activate, name="update-validation", daemon=True)
+                threads.append(starter)
+                starter.start()
+            elif start_worker:
+                activate()
             yield
         finally:
-            fleet.close()
+            with activation_lock:
+                fleet.close()
             for thread in threads:
                 thread.join()
             engine.dispose()
@@ -186,6 +206,12 @@ def create_app(
     async def private_api_responses(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
+        if update_marker.exists() and request.url.path != "/api/health":
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Update validation in progress"},
+                headers={"Cache-Control": "no-store", "Retry-After": "1"},
+            )
         response = await call_next(request)
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "private, no-store"
