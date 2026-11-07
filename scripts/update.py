@@ -30,6 +30,7 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from threading import Event, Thread
 from typing import Any
 
 DEFAULT_REPOSITORY = "tarobits/label-server"
@@ -638,6 +639,37 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+@contextmanager
+def backup_progress(label: str, target: Path, interval: float = 10) -> Iterator[None]:
+    """Report slow compression without exposing archived filenames or contents."""
+    started = time.monotonic()
+    finished = Event()
+    print(f"Backing up {label}...", flush=True)
+
+    def report() -> None:
+        while not finished.wait(interval):
+            try:
+                size = f", {target.stat().st_size / (1024 * 1024):.1f} MiB written"
+            except OSError:
+                size = ""
+            print(
+                f"Backing up {label}: {time.monotonic() - started:.0f}s elapsed{size}",
+                flush=True,
+            )
+
+    reporter = Thread(target=report, name="backup-progress", daemon=True)
+    reporter.start()
+    succeeded = False
+    try:
+        yield
+        succeeded = True
+    finally:
+        finished.set()
+        reporter.join()
+        outcome = "complete" if succeeded else "interrupted"
+        print(f"Backup of {label} {outcome} ({time.monotonic() - started:.0f}s).", flush=True)
+
+
 def archive_source(root: Path, target: Path, data: Path | None) -> None:
     excluded = {
         ".git",
@@ -1226,6 +1258,7 @@ def update(args: argparse.Namespace) -> None:
         try:
             stop_application(args)
             record("stopped")
+            print("Service stopped. Preparing rollback backups...", flush=True)
             if args.mode == "native" and getattr(args, "database_lock", None):
                 try:
                     database_locks.enter_context(update_lock(args.database_lock))
@@ -1239,7 +1272,8 @@ def update(args: argparse.Namespace) -> None:
                 if docker and docker["mount"]["Type"] == "bind"
                 else data
             )
-            archive_source(args.install_dir, backup / "source.tar.gz", archive_data)
+            with backup_progress("application files", backup / "source.tar.gz"):
+                archive_source(args.install_dir, backup / "source.tar.gz", archive_data)
             if (args.install_dir / ".env").is_file():
                 shutil.copy2(args.install_dir / ".env", backup / "environment.env")
             if docker:
@@ -1256,12 +1290,15 @@ def update(args: argparse.Namespace) -> None:
                         {"original": str(source), "backup": str(target)}
                     )
             if data:
-                with tarfile.open(backup / "data.tar.gz", "w:gz") as bundle:
-                    bundle.add(data, arcname="data")
-                with tarfile.open(backup / "venv.tar.gz", "w:gz") as bundle:
-                    bundle.add(args.install_dir / ".venv", arcname=".venv")
+                with backup_progress("database and assets", backup / "data.tar.gz"):
+                    with tarfile.open(backup / "data.tar.gz", "w:gz") as bundle:
+                        bundle.add(data, arcname="data")
+                with backup_progress("Python environment", backup / "venv.tar.gz"):
+                    with tarfile.open(backup / "venv.tar.gz", "w:gz") as bundle:
+                        bundle.add(args.install_dir / ".venv", arcname=".venv")
             elif docker:
-                docker_backup(args, docker, backup)
+                with backup_progress("database and assets", backup / "data.tar.gz"):
+                    docker_backup(args, docker, backup)
             record("backed_up")
             changed = True  # Even a failed Git switch may have touched application files.
             command(["git", "switch", "--force-create", "release", commit], checkout)

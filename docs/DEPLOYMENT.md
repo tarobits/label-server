@@ -476,6 +476,11 @@ Backups contain credentials and should retain restricted permissions. Docker
 data backups use the old image with networking disabled and a read-only data mount.
 No backup or old Docker image is automatically pruned.
 
+Backup compression can take several minutes on a Raspberry Pi. The updater shows
+each backup stage immediately and reports elapsed time and archive size every
+10 seconds while it runs. The application stays stopped until the update or
+recovery completes.
+
 The default final check is `http://127.0.0.1:8000/api/health`; use `--health-url`
 for a different local port and `--health-timeout` for a slower startup. This proves
 application startup, without submitting or printing a label.

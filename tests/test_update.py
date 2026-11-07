@@ -10,11 +10,52 @@ import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
+from threading import Event, current_thread
 
 import pytest
 
 from scripts import update
 from scripts.package_frontend import package_frontend
+
+
+@pytest.mark.parametrize("failure", [None, RuntimeError, KeyboardInterrupt])
+def test_backup_progress_reports_growth_and_stops_on_exit(tmp_path, monkeypatch, failure):
+    archive = tmp_path / "backup.tar.gz"
+    messages = []
+    first_size = Event()
+    second_size = Event()
+    reporters = []
+
+    def capture(message, *, flush):
+        assert flush
+        messages.append(message)
+        if "elapsed" in message:
+            reporters.append(current_thread())
+        if "1.0 MiB written" in message:
+            first_size.set()
+        if "2.0 MiB written" in message:
+            second_size.set()
+
+    monkeypatch.setattr("builtins.print", capture)
+
+    def backup():
+        with update.backup_progress("Python environment", archive, interval=0.01):
+            assert messages[0] == "Backing up Python environment..."
+            archive.write_bytes(b"a" * (1024 * 1024))
+            assert first_size.wait(5)
+            archive.write_bytes(b"b" * (2 * 1024 * 1024))
+            assert second_size.wait(5)
+            if failure:
+                raise failure("Backup interrupted")
+
+    if failure:
+        with pytest.raises(failure, match="Backup interrupted"):
+            backup()
+    else:
+        backup()
+    outcome = "interrupted" if failure else "complete"
+    assert messages[-1].startswith(f"Backup of Python environment {outcome} (")
+    assert reporters and all(not reporter.is_alive() for reporter in reporters)
 
 
 def frontend_bundle(path, commit, extra=None):
