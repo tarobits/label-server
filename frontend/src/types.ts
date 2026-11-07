@@ -118,6 +118,7 @@ export interface Job extends LabelInformation {
   attribution: PrintAttribution
   owner_id: string
   can_change_printer?: boolean
+  can_change_copies?: boolean
   can_print?: boolean
   can_cancel?: boolean
   access_hold?: {

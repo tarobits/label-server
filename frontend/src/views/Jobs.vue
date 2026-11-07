@@ -16,6 +16,7 @@ import AnimatedDetails from '../components/AnimatedDetails.vue'
 import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import ChangeQueuePrinter from '../components/ChangeQueuePrinter.vue'
+import ChangeCopies from '../components/ChangeCopies.vue'
 interface QueueGroup {
   cost_estimate?: CostEstimateData | null
   print_plan?: PrintPlan | null
@@ -480,6 +481,13 @@ async function cancel(job: Job) {
                       }}<small
                         >{{ job.labels.filter((l) => l.state === 'queued').length }} queued</small
                       >
+                      <ChangeCopies
+                        v-if="job.can_change_copies"
+                        :url="`/jobs/${job.id}/copies`"
+                        :copies="job.copies"
+                        :disabled="loading"
+                        @changed="load(false, true)"
+                      />
                     </div>
                   </div>
                 </td>

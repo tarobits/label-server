@@ -309,7 +309,9 @@ def test_image_input_permissions_preview_submission_requests_and_retention(accou
     frozen = request.json()["labels"][0]["template_snapshot"]["document"]
     assert frozen["elements"][0]["image_asset"] == image
     assert frozen["logic"] is None
-    approved = admin.post(f"/api/requests/{request.json()['id']}/approve")
+    approved = admin.post(
+        f"/api/requests/{request.json()['id']}/approve", json={"expected_revision": 1}
+    )
     assert approved.status_code == 200, approved.text
     job = alice.get(f"/api/jobs/{approved.json()['job_ids'][0]}").json()
     assert job["owner_id"] == "alice"
@@ -371,7 +373,12 @@ def test_csv_image_mapping_is_explicit_and_authorized(accounts):
         "/api/requests", json={"kind": "run", "run_id": allowed.json()["run"]["id"]}
     )
     assert request.status_code == 201, request.text
-    assert admin.post(f"/api/requests/{request.json()['id']}/approve").status_code == 200
+    assert (
+        admin.post(
+            f"/api/requests/{request.json()['id']}/approve", json={"expected_revision": 1}
+        ).status_code
+        == 200
+    )
     absent = alice.post(
         "/api/runs/prepare", json={**body, "request_key": "missing-map", "image_mapping": {}}
     ).json()

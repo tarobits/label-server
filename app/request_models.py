@@ -21,6 +21,7 @@ class PrintRequest(Base):
     request_key: Mapped[str | None]
     request_hash: Mapped[str]
     status: Mapped[str] = mapped_column(default="pending")
+    revision: Mapped[int] = mapped_column(default=1, server_default="1")
     labels: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     job_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[float] = mapped_column(default=time.time)

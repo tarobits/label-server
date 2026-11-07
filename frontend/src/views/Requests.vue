@@ -7,12 +7,14 @@ import { useWorkspaceStore, date } from '../workspace'
 import { confirmAction } from '../confirmation'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
+import ChangeCopies from '../components/ChangeCopies.vue'
 interface PrintRequest {
   id: string
   owner_id: string
   owner_name?: string
   destination_id: string
   status: 'pending' | 'approved' | 'rejected'
+  revision: number
   created_at: number
   decided_at: number | null
   reason: string | null
@@ -35,6 +37,7 @@ const filter = ref('pending'),
   position = ref(0),
   previewFailed = ref(false),
   previewAttempt = ref(0)
+const changedElsewhere = ref(false)
 const visible = computed(() =>
   requests.value.filter((r) => !filter.value || r.status === filter.value),
 )
@@ -65,7 +68,17 @@ async function load(force = false) {
         force,
       })
       if (!current() || detail.id !== route.params.id) return
+      if (
+        !force &&
+        selected.value?.id === detail.id &&
+        selected.value.revision !== detail.revision
+      ) {
+        changedElsewhere.value = true
+        error.value = ''
+        return
+      }
       if (JSON.stringify(selected.value) !== JSON.stringify(detail)) selected.value = detail
+      changedElsewhere.value = false
     } else {
       const data = await resources.get<PrintRequest[]>('/requests', { ttl: 5000, force })
       if (!current()) return
@@ -83,7 +96,8 @@ useLiveRefresh(async () => {
   if (!selected.value || selected.value.status === 'pending') await load()
 }, 5000)
 async function decide(approve: boolean) {
-  if (!selected.value || busy.value) return
+  if (!selected.value || busy.value || changedElsewhere.value) return
+  const reviewed = { id: selected.value.id, revision: selected.value.revision }
   if (
     !(await confirmAction(
       approve
@@ -92,15 +106,22 @@ async function decide(approve: boolean) {
     ))
   )
     return
+  if (
+    selected.value?.id !== reviewed.id ||
+    selected.value.revision !== reviewed.revision ||
+    changedElsewhere.value
+  )
+    return
   busy.value = true
   error.value = ''
   try {
     await api(
-      `/requests/${selected.value.id}/${approve ? 'approve' : 'reject'}`,
+      `/requests/${reviewed.id}/${approve ? 'approve' : 'reject'}`,
       'POST',
-      approve ? {} : { reason: reason.value },
+      approve ? { expected_revision: reviewed.revision } : { reason: reason.value },
     )
     reason.value = ''
+    changedElsewhere.value = false
     resources.invalidate(['/requests'])
     await load(true)
     await w.refresh()
@@ -132,6 +153,14 @@ onUnmounted(() => {
     <button class="text-button" :disabled="loading" @click="load(true)">Retry</button>
   </p>
   <section v-if="selected" class="panel form-stack">
+    <Transition name="notice"
+      ><p v-if="changedElsewhere" class="alert warning motion-reveal" role="alert">
+        This request changed. Reload to review the latest version.
+        <button class="text-button" :disabled="loading || busy" @click="load(true)">
+          Reload request
+        </button>
+      </p></Transition
+    >
     <div class="section-heading">
       <h2>{{ selected.owner_name || 'Print request' }}</h2>
       <span class="badge">{{ selected.status }}</span>
@@ -160,6 +189,18 @@ onUnmounted(() => {
         {{ label.length_mm }} × {{ label.width_mm }} mm · {{ label.copies }}
         {{ label.copies === 1 ? 'copy' : 'copies' }}
       </p>
+      <ChangeCopies
+        v-if="
+          selected.status === 'pending' &&
+          (selected.owner_id === auth.user?.id ||
+            auth.atLeast(selected.destination_id, 'moderator'))
+        "
+        :url="`/requests/${selected.id}/labels/${position}/copies`"
+        :copies="label.copies"
+        :revision="selected.revision"
+        :disabled="busy || changedElsewhere"
+        @changed="load(true)"
+      />
       <div class="row">
         <button :disabled="!position" @click="position--">Previous label</button
         ><span>{{ position + 1 }} / {{ selected.labels.length }}</span
@@ -174,7 +215,8 @@ onUnmounted(() => {
     >
       <label>Reason for rejection<input v-model="reason" maxlength="1000" /></label>
       <div class="row wrap">
-        <button class="primary" :disabled="busy" @click="decide(true)">Approve and queue</button
+        <button class="primary" :disabled="busy || changedElsewhere" @click="decide(true)">
+          Approve and queue</button
         ><button
           class="secondary danger-text"
           :disabled="busy || !reason.trim()"

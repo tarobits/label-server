@@ -183,11 +183,16 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
     permissions = {}
     if request := session.info.get("request"):
         from app.access import access_context
+        from app.copy_counts import copy_count_blocker
 
         context = access_context(request)
         owns = context.actor.id == job.owner_id
         moderates = context.can_destination(job.destination_id, "moderator")
         permissions = {
+            "can_change_copies": (owns or moderates)
+            and context.can_destination(job.destination_id, "print")
+            and copy_count_blocker(session, job, request.app.state.fleet.enforce_job_access)
+            is None,
             "can_cancel": owns or moderates,
             "can_change_printer": context.has_permission("queue.change_printer")
             and moderates

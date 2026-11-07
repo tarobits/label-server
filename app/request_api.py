@@ -53,6 +53,14 @@ class RejectionInput(Input):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class RequestRevisionInput(Input):
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class RequestCopiesInput(RequestRevisionInput):
+    copies: int = Field(ge=1, le=1000, strict=True)
+
+
 def require_request(request: Request, value: PrintRequest) -> None:
     context = access_context(request)
     if value.owner_id != context.actor.id:
@@ -259,12 +267,42 @@ def moderator(request: Request, value: PrintRequest) -> str:
     return context.actor.id
 
 
+@router.put("/requests/{identifier}/labels/{position}/copies")
+def update_request_copies(
+    identifier: str,
+    position: int,
+    body: RequestCopiesInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    value = get(session, PrintRequest, identifier)
+    require_request(request, value)
+    if value.status != "pending":
+        raise HTTPException(409, "Only pending requests can be edited")
+    if value.revision != body.expected_revision:
+        raise HTTPException(409, "This request changed. Reload it before changing copies")
+    if not 0 <= position < len(value.labels):
+        raise HTTPException(404, "Label not found")
+    if value.labels[position]["copies"] != body.copies:
+        labels = copy.deepcopy(value.labels)
+        labels[position]["copies"] = body.copies
+        value.labels = labels
+        value.revision += 1
+    session.flush()
+    return request_record(session, value)
+
+
 @router.post("/requests/{identifier}/approve")
 def approve_request(
-    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+    identifier: str,
+    body: RequestRevisionInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     value = get(session, PrintRequest, identifier)
     reviewer = moderator(request, value)
+    if value.revision != body.expected_revision:
+        raise HTTPException(409, "This request changed. Reload and review it before approving")
     if value.status == "approved":
         return request_record(session, value)
     if value.status != "pending":

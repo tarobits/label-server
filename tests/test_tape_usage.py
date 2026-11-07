@@ -235,7 +235,12 @@ def test_approval_cost_belongs_to_original_requester(accounts):
         },
     )
     assert requested.status_code == 201, requested.text
-    assert bob.post(f"/api/requests/{requested.json()['id']}/approve").status_code == 200
+    assert (
+        bob.post(
+            f"/api/requests/{requested.json()['id']}/approve", json={"expected_revision": 1}
+        ).status_code
+        == 200
+    )
     assert admin.post("/api/queue/print?printer_id=main").status_code == 202
     worker.tick()
     assert report(bob)["users"] == []

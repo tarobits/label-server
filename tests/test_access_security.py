@@ -238,7 +238,12 @@ def test_requests_stay_nonexecutable_until_exactly_once_approval(accounts) -> No
     assert bob.get("/api/requests").json() == []
     assert bob.get(f"/api/requests/{request['id']}").status_code == 403
     assert bob.get(f"/api/requests/{request['id']}/labels/0/preview").status_code == 403
-    assert alice.post(f"/api/requests/{request['id']}/approve").status_code == 403
+    assert (
+        alice.post(
+            f"/api/requests/{request['id']}/approve", json={"expected_revision": 1}
+        ).status_code
+        == 403
+    )
     assert (
         alice.post(
             f"/api/requests/{request['id']}/reject", json={"reason": "Forged approval"}
@@ -247,7 +252,12 @@ def test_requests_stay_nonexecutable_until_exactly_once_approval(accounts) -> No
     )
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(
-            pool.map(lambda _: admin.post(f"/api/requests/{request['id']}/approve"), range(2))
+            pool.map(
+                lambda _: admin.post(
+                    f"/api/requests/{request['id']}/approve", json={"expected_revision": 1}
+                ),
+                range(2),
+            )
         )
     assert all(response.status_code == 200 for response in outcomes)
     assert outcomes[0].json()["job_ids"] == outcomes[1].json()["job_ids"]
@@ -281,7 +291,10 @@ def test_rejected_requests_never_create_jobs_and_retries_cannot_approve(accounts
     assert rejected.status_code == 200
     again = admin.post(f"/api/requests/{identifier}/reject", json={"reason": "Do not overwrite"})
     assert again.json()["reason"] == "Wrong destination"
-    assert admin.post(f"/api/requests/{identifier}/approve").status_code == 409
+    assert (
+        admin.post(f"/api/requests/{identifier}/approve", json={"expected_revision": 1}).status_code
+        == 409
+    )
     with admin.app.state.factory() as session:
         assert session.scalar(select(func.count()).select_from(PrintJob)) == 0
 
@@ -316,10 +329,12 @@ def test_csv_request_keys_are_private_and_approval_preserves_all_rows(accounts) 
         alice.post("/api/requests", json={"kind": "run", "run_id": run["id"]}).json()["id"]
         == identifier
     )
-    approved = admin.post(f"/api/requests/{identifier}/approve")
+    approved = admin.post(f"/api/requests/{identifier}/approve", json={"expected_revision": 1})
     assert approved.status_code == 200, approved.text
     assert (
-        admin.post(f"/api/requests/{identifier}/approve").json()["job_ids"]
+        admin.post(f"/api/requests/{identifier}/approve", json={"expected_revision": 1}).json()[
+            "job_ids"
+        ]
         == approved.json()["job_ids"]
     )
     jobs = [
@@ -354,7 +369,10 @@ def test_group_destination_grant_does_not_grant_direct_printer_access(accounts) 
     with admin.app.state.factory.begin() as session:
         session.get(Role, "alice-access").permissions = []
     assert alice.get(f"/api/requests/{identifier}").status_code == 200
-    assert admin.post(f"/api/requests/{identifier}/approve").status_code == 409
+    assert (
+        admin.post(f"/api/requests/{identifier}/approve", json={"expected_revision": 1}).status_code
+        == 409
+    )
     with admin.app.state.factory() as session:
         assert session.scalar(select(func.count()).select_from(PrintJob)) == 0
 
@@ -540,6 +558,6 @@ def test_moderator_cannot_read_or_submit_foreign_drafts_but_can_approve_requests
     assert submitted.status_code == 201, submitted.text
     identifier = submitted.json()["id"]
     assert bob.get(f"/api/requests/{identifier}/labels/0/preview").status_code == 200
-    approved = bob.post(f"/api/requests/{identifier}/approve")
+    approved = bob.post(f"/api/requests/{identifier}/approve", json={"expected_revision": 1})
     assert approved.status_code == 200, approved.text
     assert bob.get(f"/api/runs/{run}").status_code == 200

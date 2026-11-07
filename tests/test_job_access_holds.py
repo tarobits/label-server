@@ -92,7 +92,9 @@ def test_request_approval_requires_request_access_while_direct_jobs_require_prin
         json={"kind": "job", "input": {"tape_profile": tape["id"], "data": {"text": "Reviewed"}}},
     )
     assert request.status_code == 201, request.text
-    approved = admin.post(f"/api/requests/{request.json()['id']}/approve")
+    approved = admin.post(
+        f"/api/requests/{request.json()['id']}/approve", json={"expected_revision": 1}
+    )
     assert approved.status_code == 200, approved.text
     reviewed = approved.json()["job_ids"][0]
     set_level(admin, "alice", "request")

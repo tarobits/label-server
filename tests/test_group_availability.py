@@ -93,7 +93,9 @@ def test_group_uses_healthy_second_member_for_rendering_approval_and_printing(ac
     assert prepared.json()["valid"] is True
     requested = request_job(alice, destination, tape)
     assert requested.status_code == 201, requested.text
-    approved = admin.post(f"/api/requests/{requested.json()['id']}/approve")
+    approved = admin.post(
+        f"/api/requests/{requested.json()['id']}/approve", json={"expected_revision": 1}
+    )
     assert approved.status_code == 200, approved.text
     worker.tick()
     job = alice.get(f"/api/jobs/{approved.json()['job_ids'][0]}").json()
@@ -109,7 +111,9 @@ def test_all_unavailable_members_retain_group_queue_and_reject_new_print_intent(
     tape = profile(admin, threshold=100)
     requested = request_job(alice, destination, tape, copies=2)
     assert requested.status_code == 201, requested.text
-    approved = admin.post(f"/api/requests/{requested.json()['id']}/approve")
+    approved = admin.post(
+        f"/api/requests/{requested.json()['id']}/approve", json={"expected_revision": 1}
+    )
     assert approved.status_code == 200, approved.text
     pending = request_job(alice, destination, tape)
     assert pending.status_code == 201, pending.text
@@ -141,7 +145,7 @@ def test_all_unavailable_members_retain_group_queue_and_reject_new_print_intent(
         ),
         request_job(alice, destination, tape),
         prepare_csv(alice, destination, tape),
-        admin.post(f"/api/requests/{pending.json()['id']}/approve"),
+        admin.post(f"/api/requests/{pending.json()['id']}/approve", json={"expected_revision": 1}),
     ]
     for response in failed:
         assert response.status_code == 409, response.text

@@ -97,7 +97,7 @@ def test_approval_and_manual_starter_are_distinct_and_names_are_snapshotted(acco
     request = requested.json()
     with admin.app.state.factory.begin() as session:
         session.get(User, "alice").username = "alice-renamed-after-request"
-    approved = bob.post(f"/api/requests/{request['id']}/approve")
+    approved = bob.post(f"/api/requests/{request['id']}/approve", json={"expected_revision": 1})
     assert approved.status_code == 200, approved.text
     approved_job = alice.get(f"/api/jobs/{approved.json()['job_ids'][0]}").json()
     assert approved_job["attribution"]["requested_by"] == {"id": "alice", "name": "alice"}

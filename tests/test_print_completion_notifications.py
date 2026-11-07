@@ -116,7 +116,9 @@ def test_personal_completion_is_owner_only_and_opt_out_cancels_retry(accounts):
             "input": {"tape_profile": tape["id"], "data": {"text": "Private"}},
         },
     ).json()
-    approved = admin.post(f"/api/requests/{request['id']}/approve").json()
+    approved = admin.post(
+        f"/api/requests/{request['id']}/approve", json={"expected_revision": 1}
+    ).json()
     identifier = approved["job_ids"][0]
     factory = admin.app.state.factory
     with factory.begin() as session:
@@ -221,7 +223,9 @@ def test_csv_and_approval_preserve_item_opt_out(accounts, approval):
     assert [row["notify_on_completion"] for row in run["rows"]] == [False, True]
     if approval:
         request = client.post("/api/requests", json={"kind": "run", "run_id": run["id"]}).json()
-        response = client.post(f"/api/requests/{request['id']}/approve")
+        response = client.post(
+            f"/api/requests/{request['id']}/approve", json={"expected_revision": 1}
+        )
         assert response.status_code == 200, response.text
         identifiers = response.json()["job_ids"]
     else:
@@ -242,7 +246,9 @@ def test_image_submissions_preserve_item_opt_out(accounts, approval):
     body = {"tape_profile": tape["id"], "image_asset": asset, "notify_on_completion": False}
     if approval:
         request = client.post("/api/requests", json={"kind": "image", "input": body}).json()
-        response = client.post(f"/api/requests/{request['id']}/approve")
+        response = client.post(
+            f"/api/requests/{request['id']}/approve", json={"expected_revision": 1}
+        )
         assert response.status_code == 200, response.text
         identifier = response.json()["job_ids"][0]
         result = client.get(f"/api/jobs/{identifier}").json()

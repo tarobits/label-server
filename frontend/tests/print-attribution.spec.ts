@@ -78,7 +78,9 @@ test('activity separates label requester, approver, release and manual batch sta
       },
     })
     expect(submitted.status(), await submitted.text()).toBe(201)
-    const approval = await request.post(`/api/requests/${(await submitted.json()).id}/approve`)
+    const approval = await request.post(`/api/requests/${(await submitted.json()).id}/approve`, {
+      data: { expected_revision: 1 },
+    })
     expect(approval.ok(), await approval.text()).toBeTruthy()
     const [jobId] = (await approval.json()).job_ids
     await page.goto('/#/queue')

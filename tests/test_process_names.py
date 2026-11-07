@@ -122,7 +122,9 @@ def test_request_approval_preserves_process_name_fields_and_people(accounts):
     assert response.status_code == 201, response.text
     requested = response.json()
     assert requested["labels"][0]["template_snapshot"]["process_name"] == "Cable installation"
-    approval = admin.post(f"/api/requests/{requested['id']}/approve").json()
+    approval = admin.post(
+        f"/api/requests/{requested['id']}/approve", json={"expected_revision": 1}
+    ).json()
     job = admin.get(f"/api/jobs/{approval['job_ids'][0]}").json()
     assert job["process_name"] == "Cable installation"
     assert job["fields"][0]["value"] == "Rack 7"

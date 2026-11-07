@@ -21,6 +21,7 @@ from app.authorization import (
 )
 from app.cartridge_confirmation import check_cartridge, configure_media
 from app.cartridge_inventory import archive_blockers, deletion_blockers
+from app.copy_counts import copy_count_blocker
 from app.cost_estimates import estimate_cost
 from app.deletion import content_hold_reason, document_notices, retain
 from app.destinations import printer_state, resolve_destination
@@ -66,6 +67,7 @@ from app.schemas import (
     CartridgeNameInput,
     CartridgePriceInput,
     CompletionNotificationInput,
+    CopyCountInput,
     CopySelectionInput,
     ImageJobInput,
     JobInput,
@@ -1219,6 +1221,38 @@ def job_preview(
     if label is None:
         raise HTTPException(404, "Label copy not found")
     return label_preview_response(request, session, item, label)
+
+
+@router.put("/jobs/{identifier}/copies")
+def update_job_copies(
+    identifier: str,
+    body: CopyCountInput,
+    request: Request,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    item = get(session, PrintJob, identifier)
+    context = access_context(request)
+    context.require_destination(item.destination_id, "print")
+    require_record(request, item, Action.WRITE)
+    if blocker := copy_count_blocker(session, item, request.app.state.fleet.enforce_job_access):
+        raise HTTPException(409, blocker)
+    if body.expected_copies != item.copies:
+        raise HTTPException(409, "The copy count changed. Refresh the queue before editing it")
+    labels = list(
+        session.scalars(
+            select(LabelCopy).where(LabelCopy.job_id == item.id).order_by(LabelCopy.ordinal)
+        )
+    )
+    if body.copies < len(labels):
+        for label in labels[body.copies :]:
+            session.delete(label)
+    else:
+        session.add_all(
+            LabelCopy(job_id=item.id, ordinal=index) for index in range(len(labels), body.copies)
+        )
+    item.copies = body.copies
+    session.flush()
+    return job_record(session, item)
 
 
 @router.put("/jobs/{identifier}/completion-notification")

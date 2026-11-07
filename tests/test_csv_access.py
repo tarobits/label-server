@@ -59,7 +59,9 @@ def test_csv_preparation_and_submission_follow_destination_level(
         assert requested.status_code == 201, requested.text
         assert requested.json()["status"] == "pending"
         assert alice.get("/api/jobs").json() == []
-        approved = admin.post(f"/api/requests/{requested.json()['id']}/approve")
+        approved = admin.post(
+            f"/api/requests/{requested.json()['id']}/approve", json={"expected_revision": 1}
+        )
         assert approved.status_code == 200, approved.text
         assert approved.json()["status"] == "approved"
     queued = alice.get("/api/jobs").json()

@@ -61,6 +61,11 @@ class CompletionNotificationInput(Input):
     notify_on_completion: bool = True
 
 
+class CopyCountInput(Input):
+    copies: int = Field(ge=1, le=1000, strict=True)
+    expected_copies: int = Field(ge=1, le=1000, strict=True)
+
+
 class JobInput(CompletionNotificationInput):
     process_name: ProcessName | None = None
     destination_id: str | None = None
