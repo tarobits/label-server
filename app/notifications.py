@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.notification_types import (
     DEFAULT_NOTIFICATION_PRIORITIES,
+    PRINT_COMPLETION_KINDS,
     PRINTER_NOTIFICATION_KINDS,
     NotificationKind,
 )
@@ -45,20 +46,24 @@ def enqueue(
     context: dict[str, Any] | None = None,
 ) -> None:
     stamp = time.time() if now is None else now
-    session.add(
-        Notification(
-            kind=kind,
-            context=context or {},
-            recipient_id=recipient_id,
-            title=title,
-            message=message,
-            path=path,
-            created_at=stamp,
-            next_attempt_at=stamp,
-            profile_id=profile.id if profile else None,
-            episode=profile.reminder_episode if profile else None,
-        )
+    notice = Notification(
+        kind=kind,
+        context=context or {},
+        recipient_id=recipient_id,
+        title=title,
+        message=message,
+        path=path,
+        created_at=stamp,
+        next_attempt_at=stamp,
+        profile_id=profile.id if profile else None,
+        episode=profile.reminder_episode if profile else None,
     )
+    session.add(notice)
+    if kind in PRINT_COMPLETION_KINDS:
+        from app.notification_routing import route_print_completion
+
+        session.flush()
+        route_print_completion(session, notice, stamp)
 
 
 def clear_empty_cartridge_alert(session: Session, state: PrinterState) -> None:

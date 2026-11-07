@@ -7,6 +7,7 @@ import time
 import http_ece
 import pytest
 import requests
+from conftest import install, job, profile
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
@@ -64,6 +65,100 @@ def register(client, suffix="one"):
     response = client.post("/api/auth/push", json={"name": suffix, "subscription": subscription})
     assert response.status_code == 201, response.text
     return response.json(), subscription
+
+
+@pytest.mark.parametrize("change", ["new_device", "preferences", "reenable", "legacy_backlog"])
+def test_enabling_completions_only_delivers_future_prints(push_accounts, change):
+    admin, _, _ = push_accounts
+    factory = admin.app.state.factory
+    preferences = {
+        "enabled": True,
+        "all_printers": False,
+        "destination_ids": ["main"],
+        "kinds": ["job_printed"],
+        "printer_kinds": {"main": ["batch_printed"]},
+    }
+    device = None
+    if change != "new_device":
+        device, _ = register(admin)
+        if change == "reenable":
+            assert (
+                admin.put(
+                    "/api/auth/push/" + device["id"], json={**preferences, "enabled": False}
+                ).status_code
+                == 204
+            )
+    tape = profile(admin, threshold=1)
+    install(admin, tape["id"])
+    job(admin, tape["id"])
+    worker = admin.app.state.fleet.workers["main"]
+    worker.tick()
+    with factory.begin() as session:
+        historical = list(session.scalars(select(Notification)))
+        assert sorted(notice.kind for notice in historical) == ["batch_printed", "job_printed"]
+        if change == "legacy_backlog":
+            # Previously, unmatched completions stayed pending without recipients.
+            for notice in historical:
+                notice.routed_at = None
+                notice.cancelled = False
+        old_ids = {notice.id for notice in historical}
+    if device is None:
+        device, _ = register(admin)
+    path = "/api/auth/push/" + device["id"]
+    assert admin.put(path, json=preferences).status_code == 204
+    sent = []
+
+    def send(channel, notice):
+        sent.append((channel.id, notice.id, notice.kind))
+
+    # Deliberately do not run delivery between printing and enabling preferences.
+    deliver_routed_pending(factory, admin.app.state.settings, time.time() + 1, send)
+    assert sent == []
+    job(admin, tape["id"])
+    worker.tick()
+    deliver_routed_pending(factory, admin.app.state.settings, time.time() + 1, send)
+    assert sorted(kind for _, _, kind in sent) == ["batch_printed", "job_printed"]
+    assert all(identifier not in old_ids for _, identifier, _ in sent)
+    with factory() as session:
+        assert all(session.get(Notification, identifier).cancelled for identifier in old_ids)
+
+
+def test_completion_retry_keeps_original_device_and_excludes_later_subscribers(push_accounts):
+    admin, _, _ = push_accounts
+    factory = admin.app.state.factory
+    preferences = {
+        "enabled": True,
+        "destination_ids": ["main"],
+        "kinds": ["job_printed", "batch_printed"],
+    }
+    first, _ = register(admin, "first")
+    assert admin.put("/api/auth/push/" + first["id"], json=preferences).status_code == 204
+    tape = profile(admin, threshold=1)
+    install(admin, tape["id"])
+    job(admin, tape["id"])
+    admin.app.state.fleet.workers["main"].tick()
+    # A second device subscribes before even the first delivery attempt.
+    second, _ = register(admin, "second")
+    assert admin.put("/api/auth/push/" + second["id"], json=preferences).status_code == 204
+    sent = []
+
+    def fail(channel, notice):
+        sent.append((channel.id, notice.kind))
+        raise OSError("Temporary delivery failure")
+
+    now = time.time() + 1
+    deliver_routed_pending(factory, admin.app.state.settings, now, fail)
+    assert sorted(sent) == [(first["id"], "batch_printed"), (first["id"], "job_printed")]
+    deliver_routed_pending(
+        factory,
+        admin.app.state.settings,
+        now + 60,
+        lambda channel, notice: sent.append((channel.id, notice.kind)),
+    )
+    assert len(sent) == 4
+    assert all(identifier == first["id"] for identifier, _ in sent)
+    with factory() as session:
+        assert all(notice.delivered_at for notice in session.scalars(select(Notification)))
 
 
 @pytest.mark.parametrize(

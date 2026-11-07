@@ -1,6 +1,6 @@
 """Scoped messages and independent transport delivery; never affect print state."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,7 +15,7 @@ from app.models import (
     PrinterGroup,
     User,
 )
-from app.notification_types import PRINTER_NOTIFICATION_KINDS
+from app.notification_types import PRINT_COMPLETION_KINDS, PRINTER_NOTIFICATION_KINDS
 from app.notifications import NtfySender, notification_valid, waiting_destinations
 from app.push_delivery import ExpiredSubscription, active_push_session, send_push
 from app.request_models import PrintRequest
@@ -174,6 +174,41 @@ def endpoint_message(
     )
 
 
+def route_to_endpoints(
+    session: Session,
+    notice: Notification,
+    endpoints: Iterable[NotificationEndpoint],
+    now: float,
+) -> bool:
+    matching = [endpoint for endpoint in endpoints if endpoint_message(session, notice, endpoint)]
+    if not matching:
+        return False
+    notice.routed_at = now
+    for endpoint in matching:
+        session.add(
+            NotificationDelivery(
+                notification_id=notice.id,
+                endpoint_id=endpoint.id,
+                endpoint_revision=endpoint.revision,
+                endpoint_name=endpoint.name,
+                next_attempt_at=now,
+            )
+        )
+    return True
+
+
+def route_print_completion(session: Session, notice: Notification, now: float) -> None:
+    """Freeze recipients in the print transaction, before preferences can change."""
+    endpoints = session.scalars(
+        select(NotificationEndpoint).where(
+            NotificationEndpoint.enabled.is_(True), NotificationEndpoint.deleted_at.is_(None)
+        )
+    )
+    if not route_to_endpoints(session, notice, endpoints, now):
+        notice.routed_at = now
+        notice.cancelled = True
+
+
 def refresh_summary(session: Session, notice: Notification) -> None:
     deliveries = list(
         session.scalars(
@@ -231,7 +266,11 @@ def deliver_routed_pending(
             .order_by(Notification.next_attempt_at, Notification.created_at, Notification.id)
             .limit(100)
         ):
-            if not notification_valid(session, queued_notice, now):
+            if queued_notice.kind in PRINT_COMPLETION_KINDS or not notification_valid(
+                session, queued_notice, now
+            ):
+                # Completion events now have recipients fixed at creation. An
+                # unrouted one is legacy history, not a newly enabled alert.
                 queued_notice.cancelled = True
                 for invalid_delivery in session.scalars(
                     select(NotificationDelivery).where(
@@ -242,24 +281,7 @@ def deliver_routed_pending(
                     invalid_delivery.cancelled = True
                 continue
             if queued_notice.routed_at is None:
-                matching = [
-                    endpoint
-                    for endpoint in endpoints
-                    if endpoint_message(session, queued_notice, endpoint) is not None
-                ]
-                if matching:
-                    queued_notice.routed_at = now
-                    for matched_endpoint in matching:
-                        session.add(
-                            NotificationDelivery(
-                                notification_id=queued_notice.id,
-                                endpoint_id=matched_endpoint.id,
-                                endpoint_revision=matched_endpoint.revision,
-                                endpoint_name=matched_endpoint.name,
-                                next_attempt_at=now,
-                            )
-                        )
-                else:
+                if not route_to_endpoints(session, queued_notice, endpoints, now):
                     # Give newer alerts a turn even when old events have no channel.
                     queued_notice.next_attempt_at = now + 60
             session.flush()

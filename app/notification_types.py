@@ -21,6 +21,8 @@ PRINTER_NOTIFICATION_KINDS = frozenset(
     {"empty_tape", "printer_blocked", "batch_review", "tape_waiting", "batch_printed"}
 )
 
+PRINT_COMPLETION_KINDS = frozenset({"job_printed", "batch_printed"})
+
 DEFAULT_NOTIFICATION_PRIORITIES: dict[NotificationKind, int] = {
     "general": 3,
     "empty_tape": 4,
