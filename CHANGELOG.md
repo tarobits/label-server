@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.1] - 2026-11-07
+
+### Fixed
+
+- Show backup progress during updates, including the current stage, elapsed time,
+  and archive size, so slow backups no longer appear stuck after stopping the service.
+
+No new database migrations are required when upgrading from 0.12.0. If the updater
+asks you to relaunch after downloading the new script, run the command it provides.
+
 ## [0.12.0] - 2026-11-07
 
 ### Added
@@ -87,9 +97,10 @@ Automatic rollback cannot recover from power loss or a forcibly terminated updat
 uncertain activation leaves the service stopped to avoid replaying print work.
 
 Physical checks have confirmed subtitle branches, saved layouts, rotated objects,
-property sizing, number inputs, cartridge handling, Activity requeueing, and Android
-notifications. Tablet interactions, boolean/image inputs, the latest iPhone node
-dragging fix, and native/Docker rollback still need physical verification.
+property sizing, number inputs, cartridge handling, Activity requeueing, Android
+notifications, and native updater rollback. Tablet interactions, boolean/image
+inputs, the latest iPhone node dragging fix, and Docker rollback still need physical
+verification.
 
 The known low-severity deepmerge build-tool advisory remains reported by npm audit.
 
@@ -607,6 +618,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.1]: https://github.com/tarobits/label-server/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0
 [0.12.0-pre7]: https://github.com/tarobits/label-server/compare/v0.12.0-pre6...v0.12.0-pre7
 [0.12.0-pre6]: https://github.com/tarobits/label-server/compare/v0.12.0-pre5...v0.12.0-pre6
