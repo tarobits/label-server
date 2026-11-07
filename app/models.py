@@ -83,10 +83,15 @@ class AccessChangeConfirmation(Base):
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
     token_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    id: Mapped[str] = mapped_column(String, unique=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     csrf_token: Mapped[str]
     created_at: Mapped[float] = mapped_column(default=time.time)
     expires_at: Mapped[float]
+    last_seen_at: Mapped[float | None]
+    ip_address: Mapped[str | None]
+    user_agent: Mapped[str | None]
+    location: Mapped[str | None]
 
 
 class RegistrationCode(Base):

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/labels.db"
     worker_interval_seconds: float = Field(default=2, gt=0)
     public_url: str = "http://localhost:8000"
+    trust_cloudflare_headers: bool = False
     frontend_dist: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     check_for_updates: bool = True
     github_token: SecretStr | None = None

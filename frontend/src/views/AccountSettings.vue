@@ -4,6 +4,7 @@ import { api, errorMessage } from '../api'
 import { motionPreference } from '../preferences'
 import AccountEmail from '../components/AccountEmail.vue'
 import AccountPush from '../components/AccountPush.vue'
+import AccountSessions from '../components/AccountSessions.vue'
 import {
   vValidateForm,
   apiFieldErrors,
@@ -13,6 +14,7 @@ import {
 } from '../formValidation'
 
 const form = reactive({ current_password: '', new_password: '', confirmation: '' })
+const sessionsRevision = ref(0)
 const passwordForm = ref<HTMLFormElement | null>(null)
 const errors = ref<FieldErrors>({})
 const busy = ref(false),
@@ -52,6 +54,7 @@ async function savePassword() {
     Object.assign(form, { current_password: '', new_password: '', confirmation: '' })
     resetFormValidation(passwordForm.value)
     success.value = 'Password changed. Other sessions signed out.'
+    sessionsRevision.value++
   } catch (issue) {
     if (disposed) return
     const fields = apiFieldErrors(issue)
@@ -138,6 +141,9 @@ async function savePassword() {
         /></label>
         <button class="primary" :disabled="busy" type="submit">Change password</button>
       </form>
+    </section>
+    <section class="settings-section" aria-label="Logged-in sessions">
+      <AccountSessions :refresh-key="sessionsRevision" />
     </section>
   </div>
 </template>

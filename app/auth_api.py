@@ -93,6 +93,76 @@ def current_session(request: Request, response: Response) -> dict[str, Any]:
         }
 
 
+@router.get("/sessions")
+def list_sessions(request: Request, response: Response) -> list[dict[str, Any]]:
+    from app.session_details import client_description
+
+    response.headers["Cache-Control"] = "no-store"
+    with request.app.state.factory() as session:
+        current = session_user(request, session)
+        if current is None:
+            raise HTTPException(401, "Sign in to view your sessions")
+        return [
+            {
+                "id": record.id,
+                "current": record.token_hash == current[1].token_hash,
+                "created_at": record.created_at,
+                "last_seen_at": record.last_seen_at,
+                "expires_at": record.expires_at,
+                "ip_address": record.ip_address,
+                "user_agent": record.user_agent,
+                "location": record.location,
+                **client_description(record.user_agent),
+            }
+            for record in session.scalars(
+                select(AuthSession)
+                .where(AuthSession.user_id == current[0].id, AuthSession.expires_at > time.time())
+                .order_by(AuthSession.created_at.desc(), AuthSession.id)
+            )
+        ]
+
+
+@router.delete("/sessions/others", status_code=204)
+def revoke_other_sessions(request: Request, response: Response) -> None:
+    from app.session_details import revoke_session
+
+    with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
+        current = session_user(request, session)
+        if current is None:
+            raise HTTPException(401, "Sign in to manage your sessions")
+        check_csrf(request, current[1])
+        for record in session.scalars(
+            select(AuthSession).where(
+                AuthSession.user_id == current[0].id,
+                AuthSession.token_hash != current[1].token_hash,
+            )
+        ):
+            revoke_session(session, record)
+    response.headers["Cache-Control"] = "no-store"
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def revoke_one_session(session_id: str, request: Request, response: Response) -> None:
+    from app.session_details import revoke_session
+
+    with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
+        current = session_user(request, session)
+        if current is None:
+            raise HTTPException(401, "Sign in to manage your sessions")
+        check_csrf(request, current[1])
+        record = session.scalar(
+            select(AuthSession).where(
+                AuthSession.id == session_id, AuthSession.user_id == current[0].id
+            )
+        )
+        if record is None:
+            raise HTTPException(404, "Session not found")
+        if record.token_hash == current[1].token_hash:
+            response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
+        revoke_session(session, record)
+    response.headers["Cache-Control"] = "no-store"
+
+
 @router.post("/setup", status_code=201)
 def setup(body: SetupInput, request: Request, response: Response) -> dict[str, Any]:
     check_origin(request)
@@ -262,28 +332,8 @@ def logout(request: Request, response: Response) -> None:
         current = session_user(request, session)
         if current:
             check_csrf(request, current[1])
-            from app.models import NotificationEndpoint
-            from app.notification_api import update_configuration
+            from app.session_details import revoke_session
 
-            for endpoint in session.scalars(
-                select(NotificationEndpoint).where(
-                    NotificationEndpoint.transport == "push",
-                    NotificationEndpoint.owner_id == current[0].id,
-                    NotificationEndpoint.push_session_hash == current[1].token_hash,
-                )
-            ):
-                update_configuration(
-                    session,
-                    endpoint,
-                    {
-                        "enabled": False,
-                        "push_subscription": {},
-                        "deleted_at": time.time(),
-                        "push_session_hash": None,
-                    },
-                )
-            session.execute(
-                delete(AuthSession).where(AuthSession.token_hash == current[1].token_hash)
-            )
+            revoke_session(session, current[1])
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
     response.headers["Cache-Control"] = "no-store"

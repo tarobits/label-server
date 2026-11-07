@@ -213,6 +213,14 @@ def create_app(
                 headers={"Cache-Control": "no-store", "Retry-After": "1"},
             )
         response = await call_next(request)
+        if response.status_code < 400 and getattr(
+            request.state, "authenticated_session_hash", None
+        ):
+            from starlette.concurrency import run_in_threadpool
+
+            from app.session_details import record_activity
+
+            await run_in_threadpool(record_activity, request)
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["X-Content-Type-Options"] = "nosniff"

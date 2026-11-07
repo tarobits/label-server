@@ -199,6 +199,8 @@ def session_user(request: Request, session: Session) -> tuple[User, AuthSession]
     user = session.get(User, record.user_id)
     if user is None or user.disabled:
         return None
+    if record.last_seen_at is None or record.last_seen_at <= time.time() - 60:
+        request.state.authenticated_session_hash = record.token_hash
     return user, record
 
 
@@ -264,12 +266,16 @@ def session_record(session: Session, user: User, record: AuthSession) -> dict[st
 def new_session(
     request: Request, response: Response, session: Session, user: User
 ) -> dict[str, Any]:
+    from app.session_details import request_details
+
     token = secrets.token_urlsafe(32)
     record = AuthSession(
         token_hash=token_hash(token),
         user_id=user.id,
         csrf_token=secrets.token_urlsafe(32),
         expires_at=time.time() + SESSION_SECONDS,
+        last_seen_at=time.time(),
+        **request_details(request),
     )
     previous = request.cookies.get(COOKIE_NAME)
     if previous:
