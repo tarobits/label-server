@@ -342,6 +342,40 @@ test('image sockets accept uploads and drag connections', async ({ page, request
 
 test.describe('touch node editing', () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } })
+  test('node bodies drag by touch without stealing socket taps', async ({ page, request }) => {
+    const original = await template(request)
+    await page.goto(`/#/templates/${original.id}/edit`)
+    const workspace = page.locator('.logic-workspace')
+    await workspace.getByRole('button', { name: 'Template logic', exact: true }).tap()
+    await workspace
+      .getByRole('combobox', { name: 'Node', exact: true })
+      .selectOption({ label: 'Subtitle' })
+    const node = workspace
+      .locator('.logic-node')
+      .filter({ has: page.getByRole('button', { name: 'Subtitle output (text)', exact: true }) })
+    const body = node.locator('.node-value')
+    await body.scrollIntoViewIfNeeded()
+    const before = await node.boundingBox()
+    const target = await body.boundingBox()
+    if (!before || !target) throw new Error('Node is missing')
+    const cdp = await page.context().newCDPSession(page)
+    const x = target.x + Math.min(24, target.width / 2),
+      y = target.y + target.height / 2
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + 35, y: y + 50 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(async () => Math.round((await node.boundingBox())!.y - before.y)).toBe(50)
+    await node.getByRole('button', { name: 'Subtitle output (text)', exact: true }).tap()
+    await expect(
+      node.getByRole('button', { name: 'Subtitle output (text)', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await workspace.screenshot({ path: 'test-results/logic-body-touch.png' })
+    await cdp.detach()
+    await save(page, 2)
+  })
   test('mobile taps connect distant nodes using the node picker', async ({ page, request }) => {
     const original = await template(request)
     await page.goto(`/#/templates/${original.id}/edit`)

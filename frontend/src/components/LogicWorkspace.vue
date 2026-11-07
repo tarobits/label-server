@@ -1001,11 +1001,11 @@ onBeforeUnmount(() => {
                     :style="{ left: `${node.x}px`, top: `${node.y}px` }"
                     :aria-label="label(node)"
                     @click.stop="selectedId = node.id"
+                    @pointerdown.stop="startNode($event, node)"
                   >
                     <header
                       tabindex="0"
                       :aria-label="`Move ${label(node)}`"
-                      @pointerdown.stop="startNode($event, node)"
                       @focus="selectedId = node.id"
                       @keydown="keyboard($event, node)"
                     >
@@ -1347,6 +1347,8 @@ onBeforeUnmount(() => {
   stroke-dasharray: 6 5;
 }
 .logic-node {
+  cursor: grab;
+  touch-action: none;
   position: absolute;
   width: 244px;
   border: 1px solid var(--line);
