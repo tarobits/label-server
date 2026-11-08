@@ -971,6 +971,13 @@ onUnmounted(() => {
       /></label>
     </div>
     <div class="template-sharing field-row">
+      <label v-if="w.destinations.length > 1"
+        >Design destination<select v-model="w.selectedPrinter">
+          <option v-for="printer in w.destinations" :key="printer.id" :value="printer.id">
+            {{ printer.name }}
+          </option>
+        </select></label
+      >
       <label
         >Template visibility<select
           v-model="scope"

@@ -314,15 +314,6 @@ onMounted(auth.refresh)
             ></RouterLink
           >
         </MotionTrack>
-        <div v-if="designPage && w.destinations.length > 1" class="printer-picker">
-          <label
-            >Design destination<select v-model="w.selectedPrinter">
-              <option v-for="printer in w.destinations" :key="printer.id" :value="printer.id">
-                {{ printer.name }}
-              </option>
-            </select></label
-          >
-        </div>
         <div class="account-controls"><AccountMenu /><NotificationBell /></div>
         <CartridgeConsent />
         <div class="sidebar-footer">
