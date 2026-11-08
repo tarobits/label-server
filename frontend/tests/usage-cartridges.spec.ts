@@ -15,6 +15,31 @@ test('usage identifies cartridges and filters allocations without changing the a
   })
   expect(secondResponse.ok()).toBeTruthy()
   const second = await secondResponse.json()
+  const payload = {
+    username: 'cartridge-owner',
+    password: 'browser-cartridge-owner-password',
+    role_ids: ['member'],
+  }
+  const accountPreview = await request.post('/api/admin/access-preview', {
+    data: { resource: 'users', method: 'POST', payload },
+  })
+  expect(accountPreview.ok()).toBeTruthy()
+  const account = await request.post('/api/admin/users', {
+    data: payload,
+    headers: { 'X-Access-Confirmation': (await accountPreview.json()).confirmation_token },
+  })
+  expect(account.ok()).toBeTruthy()
+  const owner = await account.json()
+  for (const cartridge of [first, second]) {
+    const data = { kind: 'cartridge', identifier: cartridge.id, owner_id: owner.id }
+    const preview = await request.post('/api/resource-access/preview', { data })
+    expect(preview.ok()).toBeTruthy()
+    const applied = await request.post('/api/resource-access/apply', {
+      data,
+      headers: { 'X-Access-Confirmation': (await preview.json()).confirmation_token },
+    })
+    expect(applied.ok()).toBeTruthy()
+  }
   await request.put(`/api/cartridges/${first.id}/price`, { data: { price_minor: 2000 } })
   for (const [index, cartridge] of [first, second].entries()) {
     expect(
