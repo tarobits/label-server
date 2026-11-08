@@ -102,6 +102,7 @@ def capabilities(*, high_resolution: bool = False) -> PrinterCapabilities:
         tuple(PRINT_PINS),
         1,
         supports_cut=True,
+        media_family="tze",
         supports_stop_after_current=True,
         supports_emergency_stop=True,
         supports_manual_cut=False,

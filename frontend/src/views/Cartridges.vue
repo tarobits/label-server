@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { mediaLabel, compatibleProfile } from '../media'
 import CartridgePrice from '../components/CartridgePrice.vue'
 import CartridgeNotes from '../components/CartridgeNotes.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
@@ -320,6 +321,9 @@ async function correct(id: string) {
             : 'Installed in another printer'
         }}</span>
       </div>
+      <p class="badge">
+        {{ mediaLabel(profiles.find((profile) => profile.id === cartridge.profile_id)) }}
+      </p>
       <Transition name="notice" mode="out-in" @after-enter="focusName"
         ><form
           v-if="editing === cartridge.id"
@@ -410,7 +414,14 @@ async function correct(id: string) {
           <button
             v-if="!isInstalled(cartridge) && canSwap"
             class="secondary"
-            :disabled="busy || locked"
+            :disabled="
+              busy ||
+              locked ||
+              !compatibleProfile(
+                profiles.find((profile) => profile.id === cartridge.profile_id),
+                selectedPrinter?.capabilities,
+              )
+            "
             @click="install(cartridge.id)"
           >
             Install cartridge</button

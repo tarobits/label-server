@@ -58,7 +58,14 @@ class TemplatePreviews:
             output = render_document(
                 document,
                 {},
-                RenderSpec(stretch_canvas=True),
+                RenderSpec(
+                    stretch_canvas=True,
+                    media_family=document.media.media_family,
+                    media_kind=document.media.media_kind,
+                    fixed_label_sizes_mm=((document.width_mm, document.media.label_length_mm),)
+                    if document.media.label_length_mm is not None
+                    else (),
+                ),
                 samples=True,
                 fonts=fonts,
                 images=images,

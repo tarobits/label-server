@@ -17,6 +17,7 @@ import CostEstimate from '../components/CostEstimate.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
+import { mediaLabel, compatibleProfile } from '../media'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -394,8 +395,19 @@ async function submit() {
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <label
         >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>
-          <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
-            {{ profile.name }} · {{ profile.width_mm }} mm
+          <option
+            v-for="profile in profiles"
+            :key="profile.id"
+            :value="profile.id"
+            :disabled="
+              !compatibleProfile(
+                profile,
+                w.destinationPrinter(form.destination_id)?.capabilities,
+                template?.id === 'text' ? undefined : template?.document,
+              )
+            "
+          >
+            {{ profile.name }} · {{ mediaLabel(profile) }}
           </option>
         </select></label
       >

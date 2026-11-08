@@ -131,13 +131,20 @@ def update_profile(
     identifier: str, body: ProfileInput, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     profile = get(session, TapeProfile, identifier)
-    if profile.width_mm != body.width_mm:
-        if session.scalar(
-            select(PrintJob.id).where(PrintJob.profile_id == identifier).limit(1)
-        ) or session.scalar(
-            select(Cartridge.id).where(Cartridge.profile_id == identifier).limit(1)
+    if any(
+        getattr(profile, key) != getattr(body, key)
+        for key in ("width_mm", "media_family", "label_length_mm")
+    ):
+        if (
+            session.scalar(select(PrintJob.id).where(PrintJob.profile_id == identifier).limit(1))
+            or session.scalar(
+                select(Cartridge.id).where(Cartridge.profile_id == identifier).limit(1)
+            )
+            or session.scalar(select(PrintRun.id).where(PrintRun.profile_id == identifier).limit(1))
         ):
-            raise HTTPException(409, "Create a new profile to change the width of a used profile")
+            raise HTTPException(
+                409, "Create a new profile to change the width or media of a used profile"
+            )
     for key, value in body.model_dump().items():
         setattr(profile, key, value)
     session.flush()
@@ -454,6 +461,15 @@ def active_tape(
     cartridge = None
     if body.cartridge_id:
         cartridge = get(session, Cartridge, body.cartridge_id)
+        from app.media import require_profile_supported
+
+        try:
+            require_profile_supported(
+                get(session, TapeProfile, cartridge.profile_id),
+                request.app.state.registry.definition(printer_id).capabilities,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
         if cartridge.archived:
             raise HTTPException(409, "Restore this cartridge before installing it")
         if session.scalar(
@@ -1048,6 +1064,12 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
         profile = get(session, TapeProfile, body.tape_profile)
         if profile.width_mm != output.document.width_mm:
             raise HTTPException(422, "Template and tape widths do not match")
+        from app.media import require_matching_media
+
+        try:
+            require_matching_media(output.document.media, profile)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
         from app.authorization import rendering_destination
 
         destination = rendering_destination(
@@ -1142,6 +1164,9 @@ def image_job_document(
 ) -> tuple[TapeProfile, TemplateDocument]:
     profile = get(session, TapeProfile, body.tape_profile)
     try:
+        from app.media import MediaProperties, require_matching_media
+
+        require_matching_media(MediaProperties(), profile)
         asset = request.app.state.images.metadata(body.image_asset)
         access_context(request).require(
             Action.READ, Resource("image_asset", body.image_asset, asset["owner_id"])

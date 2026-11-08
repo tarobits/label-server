@@ -38,7 +38,26 @@ def rendering_spec(
             request, session, destination_id, allow_unassigned=authoring
         )
         if destination_id is None:
-            return RenderSpec(stretch_canvas=True)
+            from app.media import MediaProperties
+
+            media = (
+                document.media
+                if isinstance(document, TemplateDocument)
+                else MediaProperties.model_validate((document or {}).get("media", {}))
+            )
+            width = (
+                document.width_mm
+                if isinstance(document, TemplateDocument)
+                else (document or {}).get("width_mm", 24)
+            )
+            return RenderSpec(
+                stretch_canvas=True,
+                media_family=media.media_family,
+                media_kind=media.media_kind,
+                fixed_label_sizes_mm=((width, media.label_length_mm),)
+                if media.label_length_mm is not None
+                else (),
+            )
         access_context(request).require(
             Action.READ, Resource("destination", destination_id, destination_id=destination_id)
         )
@@ -71,6 +90,8 @@ def rendering_spec(
         margin_mm=capabilities.printable_margin_mm,
         media_kind=capabilities.media_kind.value,
         printable_widths_mm=capabilities.printable_widths_mm,
+        media_family=capabilities.media_family,
+        fixed_label_sizes_mm=capabilities.fixed_label_sizes_mm,
     )
 
 
@@ -114,6 +135,9 @@ def build_job(
         raise HTTPException(422, "Template and tape widths do not match")
     try:
         parsed = TemplateDocument.model_validate(document)
+        from app.media import require_matching_media
+
+        require_matching_media(parsed.media, profile)
         output = render_document(parsed, body.data, spec, fonts=fonts, images=images)
         if (
             parsed.version == 2

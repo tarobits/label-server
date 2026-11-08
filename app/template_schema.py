@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from app.logic_schema import LogicEditorState, LogicInput, Program, Symbol, Value, ValueType
+from app.media import MediaProperties
 from app.schemas import Input
 
 TOKEN = re.compile(r"{{\s*([A-Za-z][A-Za-z0-9_]*)\s*}}")
@@ -75,6 +76,7 @@ class PreviewTape(Input):
 class TemplateDocument(Input):
     version: Literal[1, 2] = 1
     width_mm: float = Field(default=24, gt=0, le=100)
+    media: MediaProperties = Field(default_factory=MediaProperties)
     length_mm: float = Field(default=60, ge=10, le=300)
     auto_length: bool = False
     out_of_bounds: Literal["error", "clip"] = "error"
@@ -87,6 +89,11 @@ class TemplateDocument(Input):
 
     @model_validator(mode="after")
     def validate_document(self) -> "TemplateDocument":
+        if self.media.media_kind == "fixed_label":
+            if self.auto_length:
+                raise ValueError("Automatic label length requires continuous media")
+            if self.length_mm != self.media.label_length_mm:
+                raise ValueError("Design length must match the fixed-label stock length")
         types: dict[str, ValueType | Literal["null"]] = {}
         names = {field.name for field in self.fields}
         if len(names) != len(self.fields):

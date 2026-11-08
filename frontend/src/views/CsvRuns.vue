@@ -18,6 +18,7 @@ import ExpandableContent from '../components/ExpandableContent.vue'
 import ImageValueInput from '../components/ImageValueInput.vue'
 import type { ImageValue, VariableValue } from '../editor'
 import { displayValue } from '../variableInputs'
+import { mediaLabel, compatibleProfile } from '../media'
 interface Row {
   source_row: number
   values: string[]
@@ -438,8 +439,19 @@ onUnmounted(() => {
         >
         <label
           >Tape profile<select v-model="profileId">
-            <option v-for="p in w.profiles" :key="p.id" :value="p.id">
-              {{ p.name }} · {{ p.width_mm }} mm
+            <option
+              v-for="p in w.profiles"
+              :key="p.id"
+              :value="p.id"
+              :disabled="
+                !compatibleProfile(
+                  p,
+                  w.destinationPrinter(destinationId)?.capabilities,
+                  template?.id === 'text' ? undefined : template?.document,
+                )
+              "
+            >
+              {{ p.name }} · {{ mediaLabel(p) }}
             </option>
           </select></label
         >

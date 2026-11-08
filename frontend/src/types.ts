@@ -18,6 +18,9 @@ export interface Printer {
   name: string
   driver: string
   capabilities: {
+    media_family?: string
+    media_kind?: 'continuous' | 'fixed_label'
+    fixed_label_sizes_mm?: [number, number][]
     supported_widths_mm: number[]
     dpi_x: number
     dpi_y: number
@@ -33,6 +36,8 @@ export interface Profile {
   id: string
   name: string
   width_mm: number
+  media_family?: 'tze' | 'fixed_label'
+  label_length_mm?: number | null
   foreground: string
   background: string
   auto_print_threshold: number
@@ -46,6 +51,8 @@ export type ProfileInput = Pick<
   Profile,
   | 'name'
   | 'width_mm'
+  | 'media_family'
+  | 'label_length_mm'
   | 'foreground'
   | 'background'
   | 'auto_print_threshold'

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.logic_schema import Value
+from app.media import MediaProperties
 
 ProcessName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
@@ -11,7 +12,7 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
-class ProfileInput(Input):
+class ProfileInput(MediaProperties, Input):
     name: str = Field(min_length=1, max_length=100)
     width_mm: float = Field(gt=0, le=100)
     foreground: str = Field(default="#000000", pattern=r"^#[0-9a-fA-F]{6}$")

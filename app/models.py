@@ -205,6 +205,8 @@ class TapeProfile(Base):
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     name: Mapped[str]
     width_mm: Mapped[float]
+    media_family: Mapped[str] = mapped_column(String(32), default="tze", server_default="tze")
+    label_length_mm: Mapped[float | None]
     foreground: Mapped[str] = mapped_column(default="#000000")
     background: Mapped[str] = mapped_column(default="#ffffff")
     auto_print_threshold: Mapped[int] = mapped_column(default=10)

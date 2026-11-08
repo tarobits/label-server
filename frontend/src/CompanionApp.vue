@@ -14,6 +14,7 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeConsent from './components/CartridgeConsent.vue'
 import JobPreview from './components/JobPreview.vue'
 import PinEntry from './components/PinEntry.vue'
+import { mediaLabel, compatibleProfile } from './media'
 
 interface LocalPrinter {
   local_id: string
@@ -610,8 +611,19 @@ function changePage(delta: number) {
                         v-for="cartridge in choices"
                         :key="cartridge.id"
                         :value="cartridge.id"
+                        :disabled="
+                          !compatibleProfile(
+                            profiles.find((profile) => profile.id === cartridge.profile_id),
+                            devices.find((device) => device.id === printer.id)?.capabilities,
+                          )
+                        "
                       >
-                        {{ cartridge.name }}
+                        {{ cartridge.name }} ·
+                        {{
+                          mediaLabel(
+                            profiles.find((profile) => profile.id === cartridge.profile_id),
+                          )
+                        }}
                       </option>
                     </select></label
                   ><label class="checkbox"

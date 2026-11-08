@@ -68,6 +68,7 @@ class PrinterFleet:
             choose=self.choose,
             enforce_job_access=self.enforce_job_access,
             check_prices=self.check_prices,
+            supports_job=lambda job: self.supports_media(job, definition.id),
         )
         self.registry.register(definition, backend)
         self.workers[definition.id] = worker
@@ -265,11 +266,35 @@ class PrinterFleet:
                 )
                 return f"detects {detected}, but these labels require {job.width_mm:g} mm tape"
         if not self.supports_geometry(job, identifier):
-            return "does not support these labels' saved resolution or printable area"
+            return "does not support these labels' media, saved resolution or printable area"
         return None
+
+    def supports_media(self, job: PrintJob, identifier: str) -> bool:
+        caps = self.registry.definition(identifier).capabilities
+        from app.media import MediaProperties, require_supported_media
+
+        try:
+            media = MediaProperties.model_validate(
+                job.template_snapshot.get("document", {}).get("media", {})
+            )
+            require_supported_media(
+                media,
+                job.width_mm,
+                media_family=caps.media_family,
+                media_kind=caps.media_kind.value,
+                supported_widths_mm=caps.supported_widths_mm,
+                fixed_label_sizes_mm=caps.fixed_label_sizes_mm,
+            )
+            if media.label_length_mm is not None and job.length_mm != media.label_length_mm:
+                return False
+        except ValueError:
+            return False
+        return True
 
     def supports_geometry(self, job: PrintJob, identifier: str) -> bool:
         # Group routing must preserve the frozen printable geometry and resolution.
+        if not self.supports_media(job, identifier):
+            return False
         spec = job.template_snapshot.get("render_spec", {})
         caps = self.registry.definition(identifier).capabilities
         resolution = (spec.get("dpi_x") or spec.get("dpi", 180), spec.get("dpi", 180))

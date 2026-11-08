@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { confirmAction } from '../confirmation'
+import { mediaProperties, mediaLabel, compatibleProfile } from '../media'
 import EditorRuler from '../components/EditorRuler.vue'
 import ElementDetails from '../components/ElementDetails.vue'
 import PropertySection from '../components/PropertySection.vue'
@@ -118,6 +119,16 @@ const sampleProfile = computed({
       background: profile.background,
     }
     document.value.width_mm = profile.width_mm
+    document.value.media = mediaProperties(profile)
+    if (profile.media_family === 'fixed_label') {
+      document.value.auto_length = false
+      document.value.length_mm = profile.label_length_mm!
+      document.value.logic?.bindings.splice(
+        0,
+        document.value.logic.bindings.length,
+        ...document.value.logic.bindings.filter((binding) => binding.target !== 'label'),
+      )
+    }
     record()
   },
 })
@@ -405,11 +416,8 @@ async function load() {
     if (!document.value.preview_tape) {
       const profile =
         (!id.value && (w.profiles.find((p) => p.id === route.query.profile) || w.activeProfile)) ||
-        w.profiles.find((p) => p.width_mm === document.value.width_mm) ||
-        w.profiles[0]
+        w.profiles.find((p) => compatibleProfile(p, undefined, document.value))
       if (profile) sampleProfile.value = profile.id
-    } else if (selectedProfile.value) {
-      document.value.width_mm = selectedProfile.value.width_mm
     }
     saved.value = snapshot()
     history.value = [snapshot()]
@@ -955,7 +963,7 @@ onUnmounted(() => {
             }}
           </option>
           <option v-for="p in w.profiles" :key="p.id" :value="p.id">
-            {{ p.name }} · {{ p.width_mm }} mm
+            {{ p.name }} · {{ mediaLabel(p) }}
           </option>
         </select></label
       >
@@ -963,7 +971,12 @@ onUnmounted(() => {
         >Label length (mm)<input
           :value="document.auto_length || boundLength ? canvasLength : document.length_mm"
           @input="setManualLength"
-          :disabled="!editable || document.auto_length || boundLength"
+          :disabled="
+            !editable ||
+            document.auto_length ||
+            boundLength ||
+            document.media?.media_family === 'fixed_label'
+          "
           type="number"
           min="10"
           max="300"
@@ -1031,6 +1044,7 @@ onUnmounted(() => {
         <label class="checkbox"
           ><input
             v-model="document.auto_length"
+            :disabled="document.media?.media_family === 'fixed_label'"
             type="checkbox"
             @change="changeAutomaticLength"
           /><span>Automatic label length</span></label

@@ -52,6 +52,7 @@ class PrinterCapabilities:
     supports_stop_after_current: bool = False
     supports_emergency_stop: bool = False
     supports_manual_cut: bool = False
+    media_family: str = "tze"
 
 
 @dataclass(frozen=True)

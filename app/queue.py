@@ -65,7 +65,7 @@ def required(session: Session, model: type[Record], identifier: str) -> Record:
 def compatible_copies(
     session: Session, profile: TapeProfile, destination_id: str
 ) -> list[LabelCopy]:
-    return list(
+    copies = list(
         session.scalars(
             select(LabelCopy)
             .join(PrintJob)
@@ -84,6 +84,24 @@ def compatible_copies(
             )
         )
     )
+    from app.media import MediaProperties, require_matching_media
+
+    compatible: dict[str, bool] = {}
+    for copy in copies:
+        if copy.job_id in compatible:
+            continue
+        job = required(session, PrintJob, copy.job_id)
+        try:
+            media = MediaProperties.model_validate(
+                job.template_snapshot.get("document", {}).get("media", {})
+            )
+            require_matching_media(media, profile)
+            compatible[job.id] = (
+                media.label_length_mm is None or media.label_length_mm == job.length_mm
+            )
+        except ValueError:
+            compatible[job.id] = False
+    return [copy for copy in copies if compatible[copy.job_id]]
 
 
 def require_idle(session: Session, printer_id: str) -> None:
@@ -153,6 +171,7 @@ class QueueWorker:
         choose: ChoosePrinter | None = None,
         enforce_job_access: bool = True,
         check_prices: Callable[[Session, str], None] | None = None,
+        supports_job: Callable[[PrintJob], bool] | None = None,
     ) -> None:
         self.fonts = fonts
         self.images = images
@@ -162,6 +181,7 @@ class QueueWorker:
         self.choose = choose
         self.enforce_job_access = enforce_job_access
         self.check_prices = check_prices
+        self.supports_job = supports_job
         self.lock = lock or Lock()
         self.printer_lock = Lock()
         self.control = PrintControl()
@@ -522,6 +542,8 @@ class QueueWorker:
                     continue
                 for copy in eligible:
                     job = required(session, PrintJob, copy.job_id)
+                    if self.supports_job and not self.supports_job(job):
+                        continue
                     selected = (
                         self.choose(
                             session, job, bool(request), self.printer_id if request else None

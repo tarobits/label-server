@@ -41,6 +41,8 @@ class RenderSpec:
     supported_widths_mm: tuple[float, ...] | None = None
     # Keep old job snapshots unchanged; new renders align the band to whole device rows.
     align_printable_band: bool = False
+    media_family: str = "tze"
+    fixed_label_sizes_mm: tuple[tuple[float, float], ...] = ()
 
     @property
     def horizontal_dpi(self) -> int:
@@ -525,6 +527,8 @@ def render_document(
     images: ImageStore | None = None,
     allow_missing_assets: bool = False,
 ) -> RenderOutput:
+    if document.auto_length and spec.media_kind != "continuous":
+        raise ValueError("Automatic label length requires continuous media")
     resolved_inputs = None
     layout_warnings: list[str] = []
     automatic_length = document.auto_length
@@ -568,10 +572,23 @@ def render_document(
                 element.kind = "rectangle"
                 element.auto_width = False
                 element.font = "Noto Sans"
-    if spec.supported_widths_mm is not None and document.width_mm not in spec.supported_widths_mm:
-        raise ValueError("The selected printer does not support this physical tape width")
+    from app.media import require_supported_media
+
+    require_supported_media(
+        document.media,
+        document.width_mm,
+        media_family=spec.media_family,
+        media_kind=spec.media_kind,
+        supported_widths_mm=spec.supported_widths_mm,
+        fixed_label_sizes_mm=tuple((width, length) for width, length in spec.fixed_label_sizes_mm),
+    )
     printable_top, printable_bottom = printable_vertical_bounds(document.width_mm, spec)
     document = resolve_layout(document, values, spec, fonts, warnings=layout_warnings)
+    if (
+        document.media.media_kind == "fixed_label"
+        and document.length_mm != document.media.label_length_mm
+    ):
+        raise ValueError("Resolved design length must match the fixed-label stock length")
     if automatic_length:
         template_padding = max(0, 10 - fitted_length(document, spec.margin_mm))
     font_files = [str(FONT_DIR / "NotoSans.ttf"), str(FONT_DIR / "NotoSans-Bold.ttf")]

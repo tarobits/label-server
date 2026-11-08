@@ -8,6 +8,7 @@ import ExpandableContent from '../components/ExpandableContent.vue'
 import { api } from '../api'
 import { useWorkspaceStore, date } from '../workspace'
 import type { Profile, ProfileInput } from '../types'
+import { mediaLabel } from '../media'
 const w = useWorkspaceStore()
 const { profiles, busy, status } = storeToRefs(w)
 const editing = ref<string | null>(null),
@@ -15,6 +16,8 @@ const editing = ref<string | null>(null),
 const defaults = (): ProfileInput => ({
   name: '',
   width_mm: 24,
+  media_family: 'tze',
+  label_length_mm: null,
   foreground: '#000000',
   background: '#ffffff',
   auto_print_threshold: 10,
@@ -52,6 +55,7 @@ async function save() {
   const intervalSeconds = Math.round(intervalHours.value * 3600)
   const body = {
     ...form,
+    label_length_mm: form.media_family === 'fixed_label' ? form.label_length_mm : null,
     waiting_notification_interval_seconds:
       !form.waiting_notification_enabled &&
       (!Number.isFinite(intervalSeconds) || intervalSeconds < 60)
@@ -111,13 +115,39 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
             maxlength="100"
             placeholder="Black on Yellow 24 mm" /></label
         ><label
+          >Media family<select v-model="form.media_family">
+            <option value="tze">TZe · Continuous tape</option>
+            <option value="fixed_label">Fixed-size labels</option>
+          </select></label
+        ><label v-if="form.media_family !== 'fixed_label'"
           >Tape width<select v-model.number="form.width_mm">
             <option v-for="width in [3.5, 6, 9, 12, 18, 24]" :key="width" :value="width">
               {{ width }} mm
             </option>
           </select></label
         >
+        <label v-else
+          >Label width (mm)<input
+            v-model.number="form.width_mm"
+            type="number"
+            min="0.1"
+            max="100"
+            step="any"
+            required
+        /></label>
       </div>
+      <ExpandableContent :open="form.media_family === 'fixed_label'">
+        <label
+          >Stock label length (mm)<input
+            v-model.number="form.label_length_mm"
+            type="number"
+            min="10"
+            max="300"
+            step="any"
+            :required="form.media_family === 'fixed_label'"
+            :disabled="form.media_family !== 'fixed_label'"
+        /></label>
+      </ExpandableContent>
       <div class="field-row">
         <label>Text color<input type="color" v-model="form.foreground" /></label
         ><label>Tape color<input type="color" v-model="form.background" /></label
@@ -147,7 +177,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
       </ExpandableContent>
       <p class="help">
         Thresholds count physical copies. Lowering an installed tape’s threshold may start a batch
-        immediately. Width cannot change after a profile has been used.
+        immediately. Media family and dimensions cannot change after a profile has been used.
       </p>
       <button class="primary" :disabled="busy" type="submit">Save tape profile</button>
     </form>
@@ -169,7 +199,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
           class="swatch large"
           :style="{ background: profile.background, color: profile.foreground }"
           >Aa</span
-        ><span class="badge">{{ profile.width_mm }} mm</span>
+        ><span class="badge">{{ mediaLabel(profile) }}</span>
       </div>
       <h2>{{ profile.name }}</h2>
       <p>

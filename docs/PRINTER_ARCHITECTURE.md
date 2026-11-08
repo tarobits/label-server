@@ -210,3 +210,23 @@ printing and review, CSV pinning, holds, reminders, and restart persistence.
 Physical PT-P710BT testing has been reported for one device; simultaneous
 two-device USB printing remains physically unverified. See
 [hardware verification](HARDWARE_VERIFICATION.md).
+
+## Media compatibility
+
+Tape profiles carry controlled `media_family` and `label_length_mm` properties.
+The initial families are `tze` (continuous tape, no stock length) and `fixed_label`
+(fixed-size stock with a required length). These are media classifications, not
+additional hardware drivers. Future adapters must declare their supported family,
+format, widths and exact fixed-label sizes; sharing a width does not imply compatibility.
+
+Cartridges inherit their profile's media properties. Saved designs retain a `media`
+requirement alongside their width. A manually chosen design length on TZe remains
+continuous media. Fixed-label designs must use the stock length and cannot use
+automatic length. Profile media and dimensions cannot change after cartridge,
+job or CSV-run use; create a new profile instead.
+
+Compatibility is enforced for installation, rendering/submission and queue dispatch,
+including companion jobs and approval overrides. Permissions cannot override physical
+media incompatibility. The editor and print selectors display the inherited media tags.
+Existing profiles and designs default to TZe during the upgrade; queued snapshots
+retain their original geometry. This release does not add a fixed-label hardware driver.

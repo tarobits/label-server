@@ -88,6 +88,7 @@ export interface Element {
   qr_margin_mm?: number | null
 }
 export interface TemplateDocument {
+  media?: import('./media').MediaProperties
   version: 1 | 2
   logic?: LogicProgram | null
   logic_editor?: LogicEditorState | null
