@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, configureSession, errorMessage } from './api'
 import { ActionCancelled, ActionDeferred, confirmAction } from './confirmation'
 import { installCartridge } from './cartridges'
@@ -13,6 +13,7 @@ import ExpandableContent from './components/ExpandableContent.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeConsent from './components/CartridgeConsent.vue'
 import JobPreview from './components/JobPreview.vue'
+import PinEntry from './components/PinEntry.vue'
 
 interface LocalPrinter {
   local_id: string
@@ -38,6 +39,8 @@ interface Station {
   user: Operator | null
   users: { id: string; username: string }[]
   single_user_id: string | null
+  pin_keypad: { enabled: boolean; shuffle: 'none' | 'once' | 'each_keypress' }
+  lock_remaining_seconds: number | null
   printers: LocalPrinter[]
   removed_printers: { local_id: string; name: string }[]
   csrf_token: string
@@ -54,6 +57,21 @@ const userId = ref(''),
   pin = ref(''),
   selected = ref(''),
   destination = ref('')
+const pinAttempt = ref(0)
+const clock = ref(performance.now()),
+  lockDeadline = ref(0)
+let clockTimer: ReturnType<typeof setInterval> | undefined
+const lockCountdown = computed(() => {
+  const seconds = Math.max(0, Math.ceil((lockDeadline.value - clock.value) / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+})
+function updateLockCountdown(remaining: number | null, started: number) {
+  clock.value = performance.now()
+  lockDeadline.value = started + (remaining ?? 0) * 1000
+}
+watch(userId, () => {
+  pin.value = ''
+})
 const cartridges = ref<Cartridge[]>([]),
   profiles = ref<Profile[]>([]),
   allLocations = ref(false)
@@ -125,10 +143,12 @@ async function refresh() {
   refreshBusy = true
   const ticket = generation
   try {
+    const started = performance.now()
     const state = await api<Station>('/station')
     if (disposed || ticket !== generation) return
     const changed = state.user?.id !== station.value?.user?.id
     station.value = state
+    updateLockCountdown(state.lock_remaining_seconds, started)
     configureSession(state.csrf_token, () => {
       if (station.value) station.value.locked = true
       clearPrivate()
@@ -220,11 +240,15 @@ function openControls(printer: LocalPrinter) {
 }
 async function unlock() {
   await perform(async () => {
-    await api('/station/unlock', 'POST', {
-      user_id: station.value?.single_user_id ?? userId.value,
-      pin: pin.value,
-    })
-    pin.value = ''
+    try {
+      await api('/station/unlock', 'POST', {
+        user_id: station.value?.single_user_id ?? userId.value,
+        pin: pin.value,
+      })
+    } finally {
+      pin.value = ''
+      pinAttempt.value++
+    }
     unlocking.value = false
   }, 'Station unlocked.')
 }
@@ -379,13 +403,23 @@ function toggleJob(job: Job, checked: boolean) {
 function touch() {
   if (!operational.value || Date.now() - lastTouch < 15000) return
   lastTouch = Date.now()
-  void api('/station/activity', 'POST').catch(() => {})
+  const ticket = generation,
+    started = performance.now()
+  void api<{ lock_remaining_seconds: number }>('/station/activity', 'POST')
+    .then((state) => {
+      if (!disposed && ticket === generation && operational.value)
+        updateLockCountdown(state.lock_remaining_seconds, started)
+    })
+    .catch(() => {})
 }
 async function poll() {
   if (!document.hidden) await refresh()
   if (!disposed) timer = setTimeout(poll, 3000)
 }
 onMounted(() => {
+  clockTimer = setInterval(() => {
+    clock.value = performance.now()
+  }, 1000)
   void poll()
   document.addEventListener('pointerdown', touch)
   document.addEventListener('keydown', touch)
@@ -394,6 +428,7 @@ onBeforeUnmount(() => {
   disposed = true
   generation++
   clearTimeout(timer)
+  clearInterval(clockTimer)
   clearPrivate()
   document.removeEventListener('pointerdown', touch)
   document.removeEventListener('keydown', touch)
@@ -444,8 +479,14 @@ function changePage(delta: number) {
         :disabled="!station.online || busy"
         @click="openUnlock"
       >
-        Unlock</button
-      ><button v-else class="secondary" :disabled="busy" @click="lock">Lock</button>
+        Unlock
+      </button>
+      <div v-else-if="station" class="station-lock">
+        <span class="muted lock-countdown" role="timer" aria-label="Time until station locks"
+          >Locks in {{ lockCountdown }}</span
+        >
+        <button class="secondary" :disabled="busy" @click="lock">Lock</button>
+      </div>
     </header>
     <Transition name="notice"
       ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
@@ -694,18 +735,15 @@ function changePage(delta: number) {
             {{ user.username }}
           </option>
         </select></label
-      ><label
-        >PIN<input
-          v-model="pin"
-          type="password"
-          inputmode="numeric"
-          pattern="[0-9]{4,12}"
-          minlength="4"
-          maxlength="12"
-          autocomplete="off"
-          required
-          :disabled="busy" /></label
-      ><button class="primary" :disabled="busy || !station?.online">Unlock</button>
+      >
+      <PinEntry
+        :key="`${userId}:${pinAttempt}`"
+        v-model="pin"
+        :keypad="station?.pin_keypad?.enabled"
+        :shuffle="station?.pin_keypad?.shuffle"
+        :disabled="busy"
+      />
+      <button class="primary" :disabled="busy || !station?.online">Unlock</button>
     </form></AdminDialog
   >
   <AdminDialog
@@ -798,6 +836,17 @@ function changePage(delta: number) {
 }
 .station-heading p {
   margin: 0;
+}
+.station-lock {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.lock-countdown {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .station-printer {
   padding-block: 24px;

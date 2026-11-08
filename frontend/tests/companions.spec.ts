@@ -148,6 +148,8 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
         LABEL_COMPANION_API_KEY: station.api_key,
         LABEL_COMPANION_SINGLE_USER_ID: user.id,
         LABEL_COMPANION_SHARED_PIN: '246810',
+        LABEL_COMPANION_PIN_KEYPAD_ENABLED: 'true',
+        LABEL_COMPANION_PIN_KEYPAD_SHUFFLE: 'each_keypress',
         LABEL_COMPANION_PRINTERS: '[]',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -176,9 +178,12 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
     await page.getByRole('button', { name: 'Unlock', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Unlock station', exact: true })
     await expect(dialog.getByLabel('User', { exact: true })).toHaveCount(0)
-    await dialog.getByLabel('PIN', { exact: true }).fill('246810')
+    const keypad = dialog.getByRole('group', { name: 'PIN keypad' })
+    for (const digit of '246810')
+      await keypad.getByRole('button', { name: digit, exact: true }).click()
     await dialog.getByRole('button', { name: 'Unlock', exact: true }).click()
     await expect(dialog).not.toBeVisible()
+    await expect(page.getByRole('timer')).toContainText('Locks in')
     await page.getByRole('button', { name: 'Add printer', exact: true }).click()
     const registration = page.getByRole('dialog', { name: 'Add printer', exact: true })
     await registration.getByLabel('Name', { exact: true }).fill('Station printer')
