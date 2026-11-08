@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import tarfile
 import zipfile
+from pathlib import Path
 
 import pytest
 from assertions import require_value
@@ -48,6 +49,108 @@ def test_install_companion_uses_small_dependencies_and_one_service(installer, tm
     with pytest.raises(update.UpdateError, match="already exists"):
         install.install(args)
     assert not args.install_dir.exists()
+
+
+@pytest.mark.parametrize("overrides", [False, True])
+def test_install_companion_preserves_config_and_only_explicit_overrides(
+    installer, tmp_path, capsys, overrides
+):
+    from dotenv import dotenv_values
+
+    args, _, health, units, _, _ = installer
+    source = tmp_path / "station.env"
+    original = (
+        "# Existing station settings\n"
+        "LABEL_COMPANION_SERVER_URL=https://labels.example.com\n"
+        "LABEL_COMPANION_API_KEY=fixture-secret\n"
+        'LABEL_COMPANION_HOST="::" # Bind all interfaces\n'
+        "LABEL_COMPANION_PORT=8123\n"
+        "LABEL_COMPANION_PUBLIC_URL=https://station.example.com\n"
+        'LABEL_COMPANION_DATA_DIR="station-state"\n'
+        "LABEL_COMPANION_LOCK_TIMEOUT_SECONDS=120\n"
+    )
+    source.write_text(original)
+    options = ["--role", "companion", "--companion-config", str(source)]
+    if overrides:
+        options += [
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8124",
+            "--public-url",
+            "http://localhost:8124",
+        ]
+    configured = install.options(options)
+    args.role = configured.role
+    args.companion_config = source
+    args.companion_overrides = configured.companion_overrides
+    install.install(args)
+    target = args.install_dir / ".env.companion"
+    text = target.read_text()
+    values = dotenv_values(target, interpolate=False)
+    assert values["LABEL_COMPANION_HOST"] == ("127.0.0.1" if overrides else "::")
+    assert values["LABEL_COMPANION_PORT"] == ("8124" if overrides else "8123")
+    assert values["LABEL_COMPANION_PUBLIC_URL"] == (
+        "http://localhost:8124" if overrides else "https://station.example.com"
+    )
+    assert values["LABEL_COMPANION_DATA_DIR"] == "station-state"
+    assert values["LABEL_COMPANION_LOCK_TIMEOUT_SECONDS"] == "120"
+    for key in ("HOST", "PORT", "PUBLIC_URL", "DATA_DIR"):
+        assert text.count(f"LABEL_COMPANION_{key}=") == 1
+    assert source.read_text() == original
+    if not overrides:
+        assert text == original
+    expected_host = "127.0.0.1:8124" if overrides else "[::1]:8123"
+    assert health == [f"http://{expected_host}/api/health"]
+    assert str(args.install_dir / "station-state") in (units / "labels.service").read_text()
+    assert "fixture-secret" not in capsys.readouterr().out
+
+
+def test_companion_missing_settings_use_defaults_without_duplicate_assignments(tmp_path):
+    from io import StringIO
+
+    from dotenv import dotenv_values
+
+    source = tmp_path / "station.env"
+    source.write_text(
+        "# Keep other settings\nLABEL_COMPANION_PORT=8123\nLABEL_COMPANION_DATA_DIR=state#1"
+    )
+    args = install.options(["--role", "companion", "--companion-config", str(source)])
+    text, data = install.companion_configuration(args)
+    values = dotenv_values(stream=StringIO(text), interpolate=False)
+    assert values["LABEL_COMPANION_HOST"] == "127.0.0.1"
+    assert values["LABEL_COMPANION_PORT"] == "8123"
+    assert values["LABEL_COMPANION_PUBLIC_URL"] == "http://localhost:8123"
+    assert data == args.install_dir / "state#1"
+    assert text.count("LABEL_COMPANION_PORT=") == 1
+
+
+def test_companion_existing_duplicates_keep_last_effective_value(tmp_path):
+    from io import StringIO
+
+    from dotenv import dotenv_values
+
+    source = tmp_path / "station.env"
+    source.write_text("LABEL_COMPANION_PORT=8123\n# Keep this comment\nLABEL_COMPANION_PORT=8124")
+    args = install.options(["--role", "companion", "--companion-config", str(source)])
+    text, _ = install.companion_configuration(args)
+    assert text.count("LABEL_COMPANION_PORT=") == 1
+    assert dotenv_values(stream=StringIO(text))["LABEL_COMPANION_PORT"] == "8124"
+    assert "# Keep this comment\n" in text
+
+
+def test_custom_companion_state_remains_service_owned(tmp_path, monkeypatch):
+    state = tmp_path / "station-state"
+    state.mkdir()
+    (state / "journal.db").touch()
+    (tmp_path / "app.py").touch()
+    changed = []
+    monkeypatch.setattr(
+        install.os, "chown", lambda path, *args, **kwargs: changed.append(Path(path))
+    )
+    install.own_tree(tmp_path, 0, 123, skip_data=True, state_directory=state)
+    assert tmp_path / "app.py" in changed
+    assert state not in changed and state / "journal.db" not in changed
 
 
 def test_role_detection_and_runtime_reject_conflicting_installations(tmp_path):

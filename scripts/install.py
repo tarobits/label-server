@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import grp
 import ipaddress
+import json
 import os
 import pwd
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -60,9 +62,7 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--github-token-file", type=Path, help="Read a private-repository token from a file"
     )
-    parser.add_argument(
-        "--host", default="127.0.0.1", help="Bind address; use 0.0.0.0 for LAN access"
-    )
+    parser.add_argument("--host", help="Bind address; use 0.0.0.0 for LAN access")
     parser.add_argument("--port", type=int)
     parser.add_argument(
         "--public-url", help="Browser-reachable HTTP(S) origin for notification links"
@@ -79,6 +79,12 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         help="Resolve the GitHub version and show the plan without changing anything",
     )
     args = parser.parse_args(argv)
+    args.companion_overrides = {
+        name: getattr(args, name)
+        for name in ("host", "port", "public_url")
+        if getattr(args, name) is not None
+    }
+    args.host = args.host if args.host is not None else "127.0.0.1"
     args.port = args.port if args.port is not None else (8001 if args.role == "companion" else 8000)
     if args.role == "companion" and not args.companion_config and not args.check:
         parser.error(
@@ -99,11 +105,21 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("The installation path must not contain symlinks or '..'")
     args.install_dir = raw
     try:
+        validate_network(args)
+    except update.UpdateError as error:
+        parser.error(str(error))
+    if args.ref and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", args.ref):
+        parser.error("--ref must be a branch or tag name")
+    return args
+
+
+def validate_network(args: argparse.Namespace) -> None:
+    try:
         args.host = str(ipaddress.ip_address(args.host))
     except ValueError:
-        parser.error("--host must be an IPv4 or IPv6 address")
+        raise update.UpdateError("--host must be an IPv4 or IPv6 address")
     if not 1024 <= args.port <= 65535:
-        parser.error("--port must be between 1024 and 65535")
+        raise update.UpdateError("--port must be between 1024 and 65535")
     args.public_url = args.public_url or f"http://localhost:{args.port}"
     origin = urlsplit(args.public_url)
     if (
@@ -116,10 +132,84 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         or origin.fragment
         or any(char.isspace() for char in args.public_url)
     ):
-        parser.error("--public-url must be an HTTP(S) origin without credentials or a path")
-    if args.ref and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", args.ref):
-        parser.error("--ref must be a branch or tag name")
-    return args
+        raise update.UpdateError(
+            "--public-url must be an HTTP(S) origin without credentials or a path"
+        )
+
+
+def companion_configuration(args: argparse.Namespace) -> tuple[str, Path]:
+    """Keep supplied settings, overriding only explicit installer options."""
+    source = args.companion_config.read_text()
+    defaults = {
+        "LABEL_COMPANION_HOST": "127.0.0.1",
+        "LABEL_COMPANION_PORT": "8001",
+        "LABEL_COMPANION_PUBLIC_URL": "http://localhost:8001",
+        "LABEL_COMPANION_DATA_DIR": "data/companion",
+    }
+    values: dict[str, str] = {}
+    existing: dict[str, str] = {}
+    lines = source.splitlines(keepends=True)
+    keys: dict[int, str] = {}
+    for index, line in enumerate(lines):
+        match = re.match(r"\s*(?:export\s+)?(LABEL_COMPANION_\w+)\s*=\s*(.*)", line)
+        if not match or match[1] not in defaults:
+            continue
+        key = match[1]
+        try:
+            # Unquoted '#' inside a path is literal; comments follow whitespace.
+            raw = match[2].strip()
+            if raw.startswith(("'", '"')):
+                parsed = shlex.split(raw, comments=True)
+            else:
+                parsed = [re.split(r"\s+#", raw, maxsplit=1)[0].rstrip()] if raw else []
+        except ValueError:
+            raise update.UpdateError(f"Invalid {key} in companion configuration") from None
+        if len(parsed) != 1 or any(ord(char) < 32 for char in parsed[0]):
+            raise update.UpdateError(f"Invalid {key} in companion configuration")
+        values[key] = parsed[0]
+        existing[key] = line
+        keys[index] = key
+    overrides = {
+        "LABEL_COMPANION_" + name.upper(): str(value)
+        for name, value in args.companion_overrides.items()
+    }
+    effective = defaults | values | overrides
+    if "LABEL_COMPANION_PUBLIC_URL" not in values | overrides:
+        effective["LABEL_COMPANION_PUBLIC_URL"] = (
+            f"http://localhost:{effective['LABEL_COMPANION_PORT']}"
+        )
+    args.host = effective["LABEL_COMPANION_HOST"]
+    try:
+        args.port = int(effective["LABEL_COMPANION_PORT"])
+    except ValueError:
+        raise update.UpdateError(
+            "Invalid LABEL_COMPANION_PORT in companion configuration"
+        ) from None
+    args.public_url = effective["LABEL_COMPANION_PUBLIC_URL"]
+    validate_network(args)
+    data = (args.install_dir / effective["LABEL_COMPANION_DATA_DIR"]).resolve()
+    if data == args.install_dir or data in args.install_dir.parents:
+        raise update.UpdateError("Companion data must use a dedicated state directory")
+    result: list[str] = []
+    emitted: set[str] = set()
+    for index, line in enumerate(lines):
+        key = keys.get(index)
+        if key is None:
+            result.append(line)
+        elif key not in emitted:
+            result.append(
+                f"{key}={json.dumps(effective[key])}\n"
+                if key in overrides
+                else existing[key].rstrip("\r\n") + "\n"
+            )
+            emitted.add(key)
+    text = "".join(result)
+    if text and not text.endswith("\n"):
+        text += "\n"
+    for key in defaults:
+        if key not in emitted:
+            text += f"{key}={json.dumps(effective[key])}\n"
+    return text, data
 
 
 def run(
@@ -132,7 +222,9 @@ def run(
     return update.command(args, directory, capture=capture, env=env)
 
 
-def render_unit(directory: Path, host: str, port: int, role: str = "main") -> str:
+def render_unit(
+    directory: Path, host: str, port: int, role: str = "main", state_directory: Path | None = None
+) -> str:
     # Keep the packaged hardening and USB group; change only installation/bind settings.
     unit = (SOURCE / "deploy/labels.service").read_text().replace(
         "/opt/labels", str(directory)
@@ -147,6 +239,11 @@ def render_unit(directory: Path, host: str, port: int, role: str = "main") -> st
         unit = unit.replace(
             f"ExecStart={directory}/.venv/bin/uvicorn app.main:create_app --factory --host {host} --port {port}",
             f"ExecStart={directory}/.venv/bin/python -m companion",
+        )
+    if state_directory and not state_directory.is_relative_to(directory / "data"):
+        path = json.dumps(str(state_directory).replace("%", "%%"), ensure_ascii=False)
+        unit = unit.replace(
+            f"ReadWritePaths={directory}/data", f"ReadWritePaths={directory}/data {path}"
         )
     return unit
 
@@ -225,11 +322,22 @@ def service_identity() -> pwd.struct_passwd:
     return user
 
 
-def own_tree(directory: Path, uid: int, gid: int, *, skip_data: bool = False) -> None:
+def own_tree(
+    directory: Path,
+    uid: int,
+    gid: int,
+    *,
+    skip_data: bool = False,
+    state_directory: Path | None = None,
+) -> None:
     os.chown(directory, uid, gid, follow_symlinks=False)
     for root, directories, files in os.walk(directory, followlinks=False):
-        if skip_data and Path(root) == directory:
-            directories[:] = [name for name in directories if name != "data"]
+        if skip_data:
+            directories[:] = [
+                name
+                for name in directories
+                if Path(root) / name not in (directory / "data", state_directory)
+            ]
         for name in [*directories, *files]:
             os.chown(Path(root) / name, uid, gid, follow_symlinks=False)
 
@@ -240,9 +348,12 @@ def install(args: argparse.Namespace) -> None:
         raise update.UpdateError(
             "Installation directory already exists; use scripts/update.py for an existing service"
         )
-    if args.role == "companion" and not args.check:
+    companion_config = None
+    companion_data = None
+    if args.role == "companion" and (args.companion_config or not args.check):
         if not args.companion_config or not args.companion_config.is_file():
             raise update.UpdateError("A readable --companion-config file is required")
+        companion_config, companion_data = companion_configuration(args)
     database_url = None
     if args.database_url_file:
         database_url = args.database_url_file.read_text().strip()
@@ -327,6 +438,12 @@ def install(args: argparse.Namespace) -> None:
         ):
             if not (target / filename).is_file():
                 raise update.UpdateError(f"Selected GitHub version is missing {filename}")
+        if (
+            companion_data is not None
+            and companion_data.is_relative_to(target)
+            and companion_data.exists()
+        ):
+            raise update.UpdateError("Companion state directory overlaps the installed source")
         # Fresh state only: never import the caller's .env or database.
         data = target / "data"
         data.mkdir(mode=0o700)
@@ -336,8 +453,6 @@ def install(args: argparse.Namespace) -> None:
             "LABEL_WORKER_INTERVAL_SECONDS=2\nLABEL_CHECK_FOR_UPDATES=true\n"
         )
         if database_url:
-            import json
-
             config = config.replace(
                 "LABEL_DATABASE_URL=sqlite:///./data/labels.db",
                 "LABEL_DATABASE_URL=" + json.dumps(database_url),
@@ -345,12 +460,8 @@ def install(args: argparse.Namespace) -> None:
             config += "LABEL_DATA_DIR=./data\n"
         config_file = ".env.companion" if args.role == "companion" else ".env"
         if args.role == "companion":
-            config = args.companion_config.read_text()
-            config += (
-                f"\nLABEL_COMPANION_HOST={args.host}\nLABEL_COMPANION_PORT={args.port}\n"
-                f"LABEL_COMPANION_PUBLIC_URL={args.public_url.rstrip('/')}\n"
-                "LABEL_COMPANION_DATA_DIR=data/companion\n"
-            )
+            assert companion_config is not None
+            config = companion_config
         if token:
             descriptor = os.open(data / "github-token", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "w") as file:
@@ -425,11 +536,11 @@ def install(args: argparse.Namespace) -> None:
         if data.is_symlink() or (target / config_file).is_symlink():
             raise update.UpdateError("Runtime configuration must not be a symlink")
         # Service owns state; installed application code is read-only to it.
-        own_tree(target, 0, user.pw_gid, skip_data=True)
+        own_tree(target, 0, user.pw_gid, skip_data=True, state_directory=companion_data)
         os.chmod(target / config_file, 0o640)
         RULE_DIRECTORY.mkdir(parents=True, exist_ok=True)
         rule_path.write_text(rule)
-        unit_path.write_text(render_unit(target, args.host, args.port, args.role))
+        unit_path.write_text(render_unit(target, args.host, args.port, args.role, companion_data))
         run(["udevadm", "control", "--reload-rules"])
         run(
             [

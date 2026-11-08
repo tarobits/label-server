@@ -53,6 +53,12 @@ The installer creates `/opt/labels`, a minimal `.venv`, the local database, USB
 permissions, and the systemd service. It builds only the companion frontend and
 binds to `127.0.0.1:8001` by default. Use `--public-url` and `--host` to configure
 an HTTPS reverse-proxy deployment. `--check` shows the installation plan.
+Existing settings in `--companion-config` are preserved. Explicit `--host`, `--port`
+and `--public-url` options replace their respective settings; missing settings use
+local defaults. The installer uses the configured bind address and port for its
+health check. A custom data directory outside the installation must already be
+writable by the `labels` service user.
+
 Installation asks for confirmation before making changes; `--yes` allows unattended
 installation. The installer provisions native systemd installations.
 
