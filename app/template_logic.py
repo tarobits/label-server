@@ -138,6 +138,87 @@ def display_value(value: Value) -> str:
     return value
 
 
+def sizing_source(
+    document: "TemplateDocument", data: Mapping[str, object], *, samples: bool = False
+) -> "TemplateDocument":
+    """Resolve text content and typography before geometry-dependent positioning."""
+    from app.template_schema import TOKEN, Element
+
+    source = document.model_copy(deep=True)
+    automatic = {
+        element.id: element
+        for element in source.elements
+        if element.kind == "text" and element.auto_width
+    }
+    if not automatic:
+        return source
+    properties = logic_property_values(document)
+    for element in automatic.values():
+        # A sizing expression must not read an as-yet unmeasured dimension.
+        # This also catches implicit cycles through a neighbour's position.
+        properties[element.id].pop("height" if element.rotation in (90, 270) else "width")
+    sizing = {
+        "content",
+        "font_size",
+        "bold",
+        "character_spacing",
+        "line_spacing",
+        "padding_top",
+        "padding_bottom",
+        "padding_left",
+        "padding_right",
+        "width",
+        "height",
+        "rotation",
+    }
+    program = document.logic or Program()
+    keys = {
+        (binding.target, binding.property)
+        for binding in program.bindings
+        if binding.target in automatic and binding.property in sizing
+    }
+    variables = {
+        name
+        for element in automatic.values()
+        if not element.literal_content and (element.id, "content") not in keys
+        for name in TOKEN.findall(element.content)
+        if name in program.variables
+    }
+    result = evaluate_program(
+        program,
+        logic_fields(document),
+        logic_targets(document),
+        data,
+        samples=samples,
+        property_values=properties,
+        property_keys=keys,
+        variable_names=variables,
+    )
+    values = {**result.inputs, **result.variables}
+    for index, element in enumerate(source.elements):
+        if element.id not in automatic:
+            continue
+        changes = dict(result.properties.get(element.id, {}))
+        raw = element.model_dump()
+        rotation = cast(int, changes.get("rotation", element.rotation))
+        geometry = element_geometry(element)
+        for name in ("width", "height"):
+            if name in changes:
+                geometry[name] = cast(float, changes.pop(name))
+        if rotation != element.rotation or any(
+            name in result.properties.get(element.id, {}) for name in ("width", "height")
+        ):
+            raw.update(local_geometry(geometry, rotation))
+        raw.update(changes)
+        if "content" not in changes and not element.literal_content:
+            raw["content"] = TOKEN.sub(
+                lambda match: display_value(values[match.group(1)]), element.content
+            )
+        raw["literal_content"] = True
+        source.elements[index] = Element.model_validate(raw)
+    return source
+
+
 def resolve_logic(
     document: "TemplateDocument",
     data: Mapping[str, object],

@@ -486,10 +486,10 @@ def measure_logic_layout(
     allow_missing_assets: bool = False,
     warnings: list[str] | None = None,
 ) -> TemplateDocument:
-    """Measure automatic sizes from template inputs before evaluating logic."""
+    """Measure resolved text before evaluating geometry-dependent logic."""
     from app.logic_engine import resolve_inputs
     from app.logic_schema import ImageValue
-    from app.template_logic import display_value, logic_fields
+    from app.template_logic import display_value, logic_fields, sizing_source
 
     inputs = resolve_inputs(logic_fields(document), data, samples=samples)
     values = {
@@ -497,19 +497,13 @@ def measure_logic_layout(
         for name, value in inputs.items()
         if not isinstance(value, ImageValue)
     }
-    source = document.model_copy(deep=True)
+    source = sizing_source(document, data, samples=samples)
     # Label length is fitted only after logic and is not a readable input while
     # automatic length is enabled. This pass measures object geometry only.
     source.auto_length = False
     for element in source.elements:
         if element.kind != "text" or not element.auto_width:
             continue
-        if not element.literal_content and any(
-            name not in values for name in TOKEN.findall(element.content)
-        ):
-            raise ValueError(
-                "Automatic text width needs template inputs; logic intermediates are calculated after sizing. Use a fixed width for this text."
-            )
         if allow_missing_assets:
             try:
                 font_path(element, fonts)
@@ -546,8 +540,8 @@ def render_document(
             warnings=layout_warnings,
         )
         document, evaluation = resolve_logic(document, data, samples=samples, measured=measured)
-        # Text widths are fixed before logic. The physical label still fits the
-        # final positions and visibility afterward.
+        # Text sizes include bound content and typography. Positioning logic
+        # reads those measurements, then the physical label fits the result.
         document.auto_length = automatic_length
         resolved_inputs = evaluation.inputs
         values = {}

@@ -67,7 +67,8 @@ use `null` to represent an absent value.
 
 ## Label length and other properties
 
-Automatic text sizing runs before logic. After logic, distance holders are
+Automatic text sizing uses resolved content and typography, including logic bindings.
+Positioning logic then reads the measured sizes. After logic, distance holders are
 positioned and automatic label length is fitted to the final visible layout,
 followed by printable bounds checks. Bindings can change geometry, visibility, content, text style,
 image settings, and other properties listed in Reference. Units and allowed
@@ -105,7 +106,7 @@ appears last. A bound property supplies its logic result; an unbound property
 supplies its saved template value. Self-references and indirect cycles through
 properties or intermediate variables are rejected.
 
-Reads of automatic dimensions use the measurements made before logic. Automatic
+Reads of automatic dimensions use the resolved text measurements. Automatic
 label length is fitted afterward, so moving or hiding objects still changes
 the final label length. It is unavailable as an input while automatic length is
 enabled. Disable automatic length to read or bind `label.length_mm`. `label.width_mm` and
@@ -114,9 +115,10 @@ enabled. Disable automatic length to read or bind `label.length_mm`. `label.widt
 When **Fit text width** or **Automatic label length** is enabled, its assignment
 inlet is disabled and source assignments are rejected. Disable the automatic
 setting before assigning that dimension. Automatic text width itself is configured
-in Layout, not through logic. Its measurement uses template content and input
-values; use fixed widths for content containing logic-generated intermediate
-tokens. Logic may change the displayed content without remeasuring the text box.
+in Layout, not through logic. Its measurement includes bound content, bold text,
+font size, spacing, padding and height, as well as intermediate text tokens.
+Sizing expressions cannot depend on an unmeasured automatic dimension, including
+indirectly through another object's position. Such dependencies are rejected.
 Unbound `content` inputs return the stored string, including any `{{tokens}}`.
 
 For a number input `quantity`, disable **Automatic label length** and assign:

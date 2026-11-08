@@ -43,6 +43,7 @@ class TemplatePreviews:
         key = hashlib.sha256(
             json.dumps(
                 {
+                    "renderer": 2,
                     "revision": template.revision,
                     "document": template.document,
                     "missing": sorted((notice["kind"], notice["id"]) for notice in notices),

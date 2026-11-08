@@ -75,7 +75,7 @@ def auto_document(source):
     return TemplateDocument.model_validate(raw)
 
 
-def test_automatic_text_measurements_are_fixed_while_label_length_refits():
+def test_automatic_text_measures_bound_content_before_dependent_geometry():
     base = auto_document("")
     plain = render_document(base, {"variable1": "Long measured title"}, RenderSpec())
     doc = auto_document(
@@ -85,8 +85,12 @@ def test_automatic_text_measurements_are_fixed_while_label_length_refits():
     assert output.document.length_mm == max(
         10, output.document.elements[0].x + output.document.elements[0].width + 1
     )
-    assert output.document.elements[0].width == plain.document.elements[0].width
-    assert output.document.elements[1].width == plain.document.elements[0].width / 2
+    expected = auto_document("")
+    expected.elements[0].content = "X"
+    measured = render_document(expected, {"variable1": "Long measured title"}, RenderSpec())
+    assert output.document.elements[0].width == measured.document.elements[0].width
+    assert output.document.elements[0].width < plain.document.elements[0].width
+    assert output.document.elements[1].width == measured.document.elements[0].width / 2
     assert output.document.elements[0].content == "X"
     assert not output.document.elements[0].auto_width
     assert not output.document.auto_length
@@ -138,12 +142,115 @@ def test_automatic_label_length_is_not_a_logic_input():
 def test_hidden_text_is_measured_before_logic_makes_it_visible():
     doc = auto_document('text1.visible = true; text1.content = "X"; text2.width = text1.width;')
     doc.elements[0].visible = False
-    plain = render_document(auto_document(""), {"variable1": "Long measured title"}, RenderSpec())
+    expected = auto_document("")
+    expected.elements[0].content = "X"
+    plain = render_document(expected, {"variable1": "Long measured title"}, RenderSpec())
     output = render_document(doc, {"variable1": "Long measured title"}, RenderSpec())
     assert output.document.elements[0].width == plain.document.elements[0].width
     assert output.document.elements[1].width == plain.document.elements[0].width
     assert output.document.elements[0].visible
     assert not output.document.elements[0].auto_width
+
+
+@pytest.mark.parametrize(
+    "text,bold,left,right",
+    [
+        ("Short", False, False, True),
+        ("Longer bound text between two images", True, True, True),
+        ("Two lines\nwith bold text", True, True, False),
+    ],
+)
+def test_bound_text_auto_sizes_between_logic_positioned_images(text, bold, left, right):
+    from app.logic_schema import ImageValue, LogicInput
+
+    source = TemplateDocument.model_validate(
+        {
+            "version": 2,
+            "auto_length": True,
+            "out_of_bounds": "clip",
+            "fields": [
+                LogicInput(
+                    name="left_image", label="Left image", type="image", required=False
+                ).model_dump(),
+                LogicInput(
+                    name="right_image", label="Right image", type="image", required=False
+                ).model_dump(),
+                LogicInput(name="bold_text", label="Bold", type="boolean").model_dump(),
+                LogicInput(name="text_content", label="Text").model_dump(),
+            ],
+            "elements": [
+                {
+                    "id": "left",
+                    "logic_name": "image1",
+                    "kind": "image",
+                    "x": 1,
+                    "y": 1,
+                    "width": 10,
+                    "height": 10,
+                },
+                {
+                    "id": "text",
+                    "logic_name": "text1",
+                    "kind": "text",
+                    "x": 12,
+                    "y": 1,
+                    "width": 2,
+                    "height": 10,
+                    "auto_width": True,
+                    "content": "Fallback",
+                },
+                {
+                    "id": "right",
+                    "logic_name": "image2",
+                    "kind": "image",
+                    "x": 15,
+                    "y": 1,
+                    "width": 10,
+                    "height": 10,
+                },
+            ],
+        }
+    )
+    source.logic = compile_source(
+        """
+        image1.image_asset = left_image;
+        image2.image_asset = right_image;
+        text1.bold = bold_text;
+        text1.x = if(filled(left_image), (1 + (image1.x + image1.width)), 1);
+        image2.x = ((if(filled(left_image), (1 + (image1.x + image1.width)), 1) + text1.width) + 1);
+        image1.visible = filled(left_image);
+        image2.visible = filled(right_image);
+        text1.content = text_content;
+    """,
+        logic_fields(source),
+        logic_targets(source),
+    )
+    values = {
+        "text_content": text,
+        "bold_text": bold,
+        "left_image": ImageValue(image_asset="a" * 64) if left else None,
+        "right_image": ImageValue(image_asset="b" * 64) if right else None,
+    }
+    result = render_document(source, values, RenderSpec(), allow_missing_assets=True)
+    actual = result.document.elements[1]
+    expected = source.model_copy(deep=True)
+    expected.logic = None
+    expected.elements[0].visible = False
+    expected.elements[2].visible = False
+    expected.elements[1].content = text
+    expected.elements[1].bold = bold
+    measured = render_document(expected, values, RenderSpec(), allow_missing_assets=True)
+    assert actual.content == text and actual.bold == bold
+    assert actual.width == measured.document.elements[1].width
+    assert actual.x == (12 if left else 1)
+    assert result.document.elements[2].x == actual.x + actual.width + 1
+    assert source.elements[1].width == 2 and source.elements[1].auto_width
+
+
+def test_auto_sizing_rejects_implicit_geometry_cycles():
+    doc = auto_document("text1.font_size = text2.x; text2.x = text1.width;")
+    with pytest.raises(ValueError, match="No saved value for property"):
+        render_document(doc, {"variable1": "Cycle"}, RenderSpec())
 
 
 def test_inspection_preview_and_queued_snapshot_agree_on_measured_inputs(client):

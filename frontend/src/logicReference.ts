@@ -33,7 +33,7 @@ const propertyHelp: Record<string, string> = {
   bold: 'Enable or disable bold text.',
   wrap: 'Enable or disable line wrapping within the text box.',
   auto_width:
-    'Fit text width to template content and input values before logic. Configure this in Layout; it is read-only in logic.',
+    'Fit text width to resolved content and typography before positioning logic. Configure this in Layout; it is read-only in logic.',
   align: 'Horizontal text alignment: "left", "center", or "right".',
   vertical_align: 'Vertical text alignment: "top", "center", or "bottom".',
   image_asset:
@@ -156,7 +156,7 @@ export function referenceEntries(
       details: [
         'Choose a Property target and Property in Add node, then Read property. The read node has a typed output that connects by click, drag, keyboard, or touch. Bind property creates an assignment instead.',
         'A read uses the result of the property’s binding, or its saved template value when unbound. Node and statement order do not matter. Dependencies can pass through intermediate variables; cycles, including self-references, are rejected.',
-        'Automatic text widths are measured before logic. Reads use those measurements unless a writable property has a logic binding. Unbound content is the saved text, including any {{tokens}}. label.width_mm and label.auto_length are read-only.',
+        'Automatic text widths include bound content and typography. Positioning expressions read those measurements. Unbound content is the saved text, including any {{tokens}}. label.width_mm and label.auto_length are read-only.',
         'Automatic label length is fitted after logic changes positions or visibility and is unavailable as a logic input. Disable automatic length to read or bind label.length_mm.',
       ],
       example:
@@ -166,12 +166,12 @@ export function referenceEntries(
       id: 'layout',
       group: 'Layout',
       title: 'Layout and automatic length',
-      summary: 'Measure text first, evaluate logic, then fit the final label.',
+      summary: 'Resolve text, measure it, position objects, then fit the final label.',
       details: [
-        'The renderer resolves template inputs and measures automatic text widths. It then evaluates intermediate variables and property bindings, resolves distance holders, fits the final automatic label length, and checks printable bounds.',
+        'The renderer resolves text content and typography, including their logic bindings, before measuring automatic widths. Positioning logic and distance holders then use those measurements. Finally it fits automatic label length and checks printable bounds.',
         'Automatic length uses visible objects and obeys media limits. Hidden anchors have zero extent. Geometry still requires positive widths and heights; hide objects with visible = false.',
         'Automatic text width and automatic label length have disabled assignment inlets. Source assignments to them are rejected. Manual node drafts are retained while automatic sizing is enabled. Queued labels keep their resolved layout and values even if the template later changes.',
-        'Automatic text width uses template inputs, not logic-generated content or intermediate text tokens. Use a fixed width when text contains logic-generated intermediate tokens. Logic may change its displayed content but does not remeasure its width.',
+        'Sizing expressions may use inputs and intermediate values, but cannot depend on unmeasured automatic dimensions, including indirectly through another object’s position.',
       ],
     },
     {

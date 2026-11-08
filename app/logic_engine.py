@@ -370,6 +370,8 @@ def evaluate_program(
     *,
     samples: bool = False,
     property_values: Mapping[str, Mapping[str, Value]] | None = None,
+    property_keys: set[tuple[str, str]] | None = None,
+    variable_names: set[str] | None = None,
 ) -> Evaluation:
     validate_program(program, fields, targets)
     inputs = resolve_inputs(fields, data, samples=samples)
@@ -463,10 +465,14 @@ def evaluate_program(
             ) from error
 
     for name, expression in program.variables.items():
+        if variable_names is not None and name not in variable_names:
+            continue
         if name not in variables:
             variables[name] = evaluate(expression)
     properties: dict[str, dict[str, Value]] = {}
     for binding in program.bindings:
+        if property_keys is not None and (binding.target, binding.property) not in property_keys:
+            continue
         value = property_value(binding.target, binding.property, binding.expression, -1)
         properties.setdefault(binding.target, {})[binding.property] = value
     return Evaluation(inputs=inputs, variables=variables, properties=properties)
