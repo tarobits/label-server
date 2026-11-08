@@ -387,6 +387,19 @@ test('group-only moderators reach scoped queue controls without physical configu
     name: 'Group moderator',
     permissions: [{ kind: 'destination', destination_id: group.id, level: 'moderator' }],
   })
+  const cartridges = await (await request.get('/api/cartridges')).json()
+  const cartridgeAccess = {
+    kind: 'cartridge',
+    identifier: cartridges[0].id,
+    grants: [{ principal_kind: 'role', principal_id: role.id, permission: 'cartridge.use' }],
+  }
+  const preview = await request.post('/api/resource-access/preview', { data: cartridgeAccess })
+  expect(preview.ok(), await preview.text()).toBeTruthy()
+  const applied = await request.post('/api/resource-access/apply', {
+    data: cartridgeAccess,
+    headers: { 'X-Access-Confirmation': (await preview.json()).confirmation_token },
+  })
+  expect(applied.ok(), await applied.text()).toBeTruthy()
   await adminChange(request, 'users', 'POST', {
     username: 'moderator',
     password: 'moderator-password-123',
@@ -406,7 +419,7 @@ test('group-only moderators reach scoped queue controls without physical configu
     await member.getByRole('link', { name: 'Printers & groups', exact: true }).click()
     await expect(member.getByRole('button', { name: 'Configure', exact: true })).toHaveCount(0)
     await expect(member.getByRole('button', { name: 'Edit group', exact: true })).toHaveCount(0)
-    await expect(member.getByRole('link', { name: 'Activity', exact: true })).toHaveCount(0)
+    await expect(member.getByRole('link', { name: 'Print Activity', exact: true })).toHaveCount(0)
     await member.getByRole('button', { name: 'Hold group', exact: true }).click()
     await expect(member.getByRole('button', { name: 'Resume group', exact: true })).toBeVisible()
     await member.getByRole('button', { name: 'Resume group', exact: true }).click()
