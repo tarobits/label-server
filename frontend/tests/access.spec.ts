@@ -391,7 +391,11 @@ test('group-only moderators reach scoped queue controls without physical configu
   const cartridgeAccess = {
     kind: 'cartridge',
     identifier: cartridges[0].id,
-    grants: [{ principal_kind: 'role', principal_id: role.id, permission: 'cartridge.use' }],
+    grants: ['cartridge.view', 'cartridge.use'].map((permission) => ({
+      principal_kind: 'role',
+      principal_id: role.id,
+      permission,
+    })),
   }
   const preview = await request.post('/api/resource-access/preview', { data: cartridgeAccess })
   expect(preview.ok(), await preview.text()).toBeTruthy()

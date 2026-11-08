@@ -70,7 +70,13 @@ test('changing 24 mm to 12 mm keeps unclipped text warnings clear and the guide 
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(wide.id)
   await expect(guide).toHaveAttribute('stroke', '#000000')
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(narrow.id)
+  const savedRevision = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/templates/${saved.id}`) &&
+      response.request().method() === 'PUT',
+  )
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
+  expect((await savedRevision).ok()).toBeTruthy()
   await expect(page.getByRole('button', { name: 'Save template', exact: true })).toBeDisabled()
   const cartridge = await (
     await request.post('/api/cartridges', {

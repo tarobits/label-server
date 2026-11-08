@@ -35,6 +35,29 @@ async function account(
   })
   const password = 'browser-attribution-password'
   const user = await change(admin, 'users', { username: name, password, role_ids: [role.id] })
+  const resources = await (await admin.get('/api/resource-access')).json()
+  for (const cartridge of resources.resources) {
+    if (cartridge.kind !== 'cartridge') continue
+    const data = {
+      kind: 'cartridge',
+      identifier: cartridge.id,
+      grants: [
+        ...cartridge.grants,
+        ...['cartridge.view', 'cartridge.use'].map((permission) => ({
+          principal_kind: 'user',
+          principal_id: user.id,
+          permission,
+        })),
+      ],
+    }
+    const preview = await admin.post('/api/resource-access/preview', { data })
+    expect(preview.ok(), await preview.text()).toBeTruthy()
+    const granted = await admin.post('/api/resource-access/apply', {
+      data,
+      headers: { 'X-Access-Confirmation': (await preview.json()).confirmation_token },
+    })
+    expect(granted.ok(), await granted.text()).toBeTruthy()
+  }
   const request = await playwright.request.newContext({
     baseURL,
     storageState: { cookies: [], origins: [] },

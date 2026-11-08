@@ -53,7 +53,7 @@ test('an empty cassette pauses automatic printing, alerts once, and resumes afte
   const states = await (await request.get('/api/printers/status')).json()
   expect(states[0].automatic_printing_held).toBe(false)
 
-  await page.getByRole('link', { name: 'Activity', exact: true }).click()
+  await page.goto('/#/notification-history')
   const notice = page.locator('.notification').filter({ hasText: 'Installed cartridge is empty' })
   await expect(notice).toHaveCount(1)
   await expect(notice).toContainText('Desk printer')

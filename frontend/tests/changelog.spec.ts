@@ -1,4 +1,9 @@
 import { test, expect } from './fixtures'
+import { readFileSync } from 'node:fs'
+
+const releaseHeadings = [
+  ...readFileSync('../CHANGELOG.md', 'utf8').matchAll(/^## \[([^\]]+)\]/gm),
+].map((match) => `v${match[1]}`)
 
 test('pointer opening and closing avoids focus rings while Tab restores keyboard indicators', async ({
   page,
@@ -53,32 +58,7 @@ test('the version link opens the full changelog repeatedly without changing visi
   await link.focus()
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
-  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText([
-    'v0.12.1',
-    'v0.12.0',
-    'v0.12.0-pre7',
-    'v0.12.0-pre6',
-    'v0.12.0-pre5',
-    'v0.12.0-pre4',
-    'v0.12.0-pre3',
-    'v0.12.0-pre2',
-    'v0.12.0-pre1',
-    'v0.11.0',
-    'v0.10.0',
-    'v0.9.0',
-    'v0.8.0',
-    'v0.7.1',
-    'v0.7.0',
-    'v0.6.0',
-    'v0.5.0',
-    'v0.4.0',
-    'v0.3.2',
-    'v0.3.1',
-    'v0.3.0',
-    'v0.2.1',
-    'v0.2.0',
-    'v0.1.0',
-  ])
+  await expect(dialog.getByRole('heading', { level: 3 })).toHaveText(releaseHeadings)
   await expect(dialog).toContainText('Initial release of Label Printer Server.')
   await page.screenshot({ path: 'test-results/full-changelog-desktop.png', animations: 'disabled' })
   await page.keyboard.press('Escape')

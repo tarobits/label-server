@@ -389,7 +389,7 @@ test('activity shows independent endpoint delivery states', async ({ page }) => 
       }),
     }),
   )
-  await page.goto('/#/activity')
+  await page.goto('/#/notification-history')
   const deliveries = page.getByRole('list', { name: 'Endpoint deliveries', exact: true })
   await expect(deliveries).toBeVisible()
   const phone = deliveries.getByRole('listitem').filter({ hasText: 'Workshop phone' })
