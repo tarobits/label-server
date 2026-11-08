@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from app.action_audit import record_action
 from app.companion_auth import DeviceDB, operator
+from app.companion_dashboard import printer_dashboard
 from app.companion_protocol import BatchReceipt, ExecutionResult
 from app.models import (
     Batch,
@@ -241,6 +242,7 @@ def heartbeat(
     return {
         "enabled": link.enabled,
         "media_selection": selection,
+        "dashboard": printer_dashboard(session, identifier),
         "blocked": link.blocked,
         "clearance": link.clearance,
         "configuration": device.config if device else {},

@@ -35,6 +35,8 @@ class Agent:
         self.executors: dict[str, Executor] = {}
         self.identifiers: dict[str, str] = {}
         self.statuses: dict[str, dict[str, Any]] = {}
+        self.dashboards: dict[str, dict[str, Any]] = {}
+        self.dashboard_received: dict[str, float] = {}
         self.server_blocked: dict[str, bool] = {}
         self.names: dict[str, str] = {}
         self.threads: dict[str, Thread] = {}
@@ -172,6 +174,8 @@ class Agent:
                 self.journal.set_printer_enabled(local_id, False)
                 continue
             self.server_blocked[local_id] = response["blocked"]
+            self.dashboards[local_id] = response.get("dashboard", {})
+            self.dashboard_received[local_id] = time.monotonic()
             self.names[local_id] = response["name"] or device.name
             saved_device = {
                 "local_id": local_id,

@@ -190,14 +190,33 @@ def create_app(
                 token = None
         elif token:
             user = station.operator
-        # Public dashboard deliberately contains no label artwork, queue content,
-        # account balances, access grants, or installation/session credentials.
+        # Operational summaries never contain label content, requester identities,
+        # account balances or credentials. Deployment can hide them until unlock.
         printers = [
             {
                 "local_id": device.local_id,
                 "id": agent.identifiers.get(device.local_id),
                 "name": agent.names.get(device.local_id, device.name),
                 "status": agent.statuses.get(device.local_id, {"connected": False}),
+                **(
+                    {
+                        "dashboard": agent.dashboards.get(device.local_id),
+                        "snapshot_age_seconds": max(
+                            0, time.monotonic() - agent.dashboard_received[device.local_id]
+                        )
+                        if device.local_id in agent.dashboard_received
+                        else None,
+                    }
+                    if settings.show_locked_dashboard_details
+                    or (
+                        user
+                        and "printer.view"
+                        in user.get("printer_permissions", {}).get(
+                            agent.identifiers.get(device.local_id), []
+                        )
+                    )
+                    else {}
+                ),
                 "blocked": journal.blocked(device.local_id)
                 or agent.server_blocked.get(device.local_id, False),
                 "printing": bool(

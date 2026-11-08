@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     single_user_id: str | None = None
     shared_pin: SecretStr | None = None
     lock_timeout_seconds: int = Field(default=300, ge=30, le=86400)
+    show_locked_dashboard_details: bool = True
     pin_keypad_enabled: bool = False
     pin_keypad_shuffle: Literal["none", "once", "each_keypress"] = "none"
     allow_locked_emergency_stop: bool = False
