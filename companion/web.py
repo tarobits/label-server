@@ -228,6 +228,15 @@ def create_app(
             else [],
             "csrf_token": station.csrf,
             "lock_timeout_seconds": settings.lock_timeout_seconds,
+            "lock_remaining_seconds": max(
+                0.0, settings.lock_timeout_seconds - (time.monotonic() - station.last_activity)
+            )
+            if token
+            else None,
+            "pin_keypad": {
+                "enabled": settings.pin_keypad_enabled,
+                "shuffle": settings.pin_keypad_shuffle,
+            },
             "stop_policy": {
                 "locked_emergency": settings.allow_locked_emergency_stop,
                 "locked_after_current": settings.allow_locked_stop_after_label,
@@ -320,10 +329,10 @@ def create_app(
         return {"ok": True}
 
     @app.post("/api/station/activity")
-    def activity(request: Request) -> dict[str, bool]:
+    def activity(request: Request) -> dict[str, bool | int]:
         csrf(request)
         current(request, touch=True)
-        return {"ok": True}
+        return {"ok": True, "lock_remaining_seconds": settings.lock_timeout_seconds}
 
     @app.post("/api/station/printers/{local_id}/stop")
     def local_stop(local_id: str, body: Stop, request: Request) -> dict[str, bool]:

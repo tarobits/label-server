@@ -24,6 +24,17 @@ The companion's settings dialog shows the deployment user ID for copying.
 Anyone with that shared PIN can exercise the bound account's permissions at the
 station. The API key cannot select an arbitrary account.
 
+Set `LABEL_COMPANION_PIN_KEYPAD_ENABLED=true` for an on-screen PIN keypad.
+`LABEL_COMPANION_PIN_KEYPAD_SHUFFLE` selects `none` (fixed number order), `once`
+(shuffle when opening PIN entry, changing users or starting another attempt), or
+`each_keypress` (also shuffle after digit entry, Backspace or Clear). Physical
+keyboard input remains available; the keypad suppresses the touchscreen's native
+keyboard. Defaults are `false` and `none`. Restart the companion after changing
+these deployment settings.
+
+While unlocked, the header shows the remaining inactivity time beside **Lock**.
+It follows `LABEL_COMPANION_LOCK_TIMEOUT_SECONDS` and resets after accepted activity.
+
 Open the companion web interface, unlock it with an account that has printer
 management permission, and choose **Add printer**. Set a USB serial when attaching
 multiple printers of one model. Registrations and configuration persist in the

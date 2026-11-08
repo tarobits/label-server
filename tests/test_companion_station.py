@@ -1,10 +1,11 @@
 import time
 from threading import Event
 
+import pytest
 from app_client import TestClient
 from mock_backend import MockPrinterBackend
 from printer_factory import test_printer as printer_factory
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 from test_access_security import accounts as accounts
 from test_companion_auth import station
 
@@ -41,6 +42,30 @@ def unlock(client):
     )
     assert response.status_code == 200, response.text
     return client.get("/api/station").json()
+
+
+@pytest.mark.parametrize("mode", ["none", "once", "each_keypress"])
+def test_keypad_deployment_settings_are_available_before_unlock(
+    accounts, tmp_path, monkeypatch, mode
+):
+    monkeypatch.setenv("LABEL_COMPANION_PIN_KEYPAD_ENABLED", "true")
+    monkeypatch.setenv("LABEL_COMPANION_PIN_KEYPAD_SHUFFLE", mode)
+    settings, agent = local_station(accounts[0], tmp_path)
+    with TestClient(create_app(settings, agent, start_agent=False)) as client:
+        state = client.get("/api/station").json()
+        assert state["locked"]
+        assert state["pin_keypad"] == {"enabled": True, "shuffle": mode}
+
+
+def test_keypad_configuration_defaults_and_invalid_mode(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("LABEL_COMPANION_PIN_KEYPAD_ENABLED", raising=False)
+    monkeypatch.delenv("LABEL_COMPANION_PIN_KEYPAD_SHUFFLE", raising=False)
+    settings = Settings(server_url="http://testserver", api_key=SecretStr("test-only"))
+    assert not settings.pin_keypad_enabled and settings.pin_keypad_shuffle == "none"
+    monkeypatch.setenv("LABEL_COMPANION_PIN_KEYPAD_SHUFFLE", "invalid")
+    with pytest.raises(ValidationError, match="pin_keypad_shuffle"):
+        Settings(server_url="http://testserver", api_key=SecretStr("test-only"))
 
 
 def test_update_validation_prevents_all_remote_work_and_controls(accounts, tmp_path, monkeypatch):
@@ -83,6 +108,7 @@ def test_locked_station_exposes_dashboard_but_no_controls_or_secrets(accounts, t
         assert response.status_code == 200, response.text
         state = response.json()
         assert state["locked"] and state["user"] is None and len(state["printers"]) == 1
+        assert state["lock_remaining_seconds"] is None
         assert settings.api_key.get_secret_value() not in response.text
         assert "246810" not in response.text and "session_token" not in response.text
         assert (
@@ -93,6 +119,15 @@ def test_locked_station_exposes_dashboard_but_no_controls_or_secrets(accounts, t
         )
         state = unlock(local)
         assert not state["locked"] and state["user"]["id"] == "administrator"
+        assert 295 <= state["lock_remaining_seconds"] <= settings.lock_timeout_seconds
+        app.state.station.last_activity -= 65
+        remaining = local.get("/api/station").json()["lock_remaining_seconds"]
+        assert 230 <= remaining <= 235
+        # Dashboard polling must not renew the inactivity timeout.
+        assert local.get("/api/station").json()["lock_remaining_seconds"] <= remaining
+        activity = local.post("/api/station/activity")
+        assert activity.json()["lock_remaining_seconds"] == settings.lock_timeout_seconds
+        assert local.get("/api/station").json()["lock_remaining_seconds"] > remaining
         assert (
             local.put(
                 f"/api/proxy/printer/automatic-printing?printer_id={identifier}",
@@ -112,6 +147,7 @@ def test_locked_station_exposes_dashboard_but_no_controls_or_secrets(accounts, t
         assert local.get("/api/proxy/admin/users").status_code == 403
         assert local.post("/api/station/lock").status_code == 200
         assert local.get("/api/station").json()["locked"]
+        assert local.get("/api/station").json()["lock_remaining_seconds"] is None
         assert (
             local.put(
                 f"/api/proxy/printer/automatic-printing?printer_id={identifier}",

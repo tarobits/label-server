@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
@@ -28,6 +29,8 @@ class Settings(BaseSettings):
     single_user_id: str | None = None
     shared_pin: SecretStr | None = None
     lock_timeout_seconds: int = Field(default=300, ge=30, le=86400)
+    pin_keypad_enabled: bool = False
+    pin_keypad_shuffle: Literal["none", "once", "each_keypress"] = "none"
     allow_locked_emergency_stop: bool = False
     allow_locked_stop_after_label: bool = False
     allow_offline_emergency_stop: bool = False
