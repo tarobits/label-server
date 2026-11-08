@@ -203,6 +203,11 @@ def actor_for_user(session: Session, user: User, *, include_resources: bool = Tr
                 for (kind, identifier), permissions in rights.resources.items()
                 if kind in {"printer", "printer_group"}
             },
+            managed_location_ids=frozenset(
+                identifier
+                for (kind, identifier), permissions in rights.resources.items()
+                if kind == "location" and "location.manage" in permissions
+            ),
             cartridge_permissions={
                 identifier: permissions
                 for (kind, identifier), permissions in rights.resources.items()
@@ -288,6 +293,7 @@ def session_record(session: Session, user: User, record: AuthSession) -> dict[st
             "printer_ids": sorted(actor.printer_ids),
             "role_ids": sorted(actor.role_ids),
             "destination_levels": dict(actor.destination_levels),
+            "managed_location_ids": sorted(actor.managed_location_ids),
             "destination_permissions": {
                 key: sorted(value) for key, value in actor.destination_permissions.items()
             },

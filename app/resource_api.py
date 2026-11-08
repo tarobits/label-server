@@ -51,6 +51,7 @@ class GrantInput(Input):
     principal_kind: Literal["user", "role"]
     principal_id: str = Field(min_length=1, max_length=100)
     permission: str = Field(max_length=100)
+    effect: Literal["allow", "deny"] = "allow"
 
 
 class ResourceChange(Input):
@@ -74,8 +75,10 @@ def rights_for(request: Request, session: Session) -> ResourceAccess:
 
 def management(rights: ResourceAccess, kind: str, identifier: str) -> dict[str, bool]:
     if kind == "location":
-        allowed = rights.has("locations.manage")
-        return {"transfer": False, "locate": allowed, "grants": allowed, "roles": allowed}
+        allowed = rights.has("locations.manage") or rights.can(
+            "location", identifier, "location.manage"
+        )
+        return {"transfer": allowed, "locate": allowed, "grants": allowed, "roles": allowed}
     return {
         "transfer": rights.can(kind, identifier, f"{kind}.transfer_ownership"),
         "locate": rights.can(
@@ -94,7 +97,10 @@ def management(rights: ResourceAccess, kind: str, identifier: str) -> dict[str, 
 
 def resource_grants(session: Session, kind: str, identifier: str) -> list[dict[str, str]]:
     return [
-        {key: getattr(grant, key) for key in ("principal_kind", "principal_id", "permission")}
+        {
+            key: getattr(grant, key)
+            for key in ("principal_kind", "principal_id", "permission", "effect")
+        }
         for grant in session.scalars(
             select(ResourceGrant)
             .where(ResourceGrant.scope_kind == kind, ResourceGrant.scope_id == identifier)
@@ -112,7 +118,9 @@ def catalog(request: Request, session: DB) -> dict[str, Any]:
     for kind in MODELS:
         for value in objects(session, kind):
             abilities = management(rights, kind, value.id)
-            inherited_location = kind == "printer" and session.get(CompanionPrinter, value.id) is not None
+            inherited_location = (
+                kind == "printer" and session.get(CompanionPrinter, value.id) is not None
+            )
             if inherited_location:
                 abilities["locate"] = False
             if not any(abilities[key] for key in ("transfer", "locate", "grants")):
@@ -161,7 +169,7 @@ def affected_resources(session: Session, body: ResourceChange) -> set[tuple[str,
     if body.kind != "location":
         return {(body.kind, body.identifier)}
     parents = dict(session.execute(select(Location.id, Location.parent_id)).all())
-    return {
+    return {("location", body.identifier)} | {
         (kind, value.id)
         for kind in ("printer", "cartridge")
         for value in objects(session, kind)
@@ -195,14 +203,14 @@ def apply_resource_change(
     abilities = management(rights, body.kind, body.identifier)
     supplied = body.model_fields_set
     if body.kind == "location":
-        if not rights.has("locations.manage"):
+        if not abilities["locate"]:
             raise HTTPException(403, "Location management permission is required")
-        if supplied & {"owner_id", "location_id"}:
-            raise HTTPException(422, "Locations cannot have owners or locations")
+        if "location_id" in supplied:
+            raise HTTPException(422, "Use parent location for locations")
         if value is None:
             if not body.name:
                 raise HTTPException(422, "A location name is required")
-            value = Location(id=body.identifier, name=body.name)
+            value = Location(id=body.identifier, name=body.name, owner_id=rights.user_id)
             session.add(value)
         if body.name is not None:
             value.name = body.name
@@ -252,6 +260,13 @@ def apply_resource_change(
             if body.location_id and session.get(Location, body.location_id) is None:
                 raise HTTPException(422, "Location not found")
             value.location_id = body.location_id
+    if body.kind == "location" and "owner_id" in supplied:
+        if not abilities["transfer"]:
+            raise HTTPException(403, "Location ownership management is required")
+        owner = session.get(User, body.owner_id) if body.owner_id else None
+        if body.owner_id and (owner is None or owner.disabled):
+            raise HTTPException(422, "Choose an enabled owner")
+        value.owner_id = body.owner_id
     if body.grants is not None:
         if not abilities["grants"]:
             raise HTTPException(403, "Resource access management permission is required")
@@ -261,6 +276,18 @@ def apply_resource_change(
             body.grants
         ):
             raise HTTPException(422, "Duplicate grant")
+        from app.permission_rules import validate_submission_modes
+
+        principals = {(g.principal_kind, g.principal_id) for g in body.grants}
+        for principal in principals:
+            try:
+                validate_submission_modes(
+                    g.permission
+                    for g in body.grants
+                    if (g.principal_kind, g.principal_id) == principal and g.effect == "allow"
+                )
+            except ValueError as error:
+                raise HTTPException(422, str(error)) from error
         session.flush()
         query = delete(ResourceGrant).where(
             ResourceGrant.scope_kind == body.kind, ResourceGrant.scope_id == body.identifier
@@ -317,7 +344,10 @@ def preview(body: ResourceChange, request: Request, session: DB) -> dict[str, An
         and "cartridge.approve_use" not in item["before"].get(key, [])
         for item in changes
         for key, permissions in item["after"].items()
-    ) or any(grant.permission == "cartridge.approve_use" for grant in body.grants or [])
+    ) or any(
+        grant.permission == "cartridge.approve_use" and grant.effect == "allow"
+        for grant in body.grants or []
+    )
     token = secrets.token_urlsafe(32)
     session.add(
         AccessChangeConfirmation(
@@ -351,7 +381,10 @@ def apply(body: ResourceChange, request: Request, session: DB) -> dict[str, Any]
     ):
         raise HTTPException(409, "Preview the current access changes before confirming")
     if (
-        any(grant.permission == "cartridge.approve_use" for grant in body.grants or [])
+        any(
+            grant.permission == "cartridge.approve_use" and grant.effect == "allow"
+            for grant in body.grants or []
+        )
         and not body.accept_owner_loss
     ):
         raise HTTPException(
@@ -407,11 +440,23 @@ def mutate_with_evidence(
             sorted(
                 g["permission"]
                 for g in grants
-                if g["principal_kind"] == principal_kind and g["principal_id"] == principal_id
+                if g["principal_kind"] == principal_kind
+                and g["principal_id"] == principal_id
+                and g["effect"] == "allow"
             )
             for grants in (old_grants, new_grants)
         ]
-        if old_permissions != new_permissions:
+        old_denied, new_denied = [
+            sorted(
+                g["permission"]
+                for g in grants
+                if g["principal_kind"] == principal_kind
+                and g["principal_id"] == principal_id
+                and g["effect"] == "deny"
+            )
+            for grants in (old_grants, new_grants)
+        ]
+        if old_permissions != new_permissions or old_denied != new_denied:
             append_audit(
                 session,
                 event_id=new_id(),
@@ -425,6 +470,8 @@ def mutate_with_evidence(
                     "principal_id": AuditField(principal_id, rule),
                     "old_permissions": AuditField(old_permissions, rule),
                     "new_permissions": AuditField(new_permissions, rule),
+                    "old_denied_permissions": AuditField(old_denied, rule),
+                    "new_denied_permissions": AuditField(new_denied, rule),
                 },
             )
     append_audit(
@@ -453,14 +500,20 @@ def mutate_with_evidence(
             )
             if old == new:
                 continue
-            field_rule = (AuditRequirement(kind, identifier, f"{kind}.view_audit"),)
+            field_rule = (
+                (AuditRequirement("application", "", "audit.view_all"),)
+                if kind == "location"
+                else (AuditRequirement(kind, identifier, f"{kind}.view_audit"),)
+            )
             append_audit(
                 session,
                 event_id=new_id(),
                 action="permission.changed",
                 outcome="succeeded",
                 occurred_at=time.time(),
-                scopes=(AuditScope(cast(ScopeKind, kind), identifier),),
+                scopes=(AuditScope("global"),)
+                if kind == "location"
+                else (AuditScope(cast(ScopeKind, kind), identifier),),
                 fields={
                     **attribution,
                     "victim_ids": AuditField([user_id], field_rule),
@@ -470,3 +523,94 @@ def mutate_with_evidence(
                 },
             )
     return value
+
+
+@router.get("/explain")
+def explain_access(
+    request: Request,
+    session: DB,
+    user_id: str,
+    kind: Literal["printer", "cartridge", "location"] | None = None,
+    identifier: str | None = None,
+    location_id: str | None = None,
+) -> dict[str, Any]:
+    """Expose only access paths affecting resources this caller may inspect."""
+    from dataclasses import asdict
+
+    if location_id and (kind or identifier):
+        raise HTTPException(422, "Choose a resource or location filter")
+    if bool(kind) != bool(identifier):
+        raise HTTPException(422, "Choose a resource kind and identifier together")
+    viewer = rights_for(request, session)
+    subject = session.get(User, user_id)
+    if subject is None or subject.disabled:
+        raise HTTPException(404, "Enabled user not found")
+    parents = dict(session.execute(select(Location.id, Location.parent_id)).all())
+    permitted = []
+    for resource_kind in MODELS:
+        if kind and kind != resource_kind:
+            continue
+        for value in objects(session, resource_kind):
+            if identifier and value.id != identifier:
+                continue
+            if location_id:
+                candidate = (
+                    value.id if resource_kind == "location" else getattr(value, "location_id", None)
+                )
+                try:
+                    if not candidate or location_id not in location_ancestors(parents, candidate):
+                        continue
+                except ValueError:
+                    continue
+            abilities = management(viewer, resource_kind, value.id)
+            can_inspect = abilities["grants"]
+            resource_location_id = getattr(value, "location_id", None)
+            if resource_location_id:
+                try:
+                    can_inspect |= any(
+                        viewer.can("location", ancestor, "location.manage")
+                        for ancestor in location_ancestors(parents, resource_location_id)
+                    )
+                except ValueError:
+                    pass
+            if subject.id == viewer.user_id:
+                can_inspect |= any(abilities.values()) or viewer.can(
+                    resource_kind, value.id, f"{resource_kind}.view"
+                )
+            if can_inspect:
+                permitted.append((resource_kind, value))
+    if not permitted:
+        raise HTTPException(403, "Access inspection is not available for these resources")
+    resolved = resolve_resource_access(session, subject)
+    return {
+        "user": {"id": subject.id, "name": subject.username},
+        "resources": [
+            {
+                "kind": resource_kind,
+                "id": value.id,
+                "name": value.name,
+                "permissions": [
+                    {
+                        "permission": permission,
+                        "allowed": decision.allowed,
+                        "superseded_by": decision.superseded_by,
+                        "rules": [
+                            {
+                                **asdict(rule),
+                                "winning": bool(
+                                    rule in decision.winning
+                                    and not decision.superseded_by
+                                    and (rule.effect == "allow") == decision.allowed
+                                ),
+                            }
+                            for rule in decision.rules
+                        ],
+                    }
+                    for permission, decision in resolved.decisions.get(
+                        (resource_kind, value.id), {}
+                    ).items()
+                ],
+            }
+            for resource_kind, value in permitted
+        ],
+    }

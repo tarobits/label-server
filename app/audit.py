@@ -190,8 +190,13 @@ ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
         "new_parent_id": "text",
     },
     "printer.ownership_changed": {"old_owner_id": "text", "new_owner_id": "text"},
+    "location.ownership_changed": {"old_owner_id": "text", "new_owner_id": "text"},
     "cartridge.ownership_changed": {"old_owner_id": "text", "new_owner_id": "text"},
     "permission.changed": {
+        "resource_kind": "text",
+        "resource_id": "text",
+        "old_denied_permissions": "permissions",
+        "new_denied_permissions": "permissions",
         "principal_kind": "text",
         "principal_id": "text",
         "old_permissions": "permissions",
@@ -286,6 +291,7 @@ def _value_matches(value: object, kind: FieldType) -> bool:
             OWNER_PERMISSIONS["printer"]
             | OWNER_PERMISSIONS["cartridge"]
             | GLOBAL_PERMISSIONS
+            | {"location.manage"}
             | set(PERMISSIONS)
         )
         return all(item in known for item in value)

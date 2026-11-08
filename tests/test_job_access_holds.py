@@ -88,6 +88,7 @@ def test_request_approval_requires_request_access_while_direct_jobs_require_prin
     tape = profile(admin, threshold=1)
     install(admin, tape["id"])
     direct = submit_direct(admin, alice, tape)
+    set_level(admin, "alice", "request")
     request = alice.post(
         "/api/requests",
         json={"kind": "job", "input": {"tape_profile": tape["id"], "data": {"text": "Reviewed"}}},

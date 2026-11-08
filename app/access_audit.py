@@ -80,3 +80,73 @@ def record_access_change(
                         "new_permissions": AuditField(current, rule),
                     },
                 )
+
+
+def record_role_rules(
+    session: Session,
+    actor: Actor,
+    identifier: str,
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+) -> None:
+    from app.models import PrinterGroup
+    from app.resource_access import legacy_permissions
+
+    group_ids = set(session.scalars(select(PrinterGroup.id)))
+
+    def grouped(
+        entries: list[dict[str, Any]],
+    ) -> dict[tuple[str, str], tuple[list[str], list[str]]]:
+        result = {}
+        for entry in entries:
+            kind = entry["kind"]
+            if kind == "application":
+                continue
+            scope = (
+                "location"
+                if kind == "location_permissions"
+                else "printer_group"
+                if entry["destination_id"] in group_ids
+                else "printer"
+            )
+            key = entry.get("location_id") or entry["destination_id"]
+            allowed = (
+                list(legacy_permissions(entry["level"], group=scope == "printer_group"))
+                if kind == "destination"
+                else entry["permissions"]
+            )
+            result[(scope, key)] = (sorted(allowed), sorted(entry.get("denied_permissions", [])))
+        return result
+
+    old, new = grouped(before), grouped(after)
+    for kind, scope_id in old.keys() | new.keys():
+        previous, current = old.get((kind, scope_id), ([], [])), new.get((kind, scope_id), ([], []))
+        if previous == current:
+            continue
+        guard = (
+            (AuditRequirement("printer", scope_id, "printer.view_audit"),)
+            if kind == "printer"
+            else (AuditRequirement("application", "", "audit.view_all"),)
+        )
+        append_audit(
+            session,
+            event_id=new_id(),
+            action="permission.changed",
+            outcome="succeeded",
+            occurred_at=time.time(),
+            scopes=(AuditScope("printer", scope_id),)
+            if kind == "printer"
+            else (AuditScope("global"),),
+            fields={
+                "actor_id": AuditField(actor.id, ()),
+                "actor_name": AuditField(actor.username, ()),
+                "principal_kind": AuditField("role", guard),
+                "principal_id": AuditField(identifier, guard),
+                "resource_kind": AuditField(kind, guard),
+                "resource_id": AuditField(scope_id, guard),
+                "old_permissions": AuditField(previous[0], guard),
+                "new_permissions": AuditField(current[0], guard),
+                "old_denied_permissions": AuditField(previous[1], guard),
+                "new_denied_permissions": AuditField(current[1], guard),
+            },
+        )

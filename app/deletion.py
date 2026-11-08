@@ -14,6 +14,7 @@ from app.models import (
     Cartridge,
     DeletedContent,
     LabelTemplate,
+    Location,
     NotificationEndpoint,
     PrinterDevice,
     RecoveryToken,
@@ -32,7 +33,9 @@ def release_inventory(session: Session, user_id: str, actor_id: str) -> None:
     from app.ownership import record_ownership
 
     actor = session.get(User, actor_id)
-    resources: list[tuple[Literal["printer", "cartridge"], PrinterDevice | Cartridge]] = [
+    resources: list[
+        tuple[Literal["printer", "cartridge", "location"], PrinterDevice | Cartridge | Location]
+    ] = [
         ("printer", item)
         for item in session.scalars(select(PrinterDevice).where(PrinterDevice.owner_id == user_id))
     ]
@@ -40,18 +43,28 @@ def release_inventory(session: Session, user_id: str, actor_id: str) -> None:
         ("cartridge", item)
         for item in session.scalars(select(Cartridge).where(Cartridge.owner_id == user_id))
     )
+    resources.extend(
+        ("location", item)
+        for item in session.scalars(select(Location).where(Location.owner_id == user_id))
+    )
     for kind, resource in resources:
         record_ownership(session, kind, resource, at=0)
         resource.owner_id = None
         record_ownership(session, kind, resource)
-        rule = (AuditRequirement(kind, resource.id, f"{kind}.view"),)
+        rule = (
+            (AuditRequirement("application", "", "audit.view_all"),)
+            if kind == "location"
+            else (AuditRequirement(kind, resource.id, f"{kind}.view"),)
+        )
         append_audit(
             session,
             event_id=new_id(),
             action=f"{kind}.ownership_changed",
             outcome="succeeded",
             occurred_at=time.time(),
-            scopes=(AuditScope(kind, resource.id),),
+            scopes=(AuditScope("global"),)
+            if kind == "location"
+            else (AuditScope(kind, resource.id),),
             fields={
                 "actor_id": AuditField(actor_id, ()),
                 "actor_name": AuditField(actor.username if actor else actor_id, ()),

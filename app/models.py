@@ -30,6 +30,7 @@ class Location(Base):
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     name: Mapped[str]
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
+    owner_id: Mapped[str | None] = mapped_column(String(128), index=True)
 
 
 class ReleaseMigration(Base):
@@ -54,10 +55,11 @@ class ResourceOwnership(Base):
 
 
 class ResourceGrant(Base):
-    """Positive grants; polymorphic references are validated before writing."""
+    """Explicit allow/deny rules; polymorphic references are validated before writing."""
 
     __tablename__ = "resource_grants"
     __table_args__ = (
+        CheckConstraint("effect IN ('allow', 'deny')", name="ck_grant_effect"),
         CheckConstraint("principal_kind IN ('user', 'role')", name="ck_grant_principal_kind"),
         CheckConstraint(
             "scope_kind IN ('printer', 'printer_group', 'cartridge', 'location', 'companion')",
@@ -69,6 +71,7 @@ class ResourceGrant(Base):
     scope_kind: Mapped[str] = mapped_column(String(128), primary_key=True)
     scope_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     permission: Mapped[str] = mapped_column(String(128), primary_key=True)
+    effect: Mapped[str] = mapped_column(String(8), default="allow", server_default="allow")
 
 
 class AuditEvent(Base):

@@ -5,11 +5,15 @@ import time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Cartridge, PrinterDevice, ResourceOwnership, User
+from app.models import Cartridge, Location, PrinterDevice, ResourceOwnership, User
 
 
 def record_ownership(
-    session: Session, kind: str, value: Cartridge | PrinterDevice, *, at: float | None = None
+    session: Session,
+    kind: str,
+    value: Cartridge | PrinterDevice | Location,
+    *,
+    at: float | None = None,
 ) -> None:
     current = session.scalar(
         select(ResourceOwnership).where(

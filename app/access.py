@@ -35,6 +35,7 @@ class Actor:
     role_ids: frozenset[str] = field(default_factory=frozenset)
     group_ids: frozenset[str] = field(default_factory=frozenset)
     printer_ids: frozenset[str] = field(default_factory=frozenset)
+    managed_location_ids: frozenset[str] = field(default_factory=frozenset)
     destination_levels: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     destination_permissions: Mapping[str, frozenset[str]] = field(
         default_factory=lambda: MappingProxyType({})

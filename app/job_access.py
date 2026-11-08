@@ -45,8 +45,10 @@ def principal_access_reason(
         "print": "submit_directly",
         "moderator": "manage_queue",
     }[required]
-    if not AccountPolicy({destination_id: destination}).can_printer(
-        actor, destination_id, permission
+    alternatives = (permission, "submit_directly") if required == "request" else (permission,)
+    if not any(
+        AccountPolicy({destination_id: destination}).can_printer(actor, destination_id, value)
+        for value in alternatives
     ):
         return f"The {principal} no longer has {required} access to this destination"
     return None

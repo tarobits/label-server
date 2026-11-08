@@ -152,6 +152,7 @@ def public_companion(session: Session, item: Companion) -> dict[str, Any]:
                 "principal_kind": grant.principal_kind,
                 "principal_id": grant.principal_id,
                 "permission": grant.permission,
+                "effect": grant.effect,
             }
             for grant in session.scalars(
                 select(ResourceGrant).where(

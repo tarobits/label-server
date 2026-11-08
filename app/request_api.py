@@ -335,8 +335,9 @@ def approve_request(
     device_ids = members(session, value.destination_id)
     from app.access import AccountPolicy
 
-    if not AccountPolicy({value.destination_id: None}).can_printer(
-        actor, value.destination_id, "submit_requests"
+    if not any(
+        AccountPolicy({value.destination_id: None}).can_printer(actor, value.destination_id, mode)
+        for mode in ("submit_requests", "submit_directly")
     ):
         raise HTTPException(409, "The submitter no longer has access to this destination")
     if not any(pid in request.app.state.fleet.workers for pid in device_ids):

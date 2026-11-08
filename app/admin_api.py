@@ -122,10 +122,18 @@ class DestinationPermissions(AdminInput):
     kind: Literal["destination_permissions"]
     destination_id: str
     permissions: list[str] = Field(max_length=32)
+    denied_permissions: list[str] = Field(default_factory=list, max_length=32)
+
+
+class LocationPermissions(AdminInput):
+    kind: Literal["location_permissions"]
+    location_id: str = Field(min_length=1, max_length=100)
+    permissions: list[str] = Field(default_factory=list, max_length=64)
+    denied_permissions: list[str] = Field(default_factory=list, max_length=64)
 
 
 PermissionInput = Annotated[
-    ApplicationPermission | DestinationPermission | DestinationPermissions,
+    ApplicationPermission | DestinationPermission | DestinationPermissions | LocationPermissions,
     Field(discriminator="kind"),
 ]
 
@@ -265,8 +273,8 @@ def state_hash(session: Session) -> str:
         (Companion, "id name location_id bound_user_id revision"),
         (CompanionPrinter, "printer_id companion_id local_id enabled"),
         (Cartridge, "id owner_id location_id"),
-        (Location, "id name parent_id"),
-        (ResourceGrant, "principal_kind principal_id scope_kind scope_id permission"),
+        (Location, "id name parent_id owner_id"),
+        (ResourceGrant, "principal_kind principal_id scope_kind scope_id permission effect"),
         (PrinterGroup, "id name printer_ids"),
         (DeletedContent, "kind identifier deleted_at purge_after purged_at account_id"),
     ):
@@ -343,15 +351,100 @@ def validate_role(session: Session, body: RoleInput) -> None:
                     GROUP_PERMISSIONS if isinstance(target, PrinterGroup) else PRINTER_PERMISSIONS
                 )
                 if (
-                    len(set(permission.permissions)) != len(permission.permissions)
+                    set(permission.permissions) & set(permission.denied_permissions)
+                    or len(set(permission.denied_permissions)) != len(permission.denied_permissions)
+                    or not set(permission.denied_permissions) <= allowed
+                    or len(set(permission.permissions)) != len(permission.permissions)
                     or not set(permission.permissions) <= allowed
                 ):
                     raise HTTPException(422, "Invalid or duplicate printer permission")
+        elif isinstance(permission, LocationPermissions):
+            from app.resource_access import CARTRIDGE_PERMISSIONS, PRINTER_PERMISSIONS
+
+            if session.get(Location, permission.location_id) is None:
+                raise HTTPException(422, "Unknown location")
+            allowed = PRINTER_PERMISSIONS | CARTRIDGE_PERMISSIONS
+            if set(permission.permissions) & set(permission.denied_permissions) or any(
+                len(values) != len(set(values)) or not set(values) <= allowed
+                for values in (permission.permissions, permission.denied_permissions)
+            ):
+                raise HTTPException(422, "Invalid or conflicting location permissions")
+            key = ("location", permission.location_id)
         else:
             key = ("application", permission.permission)
+        if isinstance(permission, (DestinationPermissions, LocationPermissions)):
+            from app.permission_rules import validate_submission_modes
+
+            try:
+                validate_submission_modes(permission.permissions)
+            except ValueError as error:
+                raise HTTPException(422, str(error)) from error
         if key in unique:
             raise HTTPException(422, "Duplicate permission scope")
         unique.add(key)
+
+
+def role_record(session: Session, role: Role) -> dict[str, Any]:
+    payload = record(role, "id name permissions protected")
+    locations: dict[str, dict[str, Any]] = {}
+    for grant in session.scalars(
+        select(ResourceGrant)
+        .where(
+            ResourceGrant.principal_kind == "role",
+            ResourceGrant.principal_id == role.id,
+            ResourceGrant.scope_kind == "location",
+        )
+        .order_by(ResourceGrant.scope_id, ResourceGrant.permission)
+    ):
+        entry = locations.setdefault(
+            grant.scope_id,
+            {
+                "kind": "location_permissions",
+                "location_id": grant.scope_id,
+                "permissions": [],
+                "denied_permissions": [],
+            },
+        )
+        entry["denied_permissions" if grant.effect == "deny" else "permissions"].append(
+            grant.permission
+        )
+    payload["permissions"] = list(role.permissions) + list(locations.values())
+    return payload
+
+
+def save_role_permissions(session: Session, role: Role, body: RoleInput) -> None:
+    role.permissions = [
+        entry.model_dump()
+        for entry in body.permissions
+        if not isinstance(entry, LocationPermissions)
+    ]
+    session.flush()
+    session.execute(
+        delete(ResourceGrant).where(
+            ResourceGrant.principal_kind == "role",
+            ResourceGrant.principal_id == role.id,
+            ResourceGrant.scope_kind == "location",
+        )
+    )
+    for entry in body.permissions:
+        if not isinstance(entry, LocationPermissions):
+            continue
+        for effect, permissions in (
+            ("allow", entry.permissions),
+            ("deny", entry.denied_permissions),
+        ):
+            session.add_all(
+                ResourceGrant(
+                    principal_kind="role",
+                    principal_id=role.id,
+                    scope_kind="location",
+                    scope_id=entry.location_id,
+                    permission=permission,
+                    effect=effect,
+                )
+                for permission in permissions
+            )
+    session.flush()
 
 
 def ensure_administrator_remains(session: Session) -> None:
@@ -387,14 +480,20 @@ def apply_change(
                             value.role_ids = [
                                 identifier for identifier in value.role_ids if identifier != role.id
                             ]
+                session.execute(
+                    delete(ResourceGrant).where(
+                        ResourceGrant.principal_kind == "role",
+                        ResourceGrant.principal_id == role.id,
+                    )
+                )
                 session.delete(role)
                 ensure_administrator_remains(session)
                 return None
             body = RoleInput.model_validate(payload)
             validate_role(session, body)
             role.name, role.permissions = body.name, body.model_dump()["permissions"]
-        session.flush()
-        return record(role, "id name permissions protected")
+        save_role_permissions(session, role, body)
+        return role_record(session, role)
     if change.resource == "groups":
         if change.method == "DELETE":
             group = get(session, UserGroup, change.identifier)
@@ -491,7 +590,23 @@ def confirmed_change(
     session.delete(confirmation)
     session.flush()
     before = effective_users(session)
+    old_role = (
+        session.get(Role, change.identifier)
+        if change.resource == "roles" and change.identifier
+        else None
+    )
+    old_rules = role_record(session, old_role)["permissions"] if old_role else []
     result = apply_change(session, change, request)
+    if change.resource == "roles":
+        from app.access_audit import record_role_rules
+
+        record_role_rules(
+            session,
+            actor,
+            change.identifier or (result or {})["id"],
+            old_rules,
+            (result or {}).get("permissions", []),
+        )
     from app.access_audit import record_access_change
 
     record_access_change(
@@ -621,8 +736,7 @@ def restore_deleted_content(kind: str, identifier: str, session: DB) -> None:
 @router.get("/roles")
 def roles(session: DB) -> list[dict[str, Any]]:
     return [
-        record(role, "id name permissions protected")
-        for role in session.scalars(select(Role).order_by(Role.name))
+        role_record(session, role) for role in session.scalars(select(Role).order_by(Role.name))
     ]
 
 

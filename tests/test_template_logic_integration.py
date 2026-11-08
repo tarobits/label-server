@@ -294,6 +294,14 @@ def test_image_input_permissions_preview_submission_requests_and_retention(accou
                 {"kind": "destination", "destination_id": "main", "level": "print"}
             ]
     for route in ("/api/jobs", "/api/requests"):
+        with admin.app.state.factory.begin() as session:
+            session.get(Role, "bob-access").permissions = [
+                {
+                    "kind": "destination",
+                    "destination_id": "main",
+                    "level": "request" if route.endswith("requests") else "print",
+                }
+            ]
         body = {"template": template["id"], "tape_profile": tape["id"], "data": data}
         payload = {"kind": "job", "input": body} if route.endswith("requests") else body
         assert bob.post(route, json=payload).status_code == 403
@@ -302,6 +310,10 @@ def test_image_input_permissions_preview_submission_requests_and_retention(accou
     )
     assert direct.status_code == 201, direct.text
     assert direct.json()["template_snapshot"]["document"]["elements"][0]["image_asset"] == image
+    with admin.app.state.factory.begin() as session:
+        session.get(Role, "alice-access").permissions = [
+            {"kind": "destination", "destination_id": "main", "level": "request"}
+        ]
     request = alice.post(
         "/api/requests",
         json={

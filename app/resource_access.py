@@ -1,11 +1,6 @@
-"""Independent resource permissions for the staged 0.13 access migration.
+"""Resolve scoped resource permissions and their inheritance evidence."""
 
-This resolver deliberately does not turn granular grants back into legacy access
-levels. Printer operations consume explicit permissions; cartridge enforcement
-will be activated with the ownership migration workflow.
-"""
-
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping
 
@@ -23,6 +18,7 @@ from app.models import (
     Role,
     User,
 )
+from app.permission_rules import PermissionDecision, PermissionRule, decide
 
 if TYPE_CHECKING:
     from app.access import Actor
@@ -135,6 +131,8 @@ def validate_grant(session: Session, grant: ResourceGrant) -> None:
             raise ValueError("Grant role does not exist")
     else:
         raise ValueError("Unknown grant principal kind")
+    if grant.effect not in (None, "allow", "deny"):
+        raise ValueError("Unknown permission effect")
     allowed: frozenset[str]
     exists: bool
     if grant.scope_kind == "printer":
@@ -153,6 +151,8 @@ def validate_grant(session: Session, grant: ResourceGrant) -> None:
         exists = session.get(Location, grant.scope_id) is not None
         allowed = PRINTER_PERMISSIONS | CARTRIDGE_PERMISSIONS
     elif grant.scope_kind == "companion":
+        if grant.effect == "deny":
+            raise ValueError("Companion access uses allow grants only")
         exists = session.get(Companion, grant.scope_id) is not None
         allowed = frozenset({"companion.access"})
     else:
@@ -169,6 +169,9 @@ class ResourceAccess:
     is_admin: bool
     application: frozenset[str]
     resources: Mapping[tuple[str, str], frozenset[str]]
+    decisions: Mapping[tuple[str, str], Mapping[str, PermissionDecision]] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "application", frozenset(self.application))
@@ -201,16 +204,23 @@ def resolve_resource_access(
     devices = list(session.scalars(select(PrinterDevice)))
     cartridges = list(session.scalars(select(Cartridge)))
     groups = list(session.scalars(select(PrinterGroup)))
-    resources: dict[tuple[str, str], set[str]] = {}
-    parents = dict(session.execute(select(Location.id, Location.parent_id)).all())
-    ancestors: dict[str, frozenset[str]] = {}
+    locations = list(session.scalars(select(Location)))
+    parents = {location.id: location.parent_id for location in locations}
+    location_names = {location.id: location.name for location in locations}
+    paths: dict[str, list[str]] = {}
     for identifier in parents:
         try:
-            ancestors[identifier] = location_ancestors(parents, identifier)
+            location_ancestors(parents, identifier)
+            path: list[str] = []
+            current: str | None = identifier
+            while current is not None:
+                path.insert(0, current)
+                current = parents[current]
+            paths[identifier] = path
         except ValueError:
-            # Corrupt/imported hierarchies cannot become an access escalation.
-            ancestors[identifier] = frozenset()
-    roles = set(session.scalars(select(Role.id).where(Role.id.in_(actor.role_ids))))
+            paths[identifier] = []
+    roles = list(session.scalars(select(Role).where(Role.id.in_(actor.role_ids))))
+    role_names = {role.id: role.name for role in roles}
     grants = list(
         session.scalars(
             select(ResourceGrant).where(
@@ -218,93 +228,177 @@ def resolve_resource_access(
                     (ResourceGrant.principal_kind == "user")
                     & (ResourceGrant.principal_id == user.id),
                     (ResourceGrant.principal_kind == "role")
-                    & ResourceGrant.principal_id.in_(roles),
+                    & ResourceGrant.principal_id.in_(role_names),
                 )
             )
         )
     )
-    for role in session.scalars(select(Role).where(Role.id.in_(roles))):
+    group_ids = {group.id for group in groups}
+    for role in roles:
         for entry in role.permissions:
-            if entry.get("kind") == "destination_permissions":
-                scope_kind = (
-                    "printer_group"
-                    if any(group.id == entry["destination_id"] for group in groups)
-                    else "printer"
-                )
+            if entry.get("kind") not in {"destination", "destination_permissions"}:
+                continue
+            identifier = entry["destination_id"]
+            scope_kind = "printer_group" if identifier in group_ids else "printer"
+            permissions = (
+                legacy_permissions(entry["level"], group=identifier in group_ids)
+                if entry["kind"] == "destination"
+                else entry["permissions"]
+            )
+            for effect, values in (
+                ("allow", permissions),
+                ("deny", entry.get("denied_permissions", [])),
+            ):
                 grants.extend(
                     ResourceGrant(
                         principal_kind="role",
                         principal_id=role.id,
                         scope_kind=scope_kind,
-                        scope_id=entry["destination_id"],
+                        scope_id=identifier,
                         permission=permission,
+                        effect=effect,
                     )
-                    for permission in entry["permissions"]
+                    for permission in values
                 )
-    for kind, values in (("printer", devices), ("cartridge", cartridges)):
-        allowed = PRINTER_PERMISSIONS if kind == "printer" else CARTRIDGE_PERMISSIONS
+    resources: dict[tuple[str, str], frozenset[str]] = {}
+    decisions: dict[tuple[str, str], Mapping[str, PermissionDecision]] = {}
+    collections = (
+        ("printer", devices),
+        ("cartridge", cartridges),
+        ("printer_group", groups),
+        ("companion", list(session.scalars(select(Companion)))),
+        ("location", locations),
+    )
+    for kind, values in collections:
         for value in values:
-            rights = (
-                set(OWNER_PERMISSIONS[kind])
-                if actor.is_admin or value.owner_id == user.id
-                else set()
+            allowed = (
+                OWNER_PERMISSIONS[kind]
+                if kind in OWNER_PERMISSIONS
+                else GROUP_PERMISSIONS
+                if kind == "printer_group"
+                else frozenset({"companion.access"})
+                if kind == "companion"
+                else frozenset({"location.manage"})
             )
-            if kind == "printer":
-                rights.update(legacy_permissions(actor.destination_levels.get(value.id, "none")))
+            path = (
+                paths.get(getattr(value, "location_id", None) or "", [])
+                if kind in {"printer", "cartridge"}
+                else []
+            )
+            rules: list[PermissionRule] = []
             for grant in grants:
-                if (
-                    grant.scope_kind == kind
-                    and grant.scope_id == value.id
-                    or grant.scope_kind == "location"
-                    and grant.scope_id in ancestors.get(value.location_id or "", frozenset())
-                ) and grant.permission in allowed:
-                    rights.add(grant.permission)
-            if (
-                kind == "printer"
-                and actor.is_admin is False
-                and "printers.edit_all" in actor.permissions
-            ):
-                rights.update({"printer.view", "printer.configure", "printer.transfer_ownership"})
-            if (
-                kind == "cartridge"
-                and actor.is_admin is False
-                and "cartridges.edit_all" in actor.permissions
-            ):
-                rights.update(
+                if grant.permission not in allowed:
+                    continue
+                if grant.scope_kind == kind and grant.scope_id == value.id:
+                    specificity = len(path) + 1
+                    scope_name = value.name
+                elif (
+                    kind in {"printer", "cartridge"}
+                    and grant.scope_kind == "location"
+                    and grant.scope_id in path
+                ):
+                    specificity = path.index(grant.scope_id)
+                    scope_name = location_names[grant.scope_id]
+                else:
+                    continue
+                rules.append(
+                    PermissionRule(
+                        grant.permission,
+                        grant.effect or "allow",
+                        grant.scope_kind,
+                        grant.scope_id,
+                        scope_name,
+                        grant.principal_kind,
+                        grant.principal_id,
+                        user.username
+                        if grant.principal_kind == "user"
+                        else role_names[grant.principal_id],
+                        (specificity, 1 if grant.principal_kind == "user" else 0),
+                        inherited_via=tuple(
+                            location_names[ancestor]
+                            for ancestor in path[path.index(grant.scope_id) + 1 :]
+                        )
+                        if grant.scope_kind == "location"
+                        else (),
+                    )
+                )
+            special: set[str] = set()
+            if kind == "printer" and "printers.edit_all" in actor.permissions:
+                special.update({"printer.view", "printer.configure", "printer.transfer_ownership"})
+            if kind == "cartridge" and "cartridges.edit_all" in actor.permissions:
+                special.update(
                     {"cartridge.view", "cartridge.edit_details", "cartridge.transfer_ownership"}
                 )
+            if kind == "location" and "locations.manage" in actor.permissions:
+                special.add("location.manage")
+            application_rules = [
+                (
+                    permission,
+                    "locations.manage" if kind == "location" else f"{kind}s.edit_all",
+                    False,
+                )
+                for permission in special
+            ]
+            if kind in {"printer", "cartridge"} and "audit.view_all" in actor.permissions:
+                application_rules.append((f"{kind}.view_audit", "audit.view_all", True))
+            for permission, application, protected in (
+                application_rules if not actor.is_admin else []
+            ):
+                origins = [
+                    ("role", role.id, role.name)
+                    for role in roles
+                    if any(
+                        entry.get("kind") == "application"
+                        and entry.get("permission") == application
+                        for entry in role.permissions
+                    )
+                ] or [("user", user.id, user.username)]
+                for principal_kind, principal_id, principal_name in origins:
+                    rules.append(
+                        PermissionRule(
+                            permission,
+                            "allow",
+                            "application",
+                            application,
+                            {
+                                "printers.edit_all": "Edit all printers",
+                                "cartridges.edit_all": "Edit all cartridges",
+                                "locations.manage": "Manage locations",
+                                "audit.view_all": "View all audit logs",
+                            }[application],
+                            principal_kind,
+                            principal_id,
+                            principal_name,
+                            (1000000, 0) if protected else (-1, 0),
+                            protected,
+                        )
+                    )
+            owner = getattr(value, "owner_id", None) == user.id
+            if actor.is_admin or owner:
+                rules.extend(
+                    PermissionRule(
+                        permission,
+                        "allow",
+                        kind,
+                        value.id,
+                        "Administrator" if actor.is_admin else "Owner",
+                        "user",
+                        user.id,
+                        user.username,
+                        (1000000, 1),
+                        True,
+                    )
+                    for permission in allowed
+                )
+            resolved = decide(rules, allowed)
             if isinstance(value, PrinterDevice) and value.config.get("retired"):
-                rights.intersection_update({"printer.view_audit", "printer.view_activity"})
-            resources[(kind, value.id)] = rights
-    for group in groups:
-        rights = (
-            set(GROUP_PERMISSIONS)
-            if actor.is_admin
-            else set(legacy_permissions(actor.destination_levels.get(group.id, "none"), group=True))
-        )
-        rights.update(
-            grant.permission
-            for grant in grants
-            if grant.scope_kind == "printer_group"
-            and grant.scope_id == group.id
-            and grant.permission in GROUP_PERMISSIONS
-        )
-        resources[("printer_group", group.id)] = rights
-    for companion in session.scalars(select(Companion)):
-        resources[("companion", companion.id)] = (
-            {"companion.access"}
-            if actor.is_admin
-            or any(
-                grant.scope_kind == "companion"
-                and grant.scope_id == companion.id
-                and grant.permission == "companion.access"
-                for grant in grants
+                resolved = {
+                    key: decision
+                    for key, decision in resolved.items()
+                    if key in {"printer.view_audit", "printer.view_activity"}
+                }
+            decisions[(kind, value.id)] = resolved
+            resources[(kind, value.id)] = frozenset(
+                key for key, decision in resolved.items() if decision.allowed
             )
-            else set()
-        )
-    return ResourceAccess(
-        user.id,
-        actor.is_admin,
-        actor.permissions,
-        {key: frozenset(value) for key, value in resources.items()},
-    )
+    return ResourceAccess(user.id, actor.is_admin, actor.permissions, resources, decisions)

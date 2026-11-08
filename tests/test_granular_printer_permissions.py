@@ -106,8 +106,9 @@ def test_submitting_and_starting_are_independent(accounts):
 def test_queue_reader_cannot_edit_cancel_approve_or_start(accounts):
     admin, alice, bob = accounts
     tape = profile(admin)
-    set_permissions(admin, "alice", "view", "submit_directly", "submit_requests")
+    set_permissions(admin, "alice", "view", "submit_directly")
     item = submit(alice, tape).json()
+    set_permissions(admin, "alice", "view", "submit_requests")
     pending = alice.post(
         "/api/requests",
         json={
