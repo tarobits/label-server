@@ -24,6 +24,8 @@ interface Row {
   selected: boolean
   notify_on_completion: boolean
   copies: number
+  maximum: string
+  currency: string
 }
 interface Run {
   cost_estimate?: CostEstimateData | null
@@ -41,6 +43,8 @@ interface Run {
   print_plan?: PrintPlan | null
   warnings?: string[]
   rows: {
+    cost_estimate?: CostEstimateData | null
+    maximum_price?: { currency: string; micros: number } | null
     source_row: number
     copies: number
     length_mm: number
@@ -201,6 +205,8 @@ async function parse() {
       ...r,
       selected: true,
       copies: 1,
+      maximum: '',
+      currency: 'EUR',
       notify_on_completion: true,
     }))
     parsedText.value = csv.value
@@ -237,6 +243,13 @@ async function prepare() {
       rows: selected.value.map((r) => ({
         source_row: r.source_row,
         copies: r.copies,
+        maximum_price:
+          r.maximum === ''
+            ? null
+            : {
+                currency: r.currency.toUpperCase(),
+                micros: Math.round(Number(r.maximum) * 1000000),
+              },
         notify_on_completion: r.notify_on_completion,
       })),
     }
@@ -318,7 +331,7 @@ async function submit() {
   if (!run.value) return
   const id = run.value.id
   await perform(async () => {
-    if (!auth.atLeast(run.value!.destination_id, 'print')) {
+    if (!auth.printer(run.value!.destination_id, 'submit_directly')) {
       await api('/requests', 'POST', { kind: 'run', run_id: id })
       resources.invalidate(['/requests'])
       await router.push('/requests')
@@ -492,6 +505,7 @@ onUnmounted(() => {
               <tr>
                 <th>Use</th>
                 <th>Record</th>
+                <th>Maximum total price</th>
                 <th>Values</th>
                 <th>Copies</th>
                 <th>Notify when printed</th>
@@ -509,6 +523,20 @@ onUnmounted(() => {
                   /></label>
                 </td>
                 <td>{{ row.source_row }}</td>
+                <td>
+                  <input
+                    v-model="row.maximum"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="No maximum"
+                    :aria-label="`Maximum for record ${row.source_row}`"
+                  /><input
+                    v-model="row.currency"
+                    maxlength="3"
+                    :aria-label="`Currency for record ${row.source_row}`"
+                  />
+                </td>
                 <td class="csv-values">{{ row.values.join(' · ') }}</td>
                 <td>
                   <input
@@ -594,6 +622,10 @@ onUnmounted(() => {
         retries.
       </p>
       <CostEstimate v-if="!run.submitted_at" :estimate="run.cost_estimate" />
+      <p v-if="run.rows.some((row) => row.maximum_price)" class="muted">
+        Each row's maximum covers its copies and tape overhead. Printing waits for an affordable
+        cartridge; its owner covers unexpected excess.
+      </p>
       <div v-if="run.print_plan" class="inset">
         <strong>Planned tape sequence</strong>
         <p v-for="warning in run.warnings ?? []" :key="warning" class="alert warning" role="status">
@@ -634,7 +666,7 @@ onUnmounted(() => {
           The entire run enters the queue together. It may print immediately if the threshold is
           reached and automatic printing is enabled.
         </p>
-        <p v-if="!auth.atLeast(run.destination_id, 'print')" class="help">
+        <p v-if="!auth.printer(run.destination_id, 'submit_directly')" class="help">
           The entire run will wait for approval before entering the queue.
         </p>
         <p v-if="destination?.available === false" class="help">
@@ -643,12 +675,12 @@ onUnmounted(() => {
         <button
           class="primary"
           :disabled="
-            busy || destination?.available === false || !auth.atLeast(run.destination_id, 'request')
+            busy || destination?.available === false || !auth.canSubmit(run.destination_id)
           "
           @click="submit"
         >
           {{
-            auth.atLeast(run.destination_id, 'print')
+            auth.printer(run.destination_id, 'submit_directly')
               ? 'Submit entire run'
               : 'Request printing for run'
           }}
@@ -704,6 +736,7 @@ onUnmounted(() => {
               <th>Values</th>
               <th>Length</th>
               <th>Copies</th>
+              <th>Row price</th>
             </tr>
           </thead>
           <tbody>
@@ -719,6 +752,12 @@ onUnmounted(() => {
               </td>
               <td>{{ row.length_mm }} mm</td>
               <td>{{ row.copies }}</td>
+              <td>
+                <CostEstimate :estimate="row.cost_estimate" /><span v-if="row.maximum_price"
+                  >Maximum: {{ (row.maximum_price.micros / 1000000).toFixed(2) }}
+                  {{ row.maximum_price.currency }}</span
+                >
+              </td>
             </tr>
           </tbody>
         </table>

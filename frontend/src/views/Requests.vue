@@ -193,7 +193,7 @@ onUnmounted(() => {
         v-if="
           selected.status === 'pending' &&
           (selected.owner_id === auth.user?.id ||
-            auth.atLeast(selected.destination_id, 'moderator'))
+            auth.printer(selected.destination_id, 'manage_queue'))
         "
         :url="`/requests/${selected.id}/labels/${position}/copies`"
         :copies="label.copies"
@@ -211,7 +211,9 @@ onUnmounted(() => {
     </div>
     <p v-if="selected.reason" class="alert warning">{{ selected.reason }}</p>
     <template
-      v-if="selected.status === 'pending' && auth.atLeast(selected.destination_id, 'moderator')"
+      v-if="
+        selected.status === 'pending' && auth.printer(selected.destination_id, 'approve_requests')
+      "
     >
       <label>Reason for rejection<input v-model="reason" maxlength="1000" /></label>
       <div class="row wrap">
@@ -233,7 +235,7 @@ onUnmounted(() => {
   </section>
   <section v-else-if="!route.params.id" class="panel">
     <div class="section-heading">
-      <h2>{{ auth.any('moderator') ? 'Print requests' : 'Your print requests' }}</h2>
+      <h2>{{ auth.anyPrinter('approve_requests') ? 'Print requests' : 'Your print requests' }}</h2>
       <label
         >Request status<select v-model="filter">
           <option value="pending">Pending approval</option>

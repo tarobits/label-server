@@ -121,6 +121,7 @@ test('administration saves roles, account access, and notification settings', as
   await page.getByRole('button', { name: 'New role', exact: true }).click()
   await page.getByLabel('Role name', exact()).fill('Trusted printers')
   const printers = await (await request.get('/api/printers')).json()
+  await page.locator('summary').filter({ hasText: 'Desk printer' }).click()
   await page
     .getByRole('combobox', { name: 'Access to Desk printer', exact: true })
     .selectOption('print')
@@ -141,7 +142,16 @@ test('administration saves roles, account access, and notification settings', as
   await expect(page.getByText('Role saved.', { exact: true })).toBeVisible()
   const roles = await (await request.get('/api/admin/roles')).json()
   expect(roles.find((r: { name: string }) => r.name === 'Trusted printers').permissions).toEqual([
-    { kind: 'destination', destination_id: printers[0].id, level: 'print' },
+    {
+      kind: 'destination_permissions',
+      destination_id: printers[0].id,
+      permissions: [
+        'printer.start_own',
+        'printer.submit_directly',
+        'printer.submit_requests',
+        'printer.view',
+      ],
+    },
   ])
   await page.getByRole('button', { name: 'Account settings', exact: true }).click()
   await page.getByLabel('Approval notification delay (seconds)', { exact: false }).fill('120')
@@ -156,6 +166,53 @@ test('administration saves roles, account access, and notification settings', as
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(390)
   await page.screenshot({ path: 'test-results/access-administration-mobile.png', fullPage: true })
+})
+
+test('granular printer grants keep independent controls and animate both disclosure directions', async ({
+  page,
+  request,
+}) => {
+  await page.goto('/#/admin?section=roles')
+  await page.getByRole('button', { name: 'New role', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New role', exact: true })
+  await dialog.getByLabel('Role name', { exact: true }).fill('Station operator')
+  const summary = dialog.locator('summary').filter({ hasText: 'Desk printer' })
+  await summary.click()
+  const grants = dialog.getByRole('group', { name: 'Desk printer permissions', exact: true })
+  await grants.getByLabel('View printer', { exact: true }).check()
+  await grants.getByLabel('Swap cartridges', { exact: true }).check()
+  await grants.getByLabel('Hold/resume printing', { exact: true }).check()
+  await expect(grants.getByLabel('Configure printer', { exact: true })).not.toBeChecked()
+  await expect(dialog.getByRole('combobox', { name: 'Access to Desk printer' })).toHaveValue(
+    'custom',
+  )
+  await page.screenshot({ path: 'test-results/granular-role-desktop.png', fullPage: true })
+  await summary.click()
+  await expect(grants).toBeHidden()
+  await summary.click()
+  await expect(grants.getByLabel('Swap cartridges', { exact: true })).toBeChecked()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await grants.getByLabel('Swap cartridges', { exact: true }).scrollIntoViewIfNeeded()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390)
+  await page.screenshot({ path: 'test-results/granular-role-mobile.png', fullPage: true })
+  await dialog.getByRole('button', { name: 'Review role changes', exact: true }).click()
+  await page.getByRole('button', { name: 'Confirm access changes', exact: true }).click()
+  await expect(page.getByText('Role saved.', { exact: true })).toBeVisible()
+  const roles = await (await request.get('/api/admin/roles')).json()
+  const role = roles.find((item: { name: string }) => item.name === 'Station operator')
+  expect(role.permissions[0].permissions).toEqual([
+    'printer.hold_resume',
+    'printer.swap_cartridges',
+    'printer.view',
+  ])
+  await page.getByRole('button', { name: 'Edit role Station operator', exact: true }).click()
+  await page.getByRole('dialog').locator('summary').filter({ hasText: 'Desk printer' }).click()
+  await expect(page.getByRole('checkbox', { name: 'Swap cartridges', exact: true })).toBeChecked()
+  await expect(
+    page.getByRole('checkbox', { name: 'Emergency stop', exact: true }),
+  ).not.toBeChecked()
 })
 
 test('revoked access pauses queued labels while their owner can cancel and an administrator can release', async ({

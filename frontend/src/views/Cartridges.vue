@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CartridgePrice from '../components/CartridgePrice.vue'
+import CartridgeNotes from '../components/CartridgeNotes.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
 import { installCartridge } from '../cartridges'
 import { freezeLeavingItem } from '../collectionMotion'
@@ -42,7 +43,9 @@ watch(
       printerId.value = selected
     else if (!printers.some((printer) => printer.id === printerId.value))
       printerId.value =
-        printers.find((printer) => auth.atLeast(printer.id, 'full'))?.id ?? printers[0]?.id ?? ''
+        printers.find((printer) => auth.printer(printer.id, 'swap_cartridges'))?.id ??
+        printers[0]?.id ??
+        ''
   },
   { immediate: true },
 )
@@ -56,7 +59,9 @@ function isLocked(status: Status | undefined) {
 const locked = computed(
   () => isLocked(selectedStatus.value) || !!selectedStatus.value?.pending_flush,
 )
-const canSwap = computed(() => !!selectedStatus.value && auth.atLeast(printerId.value, 'full'))
+const canSwap = computed(
+  () => !!selectedStatus.value && auth.printer(printerId.value, 'swap_cartridges'),
+)
 function installedIn(id: string) {
   return w.printerStatuses.find((printer) => printer.active_cartridge_id === id)
 }
@@ -203,7 +208,12 @@ async function correct(id: string) {
         </select></label
       >
     </div>
-    <button class="secondary" :disabled="!profiles.length" @click="showForm = !showForm">
+    <button
+      v-if="auth.can('inventory.manage')"
+      class="secondary"
+      :disabled="!profiles.length"
+      @click="showForm = !showForm"
+    >
       Register cartridge
     </button>
   </div>
@@ -302,6 +312,7 @@ async function correct(id: string) {
     >
       <div class="section-heading">
         <span class="eyebrow">{{ w.profileName(cartridge.profile_id) }}</span
+        ><span v-if="cartridge.owner_id === null" class="badge">No owner</span
         ><span v-if="cartridge.archived" class="badge">Archived</span
         ><span v-else-if="isInstalled(cartridge)" class="badge printed">{{
           installedIn(cartridge.id)
@@ -336,7 +347,12 @@ async function correct(id: string) {
         </form>
         <div v-else class="row spread cartridge-name motion-reveal">
           <h2>{{ cartridge.name }}</h2>
-          <button class="text-button" :disabled="busy" @click="startRename(cartridge)">
+          <button
+            v-if="auth.cartridge(cartridge.id, 'edit_details')"
+            class="text-button"
+            :disabled="busy"
+            @click="startRename(cartridge)"
+          >
             Rename
           </button>
         </div></Transition
@@ -375,7 +391,10 @@ async function correct(id: string) {
         </div>
       </form>
       <div v-else aria-hidden="true"></div>
-      <CartridgePrice v-if="!cartridge.archived" :cartridge="cartridge" />
+      <CartridgePrice
+        v-if="!cartridge.archived && auth.cartridge(cartridge.id, 'edit_details')"
+        :cartridge="cartridge"
+      />
       <p v-else class="help">
         Price:
         {{
@@ -384,6 +403,8 @@ async function correct(id: string) {
             : `${(cartridge.price_minor / 100).toFixed(2)} ${cartridge.currency}`
         }}
       </p>
+      <CartridgeNotes v-if="auth.cartridge(cartridge.id, 'edit_notes')" :cartridge="cartridge" />
+      <p v-else-if="cartridge.notes" class="cartridge-notes">{{ cartridge.notes }}</p>
       <div class="card-actions">
         <template v-if="!cartridge.archived">
           <button
@@ -400,6 +421,7 @@ async function correct(id: string) {
           >
             Remove from printer</button
           ><button
+            v-if="auth.cartridge(cartridge.id, 'edit_details')"
             class="text-button"
             :disabled="busy || correctionLocked(cartridge.id)"
             @click="startCorrection(cartridge)"
@@ -407,6 +429,7 @@ async function correct(id: string) {
             Correct estimate
           </button>
           <button
+            v-if="auth.cartridge(cartridge.id, 'edit_details')"
             class="text-button"
             :disabled="busy || !!cartridge.archive_blocked_reason"
             :title="cartridge.archive_blocked_reason ?? undefined"
@@ -418,10 +441,16 @@ async function correct(id: string) {
             Archive cartridge
           </button>
         </template>
-        <button v-else class="secondary" :disabled="busy" @click="restore(cartridge)">
+        <button
+          v-else-if="auth.cartridge(cartridge.id, 'edit_details')"
+          class="secondary"
+          :disabled="busy"
+          @click="restore(cartridge)"
+        >
           Restore cartridge
         </button>
         <button
+          v-if="auth.cartridge(cartridge.id, 'edit_details')"
           class="text-button danger-text"
           :disabled="busy || !!cartridge.delete_blocked_reason"
           :title="cartridge.delete_blocked_reason ?? undefined"
@@ -450,6 +479,10 @@ async function correct(id: string) {
 </template>
 
 <style scoped>
+.cartridge-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .cartridge-filters {
   align-items: end;
   flex: 1;

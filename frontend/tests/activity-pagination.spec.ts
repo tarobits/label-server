@@ -100,15 +100,15 @@ test('activity reaches old records, preserves independent pages and snapshots, a
   await expect(batches.locator('article')).toHaveCount(12)
   await expect(batchNav.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
   expect(data.requests.some((query) => query.includes('offset=125'))).toBe(true)
+  const batchUrl = page.url()
+  await page.goto('/#/notification-history')
+  await expect(noticeNav).toContainText('Page 1 of 3')
   await noticeNav.getByRole('button', { name: 'Next', exact: true }).click()
   await expect(noticeNav).toContainText('Page 2 of 3')
-  await expect(batchNav).toContainText('Page 6 of 6')
   await page.reload()
-  await expect(batchNav).toContainText('Page 6 of 6')
   await expect(noticeNav).toContainText('Page 2 of 3')
   await page.goBack()
   await expect(noticeNav).toContainText('Page 1 of 3')
-  await expect(batchNav).toContainText('Page 6 of 6')
   await page.goForward()
   await expect(noticeNav).toContainText('Page 2 of 3')
   await page.evaluate(() => window.scrollTo(0, 0))
@@ -123,10 +123,11 @@ test('activity reaches old records, preserves independent pages and snapshots, a
     path: 'test-results/activity-history-mobile.png',
     animations: 'disabled',
   })
+  await page.goto(batchUrl)
+  await expect(batchNav).toContainText('Page 6 of 6')
   await batchNav.getByRole('button', { name: 'Latest', exact: true }).click()
   await expect(batchNav).toContainText('Page 1 of 6')
   await expect(batches.getByText('New arrival', { exact: true })).toBeVisible()
-  await expect(noticeNav).toContainText('Page 2 of 3')
 })
 
 test('failed page loads can be retried without displaying the previous page as the requested page', async ({

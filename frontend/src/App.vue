@@ -5,6 +5,8 @@ import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 
 import Icon from './components/Icon.vue'
 import BrandLogo from './components/BrandLogo.vue'
 import AccountMenu from './components/AccountMenu.vue'
+import NotificationBell from './components/NotificationBell.vue'
+import CartridgeConsent from './components/CartridgeConsent.vue'
 import { reducedMotion } from './preferences'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeCheckPrompt from './components/CartridgeCheckPrompt.vue'
@@ -24,6 +26,20 @@ const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+let migrationPromptedFor = ''
+watch(
+  () => [auth.user?.id, auth.session?.migration_required],
+  () => {
+    if (
+      auth.user?.is_admin &&
+      auth.session?.migration_required &&
+      migrationPromptedFor !== auth.user.id
+    ) {
+      migrationPromptedFor = auth.user.id
+      void router.replace('/migration')
+    }
+  },
+)
 const navigation = ref<InstanceType<typeof MotionTrack> | null>(null)
 const navigationPending = ref(false)
 const pageDirection = ref(1)
@@ -132,7 +148,7 @@ const fleetSummary = computed(() =>
 )
 const reviewPrinters = computed(() =>
   w.printerStatuses.filter(
-    (printer) => printer.needs_review.length && auth.atLeast(printer.printer_id, 'moderator'),
+    (printer) => printer.needs_review.length && auth.printer(printer.printer_id, 'review'),
   ),
 )
 watch(
@@ -158,29 +174,80 @@ const links = computed(() =>
     ['/images', 'Images', 'image'],
     ['/profiles', 'Tape profiles', 'tape'],
     ['/cartridges', 'Cartridges', 'cartridge'],
-    ['/activity', 'Activity', 'activity'],
+    ['/activity', 'Print Activity', 'activity'],
+    ['/audit', 'Audit log', 'activity'],
+    ['/notification-history', 'Notification delivery', 'bell'],
     ['/usage', 'Tape usage', 'tape'],
     ['/printers', 'Printers & groups', 'printer'],
+    ['/companions', 'Companions', 'printer'],
+    ['/resource-access', 'Locations & access', 'users'],
+    ['/migration', 'Ownership migration', 'users'],
     ['/admin', 'Administration', 'users'],
   ].filter(([path]) => {
+    if (path === '/audit') return auth.can('audit.view_all') || auth.anyPrinter('view_audit') || Object.values(auth.user?.cartridge_permissions ?? {}).some(permissions => permissions.includes('cartridge.view_audit'))
+    if (path === '/migration') return auth.user?.is_admin && auth.session?.migration_required
+    if (path === '/resource-access')
+      return (
+        auth.can('locations.manage') ||
+        auth.can('printers.edit_all') ||
+        auth.can('cartridges.edit_all') ||
+        auth.anyPrinter('configure') ||
+        auth.anyPrinter('manage_user_access') ||
+        Object.values(auth.user?.cartridge_permissions ?? {}).some((permissions) =>
+          permissions.some((p) =>
+            ['cartridge.manage_access', 'cartridge.edit_details'].includes(p),
+          ),
+        )
+      )
     if (auth.user?.is_admin) return true
+    if (path === '/notification-history' || path === '/companions') return false
     if (path === '/admin') return auth.user?.is_admin
-    if (path === '/printers') return auth.can('printers.manage') || auth.any('moderator')
-    if (['/profiles', '/cartridges'].includes(path!)) return auth.can('inventory.manage')
-    if (path === '/activity') return w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
+    if (path === '/printers')
+      return (
+        auth.can('printers.manage') ||
+        ['configure', 'swap_cartridges', 'hold_resume', 'review'].some(auth.anyPrinter)
+      )
+    if (path === '/profiles') return auth.can('inventory.manage')
+    if (path === '/cartridges')
+      return (
+        auth.can('inventory.manage') ||
+        Object.values(auth.user?.cartridge_permissions ?? {}).some((permissions) =>
+          permissions.includes('cartridge.view'),
+        )
+      )
+    if (path === '/activity') return w.printers.some((p) => auth.printer(p.id, 'view_activity'))
     return true
   }),
 )
 const allowed = computed(() => {
+  if (route.path === '/audit') return auth.can('audit.view_all') || auth.anyPrinter('view_audit') || Object.values(auth.user?.cartridge_permissions ?? {}).some(permissions => permissions.includes('cartridge.view_audit'))
   if (auth.user?.is_admin) return true
-  if (route.path === '/admin' || route.path === '/access-holds') return !!auth.user?.is_admin
-  if (route.path === '/printers') return auth.can('printers.manage') || auth.any('moderator')
-  if (['/profiles', '/cartridges'].includes(route.path)) return auth.can('inventory.manage')
+  if (route.path === '/notification-history' || route.path === '/companions') return false
+  if (route.path === '/admin' || route.path === '/access-holds' || route.path === '/migration')
+    return !!auth.user?.is_admin
+  if (route.path === '/printers')
+    return (
+      auth.can('printers.manage') ||
+      ['configure', 'swap_cartridges', 'hold_resume', 'review'].some(auth.anyPrinter)
+    )
+  if (route.path === '/profiles') return auth.can('inventory.manage')
+  if (route.path === '/cartridges')
+    return (
+      auth.can('inventory.manage') ||
+      Object.values(auth.user?.cartridge_permissions ?? {}).some((permissions) =>
+        permissions.includes('cartridge.view'),
+      )
+    )
   if (route.path === '/activity' || route.path.startsWith('/batches/'))
-    return w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
+    return w.printers.some(
+      (p) =>
+        auth.printer(p.id, 'view_activity') ||
+        (route.path.startsWith('/batches/') && auth.printer(p.id, 'review')),
+    )
   if (route.path === '/templates/new') return auth.canCreateTemplates
   if (route.path.endsWith('/edit')) return true
-  if (route.path === '/new') return auth.any('request')
+  if (route.path === '/new')
+    return auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')
   return true
 })
 function skipToContent() {
@@ -255,7 +322,8 @@ onMounted(auth.refresh)
             </select></label
           >
         </div>
-        <AccountMenu />
+        <div class="account-controls"><AccountMenu /><NotificationBell /></div>
+        <CartridgeConsent />
         <div class="sidebar-footer">
           <span
             v-if="connectionError || w.printers.length"
@@ -269,6 +337,17 @@ onMounted(auth.refresh)
       </aside>
       <div class="main-wrap">
         <main id="main-content" tabindex="-1" :style="{ '--page-direction': pageDirection }">
+          <p
+            v-if="auth.session?.migration_required && route.path !== '/migration'"
+            class="alert warning"
+          >
+            Printing is paused for the ownership migration.<RouterLink
+              v-if="auth.user?.is_admin"
+              to="/migration"
+            >
+              Continue setup</RouterLink
+            >
+          </p>
           <Transition name="notice">
             <div
               v-if="navigationPending"
@@ -287,7 +366,10 @@ onMounted(auth.refresh)
               </Transition>
             </div>
             <RouterLink
-              v-if="route.path !== '/new' && auth.any('request')"
+              v-if="
+                route.path !== '/new' &&
+                (auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly'))
+              "
               class="button primary"
               to="/new"
               ><Icon name="plus" />New label</RouterLink

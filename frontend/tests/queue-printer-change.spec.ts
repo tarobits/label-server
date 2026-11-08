@@ -50,7 +50,7 @@ for (const width of [1280, 390]) {
     await expect
       .poll(async () => (await (await request.get(`/api/jobs/${job.id}`)).json()).destination_id)
       .toBe(replacement.id)
-    await page.goto('/#/activity')
+    await page.goto('/#/printer-changes')
     const history = page.getByRole('region', { name: 'Printer changes', exact: true })
     await expect(history.getByText('Desk printer → Packing printer')).toBeVisible()
     await expect(history.getByText('Original printer is offline')).toBeVisible()

@@ -71,7 +71,7 @@ const preferences = reactive({
 const homeScreen = needsHomeScreen(),
   supported = pushSupported()
 const destinations = computed(() =>
-  w.destinations.filter((destination) => auth.atLeast(destination.id, 'moderator')),
+  w.destinations.filter((destination) => auth.printer(destination.id, 'view_activity')),
 )
 const kinds = computed(() => [
   { value: 'general', label: 'General alerts', scoped: false },

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { api } from '../api'
+import { useLiveRefresh } from '../live'
 import { useWorkspaceStore, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
 import { useAuthStore } from '../auth'
@@ -8,38 +10,51 @@ import PrintAttribution from '../components/PrintAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
 import ActivityLabels from '../components/ActivityLabels.vue'
 import ActivityCleanup from '../components/ActivityCleanup.vue'
-import PrinterChangeHistory from '../components/PrinterChangeHistory.vue'
 import HistoryPagination from '../components/HistoryPagination.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import { useHistoryPage } from '../history'
-import type { Batch, Notice } from '../types'
+import type { Batch } from '../types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
-const { overview } = storeToRefs(w)
-const batches = reactive(useHistoryPage<Batch>('batches'))
-const notices = reactive(useHistoryPage<Notice>('notifications', () => !!auth.user?.is_admin))
+const route = useRoute(),
+  router = useRouter()
+const filterFields = [
+  { key: 'printer_id', title: 'Printer', options: 'printers' },
+  { key: 'cartridge_id', title: 'Cartridge', options: 'cartridges' },
+  { key: 'requester_id', title: 'Requester', options: 'requesters' },
+  { key: 'authorizer_id', title: 'Authorizer', options: 'authorizers' },
+]
+const choices = ref<Record<string, { id: string; name: string }[]>>({})
+useLiveRefresh(async () => {
+  choices.value = await api('/batches/filters')
+}, 10000)
+const batches = reactive(
+  useHistoryPage<Batch>(
+    'batches',
+    () => true,
+    () =>
+      Object.fromEntries(
+        filterFields.map((field) => [
+          field.key,
+          typeof route.query[field.key] === 'string' ? (route.query[field.key] as string) : '',
+        ]),
+      ),
+  ),
+)
+function setFilter(key: string, event: Event) {
+  void router.push({
+    query: {
+      ...route.query,
+      [key]: (event.target as HTMLSelectElement).value || undefined,
+      batches_page: undefined,
+      batches_before: undefined,
+    },
+  })
+}
 const cleanupMessage = ref('')
 async function purged(count: number) {
   cleanupMessage.value = `Permanently deleted ${count} duplicate ${count === 1 ? 'attempt' : 'attempts'}.`
-  await Promise.all([batches.retry(), notices.retry()])
-}
-function deliveryState(delivery: NonNullable<Notice['deliveries']>[number]) {
-  return delivery.cancelled
-    ? 'cancelled'
-    : delivery.delivered_at
-      ? 'delivered'
-      : delivery.last_error
-        ? 'retrying'
-        : 'pending'
-}
-function noticeState(notice: Notice) {
-  return notice.cancelled
-    ? 'cancelled'
-    : notice.delivered_at
-      ? 'delivered'
-      : notice.last_error
-        ? 'retrying'
-        : 'pending'
+  await batches.retry()
 }
 </script>
 <template>
@@ -47,9 +62,25 @@ function noticeState(notice: Notice) {
     <div class="section-heading">
       <h2 id="batch-history-title">Print batches</h2>
       <div class="row wrap">
+        <RouterLink to="/printer-changes">Printer changes</RouterLink>
         <span class="muted">{{ batches.total }} attempts</span>
         <ActivityCleanup v-if="auth.user?.is_admin" @purged="purged" />
       </div>
+    </div>
+    <div class="field-row activity-filters">
+      <label v-for="field in filterFields" :key="field.key"
+        >{{ field.title
+        }}<select :value="route.query[field.key] ?? ''" @change="setFilter(field.key, $event)">
+          <option value="">All</option>
+          <option
+            v-for="option in choices[field.options] ?? []"
+            :key="option.id"
+            :value="option.id"
+          >
+            {{ option.name }}
+          </option>
+        </select></label
+      >
     </div>
     <Transition name="notice"
       ><p v-if="cleanupMessage" class="motion-reveal" role="status">
@@ -111,6 +142,11 @@ function noticeState(notice: Notice) {
           <Badge :state="batch.state" /><RouterLink :to="`/batches/${batch.id}`">{{
             batch.state === 'needs_review' ? 'Review batch →' : 'Details →'
           }}</RouterLink>
+          <RouterLink
+            v-if="!['printing', 'needs_review'].includes(batch.state)"
+            :to="`/batches/${batch.id}/packing`"
+            >Pack labels →</RouterLink
+          >
         </div>
         <BatchTrigger :trigger="batch.trigger" />
         <div class="batch-attributions">
@@ -133,88 +169,6 @@ function noticeState(notice: Notice) {
       v-bind="batches.pagination"
       label="Print batch pages, bottom"
       @change="batches.go($event)"
-    />
-  </section>
-  <PrinterChangeHistory v-if="auth.any('moderator')" />
-  <section
-    v-if="auth.user?.is_admin"
-    class="panel"
-    aria-labelledby="notification-history-title"
-    :aria-busy="notices.loading"
-  >
-    <div class="section-heading">
-      <h2 id="notification-history-title">Notifications</h2>
-      <span class="badge" :class="overview.notifications_enabled ? 'printed' : 'queued'">{{
-        overview.notifications_enabled ? 'Delivery enabled' : 'Delivery not configured'
-      }}</span>
-    </div>
-    <p v-if="!overview.notifications_enabled" class="help">
-      Add a notification endpoint in Administration to deliver alerts.
-    </p>
-    <HistoryPagination
-      v-bind="notices.pagination"
-      label="Notification pages"
-      @change="notices.go($event)"
-    />
-    <Transition name="notice"
-      ><div v-if="notices.error" class="alert danger motion-reveal" role="alert">
-        {{ notices.error }}
-        <button class="secondary small" :disabled="notices.loading" @click="notices.retry()">
-          Retry
-        </button>
-      </div></Transition
-    >
-    <Transition name="notice"
-      ><p v-if="notices.loading" role="status" class="muted motion-reveal">
-        Loading page {{ notices.page }}…
-      </p></Transition
-    >
-    <div v-if="!notices.items.length && !notices.loading && !notices.error" class="empty compact">
-      All quiet.
-    </div>
-    <MotionSurface
-      :identity="String(notices.loadedPage)"
-      :order="notices.loadedPage"
-      class="history-items"
-      :class="{ 'history-loading': notices.loading }"
-    >
-      <article v-for="notice in notices.items" :key="notice.id" class="notification">
-        <div class="row spread">
-          <strong>{{ notice.title }}</strong
-          ><Badge :state="noticeState(notice)" />
-        </div>
-        <p>{{ notice.message }}</p>
-        <ul
-          v-if="notice.deliveries?.length"
-          class="notice-deliveries"
-          aria-label="Endpoint deliveries"
-        >
-          <li v-for="(delivery, index) in notice.deliveries" :key="index">
-            <div class="row spread">
-              <strong>{{ delivery.endpoint_name }}</strong>
-              <Badge :state="deliveryState(delivery)" />
-            </div>
-            <small
-              >{{ delivery.attempts }} delivery attempts<span v-if="delivery.delivered_at">
-                · {{ date(delivery.delivered_at) }}</span
-              ><span v-if="delivery.last_error"> · {{ delivery.last_error }}</span></small
-            >
-          </li>
-        </ul>
-        <small
-          >{{ date(notice.created_at) }} · {{ notice.attempts }} delivery attempts<span
-            v-if="notice.last_error"
-          >
-            · {{ notice.last_error }}</span
-          ></small
-        ><a v-if="notice.path.startsWith('/#/')" :href="notice.path">Open details →</a>
-      </article>
-    </MotionSurface>
-    <HistoryPagination
-      v-if="notices.items.length"
-      v-bind="notices.pagination"
-      label="Notification pages, bottom"
-      @change="notices.go($event)"
     />
   </section>
 </template>

@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api, configureSession, errorMessage } from './api'
 import { clearBrowserPush } from './push'
+import { legacyPrinterPermissions } from './printerPermissions'
 export type AccessLevel = 'none' | 'request' | 'print' | 'moderator' | 'full'
 export const accessLevels: { value: AccessLevel; label: string }[] = [
   { value: 'none', label: 'No access' },
@@ -29,9 +30,12 @@ export interface User {
   printer_ids: string[]
   role_ids: string[]
   destination_levels: Record<string, AccessLevel>
+  destination_permissions?: Record<string, string[]>
+  cartridge_permissions?: Record<string, string[]>
   group_memberships: Record<string, Membership>
 }
 export interface Session {
+  migration_required?: boolean
   setup_required: boolean
   registration_code_required: boolean
   user: User | null
@@ -64,6 +68,25 @@ export const useAuthStore = defineStore('auth', () => {
   const any = (minimum: AccessLevel) =>
     !!user.value?.is_admin ||
     Object.keys(user.value?.destination_levels ?? {}).some((id) => atLeast(id, minimum))
+  const printer = (destination: string, permission: string) =>
+    !!user.value &&
+    (user.value.is_admin ||
+      (
+        user.value.destination_permissions?.[destination] ??
+        legacyPrinterPermissions(level(destination))
+      ).includes(`printer.${permission}`))
+  const cartridge = (identifier: string, permission: string) =>
+    !!user.value &&
+    (user.value.is_admin ||
+      (user.value.cartridge_permissions?.[identifier] ?? []).includes(`cartridge.${permission}`))
+  const anyPrinter = (permission: string) =>
+    !!user.value &&
+    (user.value.is_admin ||
+      Object.keys(user.value.destination_permissions ?? user.value.destination_levels).some((id) =>
+        printer(id, permission),
+      ))
+  const canSubmit = (destination: string) =>
+    printer(destination, 'submit_requests') || printer(destination, 'submit_directly')
   let fetchedAt = 0,
     generation = 0
   let pending: Promise<void> | null = null
@@ -142,6 +165,10 @@ export const useAuthStore = defineStore('auth', () => {
     level,
     atLeast,
     any,
+    printer,
+    cartridge,
+    anyPrinter,
+    canSubmit,
     accept,
     refresh,
     logout,

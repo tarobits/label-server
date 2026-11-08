@@ -21,7 +21,7 @@ const pending = computed(() =>
       status.active_cartridge_id &&
       !status.printing &&
       !status.needs_review.length &&
-      auth.atLeast(status.printer_id, 'full') &&
+      auth.printer(status.printer_id, 'swap_cartridges') &&
       !shown.has(
         `${status.printer_id}:${status.active_cartridge_id}:${status.cartridge_check_key}`,
       ),

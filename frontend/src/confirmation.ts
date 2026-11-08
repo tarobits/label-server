@@ -13,6 +13,7 @@ interface Confirmation extends ConfirmationOptions {
   resolve: (choice: ConfirmationChoice) => void
 }
 export class ActionCancelled extends Error {}
+export class ActionDeferred extends ActionCancelled {}
 export const confirmation = shallowRef<Confirmation | null>(null)
 export function confirmAction(message: string, confirmLabel = 'Confirm'): Promise<boolean> {
   return chooseAction(message, { confirmLabel }).then((choice) => choice === 'confirm')

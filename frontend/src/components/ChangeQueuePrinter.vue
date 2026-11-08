@@ -20,7 +20,7 @@ const targets = computed(() =>
   w.destinations.filter(
     (target) =>
       target.kind === 'printer' &&
-      auth.atLeast(target.id, 'moderator') &&
+      auth.printer(target.id, 'manage_queue') &&
       !props.jobs.some((job) => job.destination_id === target.id),
   ),
 )

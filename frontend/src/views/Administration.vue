@@ -14,6 +14,12 @@ import NotificationEndpoints from '../components/NotificationEndpoints.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import GroupPermissionsFields from '../components/GroupPermissionsFields.vue'
 import {
+  legacyPrinterPermissions,
+  permissionOptions,
+  printerPreset,
+  printerPermissionLabel,
+} from '../printerPermissions'
+import {
   useAdministrationStore,
   type AdminResource,
   type Person,
@@ -29,10 +35,13 @@ interface Effective {
   disabled: boolean
   permissions: string[]
   destination_levels: Record<string, AccessLevel>
+  destination_permissions?: Record<string, string[]>
+  cartridge_permissions?: Record<string, string[]>
   group_memberships: Record<string, Membership>
 }
 interface Impact {
   confirmation_token: string
+  owner_loss_warning?: boolean
   affected_users: {
     id: string
     username: string
@@ -108,7 +117,7 @@ const roleForm = reactive({
   id: '',
   name: '',
   applications: [] as string[],
-  levels: {} as Record<string, AccessLevel>,
+  destinations: {} as Record<string, string[]>,
 })
 const groupForm = reactive({ id: '', name: '', members: [] as Member[] })
 const codeForm = reactive({
@@ -172,7 +181,7 @@ function roleSummary(role: Role) {
         permission.kind === 'application'
           ? (permissions.value.find((item) => item.id === permission.permission)?.label ??
             permission.permission)
-          : `${w.destinationName(permission.destination_id)} · ${levelName(permission.level)}`,
+          : `${w.destinationName(permission.destination_id)} · ${permission.kind === 'destination' ? levelName(permission.level) : `${permission.permissions.length} permissions`}`,
       )
       .join('; ') || 'No additional access'
   )
@@ -181,9 +190,13 @@ const normalized = (value: unknown) => JSON.stringify(value)
 const sorted = (values: string[]) => [...values].sort()
 const rolePermissions = () => [
   ...roleForm.applications.map((permission) => ({ kind: 'application' as const, permission })),
-  ...Object.entries(roleForm.levels)
-    .filter(([, level]) => level !== 'none')
-    .map(([destination_id, level]) => ({ kind: 'destination' as const, destination_id, level })),
+  ...Object.entries(roleForm.destinations)
+    .filter(([, permissions]) => permissions.length)
+    .map(([destination_id, permissions]) => ({
+      kind: 'destination_permissions' as const,
+      destination_id,
+      permissions: [...permissions].sort(),
+    })),
 ]
 const permissionGroups = computed(() => [
   ...(['templates', 'images', 'fonts'] as const).map((kind) => ({
@@ -200,10 +213,16 @@ const permissionGroups = computed(() => [
 const sortedPermissions = (values: Permission[]) =>
   values
     .filter((p) => p.kind !== 'destination' || p.level !== 'none')
-    .map((p) =>
+    .flatMap((p) =>
       p.kind === 'application'
         ? `application:${p.permission}`
-        : `destination:${p.destination_id}:${p.level}`,
+        : (p.kind === 'destination'
+            ? legacyPrinterPermissions(
+                p.level,
+                w.destinations.find((d) => d.id === p.destination_id)?.kind === 'group',
+              )
+            : p.permissions
+          ).map((permission) => `destination:${p.destination_id}:${permission}`),
     )
     .sort()
 const sortedMembers = (values: Member[]) =>
@@ -404,12 +423,41 @@ function editRole(role?: Role) {
     name: role?.name ?? '',
     applications:
       role?.permissions.filter((p) => p.kind === 'application').map((p) => p.permission) ?? [],
-    levels: Object.fromEntries(
-      role?.permissions
-        .filter((p) => p.kind === 'destination')
-        .map((p) => [p.destination_id, p.level]) ?? [],
-    ),
+    destinations: Object.fromEntries([
+      ...w.destinations.map((destination) => [destination.id, []]),
+      ...(role?.permissions ?? []).flatMap((permission) =>
+        permission.kind === 'application'
+          ? []
+          : [
+              [
+                permission.destination_id,
+                permission.kind === 'destination'
+                  ? legacyPrinterPermissions(
+                      permission.level,
+                      w.destinations.find(
+                        (destination) => destination.id === permission.destination_id,
+                      )?.kind === 'group',
+                    )
+                  : [...permission.permissions],
+              ],
+            ],
+      ),
+    ]),
   })
+}
+function selectedPreset(id: string, group: boolean): AccessLevel | 'custom' {
+  const selected = JSON.stringify([...(roleForm.destinations[id] ?? [])].sort())
+  return (
+    accessLevels.find(
+      (level) => JSON.stringify(printerPreset(level.value, group).sort()) === selected,
+    )?.value ?? 'custom'
+  )
+}
+function togglePrinterPermission(id: string, permission: string, event: Event) {
+  const selected = roleForm.destinations[id] ?? []
+  roleForm.destinations[id] = (event.target as HTMLInputElement).checked
+    ? [...new Set([...selected, permission])]
+    : selected.filter((value) => value !== permission)
 }
 function editGroup(group?: Group) {
   editor.value = 'group'
@@ -524,8 +572,20 @@ function describe(value: Effective | null) {
     return ['Administrator — universal access to all existing and future resources']
   return [
     ...value.permissions.map((id) => permissions.value.find((p) => p.id === id)?.label ?? id),
-    ...Object.entries(value.destination_levels).map(
-      ([id, level]) => `${w.destinationName(id)}: ${levelName(level)}`,
+    ...(value.destination_permissions
+      ? Object.entries(value.destination_permissions).flatMap(([id, values]) =>
+          values.map(
+            (permission) => `${w.destinationName(id)}: ${printerPermissionLabel(permission)}`,
+          ),
+        )
+      : Object.entries(value.destination_levels).map(
+          ([id, level]) => `${w.destinationName(id)}: ${levelName(level)}`,
+        )),
+    ...Object.entries(value.cartridge_permissions ?? {}).flatMap(([id, values]) =>
+      values.map(
+        (permission) =>
+          `${w.cartridgeName(id)}: ${permission.replace('cartridge.', '').replaceAll('_', ' ')}`,
+      ),
     ),
     ...Object.entries(value.group_memberships).map(
       ([id, m]) =>
@@ -965,31 +1025,46 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </fieldset>
         <fieldset>
           <legend>Print destinations</legend>
-          <div class="destination-grants">
-            <label v-for="destination in w.destinations" :key="destination.id"
-              >{{ destination.name }}
-              <span class="help">{{
-                destination.kind === 'group' ? 'Distribution group' : 'Printer'
-              }}</span
-              ><select
-                :aria-label="`Access to ${destination.name}`"
-                :value="roleForm.levels[destination.id] ?? 'none'"
-                @change="
-                  roleForm.levels[destination.id] = ($event.target as HTMLSelectElement)
-                    .value as AccessLevel
-                "
-              >
-                <option v-for="level in accessLevels" :key="level.value" :value="level.value">
-                  {{ level.label }}
-                </option>
-              </select></label
+          <AnimatedDetails v-for="destination in w.destinations" :key="destination.id">
+            <template #summary
+              >{{ destination.name }} ·
+              {{ (roleForm.destinations[destination.id] ?? []).length }} permissions</template
             >
-          </div>
+            <div class="form-stack">
+              <label
+                >Preset<select
+                  :aria-label="`Access to ${destination.name}`"
+                  :value="selectedPreset(destination.id, destination.kind === 'group')"
+                  @change="
+                    roleForm.destinations[destination.id] = printerPreset(
+                      ($event.target as HTMLSelectElement).value as AccessLevel,
+                      destination.kind === 'group',
+                    )
+                  "
+                >
+                  <option value="custom" disabled>Custom</option>
+                  <option v-for="level in accessLevels" :key="level.value" :value="level.value">
+                    {{ level.label }}
+                  </option>
+                </select></label
+              >
+              <div class="choice-grid" role="group" :aria-label="`${destination.name} permissions`">
+                <label
+                  v-for="permission in permissionOptions(destination.kind === 'group')"
+                  :key="permission.id"
+                  class="checkbox"
+                >
+                  <input
+                    :checked="(roleForm.destinations[destination.id] ?? []).includes(permission.id)"
+                    @change="togglePrinterPermission(destination.id, permission.id, $event)"
+                    type="checkbox"
+                    :value="permission.id"
+                  />{{ permission.label }}
+                </label>
+              </div>
+            </div>
+          </AnimatedDetails>
         </fieldset>
-        <p class="help">
-          Highest applicable access wins. Group access permits use through that group only. Full
-          group access does not configure its physical printers.
-        </p>
         <div class="admin-actions">
           <button
             v-if="roleForm.id"
@@ -1127,6 +1202,10 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </p>
       </template>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
+      <p v-if="impact?.owner_loss_warning" class="alert warning">
+        This change grants Approve use on cartridges. Their owners cover costs above the requester’s
+        accepted price, including free retries.
+      </p>
       <div v-if="impact" class="table-scroll">
         <table v-if="changedUsers.length">
           <thead>

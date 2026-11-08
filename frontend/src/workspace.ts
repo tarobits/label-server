@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { useResourceStore } from './stores/resources'
 import { errorMessage } from './api'
 import { useAuthStore } from './auth'
-import { ActionCancelled, resolveConfirmation } from './confirmation'
+import { ActionCancelled, ActionDeferred, resolveConfirmation } from './confirmation'
 import { requestPrinting } from './printing'
 import type {
   Batch,
@@ -175,6 +175,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return true
     } catch (error) {
       if (ticket !== generation) return false
+      if (error instanceof ActionDeferred) success.value = error.message
       if (error instanceof ActionCancelled) return false
       actionError.value = errorMessage(error)
       return false
@@ -197,7 +198,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const locked = computed(() => !!status.value?.printing || !!status.value?.needs_review.length)
   const canPrint = computed(
     () =>
-      auth.atLeast(selectedPrinter.value, 'moderator') &&
+      auth.printer(selectedPrinter.value, 'start_any') &&
       !busy.value &&
       !connectionError.value &&
       !locked.value &&

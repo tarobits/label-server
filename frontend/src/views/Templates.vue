@@ -281,13 +281,13 @@ async function remove(template: Template) {
               :to="`/templates/${template.id}/edit`"
               >Edit visually</RouterLink
             ><RouterLink
-              v-if="auth.any('request')"
+              v-if="auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')"
               class="button secondary"
               :to="{ path: '/new', query: { template: template.id } }"
               >Use template</RouterLink
             >
             <RouterLink
-              v-if="auth.any('request')"
+              v-if="auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')"
               class="button secondary"
               :to="{ path: '/runs', query: { template: template.id } }"
               >Use with CSV</RouterLink

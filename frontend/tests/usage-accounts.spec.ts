@@ -24,6 +24,19 @@ test('balances include printing, payments and corrections with individual views 
     role_ids: ['member'],
   })
   const cartridges = await (await request.get('/api/cartridges')).json()
+  const owner = (await (await request.get('/api/auth/session')).json()).user
+  const ownership = { kind: 'cartridge', identifier: cartridges[0].id, owner_id: other.id }
+  const preview = await request.post('/api/resource-access/preview', { data: ownership })
+  expect(preview.ok()).toBeTruthy()
+  expect(
+    (
+      await request.post('/api/resource-access/apply', {
+        data: ownership,
+        headers: { 'X-Access-Confirmation': (await preview.json()).confirmation_token },
+      })
+    ).ok(),
+  ).toBeTruthy()
+
   expect(
     (
       await request.put(`/api/cartridges/${cartridges[0].id}/price`, {
@@ -48,11 +61,17 @@ test('balances include printing, payments and corrections with individual views 
     .toMatch(/^-/)
   const original = await (await request.get('/api/usage')).json()
   await page.goto('/#/usage')
-  await expect(page.locator('.account-balance')).toContainText('-€')
+  await expect(page.locator('.usage-accounts')).toContainText('other-user')
   const details = page.locator('.account-adjustment')
   await details.locator('summary').click()
+  await details.getByRole('combobox', { name: 'User', exact: true }).selectOption(owner.id)
+  await details.getByRole('combobox', { name: 'Recipient', exact: true }).selectOption(other.id)
   await details.getByLabel('Amount', { exact: true }).fill('10')
   await details.getByLabel('Reason', { exact: true }).fill('Cash payment')
+  await details.getByText('Cartridge allocations', { exact: true }).click()
+  await expect(
+    details.getByRole('spinbutton', { name: /^Payment toward/ }).first(),
+  ).not.toHaveValue('0')
   await details.getByRole('button', { name: 'Record adjustment', exact: true }).click()
   await expect(details.getByRole('status')).toContainText('+€10.00 recorded for owner.')
   await expect(details.getByRole('alert')).toHaveCount(0)
@@ -83,13 +102,14 @@ test('balances include printing, payments and corrections with individual views 
   await page.getByRole('combobox', { name: 'View', exact: true }).selectOption(other.id)
   await expect(page.locator('.usage-accounts')).toContainText('other-user')
   await expect(page.locator('.usage-entry')).toHaveCount(0)
-  await expect(page.locator('.adjustment-entry')).toHaveCount(0)
+  await expect(page.locator('.adjustment-entry')).toHaveCount(2)
   await details.locator('summary').click()
   await expect(details.getByRole('combobox', { name: 'User', exact: true })).toHaveValue(other.id)
+  await details.getByRole('combobox', { name: 'Recipient', exact: true }).selectOption(owner.id)
   await details.getByLabel('Amount', { exact: true }).fill('5')
   await details.getByLabel('Reason', { exact: true }).fill('Payment received')
   await details.getByRole('button', { name: 'Record adjustment', exact: true }).click()
-  await expect(page.locator('.account-balance')).toContainText('€5.00')
+  await expect(page.locator('.usage-accounts')).toContainText('€5.00')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({
     path: 'test-results/usage-accounts-mobile.png',
@@ -104,9 +124,10 @@ test('balances include printing, payments and corrections with individual views 
   await page
     .locator('.usage-accounts')
     .getByRole('link', { name: 'other-user', exact: true })
+    .first()
     .click()
   await expect(page.getByRole('combobox', { name: 'View', exact: true })).toHaveValue(other.id)
-  await expect(page.locator('.adjustment-entry')).toHaveCount(1)
+  await expect(page.locator('.adjustment-entry')).toHaveCount(3)
 })
 
 test('usage readers and account editors get independent controls without administrator access', async ({
@@ -154,17 +175,20 @@ test('usage readers and account editors get independent controls without adminis
     await member.getByLabel('Password', { exact: true }).fill('browser-editor-password')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(
-      member.getByRole('heading', { name: 'Account balance', exact: true }),
+      member.getByRole('heading', { name: 'Balances for account-editor', exact: true }),
     ).toBeVisible()
     await expect(member.getByRole('combobox', { name: 'View', exact: true })).toHaveCount(0)
     const details = member.locator('.account-adjustment')
     await details.locator('summary').click()
     await details.getByRole('combobox', { name: 'User', exact: true }).selectOption(reader.id)
+    await details
+      .getByRole('combobox', { name: 'Recipient', exact: true })
+      .selectOption({ label: 'owner' })
     await details.getByLabel('Amount', { exact: true }).fill('7.25')
     await details.getByLabel('Reason', { exact: true }).fill('Bank transfer')
     await details.getByRole('button', { name: 'Record adjustment', exact: true }).click()
     await expect(details.getByRole('status')).toContainText('+€7.25 recorded for usage-reader.')
-    await expect(member.locator('.account-balance')).toContainText('No charges or payments yet')
+    await expect(member.locator('.usage-accounts')).toContainText('No debts.')
     await expect(member.locator('.adjustment-entry')).toHaveCount(0)
     await context.clearCookies()
     await member.reload()
@@ -173,13 +197,13 @@ test('usage readers and account editors get independent controls without adminis
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(member.locator('.account-balance')).toContainText('€7.25')
     await expect(member.getByRole('combobox', { name: 'View', exact: true })).toBeVisible()
-    await expect(member.locator('.account-adjustment')).toHaveCount(0)
+    await expect(member.getByRole('combobox', { name: 'Recipient', exact: true })).toHaveCount(0)
     await member.getByRole('combobox', { name: 'View', exact: true }).selectOption('all')
     await expect(
       member.getByRole('heading', { name: 'Account balances', exact: true }),
     ).toBeVisible()
     await expect(member.locator('.adjustment-entry')).toContainText('account-editor')
-    await expect(member.locator('.account-adjustment')).toHaveCount(0)
+    await expect(member.getByRole('combobox', { name: 'Recipient', exact: true })).toHaveCount(0)
   } finally {
     await context.close()
   }

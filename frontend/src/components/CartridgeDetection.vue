@@ -14,7 +14,7 @@ const visible = computed(
   () =>
     props.status &&
     (props.status.media_warning || props.status.cartridge_check_pending) &&
-    auth.atLeast(props.status.printer_id, 'full'),
+    auth.printer(props.status.printer_id, 'swap_cartridges'),
 )
 const locked = computed(
   () => w.busy || !!props.status?.printing || !!props.status?.needs_review.length,

@@ -2,20 +2,17 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useResourceStore } from '../stores/resources'
 import { useAuthStore } from '../auth'
-import { api, errorMessage } from '../api'
-import { useWorkspaceStore } from '../workspace'
-import { randomUUID } from '../uuid'
+import { errorMessage } from '../api'
 import type { BatchDetail } from '../types'
 import LabelDetails from './LabelDetails.vue'
 import QueuePreview from './QueuePreview.vue'
 import AnimatedDetails from './AnimatedDetails.vue'
 import TapeUsage from './TapeUsage.vue'
 import PrintPlanNotice from './PrintPlanNotice.vue'
+import RetryControls from './RetryControls.vue'
 const props = defineProps<{ batchId: string; state: string }>()
 const resources = useResourceStore(),
-  auth = useAuthStore(),
-  w = useWorkspaceStore()
-const requeueKeys = new Map<string, string>()
+  auth = useAuthStore()
 const detail = ref<BatchDetail | null>(null),
   opened = ref(false),
   loading = ref(false),
@@ -33,24 +30,6 @@ const labels = computed(() => {
   }
   return [...grouped.values()]
 })
-async function requeue(item: BatchDetail['items'][number]) {
-  if (w.busy) return
-  const key = requeueKeys.get(item.copy_id) ?? randomUUID()
-  requeueKeys.set(item.copy_id, key)
-  await w.action(async () => {
-    await api(
-      `/batches/${encodeURIComponent(props.batchId)}/items/${encodeURIComponent(item.copy_id)}/requeue`,
-      'POST',
-      {},
-      { 'Idempotency-Key': key },
-    )
-    requeueKeys.delete(item.copy_id)
-  }, 'One copy added to the print queue.')
-}
-watch(
-  () => auth.user?.id,
-  () => requeueKeys.clear(),
-)
 async function load(force = false) {
   const ticket = ++generation,
     actor = auth.user?.id
@@ -97,22 +76,11 @@ onUnmounted(() => {
     <template v-if="detail">
       <TapeUsage :plan="detail.print_plan" caption="Saved estimate for this attempt" />
       <PrintPlanNotice :plan="detail.print_plan" />
+      <RetryControls :batch="detail" />
     </template>
     <section v-for="entry in labels" :key="entry.item.job_id" class="activity-label">
       <div class="row spread wrap">
         <strong>{{ entry.item.process_name }}</strong>
-        <button
-          v-if="
-            entry.item.outcome === 'printed' && detail && auth.atLeast(detail.printer_id, 'print')
-          "
-          type="button"
-          class="secondary small"
-          :disabled="w.busy"
-          :aria-label="`Requeue ${entry.item.process_name}`"
-          @click="requeue(entry.item)"
-        >
-          Requeue
-        </button>
       </div>
       <small>{{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}</small>
       <LabelDetails :label="entry.item" :attribution="entry.item.attribution" />

@@ -5,6 +5,7 @@ import { motionPreference } from '../preferences'
 import AccountEmail from '../components/AccountEmail.vue'
 import AccountPush from '../components/AccountPush.vue'
 import AccountSessions from '../components/AccountSessions.vue'
+import AccountPin from '../components/AccountPin.vue'
 import {
   vValidateForm,
   apiFieldErrors,
@@ -142,6 +143,7 @@ async function savePassword() {
         <button class="primary" :disabled="busy" type="submit">Change password</button>
       </form>
     </section>
+    <section class="settings-section" aria-label="Companion PIN"><AccountPin /></section>
     <section class="settings-section" aria-label="Logged-in sessions">
       <AccountSessions :refresh-key="sessionsRevision" />
     </section>

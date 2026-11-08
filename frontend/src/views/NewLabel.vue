@@ -14,6 +14,7 @@ import VariableInput from '../components/VariableInput.vue'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import CostEstimate from '../components/CostEstimate.vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
 const w = useWorkspaceStore()
@@ -74,6 +75,15 @@ const data = ref<Record<string, VariableValue>>({}),
   error = ref(''),
   rendering = ref(false),
   showPrintPixels = ref(true)
+const maximumPrice = ref(''),
+  maximumCurrency = ref('')
+watch(
+  () => preview.value?.cost_estimate?.quotes,
+  (quotes) => {
+    if (!quotes?.some((q) => q.currency === maximumCurrency.value))
+      maximumCurrency.value = quotes?.[0]?.currency ?? ''
+  },
+)
 const labelForm = ref<HTMLFormElement | null>(null)
 const previewPanel = ref<HTMLElement | null>(null)
 const previewSpace = ref(600)
@@ -159,7 +169,7 @@ const matchingPrinters = computed(() =>
 const routingHint = computed(() => {
   if (destination.value?.available === false)
     return 'No configured printer is available. Check the destination’s printer settings.'
-  if (!auth.atLeast(form.destination_id, 'print'))
+  if (!auth.printer(form.destination_id, 'submit_directly'))
     return 'Approval is required before this label enters the queue.'
   if (destination.value?.automatic_printing_held)
     return 'Automatic printing is held. Print manually or resume to print these copies.'
@@ -295,10 +305,18 @@ async function submit() {
     tape_profile: form.tape_profile,
     copies: form.copies,
     notify_on_completion: form.notify_on_completion,
+    quote_id: preview.value?.cost_estimate?.quote_id ?? null,
+    maximum_price:
+      maximumPrice.value === ''
+        ? null
+        : {
+            currency: maximumCurrency.value,
+            micros: Math.round(Number(maximumPrice.value) * 1000000),
+          },
     data: data.value,
   }
   const signature = JSON.stringify(body)
-  const direct = auth.atLeast(body.destination_id, 'print')
+  const direct = auth.printer(body.destination_id, 'submit_directly')
   if (signature !== submissionBody) {
     submissionKey = randomUUID()
     submissionBody = signature
@@ -407,6 +425,36 @@ async function submit() {
         ><input v-model="form.notify_on_completion" type="checkbox" />Notify when printed</label
       >
       <CostEstimate :estimate="preview?.cost_estimate" :pending="rendering && !error" />
+      <ExpandableContent :open="!!preview?.cost_estimate?.quotes.length"
+        ><div class="row wrap">
+          <label
+            >Maximum total price<input
+              v-model="maximumPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="No maximum"
+          /></label>
+          <label v-if="(preview?.cost_estimate?.quotes.length ?? 0) > 1"
+            >Currency<select v-model="maximumCurrency">
+              <option
+                v-for="quote in preview?.cost_estimate?.quotes ?? []"
+                :key="quote.currency"
+                :value="quote.currency"
+              >
+                {{ quote.currency }}
+              </option>
+            </select></label
+          >
+          <span v-else>{{ maximumCurrency }}</span>
+        </div></ExpandableContent
+      >
+      <ExpandableContent :open="maximumPrice !== ''"
+        ><p class="muted">
+          This maximum covers all copies and tape overhead. Printing waits for an affordable
+          cartridge. Any unexpected excess is covered by its owner.
+        </p></ExpandableContent
+      >
       <p class="help">{{ routingHint }}</p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <button
@@ -418,11 +466,13 @@ async function submit() {
           !preview ||
           preview.printable === false ||
           destination?.available === false ||
-          !auth.atLeast(form.destination_id, 'request')
+          !auth.canSubmit(form.destination_id)
         "
         type="submit"
       >
-        {{ auth.atLeast(form.destination_id, 'print') ? 'Add to queue' : 'Request printing' }}
+        {{
+          auth.printer(form.destination_id, 'submit_directly') ? 'Add to queue' : 'Request printing'
+        }}
       </button>
     </form>
     <section

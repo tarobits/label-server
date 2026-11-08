@@ -122,19 +122,19 @@ async function changeCompletionNotification(job: Job, event: Event) {
 }
 const canCancel = (job: Job) =>
   job.can_cancel ??
-  (job.owner_id === auth.user?.id || auth.atLeast(job.destination_id, 'moderator'))
+  (job.owner_id === auth.user?.id || auth.printer(job.destination_id, 'manage_queue'))
 const canPrintJob = (job: Job) =>
   job.access_hold?.status !== 'held' &&
   !job.labels.some((copy) => copy.state === 'printing' || copy.state === 'needs_review') &&
   (job.can_print ??
-    (auth.atLeast(job.destination_id, 'moderator') ||
-      (job.owner_id === auth.user?.id && auth.atLeast(job.destination_id, 'print'))))
+    (auth.printer(job.destination_id, 'start_any') ||
+      (job.owner_id === auth.user?.id && auth.printer(job.destination_id, 'start_own'))))
 const selectedJobs = computed(() =>
   jobs.value.filter((job) => job.labels.some((copy) => selectedIds.value.includes(copy.id))),
 )
 function selectable(items: Job[]) {
   return items
-    .filter(canCancel)
+    .filter((job) => canCancel(job) || canPrintJob(job))
     .flatMap((job) => job.labels.filter((copy) => copy.state === 'queued').map((copy) => copy.id))
 }
 const selectedDestination = computed(() => {
@@ -276,14 +276,14 @@ async function cancel(job: Job) {
       </div>
       <div class="row wrap">
         <ChangeQueuePrinter
-          v-if="auth.can('queue.change_printer') && auth.any('moderator')"
+          v-if="auth.can('queue.change_printer') && auth.anyPrinter('manage_queue')"
           :jobs="selectedJobs"
           :copy-ids="selectedIds"
           :loading="loading"
           @changed="printerChanged"
         />
         <button
-          v-if="auth.any('print')"
+          v-if="auth.anyPrinter('start_own') || auth.anyPrinter('start_any')"
           class="primary"
           :disabled="!canPrintSelection || loading"
           @click="printSelected"
@@ -292,14 +292,21 @@ async function cancel(job: Job) {
         </button>
         <button
           class="secondary danger-text"
-          :disabled="!selectedIds.length || w.busy || loading"
+          :disabled="!selectedIds.length || !selectedJobs.every(canCancel) || w.busy || loading"
           @click="removeSelected"
         >
           Remove selected ({{ selectedIds.length }})
         </button>
       </div>
     </div>
-    <p v-if="auth.any('moderator')" class="help">
+    <p
+      v-if="
+        selectedDestination &&
+        auth.printer(selectedDestination, 'start_any') &&
+        auth.printer(selectedDestination, 'hold_resume')
+      "
+      class="help"
+    >
       Printing requires the installed tape. Printing a selection holds automatic printing so
       unselected items stay queued. Each item selects its remaining queued copies.
     </p>
@@ -509,7 +516,7 @@ async function cancel(job: Job) {
                       ><RouterLink
                         v-else-if="
                           job.status === 'needs_review' &&
-                          w.printers.some((p) => auth.atLeast(p.id, 'moderator'))
+                          w.printers.some((p) => auth.printer(p.id, 'manage_queue'))
                         "
                         to="/activity"
                         >Review batch →</RouterLink

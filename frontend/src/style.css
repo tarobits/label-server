@@ -706,6 +706,16 @@ main {
   align-items: center;
   gap: 10px;
 }
+.account-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 24px;
+}
+.sidebar .account-controls .account-menu {
+  margin-top: 0;
+  flex: 1;
+}
 .spread {
   justify-content: space-between;
 }
@@ -1206,9 +1216,11 @@ dd {
     grid-row: 1;
     grid-column: 1;
   }
-  .sidebar > .account-menu {
+  .sidebar > .account-controls {
     grid-row: 1;
     grid-column: 2;
+    margin-top: 0;
+    max-width: 170px;
   }
   .sidebar > .printer-picker {
     grid-column: 1 / -1;

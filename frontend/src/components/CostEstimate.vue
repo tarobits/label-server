@@ -7,7 +7,7 @@ function amount(value: string, currency: string) {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   })
   const number = Number(value)
   return number > 0 && number < 0.01 ? `< ${format.format(0.01)}` : format.format(number)

@@ -7,8 +7,14 @@ import NewLabel from './views/NewLabel.vue'
 import Profiles from './views/Profiles.vue'
 import Cartridges from './views/Cartridges.vue'
 import Activity from './views/Activity.vue'
+import Packing from './views/Packing.vue'
+import AuditLog from './views/AuditLog.vue'
+import DeliveryHistory from './views/DeliveryHistory.vue'
+import PrinterChangeHistory from './components/PrinterChangeHistory.vue'
 import Usage from './views/Usage.vue'
 import Review from './views/Review.vue'
+import RetryOffer from './views/RetryOffer.vue'
+import CartridgeQuote from './views/CartridgeQuote.vue'
 import Fonts from './views/Fonts.vue'
 import Images from './views/Images.vue'
 import Printers from './views/Printers.vue'
@@ -16,6 +22,9 @@ import CsvRuns from './views/CsvRuns.vue'
 import Templates from './views/Templates.vue'
 import TemplateEditor from './views/TemplateEditor.vue'
 import Administration from './views/Administration.vue'
+import ResourceAccess from './views/ResourceAccess.vue'
+import Companions from './views/Companions.vue'
+import Migration from './views/Migration.vue'
 import Requests from './views/Requests.vue'
 import AccessHolds from './views/AccessHolds.vue'
 import AccountSettings from './views/AccountSettings.vue'
@@ -29,6 +38,14 @@ import { registerAppWorker } from './pwa'
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    {
+      path: '/cartridge-quotes/:id',
+      component: CartridgeQuote,
+      meta: { title: 'Printing price approval' },
+    },
+    { path: '/companions', component: Companions, meta: { title: 'Companions' } },
+    { path: '/resource-access', component: ResourceAccess, meta: { title: 'Locations & access' } },
+    { path: '/migration', component: Migration, meta: { title: 'Ownership migration' } },
     { path: '/forgot-password', component: AccountRecovery, meta: { title: 'Forgot password' } },
     { path: '/reset-password', component: AccountRecovery, meta: { title: 'Reset password' } },
     { path: '/verify-email', component: AccountRecovery, meta: { title: 'Verify email' } },
@@ -126,7 +143,28 @@ const router = createRouter({
     {
       path: '/activity',
       component: Activity,
-      meta: { title: 'Activity' },
+      meta: { title: 'Print Activity' },
+    },
+    {
+      path: '/audit',
+      component: AuditLog,
+      meta: { title: 'Audit log' },
+    },
+    { path: '/retries/:id', component: RetryOffer, meta: { title: 'Retry approval' } },
+    {
+      path: '/notification-history',
+      component: DeliveryHistory,
+      meta: { title: 'Notification delivery' },
+    },
+    {
+      path: '/printer-changes',
+      component: PrinterChangeHistory,
+      meta: { title: 'Printer changes' },
+    },
+    {
+      path: '/batches/:id/packing',
+      component: Packing,
+      meta: { title: 'Batch packing' },
     },
     {
       path: '/batches/:id',

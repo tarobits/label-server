@@ -8,7 +8,7 @@ import { useLiveRefresh } from '../live'
 import { date, metres } from '../workspace'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import Badge from '../components/Badge.vue'
-import AccountAdjustment from '../components/AccountAdjustment.vue'
+import PairAccounts from '../components/PairAccounts.vue'
 import type { UsageReport, UsageUser } from '../types'
 const auth = useAuthStore()
 const resources = useResourceStore()
@@ -37,7 +37,6 @@ const cartridge = computed({
 const cartridges = ref<UsageReport['cartridges']>([])
 const allUsers = computed(() => selected.value === 'all')
 const users = ref<UsageUser[]>([])
-const adjustmentUser = computed(() => (allUsers.value ? '' : selected.value || auth.user?.id || ''))
 const report = ref<UsageReport | null>(null)
 const error = ref('')
 let sequence = 0
@@ -125,38 +124,7 @@ function money(value: string, currency: string) {
   >
   <div v-if="!report && !error" class="panel empty" role="status">Loading tape usage…</div>
   <template v-if="report">
-    <section class="panel usage-accounts">
-      <h2>{{ allUsers ? 'Account balances' : 'Account balance' }}</h2>
-      <p class="help">
-        Negative balances are amounts owed. Unpriced and pending tape are excluded.
-        <span v-if="cartridge">Balances include all cartridges.</span>
-      </p>
-      <article v-for="account in report.accounts" :key="account.user_id" class="list-row">
-        <div class="grow">
-          <RouterLink
-            v-if="allUsers"
-            :to="{
-              path: '/usage',
-              query: filterQuery('user', account.user_id === auth.user?.id ? '' : account.user_id),
-            }"
-            >{{ account.username }}</RouterLink
-          >
-          <strong v-else>{{ account.username }}</strong>
-        </div>
-        <div class="usage-costs account-balance">
-          <strong v-for="(balance, currency) in account.balances" :key="currency">{{
-            money(balance, currency)
-          }}</strong>
-          <span v-if="!Object.keys(account.balances).length" class="muted"
-            >No charges or payments yet</span
-          >
-        </div>
-      </article>
-      <AnimatedDetails v-if="canEditAccounts" class="account-adjustment">
-        <template #summary>Adjust account</template>
-        <AccountAdjustment :users="users" :user-id="adjustmentUser" @saved="refresh" />
-      </AnimatedDetails>
-    </section>
+    <PairAccounts :user-id="selected === 'all' ? '' : selected" :all-users="allUsers" />
     <section class="panel">
       <h2>Allocated tape and cost</h2>
       <p class="help">
@@ -180,26 +148,6 @@ function money(value: string, currency: string) {
             money(cost, currency)
           }}</strong>
         </div>
-      </article>
-    </section>
-    <section v-if="report.adjustments.length" class="panel">
-      <h2>Recent adjustments</h2>
-      <article
-        v-for="adjustment in report.adjustments"
-        :key="adjustment.id"
-        class="list-row adjustment-entry"
-      >
-        <div class="grow">
-          <strong>{{ adjustment.note }}</strong>
-          <small
-            ><span v-if="allUsers">{{ adjustment.username }} · </span
-            >{{ date(adjustment.created_at) }} · {{ adjustment.actor_name }}</small
-          >
-        </div>
-        <strong class="usage-costs"
-          >{{ adjustment.amount_minor > 0 ? '+' : ''
-          }}{{ money(String(adjustment.amount_minor / 100), adjustment.currency) }}</strong
-        >
       </article>
     </section>
     <section v-if="report.entries.length" class="panel">

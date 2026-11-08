@@ -10,6 +10,7 @@ import PropertySection from '../components/PropertySection.vue'
 import AdminDialog from '../components/AdminDialog.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
 import { installCartridge } from '../cartridges'
+import { confirmAction } from '../confirmation'
 import type { Destination, Printer } from '../types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
@@ -39,7 +40,9 @@ const defaults = () => ({
   timeout_seconds: 120,
 })
 const printer = reactive(defaults())
+const ownPrinter = ref(true)
 function editPrinter(device?: Printer) {
+  ownPrinter.value = true
   editingPrinter.value = device?.id ?? ''
   Object.assign(
     printer,
@@ -62,7 +65,7 @@ const groupChoices = computed(() => {
   const existing = w.destinations.find((d) => d.id === editing.value)
   return [
     ...new Set([
-      ...w.printers.filter((p) => auth.atLeast(p.id, 'full')).map((p) => p.id),
+      ...w.printers.filter((p) => auth.printer(p.id, 'configure')).map((p) => p.id),
       ...(existing?.printer_ids ?? []),
     ]),
   ].map((id) => ({ id, name: existing?.member_names?.[id] ?? w.destinationName(id) }))
@@ -86,6 +89,7 @@ async function addPrinter() {
           editingPrinter.value ? 'PUT' : 'POST',
           {
             ...printer,
+            ...(!editingPrinter.value ? { unowned: !ownPrinter.value } : {}),
             usb_serial: printer.usb_serial.trim() || null,
           },
         ),
@@ -153,6 +157,19 @@ async function print(id: string) {
     'Matching labels requested on available printers.',
   )
 }
+async function clearBlock(id: string) {
+  if (
+    !(await confirmAction(
+      'Have you investigated the printer and resolved its error?',
+      'Clear printer block',
+    ))
+  )
+    return
+  await w.action(
+    () => api(`/companions/printers/${encodeURIComponent(id)}/clear`, 'POST'),
+    'Printer block cleared.',
+  )
+}
 function move(index: number, offset: number) {
   const ids = [...group.printer_ids]
   const [id] = ids.splice(index, 1)
@@ -173,6 +190,9 @@ function move(index: number, offset: number) {
   <Transition name="panel-expand">
     <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
       <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
+      <label v-if="!editingPrinter" class="checkbox"
+        ><input v-model="ownPrinter" type="checkbox" />Own this printer</label
+      >
       <div class="field-row">
         <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
         <label
@@ -248,6 +268,7 @@ function move(index: number, offset: number) {
     <section v-for="device in w.printers" :key="device.id" class="panel form-stack printer-device">
       <div class="section-heading">
         <h2>{{ device.name }}</h2>
+        <span v-if="device.owner_id === null" class="badge">No owner</span>
         <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
           state(device.id)?.connected ? 'Connected' : 'Disconnected'
         }}</span>
@@ -259,7 +280,7 @@ function move(index: number, offset: number) {
         v-if="
           state(device.id)?.printer_error &&
           (!(state(device.id)?.media_warning || state(device.id)?.cartridge_check_pending) ||
-            !auth.atLeast(device.id, 'full'))
+            !auth.printer(device.id, 'configure'))
         "
         class="alert warning"
       >
@@ -276,7 +297,7 @@ function move(index: number, offset: number) {
         }}
       </p>
       <button class="text-button" @click="detailsPrinter = device.id">Detected details</button>
-      <label v-if="auth.atLeast(device.id, 'full')" class="checkbox">
+      <label v-if="auth.printer(device.id, 'configure')" class="checkbox">
         <input
           type="checkbox"
           :checked="cartridgeChecks[device.id] ?? state(device.id)?.cartridge_check_enabled ?? true"
@@ -291,7 +312,7 @@ function move(index: number, offset: number) {
         >Installed cartridge<select
           :value="state(device.id)?.active_cartridge_id ?? ''"
           :disabled="
-            !auth.atLeast(device.id, 'full') ||
+            !auth.printer(device.id, 'swap_cartridges') ||
             w.busy ||
             !!state(device.id)?.printing ||
             !!state(device.id)?.needs_review.length ||
@@ -313,7 +334,7 @@ function move(index: number, offset: number) {
       <div v-if="state(device.id)?.pending_flush" class="row wrap">
         <span>A manual flush is waiting. Finish or cancel it before changing cartridges.</span>
         <button
-          v-if="auth.atLeast(device.id, 'moderator')"
+          v-if="auth.printer(device.id, 'manage_queue')"
           class="secondary"
           :disabled="w.busy"
           @click="cancelFlush(device.id)"
@@ -322,7 +343,7 @@ function move(index: number, offset: number) {
         </button>
       </div>
       <RouterLink
-        v-for="batch in auth.atLeast(device.id, 'moderator')
+        v-for="batch in auth.printer(device.id, 'review')
           ? (state(device.id)?.needs_review ?? [])
           : []"
         :key="batch"
@@ -332,7 +353,17 @@ function move(index: number, offset: number) {
       >
       <div class="row wrap">
         <button
-          v-if="auth.atLeast(device.id, 'moderator')"
+          v-if="state(device.id)?.companion_blocked && auth.printer(device.id, 'review')"
+          class="secondary"
+          :disabled="
+            w.busy || !!state(device.id)?.printing || !!state(device.id)?.needs_review.length
+          "
+          @click="clearBlock(device.id)"
+        >
+          Clear block
+        </button>
+        <button
+          v-if="auth.printer(device.id, 'hold_resume')"
           class="secondary"
           :disabled="w.busy"
           @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
@@ -344,7 +375,7 @@ function move(index: number, offset: number) {
           }}
         </button>
         <button
-          v-if="auth.atLeast(device.id, 'full')"
+          v-if="auth.printer(device.id, 'configure')"
           class="secondary"
           :disabled="w.busy"
           @click="editPrinter(device)"
@@ -421,7 +452,7 @@ function move(index: number, offset: number) {
       <div class="section-heading">
         <h3>{{ target.name }}</h3>
         <button
-          v-if="auth.atLeast(target.id, 'full')"
+          v-if="auth.printer(target.id, 'configure')"
           class="small secondary"
           @click="editGroup(target)"
         >
@@ -441,24 +472,24 @@ function move(index: number, offset: number) {
       </p>
       <div class="row wrap">
         <RouterLink
-          v-if="auth.atLeast(target.id, 'request')"
+          v-if="auth.printer(target.id, 'view')"
           class="button primary"
           :to="`/new?destination=${target.id}`"
           >Print a label</RouterLink
         ><RouterLink
-          v-if="auth.atLeast(target.id, 'request')"
+          v-if="auth.printer(target.id, 'view')"
           class="button secondary"
           :to="`/runs?destination=${target.id}`"
           >Use with CSV</RouterLink
         ><button
-          v-if="auth.atLeast(target.id, 'moderator')"
+          v-if="auth.printer(target.id, 'start_any')"
           class="secondary"
           :disabled="w.busy"
           @click="print(target.id)"
         >
           Print matching queue</button
         ><button
-          v-if="auth.atLeast(target.id, 'moderator')"
+          v-if="auth.printer(target.id, 'hold_resume')"
           class="secondary"
           :disabled="w.busy"
           @click="hold(target.id, !target.automatic_printing_held)"

@@ -13,6 +13,7 @@ import BatchTrigger from '../components/BatchTrigger.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import TapeUsage from '../components/TapeUsage.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
+import RetryControls from '../components/RetryControls.vue'
 import { useAuthStore } from '../auth'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
@@ -29,6 +30,12 @@ const decisions = ref<Record<string, string>>({}),
   bulkDecision = ref('')
 const uncertain = computed(
   () => batch.value?.items.filter((i) => i.outcome === 'needs_review') ?? [],
+)
+const canReview = computed(
+  () =>
+    !!batch.value &&
+    batch.value.state === 'needs_review' &&
+    auth.printer(batch.value.printer_id, 'review'),
 )
 const allSelected = computed(
   () => uncertain.value.length > 0 && selected.value.length === uncertain.value.length,
@@ -103,7 +110,7 @@ async function resolve() {
           consumed_mm: consumed.value,
           cartridge_id: cartridgeId.value,
         }),
-      'Review saved. Requeued copies follow the printer’s hold and queue settings.',
+      'Review saved. Choose retry funding separately for any unprinted copies.',
     )
   ) {
     resources.invalidate(['/batches'])
@@ -133,11 +140,11 @@ async function resolve() {
     </AnimatedDetails>
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
     <form v-validate-form @submit.prevent="resolve">
-      <p v-if="batch.state === 'needs_review'" class="help">
+      <p v-if="canReview" class="help">
         Inspect the output and choose an outcome for each uncertain copy. Select from a row to
         include that copy and all following uncertain copies.
       </p>
-      <div v-if="batch.state === 'needs_review'" class="review-bulk">
+      <div v-if="canReview" class="review-bulk">
         <label
           >Action for selected copies<select
             v-model="bulkDecision"
@@ -145,7 +152,7 @@ async function resolve() {
           >
             <option disabled value="">Choose outcome</option>
             <option value="printed">Printed</option>
-            <option value="queued">Requeue</option>
+            <option value="failed">Did not print</option>
             <option value="cancelled">Cancel</option>
           </select></label
         >
@@ -163,7 +170,7 @@ async function resolve() {
         <table>
           <thead>
             <tr>
-              <th v-if="batch.state === 'needs_review'" class="review-selection">
+              <th v-if="canReview" class="review-selection">
                 <label class="checkbox-target">
                   <input
                     type="checkbox"
@@ -178,12 +185,12 @@ async function resolve() {
               <th>People</th>
               <th>Copy</th>
               <th>Outcome</th>
-              <th v-if="batch.state === 'needs_review'">Your decision</th>
+              <th v-if="canReview">Your decision</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in batch.items" :key="item.copy_id">
-              <td v-if="batch.state === 'needs_review'" class="review-selection">
+              <td v-if="canReview" class="review-selection">
                 <label class="checkbox-target" v-if="item.outcome === 'needs_review'"
                   ><input
                     v-model="selected"
@@ -224,7 +231,7 @@ async function resolve() {
               </td>
               <td>{{ item.copy_number }}</td>
               <td><Badge :state="item.outcome" /></td>
-              <td v-if="batch.state === 'needs_review'">
+              <td v-if="canReview">
                 <div v-if="item.outcome === 'needs_review'" class="review-decision">
                   <select
                     v-model="decisions[item.copy_id]"
@@ -233,7 +240,7 @@ async function resolve() {
                   >
                     <option disabled value="">Choose outcome</option>
                     <option value="printed">It printed</option>
-                    <option value="queued">Requeue this copy</option>
+                    <option value="failed">It did not print</option>
                     <option value="cancelled">Cancel this copy</option>
                   </select>
                   <button
@@ -251,7 +258,7 @@ async function resolve() {
           </tbody>
         </table>
       </div>
-      <div v-if="batch.state === 'needs_review'" class="review-resolution">
+      <div v-if="canReview" class="review-resolution">
         <label
           >Cartridge used for this attempt<select v-model="cartridgeId" :disabled="w.busy" required>
             <option v-for="cartridge in w.cartridges" :key="cartridge.id" :value="cartridge.id">
@@ -289,6 +296,7 @@ async function resolve() {
         {{ metres(batch.consumed_mm) }}. This attempt has been accounted for.
       </p>
     </form>
+    <RetryControls :batch="batch" />
   </section>
   <div v-else-if="!error" class="panel empty">Loading batch…</div>
 </template>

@@ -9,6 +9,7 @@ export interface PrinterConfig {
   timeout_seconds?: number
 }
 export interface Printer {
+  owner_id?: string | null
   configuration_error?: string | null
   config: PrinterConfig
   id: string
@@ -50,6 +51,9 @@ export type ProfileInput = Pick<
   | 'waiting_notification_interval_seconds'
 >
 export interface Cartridge {
+  owner_id?: string | null
+  location_id?: string | null
+  notes?: string
   archived: boolean
   archive_blocked_reason?: string | null
   delete_blocked_reason?: string | null
@@ -77,6 +81,7 @@ export interface Destination {
   automatic_printing_held: boolean
 }
 export interface Status {
+  companion_blocked?: boolean
   total_queued: number
   printer_id: string
   backend: string
@@ -335,6 +340,8 @@ export interface UsageUser {
 }
 
 export interface UsageAdjustment extends UsageUser {
+  recipient_id: string | null
+  recipient_name: string | null
   id: string
   actor_id: string
   actor_name: string
@@ -376,6 +383,7 @@ export interface UsageReport {
 }
 
 export interface CostEstimate {
+  quote_id?: string
   quotes: { currency: string; minimum: string; maximum: string }[]
   basis: 'installed' | 'inventory'
   incomplete: boolean

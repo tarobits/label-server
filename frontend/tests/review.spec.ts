@@ -67,7 +67,7 @@ test('batch review applies outcomes to selected following uncertain copies befor
     await expect(page.getByLabel(`Decision for label ${label}`, { exact: true })).toHaveValue(
       'printed',
     )
-  await page.getByLabel('Decision for label 4', { exact: true }).selectOption('queued')
+  await page.getByLabel('Decision for label 4', { exact: true }).selectOption('failed')
   const selectAllTarget = page
     .getByLabel('Select all uncertain copies', { exact: true })
     .locator('..')
@@ -97,7 +97,7 @@ test('batch review applies outcomes to selected following uncertain copies befor
     (response) =>
       response.url().endsWith(`/api/batches/${batch.id}`) && response.request().method() === 'GET',
   )
-  await expect(page.getByLabel('Decision for label 4', { exact: true })).toHaveValue('queued')
+  await expect(page.getByLabel('Decision for label 4', { exact: true })).toHaveValue('failed')
   await expect(page.getByLabel('Select label 2', { exact: true })).toBeChecked()
   await expect(cartridge).toHaveValue(previous.id)
   await page.screenshot({ path: 'test-results/batch-review-selection.png', fullPage: true })
@@ -117,7 +117,7 @@ test('batch review applies outcomes to selected following uncertain copies befor
     decisions: {
       [items[1].copy_id]: 'cancelled',
       [items[2].copy_id]: 'printed',
-      [items[3].copy_id]: 'queued',
+      [items[3].copy_id]: 'failed',
       [items[4].copy_id]: 'printed',
     },
     consumed_mm: 200,
@@ -136,7 +136,7 @@ test('batch review applies outcomes to selected following uncertain copies befor
     'printed',
     'cancelled',
     'printed',
-    'queued',
+    'failed',
     'printed',
   ])
 })

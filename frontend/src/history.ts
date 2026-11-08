@@ -13,6 +13,7 @@ interface HistoryPage<T> {
 export function useHistoryPage<T>(
   kind: 'batches' | 'notifications' | 'printer-changes',
   enabled = () => true,
+  filters: () => Record<string, string> = () => ({}),
 ) {
   const route = useRoute(),
     router = useRouter(),
@@ -61,6 +62,7 @@ export function useHistoryPage<T>(
         offset: String((requestedPage - 1) * size),
       })
       if (anchor.value !== null) query.set('before', String(anchor.value))
+      for (const [key, value] of Object.entries(filters())) if (value) query.set(key, value)
       const result = await resources.get<HistoryPage<T>>(`/${kind}/page?${query}`, {
         ttl: 5000,
         force,
@@ -85,7 +87,7 @@ export function useHistoryPage<T>(
       if (ticket === sequence) loading.value = false
     }
   }
-  watch([page, anchor], () => {
+  watch([page, anchor, () => JSON.stringify(filters())], () => {
     void load(false, true)
   })
   watch([() => auth.user?.id, enabled], () => {

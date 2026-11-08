@@ -1,9 +1,11 @@
 import { test, expect } from './fixtures'
 
 function displayed(value: string) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(
-    Number(value),
-  )
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 6,
+  }).format(Number(value))
 }
 
 test('all copies have an approximate cost before submission and in the queue, including CSV runs', async ({
@@ -14,7 +16,7 @@ test('all copies have an approximate cost before submission and in the queue, in
   const template = await (await request.get('/api/templates/text')).json()
   await page.goto(`/#/new?template=text&profile=${cartridge.profile_id}`)
   await page.getByLabel('Label text', { exact: true }).fill('Cost preview')
-  const cost = page.getByRole('status', { name: 'Estimated cost', exact: true })
+  const cost = page.getByRole('status', { name: 'Estimated cost', exact: true }).first()
   await expect(cost).toContainText('No price set for this tape.')
   expect(
     (
@@ -45,6 +47,12 @@ test('all copies have an approximate cost before submission and in the queue, in
   expect(Number(threePrice)).toBeGreaterThan(Number(one.cost_estimate.quotes[0].minimum))
   expect(Number(threePrice)).toBeLessThan(Number(one.cost_estimate.quotes[0].minimum) * 3)
   await expect(cost).toContainText(displayed(threePrice))
+  await page
+    .getByRole('spinbutton', { name: 'Maximum total price', exact: true })
+    .fill((Number(threePrice) + 0.01).toFixed(2))
+  await expect(
+    page.getByText('Any unexpected excess is covered by its owner.', { exact: false }),
+  ).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 720 })
   await expect(page.getByRole('button', { name: 'Add to queue', exact: true })).toBeEnabled()
   await page.screenshot({
@@ -54,6 +62,8 @@ test('all copies have an approximate cost before submission and in the queue, in
   })
   await page.getByRole('button', { name: 'Add to queue', exact: true }).click()
   await expect(page).toHaveURL(/#\/queue/)
+  const saved = await (await request.get('/api/jobs')).json()
+  expect(saved[0].template_snapshot.pricing.maximum.currency).toBe('EUR')
   await expect(cost).toContainText(displayed(threePrice))
   // The amount is visible without opening label or tape details.
   await expect(page.locator('.queue-label-details[data-expanded="true"]')).toHaveCount(0)

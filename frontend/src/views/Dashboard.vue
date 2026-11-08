@@ -207,11 +207,11 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         <div class="fleet-actions">
           <div class="row wrap">
             <RouterLink
-              v-if="auth.atLeast(device.id, 'request')"
+              v-if="auth.printer(device.id, 'view')"
               class="button secondary"
               :to="{ path: '/new', query: { destination: device.id } }"
               >{{
-                auth.atLeast(device.id, 'print') ? 'Print a label' : 'Request printing'
+                auth.printer(device.id, 'submit_directly') ? 'Print a label' : 'Request printing'
               }}</RouterLink
             >
             <RouterLink
@@ -220,15 +220,22 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >View direct queue</RouterLink
             >
             <RouterLink
-              v-if="auth.atLeast(device.id, 'full')"
+              v-if="auth.printer(device.id, 'configure')"
               class="button secondary"
               :to="{ path: '/printers', query: { printer: device.id } }"
               >Configure</RouterLink
             >
           </div>
-          <template v-if="auth.atLeast(device.id, 'moderator')">
+          <template
+            v-if="
+              ['start_any', 'hold_resume', 'stop_after_label', 'emergency_stop', 'review'].some(
+                (permission) => auth.printer(device.id, permission),
+              )
+            "
+          >
             <div class="row wrap">
               <button
+                v-if="auth.printer(device.id, 'start_any')"
                 class="primary"
                 :disabled="!canPrintDirect(device.id)"
                 @click="print(device.id)"
@@ -236,6 +243,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 <Icon name="printer" />Print direct queue
               </button>
               <button
+                v-if="auth.printer(device.id, 'hold_resume')"
                 class="secondary"
                 :disabled="w.busy || !!state(device.id)?.stop_requested"
                 @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
@@ -247,8 +255,12 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 }}
               </button>
             </div>
-            <div v-if="device.capabilities?.supports_stop_after_current" class="row wrap">
+            <div class="row wrap">
               <button
+                v-if="
+                  auth.printer(device.id, 'stop_after_label') &&
+                  device.capabilities?.supports_stop_after_current
+                "
                 class="secondary"
                 :disabled="
                   w.busy ||
@@ -262,7 +274,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               </button>
               <button
                 v-if="
-                  auth.atLeast(device.id, 'full') && device.capabilities?.supports_emergency_stop
+                  auth.printer(device.id, 'emergency_stop') &&
+                  device.capabilities?.supports_emergency_stop
                 "
                 class="danger"
                 :disabled="
@@ -276,7 +289,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 Emergency stop
               </button>
               <button
-                v-if="auth.atLeast(device.id, 'full') && device.driver === 'brother-pt-p710bt'"
+                v-if="auth.printer(device.id, 'configure') && device.driver === 'brother-pt-p710bt'"
                 class="secondary"
                 disabled
               >
@@ -291,14 +304,17 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               }}
             </p>
             <p
-              v-if="auth.atLeast(device.id, 'full') && device.capabilities?.supports_emergency_stop"
+              v-if="
+                auth.printer(device.id, 'emergency_stop') &&
+                device.capabilities?.supports_emergency_stop
+              "
               class="help"
             >
               Emergency stop may allow the current label to finish. Review all output before
               printing again.
             </p>
             <p
-              v-if="auth.atLeast(device.id, 'full') && device.driver === 'brother-pt-p710bt'"
+              v-if="auth.printer(device.id, 'configure') && device.driver === 'brother-pt-p710bt'"
               class="help"
             >
               Manual cut over USB is unavailable. While idle, double-press the printer’s power
@@ -378,11 +394,11 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               class="button secondary"
               :to="{ path: '/new', query: { destination: group.id } }"
               >{{
-                auth.atLeast(group.id, 'print') ? 'Print a label' : 'Request printing'
+                auth.printer(group.id, 'submit_directly') ? 'Print a label' : 'Request printing'
               }}</RouterLink
             >
             <button v-else class="secondary" disabled>
-              {{ auth.atLeast(group.id, 'print') ? 'Print a label' : 'Request printing' }}
+              {{ auth.printer(group.id, 'submit_directly') ? 'Print a label' : 'Request printing' }}
             </button>
             <RouterLink
               class="button secondary"
@@ -390,14 +406,18 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >View group queue</RouterLink
             >
             <RouterLink
-              v-if="auth.atLeast(group.id, 'full')"
+              v-if="auth.printer(group.id, 'configure')"
               class="button secondary"
               to="/printers"
               >Configure group</RouterLink
             >
           </div>
-          <div v-if="auth.atLeast(group.id, 'moderator')" class="row wrap">
+          <div
+            v-if="auth.printer(group.id, 'start_any') || auth.printer(group.id, 'hold_resume')"
+            class="row wrap"
+          >
             <button
+              v-if="auth.printer(group.id, 'start_any')"
               class="primary"
               :disabled="
                 group.available === false || w.busy || !!w.connectionError || !queued(group)
@@ -407,6 +427,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               <Icon name="printer" />Print group queue
             </button>
             <button
+              v-if="auth.printer(group.id, 'hold_resume')"
               class="secondary"
               :disabled="w.busy"
               @click="hold(group.id, !group.automatic_printing_held)"
