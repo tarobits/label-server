@@ -9,24 +9,28 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
 from app.auth_api import Credentials, Password, Username
+from app.db import begin_write
 from app.deletion import delete_account, is_deleted, restore_account, restore_content
 from app.history_cleanup import duplicate_history, purge_duplicate_history
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,
     AuthSettings,
+    Cartridge,
     DeletedContent,
+    Location,
     PrinterDevice,
     PrinterGroup,
     RecoveryToken,
     RegistrationCode,
+    ResourceGrant,
     Role,
     User,
     UserGroup,
@@ -41,7 +45,7 @@ def admin_session(request: Request) -> Iterator[Session]:
         raise HTTPException(403, "Administrator access is required")
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         if request.method not in ("GET", "HEAD"):
-            session.execute(text("BEGIN IMMEDIATE"))
+            begin_write(session)
         if not access_context(request).actor.is_admin:
             raise HTTPException(403, "Administrator access is required")
         try:
@@ -97,6 +101,10 @@ class ApplicationPermission(AdminInput):
         "queue.change_printer",
         "usage.view_others",
         "usage.edit_accounts",
+        "audit.view_all",
+        "locations.manage",
+        "printers.edit_all",
+        "cartridges.edit_all",
         "templates.create_personal",
         "templates.create_global",
         "templates.edit_global",
@@ -110,8 +118,15 @@ class DestinationPermission(AdminInput):
     level: Literal["none", "request", "print", "moderator", "full"]
 
 
+class DestinationPermissions(AdminInput):
+    kind: Literal["destination_permissions"]
+    destination_id: str
+    permissions: list[str] = Field(max_length=32)
+
+
 PermissionInput = Annotated[
-    ApplicationPermission | DestinationPermission, Field(discriminator="kind")
+    ApplicationPermission | DestinationPermission | DestinationPermissions,
+    Field(discriminator="kind"),
 ]
 
 
@@ -219,6 +234,16 @@ def effective_users(session: Session) -> dict[str, dict[str, Any]]:
             "role_ids": sorted(actor.role_ids),
             "permissions": sorted(actor.permissions),
             "destination_levels": dict(actor.destination_levels) if not user.disabled else {},
+            "destination_permissions": {
+                key: sorted(value) for key, value in actor.destination_permissions.items() if value
+            }
+            if not user.disabled
+            else {},
+            "cartridge_permissions": {
+                key: sorted(value) for key, value in actor.cartridge_permissions.items() if value
+            }
+            if not user.disabled
+            else {},
             "group_memberships": {
                 identifier: asdict(member) for identifier, member in actor.group_memberships.items()
             }
@@ -229,12 +254,19 @@ def effective_users(session: Session) -> dict[str, dict[str, Any]]:
 
 
 def state_hash(session: Session) -> str:
+    from app.models import Companion, CompanionPrinter
+
     state = {}
     for model, fields in (
         (User, "id username role_ids disabled"),
         (Role, "id name permissions protected"),
         (UserGroup, "id name members"),
-        (PrinterDevice, "id name driver config"),
+        (PrinterDevice, "id name driver config owner_id location_id"),
+        (Companion, "id name location_id bound_user_id revision"),
+        (CompanionPrinter, "printer_id companion_id local_id enabled"),
+        (Cartridge, "id owner_id location_id"),
+        (Location, "id name parent_id"),
+        (ResourceGrant, "principal_kind principal_id scope_kind scope_id permission"),
         (PrinterGroup, "id name printer_ids"),
         (DeletedContent, "kind identifier deleted_at purge_after purged_at account_id"),
     ):
@@ -297,13 +329,24 @@ def change_hash(change: PreviewInput) -> str:
 def validate_role(session: Session, body: RoleInput) -> None:
     unique = set()
     for permission in body.permissions:
-        if isinstance(permission, DestinationPermission):
+        if isinstance(permission, (DestinationPermission, DestinationPermissions)):
             target = session.get(PrinterDevice, permission.destination_id) or session.get(
                 PrinterGroup, permission.destination_id
             )
             if target is None or isinstance(target, PrinterDevice) and target.config.get("retired"):
                 raise HTTPException(422, "Unknown or retired print destination")
             key = ("destination", permission.destination_id)
+            if isinstance(permission, DestinationPermissions):
+                from app.resource_access import GROUP_PERMISSIONS, PRINTER_PERMISSIONS
+
+                allowed = (
+                    GROUP_PERMISSIONS if isinstance(target, PrinterGroup) else PRINTER_PERMISSIONS
+                )
+                if (
+                    len(set(permission.permissions)) != len(permission.permissions)
+                    or not set(permission.permissions) <= allowed
+                ):
+                    raise HTTPException(422, "Invalid or duplicate printer permission")
         else:
             key = ("application", permission.permission)
         if key in unique:
@@ -419,6 +462,9 @@ def apply_change(
         if user_update.disabled or user_update.password is not None:
             session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
             session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+            from app.companion_auth import revoke_sessions
+
+            revoke_sessions(session, user.id)
     ensure_administrator_remains(session)
     return user_record(session, user)
 
@@ -444,7 +490,20 @@ def confirmed_change(
     # Consume first: deleting the acting account also removes its other receipts.
     session.delete(confirmation)
     session.flush()
-    return apply_change(session, change, request)
+    before = effective_users(session)
+    result = apply_change(session, change, request)
+    from app.access_audit import record_access_change
+
+    record_access_change(
+        session,
+        actor,
+        change.resource,
+        change.method,
+        change.identifier or (result or {}).get("id"),
+        before,
+        effective_users(session),
+    )
+    return result
 
 
 @router.post("/access-preview")
@@ -480,7 +539,18 @@ def preview_access(body: PreviewInput, request: Request, session: DB) -> dict[st
         }
         for identifier in sorted(before.keys() | after.keys())
     ]
-    return {"confirmation_token": token, "expires_at": expiry, "affected_users": affected}
+    return {
+        "confirmation_token": token,
+        "expires_at": expiry,
+        "affected_users": affected,
+        "owner_loss_warning": any(
+            "cartridge.approve_use" in permissions
+            and "cartridge.approve_use"
+            not in before.get(user_id, {}).get("cartridge_permissions", {}).get(cartridge_id, [])
+            for user_id, rights in after.items()
+            for cartridge_id, permissions in rights["cartridge_permissions"].items()
+        ),
+    }
 
 
 @router.get("/permissions")

@@ -8,12 +8,13 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field, ValidationError, field_validator
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.access import LEVELS
+from app.access import AccountPolicy
 from app.auth import actor_for_user, session_user
 from app.auth_api import throttle
+from app.db import begin_write
 from app.models import Notification, NotificationEndpoint
 from app.notification_api import (
     NotificationPreferences,
@@ -118,7 +119,7 @@ def push_settings(request: Request) -> dict[str, Any]:
 @router.post("", status_code=201)
 def register_push(body: RegisterPush, request: Request) -> dict[str, Any]:
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         user = require_user(request, session)
         if not public_key(request.app.state.settings):
             raise HTTPException(409, "Push delivery has not been configured")
@@ -202,10 +203,10 @@ def save_preferences(identifier: str, body: SubscriptionInput, request: Request)
             raise HTTPException(403, "Only administrators can subscribe to pending print requests")
         if any(
             not actor.is_admin
-            and LEVELS.get(actor.destination_levels.get(item, "none"), 0) < LEVELS["moderator"]
+            and not AccountPolicy({item: None}).can_printer(actor, item, "view_activity")
             for item in {*body.destination_ids, *body.printer_kinds}
         ):
-            raise HTTPException(403, "Choose destinations you can moderate")
+            raise HTTPException(403, "Choose destinations whose print activity you can view")
         try:
             preferences = NotificationPreferences(**body.model_dump())
         except ValidationError as error:

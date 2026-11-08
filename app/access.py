@@ -36,11 +36,25 @@ class Actor:
     group_ids: frozenset[str] = field(default_factory=frozenset)
     printer_ids: frozenset[str] = field(default_factory=frozenset)
     destination_levels: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    destination_permissions: Mapping[str, frozenset[str]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    cartridge_permissions: Mapping[str, frozenset[str]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     group_memberships: Mapping[str, GroupMembership] = field(
         default_factory=lambda: MappingProxyType({})
     )
 
     def __post_init__(self) -> None:
+        for name in ("destination_permissions", "cartridge_permissions"):
+            object.__setattr__(
+                self,
+                name,
+                MappingProxyType(
+                    {key: frozenset(value) for key, value in getattr(self, name).items()}
+                ),
+            )
         object.__setattr__(
             self, "destination_levels", MappingProxyType(dict(self.destination_levels))
         )
@@ -92,10 +106,39 @@ class AccountPolicy:
             and LEVELS.get(actor.destination_levels.get(identifier, "none"), 0) >= LEVELS[minimum]
         )
 
+    def can_printer(self, actor: Actor, identifier: str, permission: str) -> bool:
+        from app.resource_access import PRINTER_PERMISSIONS, legacy_permissions
+
+        permission = f"printer.{permission}"
+        if permission not in PRINTER_PERMISSIONS:
+            raise ValueError("Unknown printer permission")
+        if actor.is_admin:
+            return True
+        if identifier not in self.destinations:
+            return False
+        rights = actor.destination_permissions.get(identifier)
+        if rights is None:
+            rights = legacy_permissions(actor.destination_levels.get(identifier, "none"))
+        return permission in rights
+
     def allows(self, actor: Actor, action: Action, resource: Resource) -> bool:
         if actor.is_admin:
             return True
         kind = resource.kind
+        if kind.startswith("/api/resource-access"):
+            return True  # Each service checks ownership and the exact resource capability.
+        if kind.startswith("/api/cartridges/"):
+            return True  # The loaded cartridge checks the requested operation.
+        if kind.startswith("/api/accounts"):
+            return True  # Pairwise reads and repayment recipients are checked by services.
+        if kind.startswith("/api/inbox"):
+            return True  # The inbox query is restricted to the current recipient.
+        if kind.startswith("/api/retries"):
+            return True  # Retry offers recheck the requester and authorizing operator.
+        if kind.startswith("/api/cartridge-quotes"):
+            return True  # Each service checks the operator or original requester.
+        if kind.startswith("/api/companions"):
+            return True  # Enrollment requires admin; personal PIN changes reauthenticate.
         if kind.startswith("/api/admin"):
             return False
         if kind in ("template", "image_asset", "font_asset"):
@@ -122,7 +165,7 @@ class AccountPolicy:
                     rights.can_delete_others if action == Action.DELETE else rights.can_edit_others
                 )
             return False
-        if kind in ("job", "run", "request"):
+        if kind in ("job", "job_history", "run", "run_history", "request"):
             if resource.owner_id == actor.id and action in (
                 Action.READ,
                 Action.WRITE,
@@ -132,12 +175,22 @@ class AccountPolicy:
             if resource.owner_id != actor.id:
                 return bool(
                     resource.destination_id
-                    and self.can_destination(actor, resource.destination_id, "moderator")
+                    and self.can_printer(
+                        actor,
+                        resource.destination_id,
+                        ("view_activity" if kind in ("job_history", "run_history") else "view_queue")
+                        if action == Action.READ
+                        else "manage_queue",
+                    )
                 )
         if kind in ("batch", "flush"):
             return bool(
                 resource.destination_id
-                and self.can_destination(actor, resource.destination_id, "moderator")
+                and self.can_printer(
+                    actor,
+                    resource.destination_id,
+                    "view_activity" if kind == "batch" else "manage_queue",
+                )
             )
         # Application permissions are independent of any incidental destination.
         if kind.startswith("/api/") and action != Action.READ:
@@ -151,14 +204,17 @@ class AccountPolicy:
                 # Services recheck creation scope or the saved asset after locking.
                 return True
         if resource.destination_id:
-            minimum = (
-                "print"
+            permission = (
+                "start_own"
                 if action == Action.PRINT
-                else "request"
+                else "view"
                 if action in (Action.READ, Action.SUBMIT)
-                else "full"
+                else "configure"
             )
-            return self.can_destination(actor, resource.destination_id, minimum)
+            return self.can_printer(actor, resource.destination_id, permission) or (
+                action == Action.PRINT
+                and self.can_printer(actor, resource.destination_id, "start_any")
+            )
         if action == Action.READ:
             return True  # Every list and object service additionally filters scope.
         if kind.startswith("/api/"):
@@ -191,6 +247,29 @@ class AccessContext:
     def has_permission(self, permission: str) -> bool:
         return self.actor.is_admin or permission in self.actor.permissions
 
+    def can_printer(self, identifier: str, permission: str) -> bool:
+        if isinstance(self.policy, AccountPolicy):
+            return self.policy.can_printer(self.actor, identifier, permission)
+        return self.can(Action.READ, Resource("destination", destination_id=identifier))
+
+    def require_printer(self, identifier: str, *permissions: str) -> None:
+        if not any(self.can_printer(identifier, permission) for permission in permissions):
+            raise HTTPException(403, "This printer permission is not granted")
+
+    def can_cartridge(self, identifier: str, permission: str) -> bool:
+        from app.resource_access import CARTRIDGE_PERMISSIONS
+
+        name = f"cartridge.{permission}"
+        if name not in CARTRIDGE_PERMISSIONS:
+            raise ValueError("Unknown cartridge permission")
+        if not isinstance(self.policy, AccountPolicy):
+            return self.can(Action.READ, Resource("cartridge", identifier))
+        return self.actor.is_admin or name in self.actor.cartridge_permissions.get(identifier, ())
+
+    def require_cartridge(self, identifier: str, permission: str) -> None:
+        if not self.can_cartridge(identifier, permission):
+            raise HTTPException(403, "This cartridge permission is not granted")
+
     def can_destination(self, identifier: str, minimum: str = "request") -> bool:
         if isinstance(self.policy, AccountPolicy):
             return self.policy.can_destination(self.actor, identifier, minimum)
@@ -216,6 +295,10 @@ def access_context(request: Request) -> AccessContext:
         return AccessContext(Actor(is_admin=True), injected)
     # Never cache: preparation outside the lock must recheck current permissions.
     with request.app.state.factory() as session:
+        if request.headers.get("x-companion-session"):
+            from app.companion_auth import station_context
+
+            return station_context(request, session)
         authentication = session_user(request, session)
         if authentication is None:
             raise HTTPException(401, "Sign in to continue")
@@ -314,13 +397,16 @@ def authorize_current_request(request: Request) -> None:
     ):
         destination = None
     if destination and path.endswith("/automatic-printing"):
-        context.require_destination(destination, "moderator")
-        action = Action.READ
+        context.require_printer(destination, "hold_resume")
+        return
     if destination and path == "/api/printers/{identifier}/stop":
-        context.require_destination(destination, "moderator")
-        action = Action.READ  # The endpoint additionally checks Full for emergency mode.
+        context.require_printer(destination, "stop_after_label", "emergency_stop")
+        return  # The endpoint checks the selected mode again under the mutation lock.
+    if destination and path == "/api/printer/active-tape" and action == Action.WRITE:
+        context.require_printer(destination, "swap_cartridges")
+        return
     context.require(
         action, Resource(path, request.path_params.get("identifier"), destination_id=destination)
     )
     if destination and request.method == "POST" and path in ("/api/jobs", "/api/image-jobs"):
-        context.require_destination(destination, "print")
+        context.require_printer(destination, "submit_directly")

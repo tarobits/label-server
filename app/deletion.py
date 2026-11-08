@@ -1,7 +1,7 @@
 """Administrator deletion, recoverable retention, and dependency availability."""
 
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
@@ -11,9 +11,11 @@ from app.asset_store import AssetStore
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,
+    Cartridge,
     DeletedContent,
     LabelTemplate,
     NotificationEndpoint,
+    PrinterDevice,
     RecoveryToken,
     RegistrationCode,
     TemplateRevision,
@@ -22,6 +24,41 @@ from app.models import (
 )
 
 RETENTION_SECONDS = 30 * 24 * 3600
+
+
+def release_inventory(session: Session, user_id: str, actor_id: str) -> None:
+    from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
+    from app.models import new_id
+    from app.ownership import record_ownership
+
+    actor = session.get(User, actor_id)
+    resources: list[tuple[Literal["printer", "cartridge"], PrinterDevice | Cartridge]] = [
+        ("printer", item)
+        for item in session.scalars(select(PrinterDevice).where(PrinterDevice.owner_id == user_id))
+    ]
+    resources.extend(
+        ("cartridge", item)
+        for item in session.scalars(select(Cartridge).where(Cartridge.owner_id == user_id))
+    )
+    for kind, resource in resources:
+        record_ownership(session, kind, resource, at=0)
+        resource.owner_id = None
+        record_ownership(session, kind, resource)
+        rule = (AuditRequirement(kind, resource.id, f"{kind}.view"),)
+        append_audit(
+            session,
+            event_id=new_id(),
+            action=f"{kind}.ownership_changed",
+            outcome="succeeded",
+            occurred_at=time.time(),
+            scopes=(AuditScope(kind, resource.id),),
+            fields={
+                "actor_id": AuditField(actor_id, ()),
+                "actor_name": AuditField(actor.username if actor else actor_id, ()),
+                "old_owner_id": AuditField(user_id, rule),
+                "new_owner_id": AuditField(None, rule),
+            },
+        )
 
 
 def is_deleted(session: Session, kind: str, identifier: str) -> bool:
@@ -65,6 +102,7 @@ def delete_account(
 ) -> None:
     if is_deleted(session, "users", user.id):
         raise HTTPException(404, "Account has been deleted")
+    release_inventory(session, user.id, actor_id)
     memberships = []
     for group in session.scalars(select(UserGroup)):
         for member in group.members:
@@ -83,6 +121,9 @@ def delete_account(
     )
     user.disabled = True
     session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    from app.companion_auth import revoke_sessions
+
+    revoke_sessions(session, user.id, clear_pin=True)
     session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
     session.execute(
         delete(AccessChangeConfirmation).where(AccessChangeConfirmation.actor_id == user.id)
@@ -173,6 +214,7 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
             )
             session.execute(delete(LabelTemplate).where(LabelTemplate.id == item.identifier))
         elif item.kind == "users":
+            release_inventory(session, item.identifier, "system")
             session.execute(
                 update(NotificationEndpoint)
                 .where(NotificationEndpoint.owner_id == item.identifier)

@@ -111,10 +111,10 @@ def send_push(settings: Settings, endpoint: NotificationEndpoint, notice: Notifi
                 timeout=10,
                 requests_session=transport,
             )
-            if not 200 <= response.status_code < 300:
+            if not isinstance(response, requests.Response) or not 200 <= response.status_code < 300:
                 raise ValueError("Push delivery failed")
     except WebPushException as error:
-        if error.response is not None and error.response.status_code in (404, 410):
+        if getattr(error.response, "status_code", None) in (404, 410):
             raise ExpiredSubscription() from None
         raise ValueError("Push delivery failed") from None
 

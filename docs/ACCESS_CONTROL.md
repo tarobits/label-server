@@ -16,9 +16,9 @@ sessions are omitted. Revocation also removes the session's push subscription.
 ## Roles and user groups
 
 Roles contain permission objects and are assigned directly to users. A role can
-contain application permissions and access levels scoped to individual printers
-or distribution groups. Multiple applicable role permissions combine by taking
-the highest access level; No access does not override a higher applicable level.
+contain application permissions and independent grants scoped to individual printers
+or distribution groups. Applicable grants combine. Legacy access levels expand to
+their previous abilities; an empty grant does not remove rights granted elsewhere.
 
 Content groups share templates, fonts and images. They never assign roles or
 confer printer permissions. Ownership, scope and group membership determine
@@ -121,50 +121,72 @@ not grant access to batch details or printer operations.
 
 ## Printer and distribution-group access
 
-Each permission object in a role identifies its printer or distribution-group
-scope and one of these levels:
+Printer and distribution-group permissions are independent grants. The role editor
+provides presets plus individual checkboxes, and previews each affected user's
+combined access before saving. Existing level-based roles remain readable and
+retain their previous abilities; editing them stores explicit permissions.
 
-| Level | Abilities within the granted scope |
+| Permission | Ability within the granted destination |
 | --- | --- |
-| No access | Cannot submit to this destination. |
-| Request only | Preview and submit print requests for approval. |
-| Print | Submit without approval and start own queued jobs. |
-| Moderator | Print abilities, manage all users' queues, and approve/reject print requests. |
-| Full | Moderator abilities and configuration of the scoped printer or distribution group. |
+| View printer | Read printer status and its installed-cartridge summary. |
+| Submit requests | Send labels for approval. |
+| Submit directly | Queue labels without printer approval. |
+| Start own prints | Manually start the user's own queued work. |
+| View everyone's queue | Read other users' active work and previews. |
+| Start anyone's prints | Manually start selected work from other requesters. |
+| Manage everyone's queue | Edit quantities and cancel other users' work. |
+| Approve print requests | Approve or reject requests without permission to edit their quantities. |
+| View everyone's print activity | Read completed job and batch history and previews. |
+| View audit log | Read permission-filtered audit entries for the physical printer. |
+| Review interrupted batches | Read and reconcile uncertain batches on the physical printer. |
+| Swap cartridges | Select installed cartridges and confirm cartridge checks. |
+| Hold/resume printing | Hold or resume automatic printing. |
+| Stop after current label | Request a graceful hardware stop. |
+| Emergency stop | Request an emergency hardware stop. |
+| Configure printer | Edit hardware configuration, including the cover-check policy. |
 
-Users can always cancel their own queued jobs, including when their printer access
-has been revoked. This ownership right does not authorize new submissions.
+View permission makes the destination available in the interface; operation grants
+control its actions independently. Configuration does not imply printing, swapping,
+stopping, or review rights. Users retain access to their own history and can cancel
+their own queued work after losing destination access.
 
-Distribution-group access permits use only through that group. It grants no
-direct access to any member printer. A group Moderator manages jobs and requests
-addressed to that group, rather than every job handled by its member printers.
+Group-scoped access governs group-addressed work, not every job or operation on
+its member printers. Changing group membership requires Configure printer on the
+group and on each newly added physical printer. Swap, stop, review, and physical
+printer audit permissions cannot be granted through a distribution group.
 
-Full access to a distribution group permits changing its settings and membership.
-Adding a printer additionally requires Full access directly on that printer.
-Configuring an individual printer always requires Full access directly on it.
+A queue reader cannot cancel work, change quantities, or authorize requests.
+An activity reader cannot reconcile uncertain output. Review permission permits
+reading the uncertain physical batch, including labels routed through groups the
+reviewer cannot otherwise access. It does not grant general completed-batch history.
 
-Installing or confirming a cartridge detection mismatch also requires Full access
-directly on the physical printer. The confirmation records its operator and time;
-it permits the selected cartridge width without bypassing hardware faults.
-Detected status details are read-only and available with direct printer access.
-Confirming a cartridge after the cover opens, or disabling that per-printer
-check, also requires Full access directly on the physical printer. Other users'
-queued work waits until the check is resolved.
+Selecting work for manual printing only holds unselected work when the operator
+has both Start anyone's prints and Hold/resume printing. Stop commands intentionally hold the printer and
+cancel its pending manual requests, even when the operator lacks a separate
+hold/resume grant. Saving review never clears that hold. The PT-P710BT USB adapter
+still cannot guarantee a mid-label stop or perform a standalone manual cut.
 
-Interrupted-batch review requires Moderator or Full directly on the physical
-printer. Distribution-group permissions cannot authorize batch review. Once the
-physical printer has produced an uncertain result, its authorized reviewer must
-be able to reconcile that batch, including work routed through a group.
-Reviewers may correct which cartridge is charged for that attempt. This does not
-grant permission to install or confirm a cartridge on any printer.
+Session responses include `destination_permissions`; `destination_levels` remains
+for compatibility with existing clients. New role grants use
+`{"kind":"destination_permissions","destination_id":"…","permissions":["printer.view","printer.swap_cartridges"]}`.
+Location, direct-user, and ownership grants participate in resolution, but their
+management UI and the administrator migration wizard are still under development.
 
-**Stop after current label** requires Moderator directly on the physical printer.
-**Emergency stop** and any future standalone cutter operation require Full
-directly on it. Distribution-group access never grants these hardware controls.
-The PT-P710BT USB adapter currently does not support standalone manual cutting.
-Stop requests are saved with the actor and time in the batch history before the
-hardware worker is signaled. Stopping holds automatic printing and cancels pending
-manual requests on that device; reviewing output does not remove the hold.
+## Audit access and current coverage
+
+`GET /api/audit` supports printer, cartridge, action, actor, victim, and search
+filters with offset/limit pagination. Each field is redacted on the server using
+current permissions before filtering and totals. Printer/cartridge View audit log
+permits the relevant resource scope; **View all audit logs** also permits global
+events. Global audit access does not authorize printer operations or bypass separate
+accounting/private-content permissions.
+
+Confirmed account, role, and content-group access changes currently record a global
+change event and per-printer effective-permission changes. Previewing a change does
+not record a successful mutation. Recording shares the mutation transaction; no
+passwords or raw access-change payloads enter these events. Reading the audit API
+records an access event. Application-wide action coverage and the audit UI remain
+in progress; this is not yet a complete audit of every operation.
 
 ## Previewing access changes
 
@@ -307,13 +329,23 @@ highest effective priority. Email subscriptions have no ntfy priority controls.
 
 ## Printing attribution and delegated drafts
 
-Activity and batch details show Requested by, Approved by and the manual batch
+Print Activity and batch details show Requested by, Approved by and the manual batch
 starter separately. A direct Print-or-higher submission records the same user as
 requester and approver. Automatic starts are identified as automatic. Access-hold
 releases show the releasing administrator separately. Names and authorization are
 captured at the event; each batch copy freezes its attribution before printing.
 Later account changes and retry decisions do not rewrite previous attempts.
 Historical events without reliable evidence display Not recorded.
+
+Review records uncertain copies as printed, failed, or cancelled. It does not
+authorize another charge. **Retry labels** requires batch visibility and Start
+anyone's prints for someone else's labels (Start own prints for one's own).
+Free retries additionally require Approve use on the funding cartridge. Paid
+retries notify the original requester and remain pending until they accept a fresh
+quote and maximum. Retry jobs preserve requester and saved artwork; earlier charges
+remain unchanged. Free retries record actual consumption with zero new requester
+charge. Neither path resumes a held printer. The legacy per-item requeue endpoint
+returns a conflict directing clients to the explicit retry funding workflow.
 
 When an administrator submits another user's CSV draft, ownership remains with
 its author and Requested by displays Author (Administrator). If that author is

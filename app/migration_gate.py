@@ -1,0 +1,18 @@
+"""One durable release gate shared by local and remote dispatch."""
+
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.models import ReleaseMigration
+
+
+def migration_pending(session: Session) -> bool:
+    migration = session.get(ReleaseMigration, "0.13.0")
+    return migration is not None and migration.completed_at is None
+
+
+def require_migration_complete(session: Session) -> None:
+    if migration_pending(session):
+        raise HTTPException(
+            409, "Printing is paused until an administrator completes the 0.13.0 migration"
+        )

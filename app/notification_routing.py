@@ -47,17 +47,15 @@ def scope_matches(
     if target_group is None and (target_printer is None or target_printer.config.get("retired")):
         return False
     if endpoint.owner_id:
-        from app.access import LEVELS
+        from app.access import AccountPolicy
         from app.auth import actor_for_user
 
         user = session.get(User, endpoint.owner_id)
         if user is None or user.disabled:
             return False
         actor = actor_for_user(session, user)
-        if (
-            not actor.is_admin
-            and LEVELS.get(actor.destination_levels.get(destination, "none"), 0)
-            < LEVELS["moderator"]
+        if not actor.is_admin and not AccountPolicy({destination: None}).can_printer(
+            actor, destination, "view_activity"
         ):
             return False
     if endpoint.all_printers:

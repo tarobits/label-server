@@ -11,7 +11,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from typing import TYPE_CHECKING, Any
@@ -43,6 +43,10 @@ PERMISSIONS = {
     "printers.manage": "Register printers and create distribution groups",
     "usage.view_others": "View other users’ usage and balances",
     "usage.edit_accounts": "Edit usage accounts",
+    "audit.view_all": "View all audit logs",
+    "locations.manage": "Manage locations and location access",
+    "printers.edit_all": "Edit all printers",
+    "cartridges.edit_all": "Edit all cartridges",
 }
 MEMBER_PERMISSIONS = [
     {"kind": "application", "permission": "images.create_personal"},
@@ -121,7 +125,7 @@ def initialize_auth(factory: sessionmaker[Session], data_dir: Path) -> None:
     logger.warning("Initial administrator setup token: %s", path.read_text().strip())
 
 
-def actor_for_user(session: Session, user: User) -> "Actor":
+def actor_for_user(session: Session, user: User, *, include_resources: bool = True) -> "Actor":
     from app.access import ADMINISTRATOR_ROLE_ID, LEVELS, Actor, GroupMembership, GroupRights
 
     memberships = {
@@ -166,7 +170,7 @@ def actor_for_user(session: Session, user: User) -> "Actor":
             )
             for group in session.scalars(select(UserGroup))
         }
-    return Actor(
+    actor = Actor(
         id=user.id,
         username=user.username,
         is_admin=administrator,
@@ -179,6 +183,29 @@ def actor_for_user(session: Session, user: User) -> "Actor":
         destination_levels=levels,
         group_memberships=memberships,
     )
+    if include_resources:
+        from app.resource_access import resolve_resource_access
+
+        rights = resolve_resource_access(session, user, actor=actor)
+        actor = replace(
+            actor,
+            printer_ids=frozenset(
+                identifier
+                for (kind, identifier), permissions in rights.resources.items()
+                if kind == "printer" and "printer.view" in permissions
+            ),
+            destination_permissions={
+                identifier: permissions
+                for (kind, identifier), permissions in rights.resources.items()
+                if kind in {"printer", "printer_group"}
+            },
+            cartridge_permissions={
+                identifier: permissions
+                for (kind, identifier), permissions in rights.resources.items()
+                if kind == "cartridge"
+            },
+        )
+    return actor
 
 
 def active_administrators(session: Session) -> list[User]:
@@ -240,10 +267,13 @@ def check_csrf(request: Request, session: AuthSession) -> None:
 
 
 def session_record(session: Session, user: User, record: AuthSession) -> dict[str, Any]:
+    from app.migration_gate import migration_pending
+
     actor = actor_for_user(session, user)
     settings = session.get(AuthSettings, 1)
     return {
         "setup_required": False,
+        "migration_required": migration_pending(session),
         "registration_code_required": settings.registration_code_required if settings else True,
         "user": {
             "id": user.id,
@@ -254,6 +284,10 @@ def session_record(session: Session, user: User, record: AuthSession) -> dict[st
             "printer_ids": sorted(actor.printer_ids),
             "role_ids": sorted(actor.role_ids),
             "destination_levels": dict(actor.destination_levels),
+            "destination_permissions": {
+                key: sorted(value) for key, value in actor.destination_permissions.items()
+            },
+            "cartridge_permissions": {key: sorted(value) for key, value in actor.cartridge_permissions.items()},
             "group_memberships": {
                 identifier: asdict(membership)
                 for identifier, membership in actor.group_memberships.items()

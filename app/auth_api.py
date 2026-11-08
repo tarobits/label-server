@@ -7,11 +7,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field, StringConstraints
-from sqlalchemy import delete, select, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app import __version__
+from app.account_audit import record_account
 from app.auth import (
     COOKIE_NAME,
     check_csrf,
@@ -24,6 +24,7 @@ from app.auth import (
     token_hash,
     verify_password,
 )
+from app.db import begin_write
 from app.identity import LOCAL_OWNER_ID
 from app.models import (
     AuthSession,
@@ -73,8 +74,7 @@ def throttle(request: Request, username: str) -> None:
 
 
 def setup_path(request: Request) -> Path:
-    database = make_url(request.app.state.settings.database_url).database
-    return Path(database or "data/labels.db").resolve().parent / "auth-setup-token"
+    return Path(request.app.state.settings.state_directory) / "auth-setup-token"
 
 
 @router.get("/session")
@@ -138,6 +138,7 @@ def revoke_other_sessions(request: Request, response: Response) -> None:
             )
         ):
             revoke_session(session, record)
+        record_account(session, "auth.sessions_revoked", current[0])
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -160,6 +161,7 @@ def revoke_one_session(session_id: str, request: Request, response: Response) ->
         if record.token_hash == current[1].token_hash:
             response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
         revoke_session(session, record)
+        record_account(session, "auth.session_revoked", current[0])
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -175,7 +177,7 @@ def setup(body: SetupInput, request: Request, response: Response) -> dict[str, A
         raise HTTPException(403, "Invalid setup token")
     encoded = hash_password(body.password)
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         if session.scalar(select(User.id).limit(1)) is not None:
             raise HTTPException(409, "Initial administrator setup is already complete")
         user = User(
@@ -187,6 +189,7 @@ def setup(body: SetupInput, request: Request, response: Response) -> dict[str, A
         session.add(user)
         session.flush()
         result = new_session(request, response, session, user)
+        record_account(session, "auth.setup_completed", user)
         session.commit()
     setup_path(request).unlink(missing_ok=True)
     return result
@@ -197,7 +200,7 @@ def login(body: LoginInput, request: Request, response: Response) -> dict[str, A
     check_origin(request)
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         # Serialize password verification and session creation against account resets.
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         user = find_login_user(session, body.username)
         throttle(request, user.username if user else body.username.strip())
         if user is None:
@@ -207,6 +210,7 @@ def login(body: LoginInput, request: Request, response: Response) -> dict[str, A
         if not valid or user.disabled:
             raise HTTPException(401, "Invalid sign-in details")
         result = new_session(request, response, session, user)
+        record_account(session, "auth.signed_in", user)
         session.commit()
         return result
 
@@ -218,7 +222,7 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
     encoded = hash_password(body.password)
     try:
         with request.app.state.fleet.lock, request.app.state.factory() as session:
-            session.execute(text("BEGIN IMMEDIATE"))
+            begin_write(session)
             if session.scalar(select(User.id).limit(1)) is None:
                 raise HTTPException(409, "An administrator must complete initial setup first")
             settings = session.get(AuthSettings, 1)
@@ -270,6 +274,7 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
                         },
                     ]
             result = new_session(request, response, session, user)
+            record_account(session, "auth.registered", user)
             session.commit()
             return result
     except IntegrityError as error:
@@ -279,7 +284,7 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
 @router.post("/password", status_code=204)
 def change_password(body: PasswordChangeInput, request: Request, response: Response) -> None:
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         current = session_user(request, session)
         if current is None:
             raise HTTPException(401, "Sign in to change your password")
@@ -297,6 +302,9 @@ def change_password(body: PasswordChangeInput, request: Request, response: Respo
                 ],
             )
         user.password_hash = hash_password(body.new_password)
+        from app.companion_auth import revoke_sessions
+
+        revoke_sessions(session, user.id)
         session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
         session.execute(
             delete(AuthSession).where(
@@ -304,6 +312,7 @@ def change_password(body: PasswordChangeInput, request: Request, response: Respo
                 AuthSession.token_hash != record.token_hash,
             )
         )
+        record_account(session, "auth.password_changed", user)
         session.commit()
     response.headers["Cache-Control"] = "no-store"
 
@@ -313,7 +322,7 @@ def visit_release(request: Request) -> dict[str, str | None]:
     # Claim the release atomically: another browser for this account must not
     # receive the same unseen history. A first visit establishes the baseline.
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         current = session_user(request, session)
         if current is None:
             raise HTTPException(401, "Sign in to view your changelog")
@@ -322,6 +331,7 @@ def visit_release(request: Request) -> dict[str, str | None]:
         previous = user.last_seen_version
         if previous is None or release_version(previous) < release_version(__version__):
             user.last_seen_version = __version__
+        record_account(session, "auth.changelog_viewed", user)
         session.commit()
         return {"current_version": __version__, "previous_version": previous}
 
@@ -335,5 +345,6 @@ def logout(request: Request, response: Response) -> None:
             from app.session_details import revoke_session
 
             revoke_session(session, current[1])
+            record_account(session, "auth.signed_out", current[0])
     response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
     response.headers["Cache-Control"] = "no-store"

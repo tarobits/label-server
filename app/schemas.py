@@ -43,6 +43,10 @@ class CartridgeNameInput(Input):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
 
+class CartridgeNotesInput(Input):
+    notes: str = Field(max_length=10000)
+
+
 class RemainingInput(Input):
     remaining_mm: float = Field(ge=0)
 
@@ -51,6 +55,8 @@ class ActiveTapeInput(Input):
     cartridge_id: str | None
     media_confirmation: str | None = Field(default=None, max_length=64)
     confirm_matching_cartridge: bool = False
+    move_location: bool | None = None
+    location_confirmation: str | None = Field(default=None, max_length=100)
 
 
 class CartridgeCheckInput(Input):
@@ -66,7 +72,17 @@ class CopyCountInput(Input):
     expected_copies: int = Field(ge=1, le=1000, strict=True)
 
 
-class JobInput(CompletionNotificationInput):
+class MaximumPrice(Input):
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    micros: int = Field(ge=0, le=10**15, strict=True)
+
+
+class PriceConsentInput(CompletionNotificationInput):
+    quote_id: str | None = Field(default=None, max_length=100)
+    maximum_price: MaximumPrice | None = None
+
+
+class JobInput(PriceConsentInput):
     process_name: ProcessName | None = None
     destination_id: str | None = None
     template: str = Field(default="text", min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
@@ -76,7 +92,7 @@ class JobInput(CompletionNotificationInput):
     data: dict[str, Value] = Field(max_length=20)
 
 
-class ImageJobInput(CompletionNotificationInput):
+class ImageJobInput(PriceConsentInput):
     process_name: ProcessName | None = None
     destination_id: str | None = None
     image_asset: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -100,7 +116,7 @@ class ReminderInput(Input):
 
 
 class ReviewInput(Input):
-    decisions: dict[str, Literal["printed", "queued", "cancelled"]]
+    decisions: dict[str, Literal["printed", "failed", "queued", "cancelled"]]
     cartridge_id: str | None = Field(default=None, min_length=1, max_length=100)
     consumed_mm: float = Field(
         ge=0,
@@ -118,6 +134,9 @@ class PrinterStopInput(Input):
 
 class CopySelectionInput(Input):
     copy_ids: list[str] = Field(min_length=1, max_length=10000)
+    approve_copy_ids: list[str] = Field(default_factory=list, max_length=10000)
+    use_confirmation: str | None = Field(default=None, max_length=64)
+    use_confirmations: dict[str, str] = Field(default_factory=dict, max_length=10000)
 
 
 class PrinterInput(Input):
@@ -129,6 +148,10 @@ class PrinterInput(Input):
     leader_mm: float = Field(default=24.5, ge=0, le=200)
     cut_each: bool = True
     timeout_seconds: float = Field(default=120, ge=5, le=600)
+
+
+class CreatePrinterInput(PrinterInput):
+    unowned: bool = False
 
 
 class PrinterGroupInput(Input):

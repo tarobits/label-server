@@ -3,13 +3,14 @@
 from typing import Any
 
 from fastapi import HTTPException, Request
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
 from app.models import (
     Base,
     Batch,
+    Cartridge,
     FlushRequest,
     LabelCopy,
     LabelTemplate,
@@ -38,6 +39,19 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
             ),
         )
     elif isinstance(value, (PrintJob, PrintRun)):
+        kind = "job" if isinstance(value, PrintJob) else "run"
+        if action == Action.READ and value.owner_id != context.actor.id:
+            query = select(LabelCopy.id).where(
+                LabelCopy.state.in_([State.QUEUED, State.PRINTING, State.NEEDS_REVIEW])
+            )
+            if isinstance(value, PrintJob):
+                query = query.where(LabelCopy.job_id == value.id)
+            else:
+                query = query.join(PrintJob).where(PrintJob.run_id == value.id)
+            with request.app.state.factory() as lookup:
+                active = lookup.scalar(query.limit(1))
+            if active is None:
+                kind += "_history"
         if (
             isinstance(value, PrintRun)
             and value.submitted_at is None
@@ -48,16 +62,19 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
         context.require(
             action,
             Resource(
-                "job" if isinstance(value, PrintJob) else "run",
+                kind,
                 value.id,
                 value.owner_id,
                 value.destination_id,
             ),
         )
     elif isinstance(value, Batch):
-        context.require_destination(value.printer_id, "moderator")
+        if not (
+            value.state == State.NEEDS_REVIEW and context.can_printer(value.printer_id, "review")
+        ):
+            context.require_printer(value.printer_id, "view_activity")
     elif isinstance(value, FlushRequest):
-        if not context.can_destination(value.destination_id, "moderator"):
+        if not context.can_printer(value.destination_id, "manage_queue"):
             with request.app.state.factory() as session:
                 owners = set(
                     session.scalars(
@@ -70,15 +87,18 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
                 raise HTTPException(403, "This queue reservation is not yours")
     elif isinstance(value, (PrinterDevice, PrinterGroup)):
         context.require(action, Resource("destination", value.id, destination_id=value.id))
+    elif isinstance(value, Cartridge):
+        operation = "view"
+        if request.url.path.startswith("/api/cartridges/") and request.method not in ("GET", "HEAD"):
+            operation = "edit_notes" if request.url.path.endswith("/notes") else "edit_details"
+        context.require_cartridge(value.id, operation)
 
 
-def visible_destinations(request: Request, session: Session, minimum: str = "request") -> list[str]:
+def visible_destinations(request: Request, session: Session, permission: str = "view") -> list[str]:
     context = access_context(request)
     identifiers = [value.id for value in session.scalars(select(PrinterDevice))]
     identifiers.extend(value.id for value in session.scalars(select(PrinterGroup)))
-    return [
-        identifier for identifier in identifiers if context.can_destination(identifier, minimum)
-    ]
+    return [identifier for identifier in identifiers if context.can_printer(identifier, permission)]
 
 
 def rendering_destination(
@@ -88,17 +108,17 @@ def rendering_destination(
 
     context = access_context(request)
     if identifier is not None:
-        context.require_destination(identifier)
+        context.require_printer(identifier, "view")
         return resolve_destination(session, identifier)
     printers = [
         device.id
         for device in session.scalars(select(PrinterDevice))
-        if not device.config.get("retired") and context.can_destination(device.id)
+        if not device.config.get("retired") and context.can_printer(device.id, "view")
     ]
     groups = [
         group.id
         for group in session.scalars(select(PrinterGroup))
-        if context.can_destination(group.id)
+        if context.can_printer(group.id, "view")
     ]
     choices = printers or groups
     if len(choices) == 1:
@@ -119,10 +139,65 @@ def visible_jobs(request: Request, session: Session, query: Select[Any]) -> Sele
     context = access_context(request)
     if context.actor.is_admin:
         return query
+    active = (
+        exists()
+        .where(
+            LabelCopy.job_id == PrintJob.id,
+            LabelCopy.state.in_([State.QUEUED, State.PRINTING, State.NEEDS_REVIEW]),
+        )
+        .correlate(PrintJob)
+    )
     return query.where(
         or_(
             PrintJob.owner_id == context.actor.id,
-            PrintJob.destination_id.in_(visible_destinations(request, session, "moderator")),
+            and_(
+                active,
+                PrintJob.destination_id.in_(visible_destinations(request, session, "view_queue")),
+            ),
+            and_(
+                ~active,
+                PrintJob.destination_id.in_(
+                    visible_destinations(request, session, "view_activity")
+                ),
+            ),
+        )
+    )
+
+
+def visible_runs(request: Request, session: Session, query: Select[Any]) -> Select[Any]:
+    context = access_context(request)
+    if context.actor.is_admin:
+        return query
+    active = (
+        select(LabelCopy.id)
+        .join(PrintJob)
+        .where(
+            PrintJob.run_id == PrintRun.id,
+            LabelCopy.state.in_([State.QUEUED, State.PRINTING, State.NEEDS_REVIEW]),
+        )
+        .correlate(PrintRun)
+        .exists()
+    )
+    return query.where(
+        or_(
+            PrintRun.owner_id == context.actor.id,
+            and_(
+                PrintRun.submitted_at.is_not(None),
+                or_(
+                    and_(
+                        active,
+                        PrintRun.destination_id.in_(
+                            visible_destinations(request, session, "view_queue")
+                        ),
+                    ),
+                    and_(
+                        ~active,
+                        PrintRun.destination_id.in_(
+                            visible_destinations(request, session, "view_activity")
+                        ),
+                    ),
+                ),
+            ),
         )
     )
 
@@ -134,7 +209,9 @@ def visible_requests(request: Request, session: Session, query: Select[Any]) -> 
     return query.where(
         or_(
             PrintRequest.owner_id == context.actor.id,
-            PrintRequest.destination_id.in_(visible_destinations(request, session, "moderator")),
+            PrintRequest.destination_id.in_(
+                visible_destinations(request, session, "approve_requests")
+            ),
         )
     )
 
