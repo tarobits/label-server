@@ -157,7 +157,11 @@ def actor_for_user(session: Session, user: User, *, include_resources: bool = Tr
         for device in session.scalars(select(PrinterDevice))
         if not device.config.get("retired")
     }
-    destinations = devices | set(session.scalars(select(PrinterGroup.id)))
+    # Keep legacy history grants; resource resolution strips operational rights
+    # from retired printers before exposing permissions.
+    destinations = set(session.scalars(select(PrinterDevice.id))) | set(
+        session.scalars(select(PrinterGroup.id))
+    )
     levels = {
         identifier: level for identifier, level in levels.items() if identifier in destinations
     }
@@ -287,7 +291,9 @@ def session_record(session: Session, user: User, record: AuthSession) -> dict[st
             "destination_permissions": {
                 key: sorted(value) for key, value in actor.destination_permissions.items()
             },
-            "cartridge_permissions": {key: sorted(value) for key, value in actor.cartridge_permissions.items()},
+            "cartridge_permissions": {
+                key: sorted(value) for key, value in actor.cartridge_permissions.items()
+            },
             "group_memberships": {
                 identifier: asdict(membership)
                 for identifier, membership in actor.group_memberships.items()

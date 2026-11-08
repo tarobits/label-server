@@ -142,7 +142,7 @@ def validate_grant(session: Session, grant: ResourceGrant) -> None:
         exists = device is not None
         allowed = PRINTER_PERMISSIONS
         if device is not None and device.config.get("retired"):
-            allowed = frozenset({"printer.view_audit"})
+            allowed = frozenset({"printer.view_audit", "printer.view_activity"})
     elif grant.scope_kind == "printer_group":
         exists = session.get(PrinterGroup, grant.scope_id) is not None
         allowed = GROUP_PERMISSIONS
@@ -274,7 +274,7 @@ def resolve_resource_access(
                     {"cartridge.view", "cartridge.edit_details", "cartridge.transfer_ownership"}
                 )
             if isinstance(value, PrinterDevice) and value.config.get("retired"):
-                rights.intersection_update({"printer.view_audit"})
+                rights.intersection_update({"printer.view_audit", "printer.view_activity"})
             resources[(kind, value.id)] = rights
     for group in groups:
         rights = (

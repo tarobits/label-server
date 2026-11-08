@@ -31,6 +31,12 @@ CATALOGUE: dict[tuple[str, str], tuple[str, ScopeKind, str | None]] = {
             ("PUT", "/api/companions/account/pin", "account.pin_changed"),
         )
     },
+    ("DELETE", "/api/printers/{identifier}"): ("printer.retired", "printer", "identifier"),
+    ("POST", "/api/printers/{identifier}/move-to-companion"): (
+        "printer.moved_to_companion",
+        "printer",
+        "identifier",
+    ),
     ("GET", "/api/audit"): ("audit.viewed", "global", None),
     ("POST", "/api/batches/{identifier}/review"): ("batch.reviewed", "printer", "batch"),
     ("POST", "/api/batches/{identifier}/retry-offers"): ("retry.requested", "printer", "batch"),

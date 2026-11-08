@@ -131,6 +131,12 @@ ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
         "old_held": "boolean",
         "new_held": "boolean",
     },
+    "printer.retired": {},
+    "printer.moved_to_companion": {
+        "retired_printer_id": "text",
+        "companion_id": "text",
+        "location_id": "text",
+    },
     "printer.stop_requested": {"mode": "text", "batch_id": "text"},
     **{
         action: {

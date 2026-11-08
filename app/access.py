@@ -178,7 +178,11 @@ class AccountPolicy:
                     and self.can_printer(
                         actor,
                         resource.destination_id,
-                        ("view_activity" if kind in ("job_history", "run_history") else "view_queue")
+                        (
+                            "view_activity"
+                            if kind in ("job_history", "run_history")
+                            else "view_queue"
+                        )
                         if action == Action.READ
                         else "manage_queue",
                     )
@@ -306,9 +310,7 @@ def access_context(request: Request) -> AccessContext:
         check_csrf(request, login)
         actor = actor_for_user(session, user)
         destinations: dict[str, object] = {
-            device.id: None
-            for device in session.scalars(select(PrinterDevice))
-            if not device.config.get("retired")
+            device.id: None for device in session.scalars(select(PrinterDevice))
         }
         destinations.update({group.id: None for group in session.scalars(select(PrinterGroup))})
         return AccessContext(actor, AccountPolicy(destinations))

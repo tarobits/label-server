@@ -92,6 +92,10 @@ class PrinterRegistry:
         self._definitions[definition.id] = definition
         self._backends[definition.id] = backend
 
+    def unregister(self, printer_id: str) -> None:
+        self._definitions.pop(printer_id, None)
+        self._backends.pop(printer_id, None)
+
     def definitions(self) -> tuple[PrinterDefinition, ...]:
         return tuple(self._definitions.values())
 

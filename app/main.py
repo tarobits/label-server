@@ -190,6 +190,7 @@ def create_app(
     from app.job_access_api import router as access_holds_router
     from app.migration_api import router as migration_router
     from app.notification_api import router as notification_endpoints_router
+    from app.printer_lifecycle import router as printer_lifecycle_router
     from app.push_api import router as push_router
     from app.queue_routing_api import router as queue_routing_router
     from app.recovery_api import router as recovery_router
@@ -214,6 +215,7 @@ def create_app(
     app.include_router(notification_endpoints_router)
     app.include_router(router, dependencies=[Depends(authorize_request)])
     app.include_router(fleet_router, dependencies=[Depends(authorize_request)])
+    app.include_router(printer_lifecycle_router, dependencies=[Depends(authorize_request)])
     app.include_router(queue_routing_router, dependencies=[Depends(authorize_request)])
     app.include_router(runs_router, dependencies=[Depends(authorize_request)])
     app.include_router(font_router, dependencies=[Depends(authorize_request)])

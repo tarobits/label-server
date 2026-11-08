@@ -66,7 +66,9 @@ def validate_device(body: PrinterInput, session: Session, identifier: str | None
                 )
             )
         )
-        if hosts.get(device.id) == host and device.id not in inactive
+        if hosts.get(device.id) == host
+        and device.id not in inactive
+        and not device.config.get("retired")
     ]
     if others and (not body.usb_serial or any(not d.config.get("usb_serial") for d in others)):
         raise HTTPException(
@@ -113,6 +115,8 @@ def edit_printer(
     from app.models import FlushRequest
 
     device = get(session, PrinterDevice, identifier)
+    if device.config.get("retired"):
+        raise HTTPException(409, "This printer registration has been retired")
     try:
         definition, _ = request.app.state.fleet.backend_factory(body.driver, body.model_dump())
     except ValueError as error:
@@ -197,7 +201,8 @@ def destinations(
             "automatic_printing_held": printer_state(session, p.id).automatic_printing_held,
         }
         for p in session.scalars(select(PrinterDevice))
-        if p.id in request.app.state.fleet.workers
+        if not p.config.get("retired")
+        and p.id in request.app.state.fleet.workers
         and access_context(request).can_printer(p.id, "view")
     ]
     result.extend(

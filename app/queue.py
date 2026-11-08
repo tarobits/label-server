@@ -165,6 +165,7 @@ class QueueWorker:
         self.lock = lock or Lock()
         self.printer_lock = Lock()
         self.control = PrintControl()
+        self.retired = False
         self.latest_status = PrinterStatus(False, None)
 
     def recover(self) -> None:
@@ -184,6 +185,8 @@ class QueueWorker:
         stamp = time.time() if now is None else now
         with self.printer_lock:
             with self.lock:
+                if self.retired:
+                    return
                 self.control.clear()
             try:
                 with self.lock, self.factory() as session:

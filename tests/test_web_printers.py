@@ -185,3 +185,16 @@ def test_legacy_physical_config_import_and_mock_retirement(tmp_path, monkeypatch
         # Its history can still reference the retired registration.
         with client.app.state.factory() as session:
             assert session.get(PrinterDevice, "simulation") is not None
+
+
+def test_retired_usb_serial_can_be_registered_again(tmp_path):
+    settings, _ = setup(tmp_path)
+    with TestClient(create_app(settings, start_worker=False)) as client:
+        first = client.post("/api/printers", json={"name": "Old", "usb_serial": "ONE"}).json()
+        assert client.delete(f"/api/printers/{first['id']}").status_code == 200
+        assert (
+            client.post(
+                "/api/printers", json={"name": "Replacement", "usb_serial": "ONE"}
+            ).status_code
+            == 201
+        )

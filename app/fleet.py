@@ -107,6 +107,14 @@ class PrinterFleet:
                         backend,
                     )
 
+    def retire(self, identifier: str) -> None:
+        # Caller holds both the fleet and hardware locks through commit.
+        worker = self.workers.pop(identifier, None)
+        if worker:
+            worker.retired = True
+        self.configuration_errors.pop(identifier, None)
+        self.registry.unregister(identifier)
+
     def reconfigure(self, device: PrinterDevice) -> None:
         # Caller holds the fleet lock and this worker's hardware lock through commit.
         definition, backend = self.backend_factory(device.driver, device.config)
@@ -325,7 +333,7 @@ class PrinterFleet:
         return prefix + f"For tape profile {required}: " + "; ".join(reasons)
 
     def _run(self, worker: QueueWorker) -> None:
-        while not self.stop.is_set():
+        while not self.stop.is_set() and not worker.retired:
             self.wake.clear()
             try:
                 worker.tick()

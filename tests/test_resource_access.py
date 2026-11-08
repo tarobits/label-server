@@ -275,10 +275,10 @@ def test_database_prevents_self_parent_and_duplicate_grants(foundation_session):
         grant(session, "printer.view")
 
 
-def test_retired_printer_only_retains_audit_access(foundation_session):
+def test_retired_printer_only_retains_history_access(foundation_session):
     session = foundation_session
     seed(session)
     session.get(PrinterDevice, "p").config = {"retired": True}
     session.flush()
     rights = resolve_resource_access(session, session.get(User, "owner"))
-    assert rights.resources[("printer", "p")] == {"printer.view_audit"}
+    assert rights.resources[("printer", "p")] == {"printer.view_audit", "printer.view_activity"}

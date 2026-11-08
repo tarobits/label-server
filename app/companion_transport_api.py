@@ -189,6 +189,8 @@ def enable_printer(
 
         device = session.get(PrinterDevice, identifier)
         assert device is not None
+        if device.config.get("retired"):
+            raise HTTPException(409, "This printer registration has been retired")
         validate_device(
             PrinterInput(name=device.name, driver=device.driver, **device.config),
             session,
@@ -212,6 +214,9 @@ def heartbeat(
     identifier: str, body: DeviceStatus, request: Request, session: DeviceDB
 ) -> dict[str, Any]:
     link = owned_printer(session, identifier)
+    device = session.get(PrinterDevice, identifier)
+    if device and device.config.get("moved_to"):
+        raise HTTPException(409, "Printer moved; restart the companion to refresh its registration")
     if body.diagnostics and (
         len(body.diagnostics) > 30
         or any(len(k) > 100 or len(v) > 500 for k, v in body.diagnostics.items())

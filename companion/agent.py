@@ -138,14 +138,14 @@ class Agent:
             self.journal.acknowledge(identifier)
         for device in self.devices:
             local_id = device.local_id
-            if local_id not in self.identifiers:
-                registered = self.request(
-                    "POST", "/api/companion/printers", json=device.model_dump()
-                ).json()
-                self.identifiers[local_id] = registered["printer_id"]
-                if not registered["enabled"]:
-                    self.journal.set_printer_enabled(local_id, False)
-                    continue
+            # The main server may move this physical slot onto an existing printer.
+            registered = self.request(
+                "POST", "/api/companion/printers", json=device.model_dump()
+            ).json()
+            self.identifiers[local_id] = registered["printer_id"]
+            if not registered["enabled"]:
+                self.journal.set_printer_enabled(local_id, False)
+                continue
             executor = self.executors[local_id]
             if executor.lock.acquire(blocking=False):
                 try:
