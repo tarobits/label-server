@@ -15,10 +15,21 @@ import CartridgeConsent from './components/CartridgeConsent.vue'
 import JobPreview from './components/JobPreview.vue'
 import PinEntry from './components/PinEntry.vue'
 import UserAvatar from './components/UserAvatar.vue'
+import StationTelemetry, { type StationDashboard } from './components/StationTelemetry.vue'
+import {
+  PrinterIcon,
+  LockClosedIcon,
+  ExclamationTriangleIcon,
+  PauseIcon,
+  SignalSlashIcon,
+  CheckCircleIcon,
+} from '@heroicons/vue/24/outline'
 import { checkServer, serverUnavailable } from './serverConnection'
 import { mediaLabel, compatibleProfile } from './media'
 
 interface LocalPrinter {
+  dashboard?: StationDashboard | null
+  snapshot_age_seconds?: number | null
   local_id: string
   id: string | null
   name: string
@@ -72,6 +83,10 @@ const userId = ref(''),
   selected = ref(''),
   destination = ref('')
 const pinAttempt = ref(0)
+const expandedPrinter = ref('')
+watch(selected, (value) => {
+  if (value) expandedPrinter.value = value
+})
 const clock = ref(performance.now()),
   lockDeadline = ref(0)
 let clockTimer: ReturnType<typeof setInterval> | undefined
@@ -140,6 +155,27 @@ const destinations = computed(() =>
       ]
     : [],
 )
+const fleetSummary = computed(() => {
+  const printers = station.value?.printers ?? []
+  const connected = printers.filter((printer) => printer.status.connected).length
+  const attention = printers.filter((printer) => printer.blocked || printer.status.error).length
+  return `${connected} of ${printers.length} connected${attention ? ` · ${attention} need attention` : ''}`
+})
+function printerState(printer: LocalPrinter) {
+  if (!stationReachable.value || serverUnavailable.value)
+    return { label: 'Status unavailable', tone: 'muted', icon: SignalSlashIcon }
+  if (printer.blocked)
+    return { label: 'Investigation required', tone: 'danger', icon: ExclamationTriangleIcon }
+  if (printer.status.error)
+    return { label: 'Printer error', tone: 'danger', icon: ExclamationTriangleIcon }
+  if (printer.printing) return { label: 'Printing', tone: 'printing', icon: PrinterIcon }
+  if (!printer.status.connected)
+    return { label: 'Disconnected', tone: 'muted', icon: SignalSlashIcon }
+  if (printer.dashboard?.cartridge_check_pending)
+    return { label: 'Check cartridge', tone: 'warning', icon: ExclamationTriangleIcon }
+  if (printer.dashboard?.held) return { label: 'On hold', tone: 'warning', icon: PauseIcon }
+  return { label: 'Connected', tone: 'ready', icon: CheckCircleIcon }
+}
 const queuedCopies = (job: Job) =>
   job.labels.filter((label) => label.state === 'queued').map((label) => label.id)
 function clearPrivate(clearPin = true) {
@@ -516,26 +552,32 @@ function changePage(delta: number) {
 <template>
   <main id="main-content" class="station-shell" tabindex="-1">
     <header class="station-heading">
-      <div>
+      <div class="station-title">
         <h1>{{ station?.name ?? 'Companion' }}</h1>
-        <p v-if="station?.user && !station.locked" class="muted">{{ station.user.username }}</p>
+        <p class="muted">
+          {{
+            stationReachable && !serverUnavailable ? fleetSummary : 'Waiting for station status…'
+          }}
+        </p>
+      </div>
+      <div v-if="!station || station.locked" class="station-unlock">
+        <button
+          class="primary"
+          :disabled="!stationReachable || serverUnavailable || !station?.online || busy"
+          @click="openUnlock"
+        >
+          Unlock
+        </button>
       </div>
       <div v-if="station && !station.locked" class="station-lock">
+        <span class="station-operator">{{ station.user?.username }}</span>
         <span class="muted lock-countdown" role="timer" aria-label="Time until station locks"
           >Locks in {{ lockCountdown }}</span
         >
         <button class="secondary" :disabled="busy" @click="lock">Lock</button>
       </div>
+      <span v-else class="station-locked"><LockClosedIcon aria-hidden="true" />Locked</span>
     </header>
-    <div v-if="!station || station.locked" class="station-unlock">
-      <button
-        class="primary"
-        :disabled="!stationReachable || serverUnavailable || !station?.online || busy"
-        @click="openUnlock"
-      >
-        Unlock
-      </button>
-    </div>
     <Transition name="notice"
       ><p
         v-if="refreshError && stationReachable && station?.online && !serverUnavailable"
@@ -551,38 +593,67 @@ function changePage(delta: number) {
     <Transition name="notice"
       ><p v-if="success" class="alert success" role="status">{{ success }}</p></Transition
     >
-    <section class="panel" aria-label="Connected printers">
-      <button
-        v-if="!station?.locked && station?.user?.permissions.includes('printers.manage')"
-        class="secondary"
-        :disabled="busy || !operational"
-        @click="addPrinter"
+    <section class="station-fleet" aria-label="Connected printers">
+      <div class="fleet-toolbar">
+        <h2>Printers</h2>
+        <button
+          v-if="!station?.locked && station?.user?.permissions.includes('printers.manage')"
+          class="secondary"
+          :disabled="busy || !operational"
+          @click="addPrinter"
+        >
+          Add printer
+        </button>
+      </div>
+      <p v-if="station && !station.printers.length" class="panel muted">
+        No local printers configured.
+      </p>
+      <TransitionGroup
+        tag="div"
+        class="printer-grid"
+        name="collection"
+        @before-leave="freezeLeavingItem"
       >
-        Add printer
-      </button>
-      <p v-if="station && !station.printers.length" class="muted">No local printers configured.</p>
-      <TransitionGroup tag="div" name="collection" @before-leave="freezeLeavingItem">
         <article
           v-for="printer in station?.printers"
           :key="printer.local_id"
           class="station-printer"
+          :class="{ expanded: expandedPrinter === printer.local_id }"
+          :aria-label="printer.name"
         >
-          <div class="row wrap spread">
-            <div>
-              <h2>{{ printer.name }}</h2>
-              <p :class="printer.blocked || printer.status.error ? 'danger-text' : 'muted'">
-                {{
-                  printer.blocked
-                    ? 'Investigation required'
-                    : printer.printing
-                      ? 'Printing'
-                      : (printer.status.error ??
-                        (printer.status.connected ? 'Ready' : 'Disconnected'))
-                }}<template v-if="printer.status.tape_width_mm">
-                  · {{ printer.status.tape_width_mm }} mm</template
-                >
-              </p>
+          <div class="printer-card-heading">
+            <div class="printer-identity">
+              <PrinterIcon class="printer-icon" aria-hidden="true" />
+              <div>
+                <h2>{{ printer.name }}</h2>
+                <p class="muted">
+                  {{
+                    printer.status.tape_width_mm
+                      ? `${printer.status.tape_width_mm} mm tape`
+                      : 'Tape not detected'
+                  }}
+                </p>
+              </div>
             </div>
+            <span class="printer-state" :class="printerState(printer).tone"
+              ><component :is="printerState(printer).icon" aria-hidden="true" />{{
+                printerState(printer).label
+              }}</span
+            >
+          </div>
+          <p v-if="printer.status.error" class="printer-problem">{{ printer.status.error }}</p>
+          <StationTelemetry
+            v-if="printer.dashboard?.queued_labels != null"
+            :details="printer.dashboard"
+            :stale="
+              !station?.online ||
+              !stationReachable ||
+              serverUnavailable ||
+              (printer.snapshot_age_seconds ?? 0) > 20
+            "
+            :printing="printer.printing"
+          />
+          <div class="printer-actions">
             <div class="row wrap">
               <button
                 v-if="!station?.locked && can(printer.id, 'view')"
@@ -609,7 +680,10 @@ function changePage(delta: number) {
               </button>
             </div>
           </div>
-          <ExpandableContent :open="selected === printer.local_id && !station?.locked">
+          <ExpandableContent
+            :open="selected === printer.local_id && !station?.locked"
+            @closed="expandedPrinter === printer.local_id && (expandedPrinter = '')"
+          >
             <Transition name="notice">
               <div class="station-controls" v-if="selected === printer.local_id">
                 <p v-if="status?.needs_review.length" class="alert warning">
@@ -958,14 +1032,14 @@ function changePage(delta: number) {
 
 <style scoped>
 .station-shell {
-  max-width: 1100px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 32px 24px 80px;
+  padding: 24px 24px 80px;
 }
 .station-unlock {
   display: flex;
   justify-content: center;
-  margin-bottom: 32px;
+  margin: 0;
 }
 .station-unlock button,
 .unlock-submit {
@@ -1032,11 +1106,141 @@ function changePage(delta: number) {
   background: var(--success);
 }
 .station-heading {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.station-heading:has(.station-lock) {
+  grid-template-columns: 1fr auto;
+}
+.station-title {
+  min-width: 0;
+}
+.station-title h1 {
+  font-size: 1.6rem;
+  overflow-wrap: anywhere;
+}
+.station-title p {
+  font-size: 0.875rem;
+}
+.station-locked {
   display: flex;
   align-items: center;
+  justify-content: end;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.station-locked svg {
+  width: 18px;
+  height: 18px;
+}
+.station-operator {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+.fleet-toolbar {
+  display: flex;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 32px;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.fleet-toolbar h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+.printer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.printer-card-heading {
+  display: flex;
+  align-items: start;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+}
+.printer-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 180px;
+}
+.printer-identity > div {
+  min-width: 0;
+}
+.printer-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.printer-identity h2 {
+  font-size: 1.125rem;
+  overflow-wrap: anywhere;
+}
+.printer-identity p {
+  font-size: 0.875rem;
+}
+.printer-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-secondary);
+  color: var(--muted);
+}
+.printer-state svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.printer-state.ready {
+  color: var(--success-text);
+  background: var(--success-fill);
+}
+.printer-state.printing {
+  color: var(--accent-hover);
+  background: var(--accent-fill);
+}
+.printer-state.danger {
+  color: var(--danger-text);
+  background: var(--danger-fill);
+}
+.printer-state.warning {
+  color: #fbbf24;
+  background: rgb(245 158 11 / 10%);
+}
+.printer-problem {
+  color: var(--danger-text);
+  overflow-wrap: anywhere;
+}
+.printer-actions:has(button) {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.printer-actions button {
+  min-height: 44px;
+}
+.station-printer.expanded {
+  grid-column: 1 / -1;
+}
+.station-printer.expanded :deep(.printer-counts) {
+  max-width: 500px;
+}
+.station-printer.expanded :deep(.printer-stock) {
+  max-width: 560px;
+}
+.station-printer.expanded :deep(.printer-telemetry) {
+  margin-bottom: 4px;
 }
 .station-heading h1 {
   margin: 0 0 8px;
@@ -1056,16 +1260,19 @@ function changePage(delta: number) {
   font-variant-numeric: tabular-nums;
 }
 .station-printer {
-  padding-block: 24px;
-}
-.station-printer + .station-printer {
-  border-top: 1px solid var(--line);
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  display: grid;
+  gap: 20px;
 }
 .station-printer h2 {
-  margin: 0 0 8px;
+  margin: 0;
 }
 .station-printer p {
-  margin-block: 8px;
+  margin: 4px 0 0;
 }
 .station-controls {
   padding-top: 24px;
@@ -1100,8 +1307,37 @@ function changePage(delta: number) {
   .station-shell {
     padding: 24px 16px 80px;
   }
-  .station-heading {
-    align-items: start;
+  .station-heading,
+  .station-heading:has(.station-lock) {
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+  }
+  .station-title {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .station-unlock {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .station-locked {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+  .station-heading:has(.station-locked) .station-title {
+    padding-right: 80px;
+  }
+  .station-lock {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+  .printer-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .station-printer {
+    padding: 16px;
   }
   .station-job {
     flex-wrap: wrap;

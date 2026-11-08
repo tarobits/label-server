@@ -34,6 +34,19 @@ The bottom indicator distinguishes the main server being offline from the browse
 losing contact with the companion. The page retries automatically and recovers
 without a browser refresh. Print and other control requests are never replayed.
 
+The dashboard shows each printer's queue counts, cartridge estimate, active batch
+size, last batch result, and confirmed labels printed in the last 24 hours. Shared
+group queues are counted separately. Batch results update after confirmation;
+the display does not estimate per-label progress. During an outage, cached
+summaries are marked as last known server data.
+
+Operational details are visible while locked by default. Set
+`LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS=false` in `.env.companion` and restart
+the companion to hide these details until an operator with **View printer**
+permission unlocks it. The basic printer list and connection indicator remain
+visible. Label artwork, requester names and financial data are never included in
+the public operational summary.
+
 Set `LABEL_COMPANION_PIN_KEYPAD_ENABLED=true` for an on-screen PIN keypad.
 `LABEL_COMPANION_PIN_KEYPAD_SHUFFLE` selects `none` (fixed number order), `once`
 (shuffle when opening PIN entry, changing users or starting another attempt), or
