@@ -24,6 +24,16 @@ The companion's settings dialog shows the deployment user ID for copying.
 Anyone with that shared PIN can exercise the bound account's permissions at the
 station. The API key cannot select an arbitrary account.
 
+The unlock dialog shows a card for each eligible user. Select a card to enter the
+PIN, or choose **Change user** to return to the picker. In single-user mode it
+opens PIN entry directly. Profile pictures can be uploaded or removed in the main
+server's account settings; rounded-square avatars fall back to initials. Pictures
+are visible before unlock only for accounts eligible to use that companion.
+
+The bottom indicator distinguishes the main server being offline from the browser
+losing contact with the companion. The page retries automatically and recovers
+without a browser refresh. Print and other control requests are never replayed.
+
 Set `LABEL_COMPANION_PIN_KEYPAD_ENABLED=true` for an on-screen PIN keypad.
 `LABEL_COMPANION_PIN_KEYPAD_SHUFFLE` selects `none` (fixed number order), `once`
 (shuffle when opening PIN entry, changing users or starting another attempt), or

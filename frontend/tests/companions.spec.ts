@@ -122,6 +122,18 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
 }) => {
   const locationId = await location(request)
   const user = (await (await request.get('/api/auth/session')).json()).user
+  const picture = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=',
+    'base64',
+  )
+  expect(
+    (
+      await request.put('/api/auth/avatar', {
+        data: picture,
+        headers: { 'Content-Type': 'image/png' },
+      })
+    ).ok(),
+  ).toBeTruthy()
   const station = await (
     await request.post('/api/companions', {
       data: { name: 'Packing station', location_id: locationId, bound_user_id: user.id },
@@ -178,6 +190,14 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
     await page.getByRole('button', { name: 'Unlock', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Unlock station', exact: true })
     await expect(dialog.getByLabel('User', { exact: true })).toHaveCount(0)
+    await expect(dialog.locator('.user-avatar img')).toBeVisible()
+    await expect
+      .poll(() =>
+        dialog
+          .locator('.user-avatar img')
+          .evaluate((element) => (element as HTMLImageElement).naturalWidth),
+      )
+      .toBe(256)
     const keypad = dialog.getByRole('group', { name: 'PIN keypad' })
     for (const digit of '246810')
       await keypad.getByRole('button', { name: digit, exact: true }).click()
@@ -258,7 +278,9 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
         .getByRole('button', { name: 'Move location and install', exact: true })
         .click()
       await expect(locationDialog).not.toBeVisible()
-      await expect(page.getByRole('status')).toHaveText('Cartridge installed.')
+      await expect(page.getByRole('status').filter({ hasText: 'Cartridge installed.' })).toHaveText(
+        'Cartridge installed.',
+      )
       await expect(page.getByRole('alert')).toHaveCount(0)
       expect(
         (await (await request.get('/api/cartridges')).json()).find(

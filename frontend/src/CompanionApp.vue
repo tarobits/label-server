@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, configureSession, errorMessage } from './api'
 import { ActionCancelled, ActionDeferred, confirmAction } from './confirmation'
 import { installCartridge } from './cartridges'
@@ -14,6 +14,8 @@ import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeConsent from './components/CartridgeConsent.vue'
 import JobPreview from './components/JobPreview.vue'
 import PinEntry from './components/PinEntry.vue'
+import UserAvatar from './components/UserAvatar.vue'
+import { checkServer, serverUnavailable } from './serverConnection'
 import { mediaLabel, compatibleProfile } from './media'
 
 interface LocalPrinter {
@@ -38,7 +40,7 @@ interface Station {
   online: boolean
   locked: boolean
   user: Operator | null
-  users: { id: string; username: string }[]
+  users: { id: string; username: string; avatar_version?: string | null }[]
   single_user_id: string | null
   pin_keypad: { enabled: boolean; shuffle: 'none' | 'once' | 'each_keypress' }
   lock_remaining_seconds: number | null
@@ -50,6 +52,17 @@ interface Station {
 const station = ref<Station>(),
   statuses = ref<Record<string, Status>>({}),
   devices = ref<Printer[]>([])
+const stationReachable = ref(false),
+  refreshError = ref('')
+const selectedUser = computed(() => station.value?.users.find((user) => user.id === userId.value))
+const connectionLabel = computed(() =>
+  !stationReachable.value || serverUnavailable.value
+    ? 'Reconnecting to companion…'
+    : station.value?.online
+      ? 'Main server connected'
+      : 'Main server offline · Reconnecting…',
+)
+const unlockPanel = ref<HTMLElement>()
 const error = ref(''),
   success = ref(''),
   busy = ref(false),
@@ -97,7 +110,13 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   catalogUser = ''
 const active = computed(() => station.value?.printers.find((p) => p.local_id === selected.value))
 const status = computed(() => (active.value?.id ? statuses.value[active.value.id] : undefined))
-const operational = computed(() => !!station.value?.online && !station.value.locked)
+const operational = computed(
+  () =>
+    stationReachable.value &&
+    !serverUnavailable.value &&
+    !!station.value?.online &&
+    !station.value.locked,
+)
 const can = (identifier: string | null | undefined, permission: string) =>
   !!identifier &&
   (station.value?.user?.printer_permissions[identifier] ?? []).includes(`printer.${permission}`)
@@ -144,11 +163,28 @@ async function refresh() {
   refreshBusy = true
   const ticket = generation
   try {
+    if (serverUnavailable.value && !(await checkServer())) {
+      stationReachable.value = false
+      return
+    }
     const started = performance.now()
-    const state = await api<Station>('/station')
+    const state = await api<Station>('/station').catch((issue) => {
+      stationReachable.value = false
+      throw issue
+    })
     if (disposed || ticket !== generation) return
     const changed = state.user?.id !== station.value?.user?.id
     station.value = state
+    stationReachable.value = true
+    refreshError.value = ''
+    if (
+      !state.single_user_id &&
+      userId.value &&
+      !state.users.some((user) => user.id === userId.value)
+    ) {
+      userId.value = ''
+      pin.value = ''
+    }
     updateLockCountdown(state.lock_remaining_seconds, started)
     configureSession(state.csrf_token, () => {
       if (station.value) station.value.locked = true
@@ -191,7 +227,7 @@ async function refresh() {
     statuses.value = Object.fromEntries(values.map((value) => [value.printer_id, value]))
     if (active.value && destination.value) await loadQueue(requestGeneration)
   } catch (issue) {
-    if (!disposed) error.value = errorMessage(issue)
+    if (!disposed) refreshError.value = errorMessage(issue)
   } finally {
     refreshBusy = false
   }
@@ -240,6 +276,7 @@ function openControls(printer: LocalPrinter) {
   if (selected.value) void loadQueue().catch((issue) => (error.value = errorMessage(issue)))
 }
 async function unlock() {
+  if (!userId.value || !stationReachable.value || !station.value?.online) return
   await perform(async () => {
     try {
       await api('/station/unlock', 'POST', {
@@ -422,6 +459,8 @@ onMounted(() => {
     clock.value = performance.now()
   }, 1000)
   void poll()
+  window.addEventListener('online', reconnectNow)
+  document.addEventListener('visibilitychange', reconnectNow)
   document.addEventListener('pointerdown', touch)
   document.addEventListener('keydown', touch)
 })
@@ -431,14 +470,26 @@ onBeforeUnmount(() => {
   clearTimeout(timer)
   clearInterval(clockTimer)
   clearPrivate()
+  window.removeEventListener('online', reconnectNow)
+  document.removeEventListener('visibilitychange', reconnectNow)
   document.removeEventListener('pointerdown', touch)
   document.removeEventListener('keydown', touch)
 })
 function openUnlock() {
   unlocking.value = true
-  userId.value = station.value?.single_user_id ?? station.value?.users[0]?.id ?? ''
+  userId.value = station.value?.single_user_id ?? ''
   pin.value = ''
   error.value = ''
+}
+async function chooseUser(identifier: string) {
+  userId.value = identifier
+  pin.value = ''
+  error.value = ''
+  await nextTick()
+  unlockPanel.value?.querySelector<HTMLElement>(identifier ? 'input' : '.station-user')?.focus()
+}
+function reconnectNow() {
+  if (!document.hidden) void refresh()
 }
 function closeUnlock() {
   unlocking.value = false
@@ -467,28 +518,33 @@ function changePage(delta: number) {
     <header class="station-heading">
       <div>
         <h1>{{ station?.name ?? 'Companion' }}</h1>
-        <p class="muted">
-          {{ station?.online ? 'Connected to main server' : 'Main server offline'
-          }}<template v-if="station?.user && !station.locked">
-            · {{ station.user.username }}</template
-          >
-        </p>
+        <p v-if="station?.user && !station.locked" class="muted">{{ station.user.username }}</p>
       </div>
-      <button
-        v-if="station?.locked"
-        class="primary"
-        :disabled="!station.online || busy"
-        @click="openUnlock"
-      >
-        Unlock
-      </button>
-      <div v-else-if="station" class="station-lock">
+      <div v-if="station && !station.locked" class="station-lock">
         <span class="muted lock-countdown" role="timer" aria-label="Time until station locks"
           >Locks in {{ lockCountdown }}</span
         >
         <button class="secondary" :disabled="busy" @click="lock">Lock</button>
       </div>
     </header>
+    <div v-if="!station || station.locked" class="station-unlock">
+      <button
+        class="primary"
+        :disabled="!stationReachable || serverUnavailable || !station?.online || busy"
+        @click="openUnlock"
+      >
+        Unlock
+      </button>
+    </div>
+    <Transition name="notice"
+      ><p
+        v-if="refreshError && stationReachable && station?.online && !serverUnavailable"
+        class="alert danger"
+        role="alert"
+      >
+        {{ refreshError }}
+      </p></Transition
+    >
     <Transition name="notice"
       ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
     >
@@ -737,26 +793,96 @@ function changePage(delta: number) {
         </section>
       </ExpandableContent>
     </section>
+    <footer class="station-connection" role="status" aria-live="polite">
+      <span
+        class="connection-dot"
+        :class="{ connected: stationReachable && !serverUnavailable && station?.online }"
+        aria-hidden="true"
+      ></span>
+      {{ connectionLabel }}
+    </footer>
   </main>
   <AdminDialog :open="unlocking" title="Unlock station" :busy="busy" @close="closeUnlock"
-    ><form v-validate-form class="form-stack" @submit.prevent="unlock">
-      <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <label v-if="!station?.single_user_id"
-        >User<select v-model="userId" required :disabled="busy">
-          <option v-for="user in station?.users" :key="user.id" :value="user.id">
-            {{ user.username }}
-          </option>
-        </select></label
+    ><div ref="unlockPanel">
+      <Transition
+        name="notice"
+        mode="out-in"
+        @after-enter="
+          unlockPanel?.querySelector<HTMLElement>(userId ? 'input' : '.station-user')?.focus()
+        "
       >
-      <PinEntry
-        :key="`${userId}:${pinAttempt}`"
-        v-model="pin"
-        :keypad="station?.pin_keypad?.enabled"
-        :shuffle="station?.pin_keypad?.shuffle"
-        :disabled="busy"
-      />
-      <button class="primary" :disabled="busy || !station?.online">Unlock</button>
-    </form></AdminDialog
+        <div
+          v-if="!userId"
+          key="users"
+          class="station-users motion-reveal"
+          role="group"
+          aria-label="Choose user"
+        >
+          <button
+            v-for="user in station?.users"
+            :key="user.id"
+            type="button"
+            class="secondary station-user"
+            :disabled="busy"
+            @click="chooseUser(user.id)"
+          >
+            <UserAvatar
+              :username="user.username"
+              :src="
+                user.avatar_version && station?.online
+                  ? `/api/station/users/${encodeURIComponent(user.id)}/avatar?v=${user.avatar_version}`
+                  : null
+              "
+            />
+            <span>{{ user.username }}</span>
+          </button>
+          <p v-if="!station?.users.length" class="muted">No users available.</p>
+        </div>
+        <form
+          v-else
+          :key="userId"
+          v-validate-form
+          class="form-stack station-pin motion-reveal"
+          @submit.prevent="unlock"
+        >
+          <div class="station-selected-user">
+            <UserAvatar
+              v-if="selectedUser"
+              :username="selectedUser.username"
+              :src="
+                selectedUser.avatar_version && station?.online
+                  ? `/api/station/users/${encodeURIComponent(selectedUser.id)}/avatar?v=${selectedUser.avatar_version}`
+                  : null
+              "
+            />
+            <strong v-if="selectedUser">{{ selectedUser.username }}</strong>
+            <button
+              v-if="!station?.single_user_id"
+              type="button"
+              class="secondary"
+              :disabled="busy"
+              @click="chooseUser('')"
+            >
+              Change user
+            </button>
+          </div>
+          <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+          <PinEntry
+            :key="`${userId}:${pinAttempt}`"
+            v-model="pin"
+            :keypad="station?.pin_keypad?.enabled"
+            :shuffle="station?.pin_keypad?.shuffle"
+            :disabled="busy"
+          />
+          <button
+            class="primary unlock-submit"
+            :disabled="busy || !stationReachable || serverUnavailable || !station?.online"
+          >
+            Unlock
+          </button>
+        </form>
+      </Transition>
+    </div></AdminDialog
   >
   <AdminDialog
     :open="!!config && !station?.locked"
@@ -834,7 +960,76 @@ function changePage(delta: number) {
 .station-shell {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 32px 24px 80px;
+}
+.station-unlock {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+.station-unlock button,
+.unlock-submit {
+  min-width: 160px;
+  min-height: 48px;
+}
+.unlock-submit {
+  align-self: center;
+  margin-inline: auto;
+}
+.station-users {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  padding: 4px;
+}
+.station-user {
+  display: flex;
+  justify-content: flex-start;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 12px;
+  min-width: 0;
+  border-radius: 12px;
+}
+.station-user > span:last-child {
+  overflow-wrap: anywhere;
+}
+.station-selected-user {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.station-pin {
+  max-width: 360px;
+  margin-inline: auto;
+}
+.station-connection {
+  position: fixed;
+  inset: auto 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  background: var(--surface-dense);
+  border-top: 1px solid var(--line);
+  font-size: 0.875rem;
+  color: var(--muted);
+  z-index: 10;
+}
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.connection-dot.connected {
+  background: var(--success);
 }
 .station-heading {
   display: flex;
@@ -903,7 +1098,7 @@ function changePage(delta: number) {
 }
 @media (max-width: 600px) {
   .station-shell {
-    padding: 24px 16px;
+    padding: 24px 16px 80px;
   }
   .station-heading {
     align-items: start;
