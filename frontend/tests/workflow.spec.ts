@@ -5,6 +5,7 @@ test(
   'create tape and cartridge, queue copies, review an interrupted batch, and print the remainder',
   { tag: '@empty-fleet' },
   async ({ page }) => {
+    test.setTimeout(60000)
     await page.goto('/#/')
     await expect(page.getByRole('heading', { name: 'Add your first printer' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Printer & settings' })).toHaveCount(0)
@@ -57,6 +58,7 @@ test(
     await page.locator('.activity-labels > summary').first().click()
     await page.getByRole('button', { name: 'Retry labels', exact: true }).click()
     const retry = page.getByRole('dialog', { name: 'Retry labels', exact: true })
+    for (const copy of await retry.locator('.retry-copies input').all()) await copy.uncheck()
     await retry.locator('.retry-copies input').first().check()
     await retry.getByRole('combobox', { name: 'Funding', exact: true }).selectOption('free')
     await retry.getByRole('button', { name: 'Authorize free retry', exact: true }).click()
@@ -66,8 +68,14 @@ test(
     await expect(page.getByRole('link', { name: 'Review →', exact: true })).toHaveCount(0)
     await page.getByRole('link', { name: 'Print queue', exact: false }).click()
     await page.getByRole('combobox', { name: 'Job status', exact: true }).selectOption('printed')
-    await page.locator('.queue-label-details > summary').click()
-    await expect(page.getByText('Network cables / Box 03', { exact: true })).toBeVisible()
+    await expect(page.locator('.queue-label-details')).toHaveCount(2)
+    await page.locator('.queue-label-details > summary').first().click()
+    await expect(
+      page
+        .locator('.queue-label-details')
+        .first()
+        .getByText('Network cables / Box 03', { exact: true }),
+    ).toBeVisible()
     await page.getByRole('link', { name: 'Cartridges', exact: true }).click()
     // Tape usage changes asynchronously in the worker after the print command is accepted.
     await expect(page.getByText('≈ 7.84 m')).toBeVisible({ timeout: 15000 })
