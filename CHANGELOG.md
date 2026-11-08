@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.2] - 2026-11-08
+
+### Fixed
+
+- Automatically sized text fields now use the rendered size of multiline text,
+  keeping labels compact when text shrinks to fit the field height. Character
+  spacing, line spacing, padding, and queued preview geometry stay consistent.
+
+No new database migrations are required when upgrading from 0.12.1.
+
 ## [0.12.1] - 2026-11-07
 
 ### Fixed
@@ -618,6 +628,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.12.2]: https://github.com/tarobits/label-server/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/tarobits/label-server/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0
 [0.12.0-pre7]: https://github.com/tarobits/label-server/compare/v0.12.0-pre6...v0.12.0-pre7
