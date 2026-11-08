@@ -8,9 +8,10 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.account_audit import record_account
 from app.auth import (
     check_csrf,
     check_origin,
@@ -21,6 +22,7 @@ from app.auth import (
 )
 from app.auth_api import Password, throttle
 from app.config import Settings
+from app.db import begin_write
 from app.email_delivery import EmailAddress, email_enabled, send_email
 from app.models import AuthSession, NotificationEndpoint, RecoveryToken, User
 from app.notification_api import EndpointInput, update_configuration, validate_references
@@ -126,6 +128,7 @@ def send_reset_link(
                 return
             recipient = user.email
             token = issue_token(session, user, "reset", recipient)
+            record_account(session, "auth.reset_link_issued", user, system=True)
         deliver_link(settings, recipient, "reset", token)
     except Exception:
         logger.warning("Account email delivery failed")
@@ -161,7 +164,7 @@ def email_settings(request: Request) -> dict[str, Any]:
 @router.put("/email", status_code=202)
 def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> dict[str, str]:
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         user = require_user(request, session)
         throttle(request, "email:" + user.username)
         if not verify_password(body.current_password, user.password_hash):
@@ -184,6 +187,7 @@ def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> 
                 token,
             )
             message = "Check your email for a verification link."
+        record_account(session, "auth.email_changed", user, configured=body.email is not None)
         session.commit()
         return {"message": message}
 
@@ -209,7 +213,7 @@ def verify_email(body: TokenInput, request: Request) -> None:
     check_origin(request)
     throttle(request, "verify:" + token_hash(body.token))
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         token, user = consume_token(session, body.token, "verify")
         if session.scalar(
             select(User.id).where(func.lower(User.email) == token.email, User.id != user.id)
@@ -220,6 +224,7 @@ def verify_email(body: TokenInput, request: Request) -> None:
         endpoint = session.get(NotificationEndpoint, f"personal-email:{user.id}")
         if endpoint:
             update_configuration(session, endpoint, {"email": user.email})
+        record_account(session, "auth.email_verified", user)
         session.commit()
 
 
@@ -228,6 +233,8 @@ def forgot_password(body: ForgotInput, request: Request, tasks: BackgroundTasks)
     check_origin(request)
     throttle(request, "forgot:" + body.username)
     require_email(request)
+    with request.app.state.factory.begin() as session:
+        record_account(session, "auth.reset_requested", None)
     tasks.add_task(
         send_reset_link, request.app.state.factory, request.app.state.settings, body.username
     )
@@ -251,22 +258,26 @@ def reset_password(body: ResetInput, request: Request, tasks: BackgroundTasks) -
     check_origin(request)
     throttle(request, "reset:" + token_hash(body.token))
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         token, user = consume_token(session, body.token, "reset")
         user.password_hash = hash_password(body.new_password)
         session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+        from app.companion_auth import revoke_sessions
+
+        revoke_sessions(session, user.id)
         session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
         tasks.add_task(password_changed_email, request.app.state.settings, token.email)
+        record_account(session, "auth.password_reset", user)
         session.commit()
 
 
 @router.put("/email/subscription", status_code=204)
 def save_subscription(body: SubscriptionInput, request: Request) -> None:
-    from app.access import LEVELS
+    from app.access import AccountPolicy
     from app.auth import actor_for_user
 
     with request.app.state.fleet.lock, request.app.state.factory() as session:
-        session.execute(text("BEGIN IMMEDIATE"))
+        begin_write(session)
         user = require_user(request, session)
         if body.enabled:
             require_email(request)
@@ -275,6 +286,7 @@ def save_subscription(body: SubscriptionInput, request: Request) -> None:
                     409, "Verify an email address before enabling email notifications"
                 )
         if not user.email:
+            record_account(session, "auth.subscription_changed", user, configured=False)
             session.commit()
             return
         actor = actor_for_user(session, user)
@@ -282,11 +294,12 @@ def save_subscription(body: SubscriptionInput, request: Request) -> None:
             raise HTTPException(403, "Only administrators can subscribe to pending print requests")
         if any(
             not actor.is_admin
-            and LEVELS.get(actor.destination_levels.get(identifier, "none"), 0)
-            < LEVELS["moderator"]
+            and not AccountPolicy({identifier: None}).can_printer(
+                actor, identifier, "view_activity"
+            )
             for identifier in {*body.destination_ids, *body.printer_kinds}
         ):
-            raise HTTPException(403, "Choose destinations you can moderate")
+            raise HTTPException(403, "Choose destinations whose print activity you can view")
         try:
             values = EndpointInput(
                 name="Personal email",
@@ -308,4 +321,5 @@ def save_subscription(body: SubscriptionInput, request: Request) -> None:
             session.add(endpoint)
         else:
             update_configuration(session, endpoint, values.model_dump(exclude={"token"}))
+        record_account(session, "auth.subscription_changed", user, configured=body.enabled)
         session.commit()

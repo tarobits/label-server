@@ -14,6 +14,6 @@ class JobAccessHold(Base):
     job_id: Mapped[str] = mapped_column(ForeignKey("print_jobs.id"), primary_key=True)
     reason: Mapped[str]
     held_at: Mapped[float] = mapped_column(default=time.time)
-    status: Mapped[str] = mapped_column(String, default="held")
+    status: Mapped[str] = mapped_column(String(128), default="held")
     resolved_at: Mapped[float | None]
     resolved_by: Mapped[str | None]

@@ -8,11 +8,11 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
-from app.authorization import rendering_destination, require_record
+from app.authorization import rendering_destination, require_record, visible_runs
 from app.cost_estimates import estimate_cost
 from app.destinations import members
 from app.http import db, get, job_record
@@ -23,7 +23,7 @@ from app.preparation import rendering
 from app.print_audit import delegated_attribution, direct_attribution
 from app.printer.base import LabelGeometry, RenderedLabel
 from app.render import RenderSpec, render_document, render_job
-from app.schemas import Input, JobInput, ProcessName
+from app.schemas import Input, JobInput, MaximumPrice, ProcessName
 from app.submissions import build_job, input_fingerprint, rendering_spec
 from app.template_logic import csv_values, logic_fields
 from app.template_schema import TemplateDocument
@@ -40,6 +40,7 @@ class RunRow(Input):
     source_row: int = Field(ge=2, le=251)
     copies: int = Field(default=1, ge=1, le=1000)
     notify_on_completion: bool = True
+    maximum_price: MaximumPrice | None = None
 
 
 class RunInput(CsvInput):
@@ -115,6 +116,8 @@ def run_record(run: PrintRun) -> dict[str, Any]:
             {
                 **{k: row[k] for k in ("source_row", "copies", "length_mm", "width_mm", "payload")},
                 "notify_on_completion": row.get("notify_on_completion", True),
+                "cost_estimate": row["template_snapshot"].get("cost_estimate"),
+                "maximum_price": row["template_snapshot"].get("pricing", {}).get("maximum"),
             }
             for row in run.manifest["rows"]
         ],
@@ -179,7 +182,7 @@ def prepare_run(
         else rendering_destination(request, session, body.destination_id)
     )
     assert body.destination_id is not None
-    access_context(request).require_destination(body.destination_id)
+    access_context(request).require_printer(body.destination_id, "view")
     fingerprint = input_fingerprint(body.model_dump())
     if existing:
         require_record(request, existing)
@@ -254,6 +257,19 @@ def prepare_run(
                     request.app.state.images,
                     context=access_context(request),
                 )
+                from app.pricing import accept_quote, job_geometry
+
+                estimate = estimate_cost(
+                    request, session, body.destination_id, profile.id, job_geometry(job)
+                )
+                accept_quote(
+                    request,
+                    session,
+                    job,
+                    estimate.get("quote_id"),
+                    selected.maximum_price.model_dump() if selected.maximum_price else None,
+                )
+                job.template_snapshot = {**job.template_snapshot, "cost_estimate": estimate}
                 entries.append(
                     {
                         "source_row": selected.source_row,
@@ -319,29 +335,8 @@ def prepare_run(
 def list_runs(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
-    context = access_context(request)
-    query = select(PrintRun).order_by(PrintRun.created_at.desc())
-    if not context.actor.is_admin:
-        from app.authorization import visible_destinations
-
-        query = query.where(
-            or_(
-                PrintRun.owner_id == context.actor.id,
-                and_(
-                    PrintRun.submitted_at.is_not(None),
-                    PrintRun.destination_id.in_(
-                        visible_destinations(request, session, "moderator")
-                    ),
-                ),
-            )
-        )
-    return [
-        run_record(run)
-        for run in session.scalars(query.limit(100))
-        if context.policy.allows(
-            context.actor, Action.READ, Resource("run", run.id, run.owner_id, run.destination_id)
-        )
-    ]
+    query = visible_runs(request, session, select(PrintRun).order_by(PrintRun.created_at.desc()))
+    return [run_record(run) for run in session.scalars(query.limit(100))]
 
 
 @router.get("/runs/{identifier}")
@@ -395,9 +390,9 @@ def submit_run(
     override_requested = body is not None and body.authorization_override
     if override_requested and not context.actor.is_admin:
         raise HTTPException(403, "Only administrators may override the author's print access")
-    context.require_destination(run.destination_id, "print")
+    context.require_printer(run.destination_id, "submit_directly")
     if run.owner_id != context.actor.id:
-        context.require_destination(run.destination_id, "moderator")
+        context.require_printer(run.destination_id, "manage_queue")
     access_context(request).require(
         Action.SUBMIT, Resource("run", run.id, run.owner_id, run.destination_id)
     )

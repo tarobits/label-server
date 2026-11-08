@@ -4,6 +4,7 @@ import logging
 import math
 import time
 from _thread import LockType
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from threading import Lock
 from typing import Protocol, TypeVar
@@ -37,6 +38,7 @@ from app.notifications import (
 )
 from app.printer.base import (
     ControlledPrinterBackend,
+    DurablePrinterBackend,
     PrintControl,
     PrinterBackend,
     PrinterStatus,
@@ -150,6 +152,7 @@ class QueueWorker:
         lock: LockType | None = None,
         choose: ChoosePrinter | None = None,
         enforce_job_access: bool = True,
+        check_prices: Callable[[Session, str], None] | None = None,
     ) -> None:
         self.fonts = fonts
         self.images = images
@@ -158,6 +161,7 @@ class QueueWorker:
         self.printer_id = printer_id
         self.choose = choose
         self.enforce_job_access = enforce_job_access
+        self.check_prices = check_prices
         self.lock = lock or Lock()
         self.printer_lock = Lock()
         self.control = PrintControl()
@@ -171,7 +175,10 @@ class QueueWorker:
                     Batch.printer_id == self.printer_id, Batch.state == State.PRINTING
                 )
             ):
-                self._uncertain(session, batch, 0, "Server restarted during printing")
+                if not isinstance(
+                    self.backend, DurablePrinterBackend
+                ) or not self.backend.has_batch(batch.id):
+                    self._uncertain(session, batch, 0, "Server restarted during printing")
 
     def tick(self, now: float | None = None) -> None:
         stamp = time.time() if now is None else now
@@ -198,67 +205,126 @@ class QueueWorker:
                         state.cartridge_check_pending = True
             except Exception:
                 self.latest_status = PrinterStatus(False, None)
-            prepared = self._reserve(stamp)
+            pending: PreparedBatch | None = None
+            if isinstance(self.backend, DurablePrinterBackend):
+                with self.lock, self.factory() as session:
+                    active = session.scalar(
+                        select(Batch).where(
+                            Batch.printer_id == self.printer_id, Batch.state == State.PRINTING
+                        )
+                    )
+                    if active is not None:
+                        pending = PreparedBatch(active.id, None)
+            prepared = pending or self._reserve(stamp)
             if prepared is None:
                 return
             batch_id = prepared.id
             labels: tuple[RenderedLabel, ...] = ()
+            label_count = 0
             try:
-                # Saved jobs protect their assets, and PRINTING prevents cancellation or
-                # configuration changes while this immutable snapshot is rendered.
-                try:
-                    labels, estimate = self._render_reserved(batch_id)
-                    plan = self.backend.plan_batch(labels)
-                except Exception as error:
-                    raise PrintNotStarted(f"Could not prepare labels: {error}") from error
-                with self.lock, self.factory.begin() as session:
-                    batch = required(session, Batch, batch_id)
-                    from app.deletion import content_hold_reason
+                if pending and isinstance(self.backend, DurablePrinterBackend):
+                    with self.factory() as session:
+                        active = required(session, Batch, batch_id)
+                        estimate = active.estimated_mm
+                        label_count = len(
+                            list(
+                                session.scalars(
+                                    select(BatchItem).where(BatchItem.batch_id == batch_id)
+                                )
+                            )
+                        )
+                    result = self.backend.poll_batch(batch_id)
+                    if result is None:
+                        return
+                else:
+                    # Saved jobs protect their assets, and PRINTING prevents cancellation or
+                    # configuration changes while this immutable snapshot is rendered.
+                    try:
+                        labels, estimate = self._render_reserved(batch_id)
+                        label_count = len(labels)
+                        plan = self.backend.plan_batch(labels)
+                    except Exception as error:
+                        raise PrintNotStarted(f"Could not prepare labels: {error}") from error
+                    with self.lock, self.factory.begin() as session:
+                        batch = required(session, Batch, batch_id)
+                        from app.deletion import content_hold_reason
 
-                    for item in session.scalars(
-                        select(BatchItem).where(BatchItem.batch_id == batch_id)
-                    ):
-                        copy = required(session, LabelCopy, item.copy_id)
-                        job = required(session, PrintJob, copy.job_id)
-                        if reason := content_hold_reason(session, job):
-                            raise PrintNotStarted(reason)
-                    cartridge = required(session, Cartridge, batch.cartridge_id)
-                    batch.estimated_mm = estimate
-                    # Commit the adapter's physical-output estimate before any print command.
-                    # Keep it on uncertain attempts too; never recompute historical settings.
-                    batch.print_plan = asdict(plan)
-                    batch.shortage_warning = estimate > cartridge.remaining_mm
-                    from app.usage import prepare_usage
+                        cartridge = required(session, Cartridge, batch.cartridge_id)
 
-                    prepare_usage(session, batch, cartridge, plan)
-                extra = sum(
-                    item.minimum_padding_mm + item.template_padding_mm for item in plan.label_output
-                )
-                extra += plan.strip_padding_mm
-                if usage := plan.breakdown:
-                    logger.info(
-                        "Batch %s tape estimate: design %.2f mm, feed %.2f mm, leader %.2f mm, "
-                        "unused %.2f mm; total %.2f mm",
-                        batch_id,
-                        usage.design_mm,
-                        usage.feed_mm,
-                        usage.leader_mm,
-                        usage.unused_mm,
-                        plan.estimated_mm,
+                        for item in session.scalars(
+                            select(BatchItem).where(BatchItem.batch_id == batch_id)
+                        ):
+                            copy = required(session, LabelCopy, item.copy_id)
+                            job = required(session, PrintJob, copy.job_id)
+                            if reason := content_hold_reason(session, job):
+                                raise PrintNotStarted(reason)
+                            if self.enforce_job_access:
+                                from app.cartridge_access import can_use_cartridge
+                                from app.job_access import job_eligible
+                                from app.use_overrides import authorization_valid
+
+                                authorization = (item.attribution or {}).get(
+                                    "cartridge_authorization"
+                                )
+                                if (
+                                    not job_eligible(session, job)
+                                    or (
+                                        not can_use_cartridge(session, job, cartridge)
+                                        and not authorization
+                                    )
+                                    or (
+                                        authorization
+                                        and not authorization_valid(
+                                            session, authorization, cartridge
+                                        )
+                                    )
+                                ):
+                                    raise PrintNotStarted(
+                                        "Print authorization changed while preparing the batch"
+                                    )
+                        batch.estimated_mm = estimate
+                        # Commit the adapter's physical-output estimate before any print command.
+                        # Keep it on uncertain attempts too; never recompute historical settings.
+                        batch.print_plan = asdict(plan)
+                        batch.shortage_warning = estimate > cartridge.remaining_mm
+                        from app.usage import prepare_usage
+
+                        prepare_usage(session, batch, cartridge, plan)
+                        from app.action_audit import record_batch_event
+
+                        record_batch_event(session, batch, "batch.started")
+                    extra = sum(
+                        item.minimum_padding_mm + item.template_padding_mm
+                        for item in plan.label_output
                     )
-                if extra > 0:
-                    logger.warning(
-                        "Batch %s: hand trimming required; estimated extra unused tape %.2f mm "
-                        "due to template/cutting minimums (cut minimum %s mm; excluding feed and leader)",
-                        batch_id,
-                        extra,
-                        plan.minimum_cut_length_mm,
+                    extra += plan.strip_padding_mm
+                    if usage := plan.breakdown:
+                        logger.info(
+                            "Batch %s tape estimate: design %.2f mm, feed %.2f mm, leader %.2f mm, "
+                            "unused %.2f mm; total %.2f mm",
+                            batch_id,
+                            usage.design_mm,
+                            usage.feed_mm,
+                            usage.leader_mm,
+                            usage.unused_mm,
+                            plan.estimated_mm,
+                        )
+                    if extra > 0:
+                        logger.warning(
+                            "Batch %s: hand trimming required; estimated extra unused tape %.2f mm "
+                            "due to template/cutting minimums (cut minimum %s mm; excluding feed and leader)",
+                            batch_id,
+                            extra,
+                            plan.minimum_cut_length_mm,
+                        )
+                    if isinstance(self.backend, DurablePrinterBackend):
+                        self.backend.submit_batch(batch_id, labels)
+                        return
+                    result = (
+                        self.backend.print_batch_controlled(labels, self.control)
+                        if isinstance(self.backend, ControlledPrinterBackend)
+                        else self.backend.print_batch(labels)
                     )
-                result = (
-                    self.backend.print_batch_controlled(labels, self.control)
-                    if isinstance(self.backend, ControlledPrinterBackend)
-                    else self.backend.print_batch(labels)
-                )
                 consumed = estimate if result.consumed_mm is None else result.consumed_mm
                 if not math.isfinite(consumed) or consumed < 0:
                     raise ValueError("Invalid backend consumption result")
@@ -297,11 +363,14 @@ class QueueWorker:
                             target.automatic_printing_held = True
                     state = printer_state(session, self.printer_id)
                     record_blocker(session, state, str(error))
+                    from app.action_audit import record_batch_event
+
+                    record_batch_event(session, batch, "batch.not_started", failed=True)
             except Exception as error:
                 with self.lock, self.factory.begin() as session:
                     batch = required(session, Batch, batch_id)
                     confirmed = error.confirmed_labels if isinstance(error, PrintInterrupted) else 0
-                    if not 0 <= confirmed <= len(labels):
+                    if not 0 <= confirmed <= label_count:
                         confirmed = 0
                     self._uncertain(session, batch, confirmed, str(error))
             else:
@@ -330,16 +399,25 @@ class QueueWorker:
                         copy = required(session, LabelCopy, item.copy_id)
                         copy.state = State.PRINTED
                     enqueue_print_completions(session, batch)
+                    from app.action_audit import record_batch_event
+
+                    record_batch_event(session, batch, "batch.completed")
             with self.lock, self.factory.begin() as session:
                 schedule_reminders(session, stamp)
 
     def _reserve(self, stamp: float) -> PreparedBatch | None:
         """Freeze eligible copies and persist intent before any hardware write."""
         with self.lock, self.factory.begin() as session:
+            from app.migration_gate import migration_pending
+
+            if migration_pending(session):
+                return None
             if self.enforce_job_access:
                 from app.job_access import reconcile_access_holds
 
                 reconcile_access_holds(session, stamp)
+                if self.check_prices:
+                    self.check_prices(session, self.printer_id)
             complete_empty_flushes(session)
             schedule_reminders(session, stamp)
             if session.scalar(
@@ -401,15 +479,40 @@ class QueueWorker:
                 }
                 eligible = [copy for copy in eligible if copy.id not in reserved]
                 if self.enforce_job_access:
+                    from app.cartridge_access import can_use_cartridge
                     from app.job_access import job_eligible
 
                     allowed: dict[str, bool] = {}
                     for copy in eligible:
                         if copy.job_id not in allowed:
-                            allowed[copy.job_id] = job_eligible(
-                                session, required(session, PrintJob, copy.job_id)
+                            candidate = required(session, PrintJob, copy.job_id)
+                            from app.pricing import affordable
+
+                            allowed[copy.job_id] = job_eligible(session, candidate)
+                            allowed[copy.job_id] = allowed[copy.job_id] and affordable(
+                                session, candidate, cartridge, self.backend
                             )
-                    eligible = [copy for copy in eligible if allowed[copy.job_id]]
+                    from app.use_overrides import pending_authorization
+
+                    eligible = [
+                        copy
+                        for copy in eligible
+                        if allowed[copy.job_id]
+                        and (
+                            can_use_cartridge(
+                                session, required(session, PrintJob, copy.job_id), cartridge
+                            )
+                            or (
+                                request
+                                and pending_authorization(
+                                    session,
+                                    required(session, PrintJob, copy.job_id),
+                                    cartridge,
+                                    copy.id,
+                                )
+                            )
+                        )
+                    ]
                 if request:
                     eligible = [copy for copy in eligible if copy.id in set(request.copy_ids)]
                 elif len(eligible) < profile.auto_print_threshold:
@@ -487,6 +590,12 @@ class QueueWorker:
             batch_id = batch.id
             for position, copy in enumerate(copies):
                 from app.print_audit import job_attribution
+                from app.retry_funding import retry_authorization
+
+                candidate = required(session, PrintJob, copy.job_id)
+                authorization = retry_authorization(session, candidate, cartridge)
+                if request and copy.id in request.use_authorizations:
+                    authorization = request.use_authorizations[copy.id]
 
                 copy.state = State.PRINTING
                 session.add(
@@ -494,13 +603,15 @@ class QueueWorker:
                         batch_id=batch.id,
                         copy_id=copy.id,
                         position=position,
-                        attribution=job_attribution(
-                            session, required(session, PrintJob, copy.job_id)
-                        ),
+                        attribution=job_attribution(session, candidate)
+                        | ({"cartridge_authorization": authorization} if authorization else {}),
                     )
                 )
             if request:
                 request.completed = True
+            from app.action_audit import record_batch_event
+
+            record_batch_event(session, batch, "batch.reserved")
         return PreparedBatch(batch_id, request.id if request else None)
 
     def _render_reserved(self, batch_id: str) -> tuple[tuple[RenderedLabel, ...], float]:
@@ -540,6 +651,9 @@ class QueueWorker:
             kind="batch_review",
             context={"printer_id": batch.printer_id, "batch_id": batch.id},
         )
+        from app.action_audit import record_batch_event
+
+        record_batch_event(session, batch, "batch.interrupted", failed=True)
 
 
 def resolve_batch(
@@ -565,7 +679,11 @@ def resolve_batch(
         batch.cartridge_id = cartridge.id
     for item in items:
         if item.copy_id in decisions:
-            item.outcome = decisions[item.copy_id]
+            # Reconciliation records what happened. Starting another chargeable
+            # attempt requires a separate funding authorization.
+            item.outcome = (
+                State.FAILED if decisions[item.copy_id] == State.QUEUED else decisions[item.copy_id]
+            )
             copy = required(session, LabelCopy, item.copy_id)
             copy.state = item.outcome
     cartridge.remaining_mm = max(0, cartridge.remaining_mm - consumed_mm)
@@ -594,3 +712,6 @@ def resolve_batch(
         select(PrinterState).where(PrinterState.active_cartridge_id == cartridge.id)
     ):
         sync_empty_cartridge_alert(session, state, cartridge, time.time())
+    from app.action_audit import record_batch_event
+
+    record_batch_event(session, batch, "batch.reviewed")

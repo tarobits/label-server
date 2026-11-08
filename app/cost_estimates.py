@@ -32,7 +32,7 @@ def estimate_cost(
         "incomplete": False,
         "reason": None,
     }
-    if not destination_id or not access_context(request).can_destination(destination_id):
+    if not destination_id or not access_context(request).can_printer(destination_id, "view"):
         return {**result, "reason": "destination"}
     try:
         identifiers = members(session, destination_id)
@@ -52,7 +52,12 @@ def estimate_cost(
         cartridge = (
             session.get(Cartridge, state.active_cartridge_id) if state.active_cartridge_id else None
         )
-        if cartridge and not cartridge.archived and cartridge.profile_id == profile_id:
+        if (
+            cartridge
+            and not cartridge.archived
+            and cartridge.profile_id == profile_id
+            and access_context(request).can_cartridge(cartridge.id, "use")
+        ):
             candidates.append((plans[state.printer_id], cartridge))
     if not candidates:
         result["basis"] = "inventory"
@@ -65,7 +70,12 @@ def estimate_cost(
                 )
             )
         )
-        candidates = [(plan, cartridge) for plan in plans.values() for cartridge in inventory]
+        candidates = [
+            (plan, cartridge)
+            for plan in plans.values()
+            for cartridge in inventory
+            if access_context(request).can_cartridge(cartridge.id, "use")
+        ]
     if not candidates:
         return {**result, "reason": "cartridge"}
     amounts: dict[str, list[int]] = {}
@@ -82,4 +92,7 @@ def estimate_cost(
     ]
     if not amounts:
         result["reason"] = "price"
+    from app.pricing import save_quote
+
+    result["quote_id"] = save_quote(request, session, destination_id, profile_id, labels, result)
     return result

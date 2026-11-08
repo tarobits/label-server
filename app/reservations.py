@@ -36,6 +36,7 @@ class FlushSelection:
     state: PrinterState
     cartridge: Cartridge
     copies: tuple[LabelCopy, ...]
+    use_authorizations: dict[str, Any]
 
 
 def select_flush(
@@ -44,6 +45,9 @@ def select_flush(
     destination_id: str | None = None,
     body: CopySelectionInput | None = None,
 ) -> FlushSelection:
+    from app.migration_gate import require_migration_complete
+
+    require_migration_complete(session)
     printer_id = resolve_destination(session, printer_id)
     idle(session, printer_id)
     destination_id = destination_id or printer_id
@@ -53,7 +57,7 @@ def select_flush(
         from app.job_access import reconcile_access_holds
 
         context = access_context(request_context)
-        context.require_destination(destination_id, "print")
+        context.require_printer(destination_id, "start_own", "start_any")
         if request_context.app.state.fleet.enforce_job_access:
             reconcile_access_holds(session)
     if printer_id not in members(session, destination_id):
@@ -77,16 +81,30 @@ def select_flush(
         for identifier in flush.copy_ids
     }
     eligible = []
+    cartridge_denied: set[str] = set()
     for label in compatible:
-        if context and not context.can_destination(destination_id, "moderator"):
+        if context and not context.can_printer(destination_id, "start_any"):
             candidate = session.get(PrintJob, label.job_id)
             if candidate is None or candidate.owner_id != context.actor.id:
                 continue
         job = get(session, PrintJob, label.job_id)
         if request_context and request_context.app.state.fleet.enforce_job_access:
+            from app.cartridge_access import can_use_cartridge
             from app.job_access import job_eligible
 
             if not job_eligible(session, job):
+                continue
+            if not can_use_cartridge(session, job, cartridge):
+                cartridge_denied.add(label.id)
+            from app.pricing import affordable
+
+            if not affordable(
+                session, job, cartridge, request_context.app.state.registry.backend(printer_id)
+            ):
+                if body is None or label.id in body.copy_ids:
+                    raise HTTPException(
+                        409, "The installed cartridge exceeds the requester's remaining maximum"
+                    )
                 continue
         run = session.get(PrintRun, job.run_id) if job.run_id else None
         if label.id not in reserved and (not run or run.assigned_printer_id in (None, printer_id)):
@@ -102,7 +120,22 @@ def select_flush(
                 "Selection changed or includes copies incompatible with the installed tape; refresh the queue",
             )
         compatible = [copy for copy in compatible if copy.id in wanted]
-    return FlushSelection(printer_id, destination_id, state, cartridge, tuple(compatible))
+    authorizations = {}
+    if request_context:
+        from app.use_overrides import confirm_use
+
+        authorizations = confirm_use(
+            request_context,
+            session,
+            printer_id,
+            cartridge,
+            compatible,
+            cartridge_denied & {copy.id for copy in compatible},
+            body,
+        )
+    return FlushSelection(
+        printer_id, destination_id, state, cartridge, tuple(compatible), authorizations
+    )
 
 
 def check_tape_shortage(session: Session, selections: list[FlushSelection]) -> None:
@@ -205,7 +238,7 @@ def reserve_flush(
         from app.access import access_context
 
         context = access_context(request_context)
-        hold_unselected = hold_unselected and context.can_destination(destination_id, "moderator")
+        hold_unselected = hold_unselected and context.can_printer(destination_id, "hold_resume")
     if body is not None and hold_unselected:
         # Keep all unselected work queued even if it meets an automatic threshold.
         group = session.get(PrinterGroup, destination_id)
@@ -218,6 +251,7 @@ def reserve_flush(
         if job.run_id:
             get(session, PrintRun, job.run_id).assigned_printer_id = printer_id
     request = FlushRequest(
+        use_authorizations=selection.use_authorizations,
         started_by=actor_snapshot(context.actor) if context else None,
         printer_id=printer_id,
         destination_id=destination_id,
@@ -226,4 +260,29 @@ def reserve_flush(
     )
     session.add(request)
     session.flush()
+    if selection.use_authorizations and context:
+        import time
+
+        from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
+        from app.models import new_id
+
+        append_audit(
+            session,
+            event_id=new_id(),
+            action="cartridge.use_approved",
+            outcome="succeeded",
+            occurred_at=time.time(),
+            scopes=(AuditScope("printer", printer_id), AuditScope("cartridge", cartridge.id)),
+            fields={
+                "actor_id": AuditField(context.actor.id, ()),
+                "actor_name": AuditField(context.actor.username, ()),
+                "flush_id": AuditField(
+                    request.id, (AuditRequirement("printer", printer_id, "printer.view_queue"),)
+                ),
+                "copy_ids": AuditField(
+                    list(selection.use_authorizations),
+                    (AuditRequirement("printer", printer_id, "printer.view_queue"),),
+                ),
+            },
+        )
     return record(request)

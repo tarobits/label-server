@@ -13,12 +13,15 @@ from app.http import job_template_name
 from app.models import (
     Batch,
     BatchItem,
+    CompanionBatch,
     LabelCopy,
     Notification,
     NotificationDelivery,
     PrintJob,
+    RetryOffer,
     State,
     TapeAllocation,
+    UnitCharge,
 )
 
 
@@ -61,6 +64,8 @@ def duplicate_history(session: Session) -> DuplicateHistory:
         Batch.error.is_not(None),
         Batch.consumed_mm.is_(None),
         Batch.consumption_source.is_(None),
+        ~Batch.id.in_(select(RetryOffer.batch_id)),
+        ~Batch.id.in_(select(CompanionBatch.batch_id)),
     )
     items: dict[str, list[BatchItem]] = defaultdict(list)
     allocations: dict[str, list[TapeAllocation]] = defaultdict(list)
@@ -87,6 +92,13 @@ def duplicate_history(session: Session) -> DuplicateHistory:
         if any(
             row.consumed_mm != 0 or row.cost_micros not in (None, "0")
             for row in allocations[batch.id]
+        ):
+            continue
+        if session.scalar(
+            select(UnitCharge.batch_id).where(
+                UnitCharge.batch_id == batch.id,
+                or_(UnitCharge.charged_micros.is_(None), UnitCharge.charged_micros != "0"),
+            )
         ):
             continue
         trigger = dict(batch.trigger or {})
@@ -187,6 +199,7 @@ def purge_duplicate_history(session: Session, confirmation: str) -> dict[str, An
         session.execute(delete(Notification).where(Notification.id.in_(chunk)))
     for start in range(0, len(plan.batch_ids), 400):
         chunk = plan.batch_ids[start : start + 400]
+        session.execute(delete(UnitCharge).where(UnitCharge.batch_id.in_(chunk)))
         session.execute(delete(TapeAllocation).where(TapeAllocation.batch_id.in_(chunk)))
         session.execute(delete(BatchItem).where(BatchItem.batch_id.in_(chunk)))
         session.execute(delete(Batch).where(Batch.id.in_(chunk)))

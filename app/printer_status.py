@@ -14,6 +14,7 @@ from app.http import get, record
 from app.models import (
     Batch,
     Cartridge,
+    CompanionPrinter,
     FlushRequest,
     LabelCopy,
     PrinterDevice,
@@ -31,7 +32,6 @@ def status_record(
     printer_id = resolve_destination(session, printer_id)
     context = access_context(request)
     context.require(Action.READ, Resource("destination", printer_id, destination_id=printer_id))
-    manages = context.can_destination(printer_id, "moderator")
     state = printer_state(session, printer_id)
     device = get(session, PrinterDevice, printer_id)
     worker = request.app.state.fleet.workers.get(printer_id)
@@ -52,6 +52,7 @@ def status_record(
     )
     profile = session.get(TapeProfile, cartridge.profile_id) if cartridge else None
     warning = media_mismatch(hardware, profile) if profile else None
+    companion = session.get(CompanionPrinter, printer_id)
     return {
         **record(state),
         "media_confirmation": None,
@@ -67,6 +68,7 @@ def status_record(
         "backend": device.driver,
         "printer_name": device.name,
         "printer_error": hardware.error,
+        "companion_blocked": bool(companion and companion.blocked),
         "renderer": "svg",
         "connected": hardware.connected,
         "detected_width_mm": hardware.media.width_mm if hardware.media else hardware.tape_width_mm,
@@ -82,7 +84,7 @@ def status_record(
                 )
             )
         )
-        if manages
+        if context.can_printer(printer_id, "review")
         else [],
         "notifications_enabled": notifications_enabled(session),
         "printing": active.id if active else None,
@@ -97,7 +99,10 @@ def status_record(
             )
             .limit(1)
         )
-        if manages
+        if any(
+            context.can_printer(printer_id, permission)
+            for permission in ("manage_queue", "stop_after_label", "emergency_stop")
+        )
         else None,
         "total_queued": session.scalar(
             visible_jobs(

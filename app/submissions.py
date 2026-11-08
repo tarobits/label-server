@@ -157,6 +157,9 @@ def build_job(
 def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> str:
     # Keep retries of pre-multi-printer requests valid after upgrading.
     values = dict(values)
+    for key in ("quote_id", "maximum_price"):
+        if values.get(key) is None:
+            values.pop(key, None)
     if values.get("image_mapping") == {}:
         values.pop("image_mapping")
     if values.get("notify_on_completion", True) is True:
@@ -166,7 +169,8 @@ def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> s
             {
                 key: value
                 for key, value in row.items()
-                if key != "notify_on_completion" or value is not True
+                if (key != "notify_on_completion" or value is not True)
+                and (key != "maximum_price" or value is not None)
             }
             for row in values["rows"]
         ]
@@ -174,6 +178,9 @@ def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> s
         values.pop("process_name", None)
     if isinstance(values.get("input"), dict):
         values["input"] = dict(values["input"])
+        for key in ("quote_id", "maximum_price"):
+            if values["input"].get(key) is None:
+                values["input"].pop(key, None)
         if values["input"].get("notify_on_completion", True) is True:
             values["input"].pop("notify_on_completion", None)
         if values["input"].get("process_name") is None:
@@ -204,7 +211,7 @@ def submitted_job(request: Request, session: Session, fingerprint: str) -> dict[
 def save_submission(
     request: Request, session: Session, job: PrintJob, fingerprint: str
 ) -> dict[str, Any]:
-    access_context(request).require_destination(job.destination_id, "print")
+    access_context(request).require_printer(job.destination_id, "submit_directly")
     actor = access_context(request).actor
     job.owner_id = actor.id
     job.created_at = time.time()

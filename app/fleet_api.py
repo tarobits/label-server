@@ -32,6 +32,7 @@ from app.reservations import check_tape_shortage, reserve_flush, select_flush
 from app.schemas import (
     AutomaticPrintingInput,
     CopySelectionInput,
+    CreatePrinterInput,
     PrinterGroupInput,
     PrinterInput,
     PrinterStopInput,
@@ -44,14 +45,29 @@ def validate_device(body: PrinterInput, session: Session, identifier: str | None
     if body.driver != "brother-pt-p710bt":
         return
     body.usb_serial = body.usb_serial.strip() if body.usb_serial else None
-    others = list(
+    from app.models import CompanionPrinter
+
+    hosts = dict(
+        session.execute(select(CompanionPrinter.printer_id, CompanionPrinter.companion_id)).all()
+    )
+    host = hosts.get(identifier or "")
+    inactive = set(
         session.scalars(
-            select(PrinterDevice).where(
-                PrinterDevice.driver == body.driver,
-                PrinterDevice.id != (identifier or ""),
-            )
+            select(CompanionPrinter.printer_id).where(CompanionPrinter.enabled.is_(False))
         )
     )
+    others = [
+        device
+        for device in (
+            session.scalars(
+                select(PrinterDevice).where(
+                    PrinterDevice.driver == body.driver,
+                    PrinterDevice.id != (identifier or ""),
+                )
+            )
+        )
+        if hosts.get(device.id) == host and device.id not in inactive
+    ]
     if others and (not body.usb_serial or any(not d.config.get("usb_serial") for d in others)):
         raise HTTPException(
             422,
@@ -63,7 +79,7 @@ def validate_device(body: PrinterInput, session: Session, identifier: str | None
 
 @router.post("/printers", status_code=201)
 def register_printer(
-    body: PrinterInput, request: Request, session: Session = Depends(db, scope="function")
+    body: CreatePrinterInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     try:
         request.app.state.fleet.backend_factory(body.driver, body.model_dump())
@@ -71,10 +87,16 @@ def register_printer(
         raise HTTPException(422, str(error)) from error
     validate_device(body, session)
     device = PrinterDevice(
-        name=body.name, driver=body.driver, config=body.model_dump(exclude={"name", "driver"})
+        name=body.name,
+        driver=body.driver,
+        config=body.model_dump(exclude={"name", "driver", "unowned"}),
+        owner_id=None if body.unowned else access_context(request).actor.id,
     )
     session.add(device)
     session.flush()
+    from app.ownership import record_ownership
+
+    record_ownership(session, "printer", device)
     session.add(PrinterState(printer_id=device.id))
     session.flush()
     return record(device)
@@ -175,12 +197,13 @@ def destinations(
             "automatic_printing_held": printer_state(session, p.id).automatic_printing_held,
         }
         for p in session.scalars(select(PrinterDevice))
-        if p.id in request.app.state.fleet.workers and access_context(request).can_destination(p.id)
+        if p.id in request.app.state.fleet.workers
+        and access_context(request).can_printer(p.id, "view")
     ]
     result.extend(
         {**record(g), "kind": "group"}
         for g in session.scalars(select(PrinterGroup))
-        if access_context(request).can_destination(g.id)
+        if access_context(request).can_printer(g.id, "view")
     )
     for destination in result:
         context = access_context(request)
@@ -206,6 +229,9 @@ def destinations(
             if context.actor.is_admin
             else context.actor.destination_levels.get(identifier, "none")
         )
+        destination["permissions"] = sorted(
+            context.actor.destination_permissions.get(identifier, ())
+        )
         destination["queues"] = [
             {
                 "profile_id": p.id,
@@ -224,7 +250,8 @@ def all_status(
     return [
         status_record(request, session, device.id)
         for device in session.scalars(select(PrinterDevice))
-        if not device.config.get("retired") and access_context(request).can_destination(device.id)
+        if not device.config.get("retired")
+        and access_context(request).can_printer(device.id, "view")
     ]
 
 
@@ -239,7 +266,7 @@ def validate_group(
     capabilities = []
     for identifier in body.printer_ids:
         if identifier not in (existing_members or []):
-            access_context(request).require_destination(identifier, "full")
+            access_context(request).require_printer(identifier, "configure")
         if session.get(PrinterDevice, identifier) is None:
             raise HTTPException(404, "Printer not found")
         if identifier not in request.app.state.fleet.workers:
@@ -271,7 +298,7 @@ def edit_group(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     group = get(session, PrinterGroup, identifier)
-    access_context(request).require_destination(identifier, "full")
+    access_context(request).require_printer(identifier, "configure")
     validate_group(body, request, session, group.printer_ids)
     if body.printer_ids != group.printer_ids:
         if session.scalar(
@@ -307,7 +334,26 @@ def hold_destination(
 ) -> dict[str, Any]:
     group = session.get(PrinterGroup, identifier)
     target = group or printer_state(session, identifier)
+    previous = target.automatic_printing_held
     target.automatic_printing_held = body.held
+    from app.action_audit import record_action
+
+    if group:
+        record_action(
+            session,
+            "printer_group.hold_changed",
+            "global",
+            "",
+            {"group_id": identifier, "old_held": previous, "new_held": body.held},
+        )
+    else:
+        record_action(
+            session,
+            "printer.hold_changed",
+            "printer",
+            identifier,
+            {"old_held": previous, "new_held": body.held},
+        )
     session.flush()
     return record(target)
 
@@ -320,7 +366,9 @@ def stop_printer(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     context = access_context(request)
-    context.require_destination(identifier, "full" if body.mode == "emergency" else "moderator")
+    context.require_printer(
+        identifier, "emergency_stop" if body.mode == "emergency" else "stop_after_label"
+    )
     get(session, PrinterDevice, identifier)
     fleet = request.app.state.fleet
     worker = fleet.workers.get(identifier)
@@ -332,7 +380,11 @@ def stop_printer(
         if body.mode == "emergency"
         else caps.supports_stop_after_current
     )
-    if not supported or not isinstance(worker.backend, ControlledPrinterBackend):
+    from app.printer.base import DurablePrinterBackend
+
+    if not supported or not isinstance(
+        worker.backend, (ControlledPrinterBackend, DurablePrinterBackend)
+    ):
         raise HTTPException(409, "This printer driver does not support the requested stop mode")
     state = printer_state(session, identifier)
     state.automatic_printing_held = True
@@ -361,6 +413,18 @@ def stop_printer(
                 },
             }
         request.state.after_commit.append(lambda: worker.control.request(mode))
+        if isinstance(worker.backend, DurablePrinterBackend):
+            request.state.after_commit.append(lambda: worker.backend.request_stop(batch.id, mode))
+    from app.action_audit import record_action
+
+    record_action(
+        session,
+        "printer.stop_requested",
+        "printer",
+        identifier,
+        {"mode": mode, "batch_id": batch.id if batch else None},
+        permission="printer.view_activity",
+    )
     session.flush()
     return {"printer_id": identifier, "batch_id": batch.id if batch else None, "mode": mode}
 
@@ -372,10 +436,13 @@ def print_destination(
     body: CopySelectionInput | None = None,
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
+    from app.migration_gate import require_migration_complete
+
+    require_migration_complete(session)
     members(session, identifier)
     context = access_context(request)
-    context.require_destination(identifier, "print")
-    moderates = context.can_destination(identifier, "moderator")
+    context.require_printer(identifier, "start_own", "start_any")
+    moderates = context.can_printer(identifier, "start_any")
     if request.app.state.fleet.enforce_job_access:
         from app.job_access import reconcile_access_holds
 
@@ -424,7 +491,18 @@ def print_destination(
             or "No queued labels are available to print",
         )
     selections = [
-        select_flush(session, printer_id, identifier, CopySelectionInput(copy_ids=ids))
+        select_flush(
+            session,
+            printer_id,
+            identifier,
+            CopySelectionInput(
+                copy_ids=ids,
+                approve_copy_ids=[
+                    value for value in (body.approve_copy_ids if body else []) if value in ids
+                ],
+                use_confirmations=body.use_confirmations if body else {},
+            ),
+        )
         for printer_id, ids in choices.items()
     ]
     check_tape_shortage(session, selections)
@@ -433,7 +511,13 @@ def print_destination(
             session,
             printer_id,
             identifier,
-            CopySelectionInput(copy_ids=ids),
+            CopySelectionInput(
+                copy_ids=ids,
+                approve_copy_ids=[
+                    value for value in (body.approve_copy_ids if body else []) if value in ids
+                ],
+                use_confirmations=body.use_confirmations if body else {},
+            ),
             hold_unselected=body is not None and moderates,
             shortage_checked=True,
         )

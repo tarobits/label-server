@@ -10,7 +10,7 @@ import time
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import LEVELS
+from app.access import AccountPolicy
 from app.auth import actor_for_user
 from app.deletion import content_hold_reason
 from app.job_access_models import JobAccessHold
@@ -40,8 +40,14 @@ def principal_access_reason(
     actor = actor_for_user(session, owner)
     if actor.is_admin:
         return None
-    current = actor.destination_levels.get(destination_id, "none")
-    if LEVELS.get(current, 0) < LEVELS[required]:
+    permission = {
+        "request": "submit_requests",
+        "print": "submit_directly",
+        "moderator": "manage_queue",
+    }[required]
+    if not AccountPolicy({destination_id: destination}).can_printer(
+        actor, destination_id, permission
+    ):
         return f"The {principal} no longer has {required} access to this destination"
     return None
 
@@ -79,6 +85,10 @@ def access_hold_reason(session: Session, job: PrintJob) -> str | None:
 
 
 def job_eligible(session: Session, job: PrintJob) -> bool:
+    from app.retry_funding import retry_eligible
+
+    if not retry_eligible(session, job):
+        return False
     if content_hold_reason(session, job):
         return False
     hold = session.get(JobAccessHold, job.id)

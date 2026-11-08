@@ -5,11 +5,13 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
+from app.action_audit import record_action, record_swap
 from app.asset_access import require_document_assets
 from app.authorization import (
     require_record,
@@ -23,7 +25,7 @@ from app.cartridge_confirmation import check_cartridge, configure_media
 from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.copy_counts import copy_count_blocker
 from app.cost_estimates import estimate_cost
-from app.deletion import content_hold_reason, document_notices, retain
+from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.element_geometry import element_geometry
 from app.http import db, get, idle, job_information, job_record, job_template_name, record
@@ -65,6 +67,7 @@ from app.schemas import (
     CartridgeCheckInput,
     CartridgeInput,
     CartridgeNameInput,
+    CartridgeNotesInput,
     CartridgePriceInput,
     CompletionNotificationInput,
     CopyCountInput,
@@ -94,7 +97,7 @@ from app.template_schema import (
     TemplateInput,
 )
 from app.templates import save_revision, template_record
-from app.usage_accounts import AdjustmentInput, account_names, adjust_account
+from app.usage_accounts import AdjustmentInput, account_names
 
 router = APIRouter(prefix="/api")
 
@@ -183,6 +186,7 @@ def control_reminder(
 
 @router.get("/cartridges")
 def list_cartridges(
+    request: Request,
     include_archived: bool = False,
     session: Session = Depends(db, scope="function"),
 ) -> list[dict[str, Any]]:
@@ -211,21 +215,38 @@ def list_cartridges(
             "delete_blocked_reason": delete_reasons.get(cartridge.id),
         }
         for cartridge in session.scalars(query)
+        if access_context(request).can_cartridge(cartridge.id, "view")
     ]
 
 
 @router.post("/cartridges", status_code=201)
 def create_cartridge(
-    body: CartridgeInput, session: Session = Depends(db, scope="function")
+    body: CartridgeInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     get(session, TapeProfile, body.profile_id)
     values = body.model_dump()
     values["remaining_mm"] = (
         body.nominal_length_mm if body.remaining_mm is None else body.remaining_mm
     )
-    cartridge = Cartridge(**values)
+    cartridge = Cartridge(**values, owner_id=access_context(request).actor.id)
     session.add(cartridge)
     session.flush()
+    from app.ownership import record_ownership
+
+    record_ownership(session, "cartridge", cartridge)
+    record_action(
+        session,
+        "cartridge.created",
+        "cartridge",
+        cartridge.id,
+        {
+            "name": cartridge.name,
+            "owner_id": cartridge.owner_id,
+            "profile_id": cartridge.profile_id,
+            "nominal_length_mm": cartridge.nominal_length_mm,
+            "remaining_mm": cartridge.remaining_mm,
+        },
+    )
     return record(cartridge)
 
 
@@ -237,6 +258,7 @@ def archive_cartridge(
     if reason := archive_blockers(session).get(identifier):
         raise HTTPException(409, reason)
     cartridge.archived = True
+    record_action(session, "cartridge.archived", "cartridge", cartridge.id)
     session.flush()
     return record(cartridge)
 
@@ -248,7 +270,15 @@ def rename_cartridge(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     cartridge = get(session, Cartridge, identifier)
+    previous = cartridge.name
     cartridge.name = body.name
+    record_action(
+        session,
+        "cartridge.renamed",
+        "cartridge",
+        cartridge.id,
+        {"old_name": previous, "new_name": cartridge.name},
+    )
     session.flush()
     return record(cartridge)
 
@@ -259,6 +289,18 @@ def restore_cartridge(
 ) -> dict[str, Any]:
     cartridge = get(session, Cartridge, identifier)
     cartridge.archived = False
+    record_action(session, "cartridge.restored", "cartridge", cartridge.id)
+    session.flush()
+    return record(cartridge)
+
+
+@router.put("/cartridges/{identifier}/notes")
+def edit_cartridge_notes(
+    identifier: str, body: CartridgeNotesInput, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    cartridge = get(session, Cartridge, identifier)
+    cartridge.notes = body.notes
+    record_action(session, "cartridge.notes_changed", "cartridge", cartridge.id)
     session.flush()
     return record(cartridge)
 
@@ -270,6 +312,7 @@ def delete_cartridge(
     cartridge = get(session, Cartridge, identifier)
     if reason := deletion_blockers(session, archive_blockers(session)).get(identifier):
         raise HTTPException(409, reason)
+    record_action(session, "cartridge.deleted", "cartridge", cartridge.id, {"name": cartridge.name})
     session.delete(cartridge)
     return {"deleted": True}
 
@@ -318,7 +361,9 @@ def usage_adjustment(
     context = access_context(request)
     if not context.has_permission("usage.edit_accounts"):
         raise HTTPException(403, "Editing usage accounts is not permitted")
-    return record(adjust_account(session, context.actor, body))
+    from app.accounting_api import record_repayment
+
+    return record(record_repayment(request, session, body))
 
 
 @router.put("/cartridges/{identifier}/price")
@@ -334,7 +379,20 @@ def cartridge_price(
     cartridge = get(session, Cartridge, identifier)
     if cartridge.archived:
         raise HTTPException(409, "Restore this cartridge before changing its price")
+    old_price, old_currency = cartridge.price_minor, cartridge.currency
     cartridge.price_minor, cartridge.currency = body.price_minor, body.currency
+    record_action(
+        session,
+        "cartridge.price_changed",
+        "cartridge",
+        cartridge.id,
+        {
+            "old_price_minor": old_price,
+            "new_price_minor": body.price_minor,
+            "old_currency": old_currency,
+            "currency": body.currency,
+        },
+    )
     session.flush()
     return record(cartridge)
 
@@ -353,7 +411,15 @@ def correct_remaining(
         raise HTTPException(409, "Restore this cartridge before correcting its remaining tape")
     if body.remaining_mm > cartridge.nominal_length_mm:
         raise HTTPException(422, "Remaining length exceeds nominal length")
+    previous = cartridge.remaining_mm
     cartridge.remaining_mm = body.remaining_mm
+    record_action(
+        session,
+        "cartridge.remaining_corrected",
+        "cartridge",
+        cartridge.id,
+        {"old_remaining_mm": previous, "new_remaining_mm": body.remaining_mm},
+    )
     cartridge.consumption_uncertain = False
     if body.remaining_mm > 0:
         for state in installed_states:
@@ -364,15 +430,15 @@ def correct_remaining(
     return record(cartridge)
 
 
-@router.put("/printer/active-tape")
+@router.put("/printer/active-tape", response_model=None)
 def active_tape(
     body: ActiveTapeInput,
     request: Request,
     session: Session = Depends(db, scope="function"),
     printer_id: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | Response:
     printer_id = resolve_destination(session, printer_id)
-    access_context(request).require_destination(printer_id, "full")
+    access_context(request).require_printer(printer_id, "swap_cartridges")
     idle(session, printer_id)
     state = printer_state(session, printer_id)
     if state.active_cartridge_id != body.cartridge_id and session.scalar(
@@ -409,8 +475,17 @@ def active_tape(
         if cartridge
         else (None, None)
     )
+    if cartridge is not None:
+        from app.cartridge_location import installation_location
+
+        location_preview = installation_location(
+            session, request, printer_id, cartridge, body.move_location, body.location_confirmation
+        )
+        if location_preview:
+            return JSONResponse(status_code=409, content={"detail": location_preview})
     if state.active_cartridge_id != body.cartridge_id:
         clear_empty_cartridge_alert(session, state)
+    previous = state.active_cartridge_id
     state.active_cartridge_id = body.cartridge_id
     state.media_confirmation = confirmation
     state.media_verified_fingerprint = verification
@@ -421,6 +496,9 @@ def active_tape(
             state.cartridge_check_pending or worker.latest_status.media_changed
         ) and state.cartridge_check_enabled
     state.blocker = None
+    record_swap(
+        session, printer_id, previous, body.cartridge_id, bool(verification or confirmation)
+    )
     session.flush()
     worker = request.app.state.fleet.workers.get(printer_id)
     if worker and isinstance(worker.backend, ConfirmableMediaBackend):
@@ -447,7 +525,7 @@ def cartridge_check(
 ) -> dict[str, Any]:
     from app.models import PrinterDevice
 
-    access_context(request).require_destination(identifier, "full")
+    access_context(request).require_printer(identifier, "configure")
     get(session, PrinterDevice, identifier)
     idle(session, identifier)
     state = printer_state(session, identifier)
@@ -456,7 +534,15 @@ def cartridge_check(
         if not worker.printer_lock.acquire(blocking=False):
             raise HTTPException(409, "Printer is busy; try again when it is idle")
         request.state.held_locks.append(worker.printer_lock)
+    previous = state.cartridge_check_enabled
     state.cartridge_check_enabled = body.enabled
+    record_action(
+        session,
+        "printer.cartridge_check_changed",
+        "printer",
+        identifier,
+        {"old_enabled": previous, "new_enabled": body.enabled},
+    )
     if not body.enabled:
         state.cartridge_check_pending = False
         state.blocker = None
@@ -481,7 +567,9 @@ def printers(
     result = []
     definitions = {item.id: item for item in request.app.state.registry.definitions()}
     for device in session.scalars(select(PrinterDevice)):
-        if device.config.get("retired") or not access_context(request).can_destination(device.id):
+        if device.config.get("retired") or not access_context(request).can_printer(
+            device.id, "view"
+        ):
             continue
         definition = definitions.get(device.id)
         result.append(
@@ -498,9 +586,11 @@ def printers(
                     }
                 ),
                 "config": device.config
-                if access_context(request).can_destination(device.id, "full")
+                if access_context(request).can_printer(device.id, "configure")
                 else {},
                 "configuration_error": request.app.state.fleet.configuration_errors.get(device.id),
+                "owner_id": device.owner_id,
+                "location_id": device.location_id,
             }
         )
     return result
@@ -551,9 +641,17 @@ def automatic_printing(
     printer_id: str | None = None,
 ) -> dict[str, Any]:
     printer_id = resolve_destination(session, printer_id)
-    access_context(request).require_destination(printer_id, "moderator")
+    access_context(request).require_printer(printer_id, "hold_resume")
     state = printer_state(session, printer_id)
+    previous = state.automatic_printing_held
     state.automatic_printing_held = body.held
+    record_action(
+        session,
+        "printer.hold_changed",
+        "printer",
+        printer_id,
+        {"old_held": previous, "new_held": body.held},
+    )
     session.flush()
     return record(state)
 
@@ -994,7 +1092,7 @@ def create_job(
     body: JobInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     body.destination_id = submission_destination(request, session, body.destination_id)
-    access_context(request).require_destination(body.destination_id, "print")
+    access_context(request).require_printer(body.destination_id, "submit_directly")
     fingerprint = input_fingerprint(body.model_dump())
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
@@ -1018,6 +1116,15 @@ def create_job(
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
         return existing
+    from app.pricing import accept_quote
+
+    accept_quote(
+        request,
+        session,
+        job,
+        body.quote_id,
+        body.maximum_price.model_dump() if body.maximum_price else None,
+    )
     return save_submission(request, session, job, fingerprint)
 
 
@@ -1066,7 +1173,7 @@ def create_image_job(
 ) -> dict[str, Any]:
     # Share the key namespace with template submissions, but never their fingerprints.
     body.destination_id = submission_destination(request, session, body.destination_id)
-    access_context(request).require_destination(body.destination_id, "print")
+    access_context(request).require_printer(body.destination_id, "submit_directly")
     fingerprint = input_fingerprint(body.model_dump(), "image_job")
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
@@ -1100,6 +1207,15 @@ def create_image_job(
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
         return existing
+    from app.pricing import accept_quote
+
+    accept_quote(
+        request,
+        session,
+        job,
+        body.quote_id,
+        body.maximum_price.model_dump() if body.maximum_price else None,
+    )
     return save_submission(request, session, job, fingerprint)
 
 
@@ -1214,9 +1330,6 @@ def job_preview(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> Response:
     item = get(session, PrintJob, identifier)
-    access_context(request).require(
-        Action.READ, Resource("job", item.id, item.owner_id, item.destination_id)
-    )
     label = session.scalar(select(LabelCopy).where(LabelCopy.job_id == identifier).limit(1))
     if label is None:
         raise HTTPException(404, "Label copy not found")
@@ -1232,12 +1345,21 @@ def update_job_copies(
 ) -> dict[str, Any]:
     item = get(session, PrintJob, identifier)
     context = access_context(request)
-    context.require_destination(item.destination_id, "print")
+    context.require_printer(
+        item.destination_id,
+        "submit_directly" if item.owner_id == context.actor.id else "manage_queue",
+    )
     require_record(request, item, Action.WRITE)
     if blocker := copy_count_blocker(session, item, request.app.state.fleet.enforce_job_access):
         raise HTTPException(409, blocker)
     if body.expected_copies != item.copies:
         raise HTTPException(409, "The copy count changed. Refresh the queue before editing it")
+    if (
+        item.template_snapshot.get("pricing") or item.template_snapshot.get("retry")
+    ) and body.copies > item.copies:
+        raise HTTPException(
+            409, "Additional copies need a new price quote; submit them as a new label"
+        )
     labels = list(
         session.scalars(
             select(LabelCopy).where(LabelCopy.job_id == item.id).order_by(LabelCopy.ordinal)
@@ -1317,8 +1439,11 @@ def label_preview_response(
 
 
 @router.delete("/jobs/{identifier}")
-def cancel_job(identifier: str, session: Session = Depends(db, scope="function")) -> dict[str, Any]:
+def cancel_job(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
     item = get(session, PrintJob, identifier)
+    require_record(request, item, Action.DELETE)
     copies = list(session.scalars(select(LabelCopy).where(LabelCopy.job_id == identifier)))
     if not any(c.state == State.QUEUED for c in copies) and any(
         c.state in (State.PRINTING, State.NEEDS_REVIEW) for c in copies
@@ -1390,7 +1515,7 @@ def visible_batches(request: Request, session: Session) -> Select[Batch]:
     query = select(Batch)
     if not access_context(request).actor.is_admin:
         query = query.where(
-            Batch.printer_id.in_(visible_destinations(request, session, "moderator"))
+            Batch.printer_id.in_(visible_destinations(request, session, "view_activity"))
         )
     return query
 
@@ -1422,10 +1547,17 @@ def batch_page(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     before: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+    printer_id: str | None = None,
+    cartridge_id: str | None = None,
+    requester_id: str | None = None,
+    authorizer_id: str | None = None,
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     stamp = time.time() if before is None else before
     query = visible_batches(request, session).where(Batch.created_at <= stamp)
+    from app.print_activity import filter_batches
+
+    query = filter_batches(query, printer_id, cartridge_id, requester_id, authorizer_id)
     return {
         "items": batch_history_records(
             session, query.order_by(Batch.created_at.desc(), Batch.id).offset(offset).limit(limit)
@@ -1433,6 +1565,20 @@ def batch_page(
         "total": session.scalar(select(func.count()).select_from(query.subquery())),
         "before": stamp,
     }
+
+
+@router.get("/batches/filters")
+def batch_filters(
+    request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, Any]:
+    from app.print_activity import filter_options
+
+    result = filter_options(session, visible_batches(request, session))
+    # History grants allow attempt metadata, not otherwise-private inventory names.
+    for cartridge in result["cartridges"]:
+        if not access_context(request).can_cartridge(cartridge["id"], "view"):
+            cartridge["name"] = "Cartridge"
+    return result
 
 
 @router.get("/batches/{identifier}")
@@ -1480,6 +1626,7 @@ def review(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
+    access_context(request).require_printer(batch.printer_id, "review")
     try:
         resolve_batch(
             session,
@@ -1518,49 +1665,11 @@ def requeue_batch_item(
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
-    access_context(request).require_destination(batch.printer_id, "print")
+    access_context(request).require_printer(batch.printer_id, "submit_directly")
     attempt = session.get(BatchItem, (identifier, copy_id))
     if attempt is None:
         raise HTTPException(404, "Batch item not found")
-    fingerprint = input_fingerprint({"batch_id": identifier, "copy_id": copy_id}, "requeue")
-    existing = submitted_job(request, session, fingerprint)
-    if existing is not None:
-        return existing
-    if attempt.outcome != State.PRINTED:
-        raise HTTPException(409, "Only confirmed printed labels can be requeued from Activity")
-    label = get(session, LabelCopy, copy_id)
-    # Batch access covers its frozen labels even when their original destination
-    # was a distribution group the moderator cannot otherwise access.
-    original = session.get(PrintJob, label.job_id)
-    assert original is not None
-    if reason := content_hold_reason(session, original):
-        raise HTTPException(409, reason)
-    destination = resolve_destination(session, batch.printer_id)
-    fleet = request.app.state.fleet
-    if destination not in fleet.workers:
-        raise HTTPException(409, "The original printer's configuration is unavailable")
-    if "render_spec" not in original.template_snapshot:
-        raise HTTPException(409, "This older print does not have saved rendering settings")
-    if not fleet.supports_geometry(original, destination):
-        raise HTTPException(409, "The printer no longer supports this label's saved settings")
-    # Validate the saved content, without substituting the template's current
-    # revision or accepting new assets through this history-only operation.
-    try:
-        render_job(original, label, request.app.state.fonts, request.app.state.images)
-    except ValueError as error:
-        raise HTTPException(409, str(error)) from error
-    job = PrintJob(
-        destination_id=destination,
-        profile_id=original.profile_id,
-        template_id=original.template_id,
-        template_snapshot=copy.deepcopy(original.template_snapshot),
-        payload=copy.deepcopy(original.payload),
-        width_mm=original.width_mm,
-        length_mm=original.length_mm,
-        copies=1,
-        notify_on_completion=original.notify_on_completion,
-    )
-    return save_submission(request, session, job, fingerprint)
+    raise HTTPException(409, "Choose retry funding in the batch details before requeueing labels")
 
 
 def notification_history_records(

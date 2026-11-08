@@ -48,7 +48,7 @@ def change_printer(
     context = access_context(request)
     if not context.has_permission("queue.change_printer"):
         raise HTTPException(403, "The Change printers for queued work permission is required")
-    context.require_destination(body.printer_id, "moderator")
+    context.require_printer(body.printer_id, "manage_queue")
     target = session.get(PrinterDevice, body.printer_id)
     if target is None or target.config.get("retired"):
         raise HTTPException(422, "Choose an active replacement printer")
@@ -65,7 +65,7 @@ def change_printer(
         session.scalars(select(PrintJob).where(PrintJob.id.in_({c.job_id for c in copies})))
     )
     for job in jobs:
-        context.require_destination(job.destination_id, "moderator")
+        context.require_printer(job.destination_id, "manage_queue")
     if any(label.state != State.QUEUED for label in copies):
         raise HTTPException(409, "Only queued copies can change printer. Refresh the queue")
     job_ids = {job.id for job in jobs}
@@ -160,7 +160,7 @@ def change_history(
     stamp = time.time() if before is None else before
     query = select(QueueDestinationChange).where(QueueDestinationChange.created_at <= stamp)
     if not access_context(request).actor.is_admin:
-        allowed = visible_destinations(request, session, "moderator")
+        allowed = visible_destinations(request, session, "view_activity")
         query = query.where(
             or_(
                 QueueDestinationChange.source_id.in_(allowed),

@@ -64,7 +64,7 @@ class RequestCopiesInput(RequestRevisionInput):
 def require_request(request: Request, value: PrintRequest) -> None:
     context = access_context(request)
     if value.owner_id != context.actor.id:
-        context.require_destination(value.destination_id, "moderator")
+        context.require_printer(value.destination_id, "approve_requests")
 
 
 def request_record(session: Session, value: PrintRequest) -> dict[str, Any]:
@@ -179,10 +179,20 @@ def create_request(
                 request.app.state.images,
                 context=access_context(request),
             )
+        from app.pricing import accept_quote
+
+        accept_quote(
+            request,
+            session,
+            job,
+            source.quote_id,
+            source.maximum_price.model_dump() if source.maximum_price else None,
+        )
         labels = [frozen_job(job)]
     access_context(request).require(
         Action.SUBMIT, Resource("destination", destination, destination_id=destination)
     )
+    access_context(request).require_printer(destination, "submit_requests")
     if existing := existing_request():
         return request_record(session, existing)
     value = PrintRequest(
@@ -263,7 +273,7 @@ def request_preview(
 
 def moderator(request: Request, value: PrintRequest) -> str:
     context = access_context(request)
-    context.require_destination(value.destination_id, "moderator")
+    context.require_printer(value.destination_id, "approve_requests")
     return context.actor.id
 
 
@@ -277,6 +287,8 @@ def update_request_copies(
 ) -> dict[str, Any]:
     value = get(session, PrintRequest, identifier)
     require_request(request, value)
+    if value.owner_id != access_context(request).actor.id:
+        access_context(request).require_printer(value.destination_id, "manage_queue")
     if value.status != "pending":
         raise HTTPException(409, "Only pending requests can be edited")
     if value.revision != body.expected_revision:
@@ -284,6 +296,13 @@ def update_request_copies(
     if not 0 <= position < len(value.labels):
         raise HTTPException(404, "Label not found")
     if value.labels[position]["copies"] != body.copies:
+        if (
+            value.labels[position]["template_snapshot"].get("pricing")
+            and body.copies > value.labels[position]["copies"]
+        ):
+            raise HTTPException(
+                409, "Additional copies need a new price quote; submit them as a new label"
+            )
         labels = copy.deepcopy(value.labels)
         labels[position]["copies"] = body.copies
         value.labels = labels
@@ -314,7 +333,11 @@ def approve_request(
         raise HTTPException(409, "The submitter is no longer active")
     actor = actor_for_user(session, owner)
     device_ids = members(session, value.destination_id)
-    if not actor.is_admin and actor.destination_levels.get(value.destination_id, "none") == "none":
+    from app.access import AccountPolicy
+
+    if not AccountPolicy({value.destination_id: None}).can_printer(
+        actor, value.destination_id, "submit_requests"
+    ):
         raise HTTPException(409, "The submitter no longer has access to this destination")
     if not any(pid in request.app.state.fleet.workers for pid in device_ids):
         raise HTTPException(409, "No configured printer is available at this destination")

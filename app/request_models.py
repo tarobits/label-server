@@ -13,12 +13,12 @@ class PrintRequest(Base):
     __tablename__ = "print_requests"
     requested_by: Mapped[dict[str, str] | None] = mapped_column(JSON)
     __table_args__ = (UniqueConstraint("owner_id", "request_key"),)
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
-    owner_id: Mapped[str] = mapped_column(index=True)
+    id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(String(128), index=True)
     destination_id: Mapped[str]
     kind: Mapped[str]
-    run_id: Mapped[str | None] = mapped_column(unique=True)
-    request_key: Mapped[str | None]
+    run_id: Mapped[str | None] = mapped_column(String(128), unique=True)
+    request_key: Mapped[str | None] = mapped_column(String(128))
     request_hash: Mapped[str]
     status: Mapped[str] = mapped_column(default="pending")
     revision: Mapped[int] = mapped_column(default=1, server_default="1")

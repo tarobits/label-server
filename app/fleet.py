@@ -13,8 +13,18 @@ from app.config import Settings
 from app.destinations import busy, installed_profile, members, printer_state
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
-from app.models import Batch, Cartridge, PrinterDevice, PrintJob, PrintRun, State, TapeProfile
-from app.printer.base import PrinterBackend
+from app.models import (
+    Batch,
+    Cartridge,
+    CompanionPrinter,
+    LabelCopy,
+    PrinterDevice,
+    PrintJob,
+    PrintRun,
+    State,
+    TapeProfile,
+)
+from app.printer.base import DurablePrinterBackend, PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
 from app.queue import QueueWorker
@@ -57,6 +67,7 @@ class PrinterFleet:
             lock=self.lock,
             choose=self.choose,
             enforce_job_access=self.enforce_job_access,
+            check_prices=self.check_prices,
         )
         self.registry.register(definition, backend)
         self.workers[definition.id] = worker
@@ -69,7 +80,10 @@ class PrinterFleet:
                     Batch.printer_id == definition.id, Batch.state == State.PRINTING
                 )
             ):
-                worker._uncertain(session, batch, 0, "Server restarted during printing")
+                if not isinstance(backend, DurablePrinterBackend) or not backend.has_batch(
+                    batch.id
+                ):
+                    worker._uncertain(session, batch, 0, "Server restarted during printing")
         if self.running:
             self._start(worker)
 
@@ -83,27 +97,62 @@ class PrinterFleet:
                         self.configuration_errors[device.id] = str(error)
                         continue
                     self.configuration_errors.pop(device.id, None)
+                    backend = self.backends.get(device.id, backend)
+                    if session.get(CompanionPrinter, device.id):
+                        from app.printer.remote import RemotePrinterBackend
+
+                        backend = RemotePrinterBackend(self.factory, device.id, backend)
                     self._add(
                         replace(definition, id=device.id, name=device.name),
-                        self.backends.get(device.id, backend),
+                        backend,
                     )
 
     def reconfigure(self, device: PrinterDevice) -> None:
         # Caller holds the fleet lock and this worker's hardware lock through commit.
         definition, backend = self.backend_factory(device.driver, device.config)
+        backend = self.backends.get(device.id, backend)
+        with self.factory() as session:
+            if session.get(CompanionPrinter, device.id):
+                from app.printer.remote import RemotePrinterBackend
+
+                backend = RemotePrinterBackend(self.factory, device.id, backend)
         self.configuration_errors.pop(device.id, None)
         if device.id not in self.workers:
             self._add(
                 replace(definition, id=device.id, name=device.name),
-                self.backends.get(device.id, backend),
+                backend,
             )
             return
         worker = self.workers[device.id]
-        worker.backend = self.backends.get(device.id, backend)
+        worker.backend = backend
         from app.printer.base import PrinterStatus
 
         worker.latest_status = PrinterStatus(False, None)
         self.registry.replace(replace(definition, id=device.id, name=device.name), worker.backend)
+
+    def check_prices(self, session: Session, printer_id: str) -> None:
+        """Evaluate inventory independently of installed media, holds and thresholds."""
+        from app.job_access import job_eligible
+        from app.pricing import check_affordable_inventory
+
+        for job in session.scalars(
+            select(PrintJob).join(LabelCopy).where(LabelCopy.state == State.QUEUED).distinct()
+        ):
+            if not job.template_snapshot.get("pricing", {}).get("maximum") or not job_eligible(
+                session, job
+            ):
+                continue
+            candidates = [
+                identifier
+                for identifier in self._candidates(session, job)
+                if identifier in self.workers and self.supports_geometry(job, identifier)
+            ]
+            # One member owns this calculation, but prices consider all compatible
+            # members. A cheaper group member must not produce alternating alerts.
+            if candidates and candidates[0] == printer_id:
+                check_affordable_inventory(
+                    session, job, [self.workers[identifier].backend for identifier in candidates]
+                )
 
     def choose(
         self,
@@ -115,6 +164,10 @@ class PrinterFleet:
         require_ready: bool = True,
     ) -> str | None:
         from app.job_access import job_eligible
+        from app.migration_gate import migration_pending
+
+        if migration_pending(session):
+            return None
 
         if self.enforce_job_access and not job_eligible(session, job):
             return None
@@ -129,6 +182,9 @@ class PrinterFleet:
 
     def _candidates(self, session: Session, job: PrintJob) -> list[str]:
         candidates = members(session, job.destination_id)
+        retry = job.template_snapshot.get("retry")
+        if retry:
+            return [retry["printer_id"]] if retry["printer_id"] in candidates else []
         run = session.get(PrintRun, job.run_id) if job.run_id else None
         if run and run.assigned_printer_id:
             return [run.assigned_printer_id] if run.assigned_printer_id in candidates else []
@@ -163,6 +219,26 @@ class PrinterFleet:
         cartridge = (
             session.get(Cartridge, state.active_cartridge_id) if state.active_cartridge_id else None
         )
+        if self.enforce_job_access and cartridge is not None:
+            from app.cartridge_access import can_use_cartridge
+            from app.use_overrides import pending_authorization
+
+            if not can_use_cartridge(session, job, cartridge) and not pending_authorization(
+                session, job, cartridge
+            ):
+                from app.access import access_context
+
+                request = session.info.get("request")
+                if not (
+                    manual
+                    and request
+                    and access_context(request).can_cartridge(cartridge.id, "approve_use")
+                ):
+                    return "has a cartridge the requester may not use"
+            from app.pricing import affordable
+
+            if not affordable(session, job, cartridge, worker.backend):
+                return "has a cartridge above the requester's remaining maximum"
         if not manual and cartridge is not None and cartridge.remaining_mm <= 0:
             return "has no tape remaining"
         if installed_profile(session, identifier) != job.profile_id:

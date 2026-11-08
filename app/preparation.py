@@ -1,7 +1,7 @@
 """Render immutable inputs outside the mutation lock, then validate before saving."""
 
 import copy
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
@@ -26,7 +26,7 @@ def image_references(value: Any) -> set[str]:
 @contextmanager
 def rendering(
     request: Request, session: Session, *documents: Any, destination_id: str | None = None
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Only use before mutating records. Concurrent edits return a retryable conflict.
 
     Ending the read transaction also avoids upgrading a stale SQLite WAL snapshot.
