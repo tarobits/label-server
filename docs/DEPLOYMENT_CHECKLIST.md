@@ -1,10 +1,10 @@
-# Deployment checklist: 0.12.2 and 0.13.0-pre1
+# Deployment checklist: 0.12.2 and 0.13.0-pre2
 
 Use **0.12.2** for the isolated automatic text-field sizing fix. Use
-**0.13.0-pre1** for staged evaluation of the larger upgrade. The prerelease includes
+**0.13.0-pre2** for staged evaluation of the larger upgrade. The prerelease includes
 the patch, changes the database schema, and requires administrator inventory
-migration before printing resumes. These are manual acceptance checks, not claims
-that a deployment has already passed them.
+migration before printing resumes when upgrading from before pre1. These are manual
+acceptance checks, not claims that a deployment has already passed them.
 
 Record the operator, date, source version, target tag, installation role and mode,
 backup location, and results. Keep credentials and private backup paths out of
@@ -32,7 +32,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the prerelease:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre1
+  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre2
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -57,7 +57,7 @@ public issues. Main servers and companions must run on separate machines.
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
-## Prerelease main server: 0.13.0-pre1
+## Prerelease main server: 0.13.0-pre2
 
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
@@ -65,7 +65,7 @@ public issues. Main servers and companions must run on separate machines.
 - [ ] Upgrade the native main server using the exact prerelease tag:
 
   ```sh
-  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre1 --prebuilt-frontend
+  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre2 --prebuilt-frontend
   ```
 
   Review and confirm the plan. Reserve `--yes` for reviewed automation. The updater
@@ -80,6 +80,33 @@ public issues. Main servers and companions must run on separate machines.
   and refresh installed PWAs.
 - [ ] Check the updater's role marker and service entry point. Verify the deployment
   does not run a second main process against the same database.
+
+### Additional checks when upgrading from pre1 to pre2
+
+- [ ] Apply both new schema migrations. Confirm existing locations remain unowned,
+  grants remain allows, and tape profiles retain their width and default to TZe.
+  A completed inventory migration must remain complete.
+- [ ] Assign a location owner and test location/owner resource filters. Edit location
+  permissions through both the location and a role, keeping printer and cartridge
+  rules separate. Check inheritance explanations and the user/resource graph.
+- [ ] Test resource rules overriding location rules, direct-user rules overriding
+  role rules within a scope, and deny winning equal-role conflicts. Confirm owner
+  and administrator rights remain protected. Test the mutually exclusive request
+  and direct-submit controls and review existing effective permissions.
+- [ ] Retire an unused printer and confirm its history remains available. Move an
+  idle main-server printer to a companion; confirm its ID, queued work, ownership,
+  groups and grants survive. Verify the cartridge physically and resume deliberately.
+  Follow [the move procedure](COMPANION.md#moving-an-existing-main-server-printer).
+- [ ] Verify companion installation preserves existing configuration. Test opening
+  and closing PIN setup without premature errors and check button clearance.
+- [ ] Test the optional PIN keypad in all three shuffle modes, keyboard input,
+  manual locking and the header countdown. Restart after deployment-setting changes.
+- [ ] Check media tags, rejection of fixed-label stock on TZe printers, and immutable
+  media properties on used profiles. No fixed-label hardware driver is added here.
+- [ ] Preview logic-bound automatic-width text between images with short, long and
+  bold content. Confirm dependent image positions follow the measured width and
+  existing queued previews remain unchanged. Check object names in logic controls
+  and find design destination selection in template settings.
 
 ### Optional SQLite-to-MariaDB cutover
 
@@ -122,7 +149,7 @@ builds require Python 3.12+ and Node 22.12+. Physical Pi/USB acceptance is still
   its one-time API key into a protected `.env.companion` on the station. Verify
   outbound HTTPS to the main server across the intended networks. Inbound public
   access to the companion is not required.
-- [ ] Install from a checkout of `v0.13.0-pre1`:
+- [ ] Install from a checkout of `v0.13.0-pre2`:
 
   ```sh
   sudo python3 scripts/install.py --role companion \

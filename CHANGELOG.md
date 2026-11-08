@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.13.0-pre2] - 2026-11-08
+
+### Added
+
+- Printer retirement that preserves history, and a move-to-companion workflow that
+  keeps the original printer's ownership, explicit permissions, groups and queued work.
+- Location ownership, resource filters by location and owner, separate printer and
+  cartridge location permissions, and location grants in the role editor.
+- Explicit allow/deny permission rules, inherited-access explanations, and a
+  permissions graph for individual users and resources.
+- An optional companion PIN keypad with fixed, once-shuffled or per-keypress-shuffled
+  digits, plus a visible inactivity-lock countdown.
+- Controlled media properties on tape profiles, inherited cartridge tags, and
+  design compatibility checks for continuous TZe tape and exact fixed-label sizes.
+
+### Changed
+
+- More specific resource rules take precedence over location rules; within a scope,
+  user rules take precedence over role rules, and equally specific denies win.
+  Administrator and individual printer/cartridge owner rights remain protected.
+- Submit requests and Submit directly are mutually exclusive permission-editor
+  choices, with inherited conflicts resolved by specificity.
+- Design destination selection now lives with template settings.
+- Named objects display their names alongside technical identifiers in the logic
+  graph, property pickers, autocomplete and reference lists.
+
+### Fixed
+
+- Companion installation preserves configured environment values instead of
+  appending conflicting defaults; explicit installation options still override them.
+- Companion setup buttons have clearance from adjacent fields and status messages.
+- Opening or reopening the PIN form no longer immediately shows missing-field errors.
+- Automatic text width now includes logic-bound content and typography before
+  positioning dependent objects, including text placed between images by logic.
+
+**Migration requirements:** back up the database, local assets and private
+configuration before upgrading. Pre2 adds schema migrations for location ownership,
+permission denials and media properties. Existing locations remain unowned, existing
+resource grants remain allows, and existing tape profiles default to continuous TZe.
+Review effective permissions after upgrading. Remove explicit deny rules and non-TZe
+profiles before attempting a schema downgrade; use a coordinated backup restore for
+rollback. Upgrading from before pre1 still requires the administrator inventory
+migration before printing resumes. Update both main and companion servers.
+
+**Known limits:** fixed-label compatibility does not add a new physical printer
+driver. Physical printer/Pi and network-outage acceptance remain manual. The pre1
+limitations concerning audit coverage and automatic Docker updates still apply.
+
+See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre2/docs/DEPLOYMENT_CHECKLIST.md)
+for rollout and acceptance checks.
+
 ## [0.13.0-pre1] - 2026-11-08
 
 ### Added
@@ -680,6 +731,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.13.0-pre2]: https://github.com/tarobits/label-server/compare/v0.13.0-pre1...v0.13.0-pre2
 [0.13.0-pre1]: https://github.com/tarobits/label-server/compare/v0.12.2...v0.13.0-pre1
 [0.12.2]: https://github.com/tarobits/label-server/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/tarobits/label-server/compare/v0.12.0...v0.12.1
