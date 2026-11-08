@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import { confirmAction } from '../confirmation'
-import { vValidateForm } from '../formValidation'
+import { resetFormValidation, vValidateForm } from '../formValidation'
 import ExpandableContent from './ExpandableContent.vue'
 
 const configured = ref<boolean | null>(null)
@@ -14,11 +14,13 @@ const password = ref(''),
   pin = ref(''),
   confirmation = ref('')
 const passwordInput = ref<HTMLInputElement | null>(null)
+const pinForm = ref<HTMLFormElement | null>(null)
 let disposed = false
 function clear() {
   password.value = ''
   pin.value = ''
   confirmation.value = ''
+  resetFormValidation(pinForm.value)
 }
 onBeforeUnmount(() => {
   disposed = true
@@ -66,6 +68,7 @@ async function save(remove = false) {
   }
 }
 function toggleEditing() {
+  if (!editing.value) resetFormValidation(pinForm.value)
   editing.value = !editing.value
   error.value = ''
   success.value = ''
@@ -78,6 +81,7 @@ function toggleEditing() {
   <p v-if="success" class="alert success" role="status">{{ success }}</p>
   <button
     v-if="configured !== null"
+    type="button"
     class="secondary"
     :aria-expanded="editing"
     :disabled="busy"
@@ -86,7 +90,7 @@ function toggleEditing() {
     {{ editing ? 'Cancel' : configured ? 'Change PIN' : 'Set PIN' }}
   </button>
   <ExpandableContent :open="editing" @closed="clear">
-    <form v-validate-form class="form-stack pin-form" @submit.prevent="save()">
+    <form ref="pinForm" v-validate-form class="form-stack pin-form" @submit.prevent="save()">
       <p class="muted">
         Use this PIN at companions you can access. Changing it locks your companion sessions.
       </p>
@@ -124,8 +128,8 @@ function toggleEditing() {
           required
           :disabled="busy"
       /></label>
-      <div class="actions">
-        <button class="primary" :disabled="busy">Save PIN</button
+      <div class="row wrap">
+        <button type="submit" class="primary" :disabled="busy">Save PIN</button
         ><button
           v-if="configured"
           type="button"

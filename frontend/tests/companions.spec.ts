@@ -18,51 +18,102 @@ async function location(request: import('@playwright/test').APIRequestContext) {
   return body.identifier
 }
 
-test('account PIN and administrator companion binding follow existing dialogs', async ({
-  page,
-  request,
-}) => {
-  await location(request)
-  await page.goto('/#/account')
-  const settings = page.getByRole('region', { name: 'Companion PIN', exact: true })
-  await settings.getByRole('button', { name: 'Set PIN', exact: true }).click()
-  await settings.getByLabel('Current password', { exact: true }).fill('browser-owner-password')
-  await settings.getByLabel('New PIN', { exact: true }).fill('246810')
-  await settings.getByLabel('Confirm PIN', { exact: true }).fill('246810')
-  await settings.getByRole('button', { name: 'Save PIN', exact: true }).click()
-  await expect(settings.getByRole('status')).toHaveText('PIN saved.')
-  await expect(settings.getByLabel('New PIN', { exact: true })).not.toBeVisible()
-  await settings.getByRole('button', { name: 'Change PIN', exact: true }).click()
-  await expect(settings.getByLabel('New PIN', { exact: true })).toBeVisible()
-  await settings.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(settings.getByLabel('New PIN', { exact: true })).not.toBeVisible()
-  await page.goto('/#/companions')
-  await page.getByRole('button', { name: 'Add companion', exact: true }).click()
-  let dialog = page.getByRole('dialog', { name: 'Add companion', exact: true })
-  await dialog.getByLabel('Name', { exact: true }).fill('Packing station')
-  await dialog
-    .getByRole('combobox', { name: 'Station user', exact: true })
-    .selectOption({ label: 'owner' })
-  await expect(dialog.getByText(/Anyone with the shared deployment PIN/)).toBeVisible()
-  await dialog.getByRole('button', { name: 'Create companion', exact: true }).click()
-  const keyDialog = page.getByRole('dialog', { name: 'Companion API key', exact: true })
-  await expect(keyDialog).toBeVisible()
-  await keyDialog.getByRole('button', { name: 'Close', exact: true }).click()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  dialog = page.getByRole('dialog', { name: 'Packing station', exact: true })
-  await dialog
-    .getByRole('combobox', { name: 'Station user', exact: true })
-    .selectOption({ label: 'User picker' })
-  await expect(dialog.getByText(/Anyone with the shared deployment PIN/)).not.toBeVisible()
-  await dialog.getByRole('button', { name: 'Review changes', exact: true }).click()
-  await expect(dialog.getByRole('button', { name: 'Confirm changes', exact: true })).toBeVisible()
-  await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
-  await page.screenshot({ path: 'test-results/companions-mobile.png', animations: 'disabled' })
-  await dialog.getByRole('button', { name: 'Confirm changes', exact: true }).click()
-  await expect(dialog).not.toBeVisible()
-  expect((await (await request.get('/api/companions')).json())[0].bound_user_id).toBeNull()
-})
+for (const width of [1280, 390]) {
+  test(`account PIN and companion controls retain validation and spacing at ${width}px`, async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await location(request)
+    await page.goto('/#/account')
+    const settings = page.getByRole('region', { name: 'Companion PIN', exact: true })
+    await settings.getByRole('button', { name: 'Set PIN', exact: true }).click()
+    await expect(
+      settings.locator('.validation-summary, .field-error, [aria-invalid="true"]'),
+    ).toHaveCount(0)
+    await settings.getByLabel('Current password', { exact: true }).fill('browser-owner-password')
+    await settings.getByLabel('New PIN', { exact: true }).fill('246810')
+    await settings.getByLabel('Confirm PIN', { exact: true }).fill('246810')
+    await settings.getByRole('button', { name: 'Save PIN', exact: true }).click()
+    await expect(settings.getByRole('status')).toHaveText('PIN saved.')
+    await expect(settings.getByLabel('New PIN', { exact: true })).not.toBeVisible()
+    await settings.getByRole('button', { name: 'Change PIN', exact: true }).click()
+    await expect(settings.getByLabel('New PIN', { exact: true })).toBeVisible()
+    const validation = settings.locator('.validation-summary, .field-error, [aria-invalid="true"]')
+    await expect(validation).toHaveCount(0)
+    const saveButton = settings.getByRole('button', { name: 'Save PIN', exact: true })
+    const removeButton = settings.getByRole('button', { name: 'Remove PIN', exact: true })
+    const saveBox = (await saveButton.boundingBox())!
+    const removeBox = (await removeButton.boundingBox())!
+    expect(
+      Math.max(removeBox.x - saveBox.x - saveBox.width, removeBox.y - saveBox.y - saveBox.height),
+    ).toBeGreaterThanOrEqual(8)
+    await saveButton.click()
+    await expect(settings.locator('.validation-summary')).toBeVisible()
+    await settings.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(settings.getByLabel('New PIN', { exact: true })).not.toBeVisible()
+    await settings.getByRole('button', { name: 'Change PIN', exact: true }).click()
+    await expect(settings.getByLabel('New PIN', { exact: true })).toBeVisible()
+    await expect(settings.getByLabel('New PIN', { exact: true })).toHaveValue('')
+    await expect(validation).toHaveCount(0)
+    await page.screenshot({
+      path: `test-results/pin-reopened-${width}.png`,
+      fullPage: true,
+      animations: 'disabled',
+    })
+    await settings.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(settings.getByLabel('New PIN', { exact: true })).not.toBeVisible()
+    await page.goto('/#/companions')
+    await page.getByRole('button', { name: 'Add companion', exact: true }).click()
+    let dialog = page.getByRole('dialog', { name: 'Add companion', exact: true })
+    await dialog.getByLabel('Name', { exact: true }).fill('Packing station')
+    await dialog
+      .getByRole('combobox', { name: 'Station user', exact: true })
+      .selectOption({ label: 'owner' })
+    await expect(dialog.getByText(/Anyone with the shared deployment PIN/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Create companion', exact: true }).click()
+    const keyDialog = page.getByRole('dialog', { name: 'Companion API key', exact: true })
+    await expect(keyDialog).toBeVisible()
+    const keyInput = keyDialog.getByLabel('API key', { exact: true })
+    await keyInput.focus()
+    const keyBox = (await keyInput.boundingBox())!
+    const copyBox = (await keyDialog
+      .getByRole('button', { name: 'Copy key', exact: true })
+      .boundingBox())!
+    expect(copyBox.y - keyBox.y - keyBox.height).toBeGreaterThanOrEqual(16)
+    await page.screenshot({
+      path: `test-results/companion-key-${width}.png`,
+      mask: [keyInput],
+      animations: 'disabled',
+    })
+    await keyDialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(keyDialog).not.toBeVisible()
+    const addBox = (await page
+      .getByRole('button', { name: 'Add companion', exact: true })
+      .boundingBox())!
+    const notice = page.getByRole('status').filter({ hasText: 'Companion saved.' })
+    const noticeBox = (await notice.boundingBox())!
+    expect(noticeBox.y - addBox.y - addBox.height).toBeGreaterThanOrEqual(16)
+    await page.screenshot({
+      path: `test-results/companion-spacing-${width}.png`,
+      animations: 'disabled',
+    })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    dialog = page.getByRole('dialog', { name: 'Packing station', exact: true })
+    await dialog
+      .getByRole('combobox', { name: 'Station user', exact: true })
+      .selectOption({ label: 'User picker' })
+    await expect(dialog.getByText(/Anyone with the shared deployment PIN/)).not.toBeVisible()
+    await dialog.getByRole('button', { name: 'Review changes', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: 'Confirm changes', exact: true })).toBeVisible()
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await page.screenshot({ path: 'test-results/companions-mobile.png', animations: 'disabled' })
+    await dialog.getByRole('button', { name: 'Confirm changes', exact: true }).click()
+    await expect(dialog).not.toBeVisible()
+    expect((await (await request.get('/api/companions')).json())[0].bound_user_id).toBeNull()
+  })
+}
 
 test('station dashboard locks controls, prints a selected queue and swaps cartridges', async ({
   page,
