@@ -165,7 +165,7 @@ function removeGrant(index: number) {
 
 <template>
   <section class="panel">
-    <div class="row wrap spread">
+    <div class="section-heading wrap">
       <h2>Companions</h2>
       <button class="primary" :disabled="busy || !catalog?.locations.length" @click="edit()">
         Add companion
@@ -290,10 +290,14 @@ function removeGrant(index: number) {
     </form>
   </AdminDialog>
   <AdminDialog :open="!!key" title="Companion API key" @close="key = ''">
-    <p>Copy this key now. It is shown only once.</p>
-    <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-    <label>API key<input :value="key" readonly autocomplete="off" spellcheck="false" /></label
-    ><button class="primary" @click="copyKey">{{ copied ? 'Copied' : 'Copy key' }}</button>
+    <div class="form-stack">
+      <p>Copy this key now. It is shown only once.</p>
+      <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
+      <label>API key<input :value="key" readonly autocomplete="off" spellcheck="false" /></label>
+      <button type="button" class="primary" @click="copyKey">
+        {{ copied ? 'Copied' : 'Copy key' }}
+      </button>
+    </div>
   </AdminDialog>
 </template>
 
