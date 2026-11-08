@@ -1,5 +1,9 @@
 # Implementation plan
 
+The agreed upcoming release is tracked in [the 0.13.0 plan](docs/V0_13_0_PLAN.md).
+That document describes planned behavior; the scope below describes the current
+implementation.
+
 ## Current scope
 
 Taro's Label Room provides a visual editor, persistent queue, Brother PT-P710BT
@@ -52,6 +56,9 @@ boundaries without concurrent transport writes. A cancellation request does not
 guarantee a mid-label stop; physical PT-P710BT tests completed the current label.
 Stopping after the current label is sufficient for the current scope.
 Interrupted output goes through normal review; saving review preserves the hold.
+Review records unprinted copies as failed. Retry funding is a separate action:
+cartridge-authorized free retries or requester-accepted paid retries create new
+jobs without changing the original attempt or its charges.
 Bulk review actions include the
 selected copy and subsequent uncertain copies, leaving confirmed copies locked.
 Standalone cutter capability is separate from automatic cuts and requires Full;

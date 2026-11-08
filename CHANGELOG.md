@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.13.0-pre1] - 2026-11-08
+
+### Added
+
+- Physical locations, printer and cartridge ownership, and granular permissions
+  for users, roles, individual resources, and cartridge locations.
+- Cartridge notes, owner-to-requester balances, cartridge-attributed debts and
+  repayments, ownership transfers, and an administrator inventory migration workflow.
+- Price limits, authorized cartridge substitutions with price protection, and
+  explicit free or requester-funded retries for failed labels.
+- Filterable Print Activity, completed-batch packing previews, an in-app notification
+  inbox, and permission-aware audit-log views.
+- Lightweight companion stations with local printer configuration, a printer
+  dashboard, queue controls, cartridge swaps, user PINs and optional shared-PIN mode.
+  Authorized batches can finish through a temporary main-server disconnection.
+- Separate main and companion frontend builds and release downloads, plus native
+  installation and role-aware updates for companion stations.
+- MariaDB support, a verified SQLite-to-MariaDB migration tool, and coordinated
+  MariaDB backup and rollback for native updates.
+- A manual deployment and acceptance checklist for this prerelease.
+
+### Changed
+
+- Printer and cartridge owners receive their resource permissions. Ownerless
+  cartridges remain usable according to existing grants and retain their debts.
+- The updater detects native or Docker installations, with an explicit mode
+  override. Installation and updates show a plan and require confirmation;
+  unattended use requires `--yes`.
+- Project-wide Pylance/Pyright checking now includes scripts, migrations, companion
+  code and tests, with deprecation diagnostics enabled.
+
+### Security
+
+- Resource-scoped audit access redacts information the viewer cannot access.
+- Companion access and controls follow current main-server permissions; shared-PIN
+  user bindings require administrator approval and station credentials are scoped.
+- MariaDB ownership locking prevents multiple main servers from owning the same
+  database and stops database operations after ownership is lost.
+
+**Prerelease migration requirements:** back up the complete database, local assets
+and private configuration before upgrading. Apply the schema migrations and finish
+administrator inventory migration before printing resumes. Run main and companion
+servers on separate machines. Preserve the companion's local journal during updates.
+
+**Known limits:** hardware/Pi and real network-outage acceptance remain manual;
+comprehensive audit coverage still needs review. Automatic Docker updates require
+SQLite; native updates support MariaDB. This prerelease is for staged evaluation,
+not a declaration that the entire 0.13.0 acceptance plan is complete.
+
+See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre1/docs/DEPLOYMENT_CHECKLIST.md)
+for rollout, validation and recovery steps. Includes the 0.12.2 text-sizing fix.
+
 ## [0.12.2] - 2026-11-08
 
 ### Fixed
@@ -628,6 +680,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.13.0-pre1]: https://github.com/tarobits/label-server/compare/v0.12.2...v0.13.0-pre1
 [0.12.2]: https://github.com/tarobits/label-server/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/tarobits/label-server/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/tarobits/label-server/compare/v0.11.0...v0.12.0
