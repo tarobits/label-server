@@ -18,7 +18,8 @@ from app.printer.base import LabelGeometry, PrinterBackend
 
 def geometry_key(destination: str, profile: str, labels: Sequence[LabelGeometry]) -> str:
     geometry = [
-        {key: value for key, value in asdict(label).items() if key != "copy_id"} for label in labels
+        {key: float(value) for key, value in asdict(label).items() if key != "copy_id"}
+        for label in labels
     ]
     return hashlib.sha256(
         json.dumps([destination, profile, geometry], sort_keys=True).encode()

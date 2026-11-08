@@ -150,3 +150,29 @@ def test_inventory_price_episodes_continue_without_installed_tape_and_while_held
     worker.tick()
     assert notices() == 2
     assert not worker.backend.batches
+
+
+def test_default_template_quote_survives_preview_and_submission(client):
+    tape = profile(client)
+    cartridge = install(client, tape["id"])
+    set_price(client, cartridge)
+    template = client.post(
+        "/api/templates",
+        json={
+            "name": "Default geometry",
+            "document": {"elements": []},
+        },
+    ).json()
+    estimate = preview(client, tape, template_id=None, document=template["document"], data={})[
+        "cost_estimate"
+    ]
+    response = client.post(
+        "/api/jobs",
+        json={
+            "template": template["id"],
+            "tape_profile": tape["id"],
+            "quote_id": estimate["quote_id"],
+            "data": {},
+        },
+    )
+    assert response.status_code == 201, response.text
