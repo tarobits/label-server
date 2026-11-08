@@ -1,7 +1,8 @@
 """PyUSB bulk transport. Discovery is restricted to an explicit USB device model."""
 
 import time
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 
 import usb.core  # type: ignore[import-untyped]
 import usb.util  # type: ignore[import-untyped]
@@ -21,7 +22,10 @@ class UsbTransport:
         if self.device is not None:
             return
         devices = list(
-            usb.core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id)
+            cast(
+                Iterable[usb.core.Device],
+                usb.core.find(find_all=True, idVendor=self.vendor_id, idProduct=self.product_id),
+            )
         )
         if self.serial:
             devices = [device for device in devices if device.serial_number == self.serial]

@@ -1,0 +1,24 @@
+FROM node:22-slim AS frontend
+WORKDIR /ui
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+COPY CHANGELOG.md /CHANGELOG.md
+RUN npm run build:companion
+
+FROM python:3.14-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /srv/labels
+RUN apt-get update && apt-get install -y --no-install-recommends libusb-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+COPY companion/requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir -c requirements.lock -r requirements.txt \
+    && useradd --uid 10001 --create-home labels \
+    && mkdir -p /srv/labels/data/companion \
+    && chown -R labels:labels /srv/labels/data
+COPY app ./app
+COPY companion ./companion
+COPY --from=frontend /ui/dist-companion ./frontend/dist-companion
+USER labels
+EXPOSE 8001
+CMD ["python", "-m", "companion"]

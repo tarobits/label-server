@@ -1,0 +1,29 @@
+services:
+  companion:
+    build:
+      context: .
+      dockerfile: Dockerfile.companion
+    env_file: .env.companion
+    environment:
+      LABEL_COMPANION_HOST: 0.0.0.0
+      LABEL_COMPANION_DATA_DIR: /srv/labels/data/companion
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - companion-data:/srv/labels/data/companion
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      - 'c 189:* rw'
+    group_add:
+      - "${LABEL_USB_GID:?Set LABEL_USB_GID to the host USB access group ID}"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 10m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  companion-data:

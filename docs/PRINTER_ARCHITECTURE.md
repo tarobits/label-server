@@ -74,9 +74,10 @@ reservations still enforce exclusive ownership of each copy and physical device.
 
 Manual group printing reserves currently matching copies by printer. Explicit
 selection requires every selected copy to be dispatchable, or the whole request
-fails. Moderator-selected printing holds that destination: group selections hold
-the group, while direct selections hold the physical printer. Print-level users
-can select their own copies without holding other users' work. Manual printing can
+fails. Selected printing holds that destination when the operator has both
+Start anyone's prints and Hold/resume printing: group selections hold the group,
+while direct selections hold the physical printer. Start own prints allows users
+to select their own copies without holding other users' work. Manual printing can
 run while automatic printing is held.
 Pending flushes stay assigned to their chosen printer and wait if it disconnects.
 They prevent cartridge reassignment until completed or explicitly cancelled via
@@ -86,7 +87,7 @@ Both physical and group endpoints apply the same selected-only hold rules.
 ## Cartridge detection and confirmation
 
 Cartridge installation uses `PUT /api/printer/active-tape?printer_id=…` and requires
-Full access directly on that printer. Adapters may implement the generic
+Swap cartridges on that physical printer. Adapters may implement the generic
 `ConfirmableMediaBackend` contract to expose detected media and accept an explicit
 selection. The queue continues to use effective width and readiness through
 `PrinterStatus`; it never interprets protocol codes.
@@ -115,7 +116,7 @@ is explicitly confirmed or changed. Authorized users receive one prompt per
 observed change; cancelling leaves the check pending without repeatedly reopening
 the dialog during the same browser session.
 
-Full users can disable **Confirm cartridge after opening** independently per
+Users with Configure printer can disable **Confirm cartridge after opening** independently per
 printer, including while work is queued. `PUT /api/printers/{id}/cartridge-check`
 accepts `{ "enabled": false }` to release a pending cover check. Hardware faults
 and unconfirmed type/width mismatches remain enforced. Opening and closing a

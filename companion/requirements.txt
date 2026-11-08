@@ -1,0 +1,7 @@
+# Install from the repository root with -c requirements.lock.
+fastapi>=0.121,<1
+uvicorn[standard]>=0.34,<1
+pydantic-settings>=2.7,<3
+httpx>=0.28,<1
+pyusb>=1.3,<2
+pillow>=13,<14
