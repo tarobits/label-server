@@ -118,6 +118,8 @@ test('Tab traverses the navigation and reaches page controls in both directions'
   await expect(links.last()).toBeFocused()
   await page.keyboard.press('Tab')
   await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: /^Notifications/ })).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
   const scopes = page.getByRole('group', { name: 'Template visibility', exact: true })
   const controls = [
@@ -160,7 +162,9 @@ test('the skip link reaches account fields without entering disabled or hidden c
     page.getByRole('button', { name: 'Add email', exact: true }),
     page.getByLabel('Device name', { exact: true }),
     page.getByRole('button', { name: 'Enable notifications', exact: true }),
-    page.getByLabel('Current password', { exact: true }),
+    page
+      .getByRole('region', { name: 'Change password', exact: true })
+      .getByLabel('Current password', { exact: true }),
     page.getByLabel('New password', { exact: true }),
     page.getByLabel('Confirm new password', { exact: true }),
     page.getByRole('button', { name: 'Change password', exact: true }),

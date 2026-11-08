@@ -60,7 +60,7 @@ test('Tab closes the account flyout and the trigger can reopen it in either dire
   const flyout = page.getByRole('group', { name: 'Account', exact: true })
   const settings = page.getByRole('link', { name: 'Account settings', exact: true })
   const signOut = page.getByRole('button', { name: 'Sign out', exact: true })
-  const next = page.getByRole('link', { name: 'New label', exact: true })
+  const next = page.getByRole('button', { name: /^Notifications/ })
   await trigger.focus()
   await page.keyboard.press('Enter')
   await expect(settings).toBeFocused()
@@ -327,7 +327,9 @@ test('account password form validates confirmation, recovers from errors, and ch
   const errors: string[] = []
   page.on('pageerror', (issue) => errors.push(issue.message))
   await page.goto('/#/account')
-  const current = page.getByLabel('Current password', { exact: true })
+  const current = page
+    .getByRole('region', { name: 'Change password', exact: true })
+    .getByLabel('Current password', { exact: true })
   const next = page.getByLabel('New password', { exact: true })
   const confirm = page.getByLabel('Confirm new password', { exact: true })
   const save = page.getByRole('button', { name: 'Change password', exact: true })

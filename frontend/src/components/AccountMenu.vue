@@ -49,12 +49,16 @@ function moveOut(event: KeyboardEvent) {
     event.preventDefault()
     close()
     const main = document.getElementById('main-content')
+    const trigger = menu.value?.querySelector('summary')
     const next = [
-      ...(main?.querySelectorAll<HTMLElement>(
-        'a[href], button, input, select, textarea, [tabindex]',
-      ) ?? []),
+      ...document.querySelectorAll<HTMLElement>(
+        'a[href], button, input, select, textarea, summary, [tabindex]',
+      ),
     ].find(
       (element) =>
+        trigger &&
+        Boolean(trigger.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        !panel.value?.contains(element) &&
         element.tabIndex >= 0 &&
         !element.matches(':disabled') &&
         !element.closest('[inert]') &&
