@@ -113,7 +113,7 @@ export const useResourceStore = defineStore('resources', () => {
       const collection = path.split('/').slice(0, 3).join('/')
       const affected = [collection]
       if (['/admin/users', '/admin/roles', '/admin/groups'].includes(collection))
-        affected.push('/font-assets', '/image-assets', ...printing)
+        affected.push('/font-assets', '/image-assets', '/resource-access', ...printing)
       if (collection === '/admin/roles' || collection === '/admin/groups')
         affected.push('/admin/users', '/admin/registration-codes')
       if (collection === '/admin/groups')

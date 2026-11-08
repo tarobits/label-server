@@ -8,6 +8,9 @@ import { useWorkspaceStore, date } from '../workspace'
 import { useRoute, useRouter } from 'vue-router'
 import { confirmAction } from '../confirmation'
 import AdminDialog from '../components/AdminDialog.vue'
+import PermissionRules from '../components/PermissionRules.vue'
+import type { AccessCatalog } from '../resourceAccess'
+import { permissionLabel } from '../resourceAccess'
 import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import NotificationEndpoints from '../components/NotificationEndpoints.vue'
@@ -15,6 +18,7 @@ import AnimatedDetails from '../components/AnimatedDetails.vue'
 import GroupPermissionsFields from '../components/GroupPermissionsFields.vue'
 import {
   legacyPrinterPermissions,
+  exclusiveSubmissionPermissions,
   permissionOptions,
   printerPreset,
   printerPermissionLabel,
@@ -113,11 +117,14 @@ const settings = reactive({
   approval_notification_debounce_seconds: 60,
   approval_notifications_enabled: true,
 })
+const accessCatalog = ref<AccessCatalog>()
 const roleForm = reactive({
   id: '',
   name: '',
   applications: [] as string[],
   destinations: {} as Record<string, string[]>,
+  destinationDenials: {} as Record<string, string[]>,
+  locations: {} as Record<string, { permissions: string[]; denied_permissions: string[] }>,
 })
 const groupForm = reactive({ id: '', name: '', members: [] as Member[] })
 const codeForm = reactive({
@@ -141,6 +148,8 @@ const levelName = (level: AccessLevel) =>
   accessLevels.find((item) => item.value === level)?.label ?? level
 async function load(keys?: AdminResource[]) {
   if (!(await administration.load(keys))) return
+  if (!keys || keys.includes('roles'))
+    accessCatalog.value = await api<AccessCatalog>('/resource-access')
   if (!keys || keys.includes('settings')) Object.assign(settings, administration.settings)
 }
 async function perform(task: () => Promise<unknown>, message: string, reload: AdminResource[]) {
@@ -181,7 +190,9 @@ function roleSummary(role: Role) {
         permission.kind === 'application'
           ? (permissions.value.find((item) => item.id === permission.permission)?.label ??
             permission.permission)
-          : `${w.destinationName(permission.destination_id)} · ${permission.kind === 'destination' ? levelName(permission.level) : `${permission.permissions.length} permissions`}`,
+          : permission.kind === 'location_permissions'
+            ? `${accessCatalog.value?.locations.find((location) => location.id === permission.location_id)?.name ?? permission.location_id} · ${permission.permissions.length} allowed, ${permission.denied_permissions?.length ?? 0} denied`
+            : `${w.destinationName(permission.destination_id)} · ${permission.kind === 'destination' ? levelName(permission.level) : `${permission.permissions.length} allowed, ${permission.denied_permissions?.length ?? 0} denied`}`,
       )
       .join('; ') || 'No additional access'
   )
@@ -191,11 +202,20 @@ const sorted = (values: string[]) => [...values].sort()
 const rolePermissions = () => [
   ...roleForm.applications.map((permission) => ({ kind: 'application' as const, permission })),
   ...Object.entries(roleForm.destinations)
-    .filter(([, permissions]) => permissions.length)
+    .filter(([id, permissions]) => permissions.length || roleForm.destinationDenials[id]?.length)
     .map(([destination_id, permissions]) => ({
       kind: 'destination_permissions' as const,
       destination_id,
       permissions: [...permissions].sort(),
+      denied_permissions: [...(roleForm.destinationDenials[destination_id] ?? [])].sort(),
+    })),
+  ...Object.entries(roleForm.locations)
+    .filter(([, rules]) => rules.permissions.length || rules.denied_permissions.length)
+    .map(([location_id, rules]) => ({
+      kind: 'location_permissions' as const,
+      location_id,
+      permissions: [...rules.permissions].sort(),
+      denied_permissions: [...rules.denied_permissions].sort(),
     })),
 ]
 const permissionGroups = computed(() => [
@@ -212,18 +232,28 @@ const permissionGroups = computed(() => [
 ])
 const sortedPermissions = (values: Permission[]) =>
   values
-    .filter((p) => p.kind !== 'destination' || p.level !== 'none')
-    .flatMap((p) =>
-      p.kind === 'application'
-        ? `application:${p.permission}`
-        : (p.kind === 'destination'
-            ? legacyPrinterPermissions(
-                p.level,
-                w.destinations.find((d) => d.id === p.destination_id)?.kind === 'group',
-              )
-            : p.permissions
-          ).map((permission) => `destination:${p.destination_id}:${permission}`),
-    )
+    .flatMap((p) => {
+      if (p.kind === 'application') return [`application:${p.permission}`]
+      const scope =
+        p.kind === 'location_permissions'
+          ? `location:${p.location_id}`
+          : `destination:${p.destination_id}`
+      const allowed =
+        p.kind === 'destination'
+          ? legacyPrinterPermissions(
+              p.level,
+              w.destinations.find((d) => d.id === p.destination_id)?.kind === 'group',
+            )
+          : p.permissions
+      return [
+        ...exclusiveSubmissionPermissions(allowed).map(
+          (permission) => `${scope}:allow:${permission}`,
+        ),
+        ...(p.kind === 'destination' ? [] : (p.denied_permissions ?? [])).map(
+          (permission) => `${scope}:deny:${permission}`,
+        ),
+      ]
+    })
     .sort()
 const sortedMembers = (values: Member[]) =>
   [...values]
@@ -423,10 +453,32 @@ function editRole(role?: Role) {
     name: role?.name ?? '',
     applications:
       role?.permissions.filter((p) => p.kind === 'application').map((p) => p.permission) ?? [],
+    destinationDenials: Object.fromEntries(
+      (role?.permissions ?? []).flatMap((p) =>
+        p.kind === 'destination_permissions'
+          ? [[p.destination_id, [...(p.denied_permissions ?? [])]]]
+          : [],
+      ),
+    ),
+    locations: Object.fromEntries(
+      (role?.permissions ?? []).flatMap((p) =>
+        p.kind === 'location_permissions'
+          ? [
+              [
+                p.location_id,
+                {
+                  permissions: exclusiveSubmissionPermissions([...p.permissions]),
+                  denied_permissions: [...(p.denied_permissions ?? [])],
+                },
+              ],
+            ]
+          : [],
+      ),
+    ),
     destinations: Object.fromEntries([
       ...w.destinations.map((destination) => [destination.id, []]),
       ...(role?.permissions ?? []).flatMap((permission) =>
-        permission.kind === 'application'
+        permission.kind === 'application' || permission.kind === 'location_permissions'
           ? []
           : [
               [
@@ -438,7 +490,7 @@ function editRole(role?: Role) {
                         (destination) => destination.id === permission.destination_id,
                       )?.kind === 'group',
                     )
-                  : [...permission.permissions],
+                  : exclusiveSubmissionPermissions([...permission.permissions]),
               ],
             ],
       ),
@@ -446,6 +498,7 @@ function editRole(role?: Role) {
   })
 }
 function selectedPreset(id: string, group: boolean): AccessLevel | 'custom' {
+  if (roleForm.destinationDenials[id]?.length) return 'custom'
   const selected = JSON.stringify([...(roleForm.destinations[id] ?? [])].sort())
   return (
     accessLevels.find(
@@ -453,11 +506,22 @@ function selectedPreset(id: string, group: boolean): AccessLevel | 'custom' {
     )?.value ?? 'custom'
   )
 }
-function togglePrinterPermission(id: string, permission: string, event: Event) {
-  const selected = roleForm.destinations[id] ?? []
-  roleForm.destinations[id] = (event.target as HTMLInputElement).checked
-    ? [...new Set([...selected, permission])]
-    : selected.filter((value) => value !== permission)
+function setPrinterRules(id: string, allowed: string[], denied: string[]) {
+  roleForm.destinations[id] = allowed
+  roleForm.destinationDenials[id] = denied
+}
+function setLocationRules(id: string, prefix: string, allowed: string[], denied: string[]) {
+  const current = roleForm.locations[id] ?? { permissions: [], denied_permissions: [] }
+  roleForm.locations[id] = {
+    permissions: [
+      ...current.permissions.filter((p) => !p.startsWith(prefix)),
+      ...allowed.filter((p) => p.startsWith(prefix)),
+    ],
+    denied_permissions: [
+      ...current.denied_permissions.filter((p) => !p.startsWith(prefix)),
+      ...denied.filter((p) => p.startsWith(prefix)),
+    ],
+  }
 }
 function editGroup(group?: Group) {
   editor.value = 'group'
@@ -696,6 +760,13 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                     }}</span>
                   </td>
                   <td class="action-cell">
+                    <RouterLink
+                      v-if="!user.disabled"
+                      class="button secondary"
+                      :to="{ path: '/resource-access', query: { user: user.id } }"
+                      :aria-label="`Permissions graph for ${user.username}`"
+                      >Permissions graph</RouterLink
+                    >
                     <button
                       class="secondary"
                       :disabled="busy"
@@ -1028,7 +1099,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           <AnimatedDetails v-for="destination in w.destinations" :key="destination.id">
             <template #summary
               >{{ destination.name }} ·
-              {{ (roleForm.destinations[destination.id] ?? []).length }} permissions</template
+              {{ (roleForm.destinations[destination.id] ?? []).length }} allowed ·
+              {{ (roleForm.destinationDenials[destination.id] ?? []).length }} denied</template
             >
             <div class="form-stack">
               <label
@@ -1036,9 +1108,13 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   :aria-label="`Access to ${destination.name}`"
                   :value="selectedPreset(destination.id, destination.kind === 'group')"
                   @change="
-                    roleForm.destinations[destination.id] = printerPreset(
-                      ($event.target as HTMLSelectElement).value as AccessLevel,
-                      destination.kind === 'group',
+                    setPrinterRules(
+                      destination.id,
+                      printerPreset(
+                        ($event.target as HTMLSelectElement).value as AccessLevel,
+                        destination.kind === 'group',
+                      ),
+                      [],
                     )
                   "
                 >
@@ -1048,23 +1124,46 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   </option>
                 </select></label
               >
-              <div class="choice-grid" role="group" :aria-label="`${destination.name} permissions`">
-                <label
-                  v-for="permission in permissionOptions(destination.kind === 'group')"
-                  :key="permission.id"
-                  class="checkbox"
-                >
-                  <input
-                    :checked="(roleForm.destinations[destination.id] ?? []).includes(permission.id)"
-                    @change="togglePrinterPermission(destination.id, permission.id, $event)"
-                    type="checkbox"
-                    :value="permission.id"
-                  />{{ permission.label }}
-                </label>
+              <div role="group" :aria-label="`${destination.name} permissions`">
+                <PermissionRules
+                  :options="permissionOptions(destination.kind === 'group')"
+                  :allowed="roleForm.destinations[destination.id] ?? []"
+                  :denied="roleForm.destinationDenials[destination.id] ?? []"
+                  @change="(allowed, denied) => setPrinterRules(destination.id, allowed, denied)"
+                />
               </div>
             </div>
           </AnimatedDetails>
         </fieldset>
+        <fieldset class="form-stack">
+          <legend>Locations</legend>
+          <AnimatedDetails v-for="location in accessCatalog?.locations" :key="location.id">
+            <template #summary>{{ location.name }}</template>
+            <fieldset
+              v-for="kind in ['printer', 'cartridge'] as const"
+              :key="kind"
+              class="form-stack"
+            >
+              <legend>
+                {{ kind === 'printer' ? 'Printer permissions' : 'Cartridge permissions' }}
+              </legend>
+              <PermissionRules
+                :options="
+                  (accessCatalog?.permissions[kind] ?? []).map((id) => ({
+                    id,
+                    label: permissionLabel(id),
+                  }))
+                "
+                :allowed="roleForm.locations[location.id]?.permissions ?? []"
+                :denied="roleForm.locations[location.id]?.denied_permissions ?? []"
+                @change="
+                  (allowed, denied) => setLocationRules(location.id, `${kind}.`, allowed, denied)
+                "
+              />
+            </fieldset>
+          </AnimatedDetails>
+        </fieldset>
+
         <div class="admin-actions">
           <button
             v-if="roleForm.id"

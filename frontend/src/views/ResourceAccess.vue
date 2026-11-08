@@ -3,10 +3,21 @@ import { computed, onMounted, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import { useAuthStore } from '../auth'
 import type { AccessCatalog, AccessPreview, ResourceChange, ResourceEntry } from '../resourceAccess'
+import { exclusiveGrantModes } from '../resourceAccess'
 import AdminDialog from '../components/AdminDialog.vue'
 import ResourceGrants from '../components/ResourceGrants.vue'
 import ResourceImpact from '../components/ResourceImpact.vue'
+import AccessGraph from '../components/AccessGraph.vue'
+import { useRoute } from 'vue-router'
 const auth = useAuthStore()
+const route = useRoute()
+const graphOpen = ref(false)
+const graphResource = ref('')
+const graphUser = ref('')
+function openGraph(item?: ResourceEntry) {
+  graphResource.value = item ? `${item.kind}:${item.id}` : ''
+  graphOpen.value = true
+}
 const catalog = ref<AccessCatalog>()
 const error = ref(''),
   busy = ref(false),
@@ -16,14 +27,37 @@ const form = ref<ResourceChange>()
 const preview = ref<AccessPreview>()
 const accepted = ref(false)
 const filter = ref('')
+const locationFilter = ref('')
+const ownerFilter = ref('')
 const resources = computed(
   () =>
-    catalog.value?.resources.filter((item) => !filter.value || item.kind === filter.value) ?? [],
+    catalog.value?.resources.filter((item) => {
+      const location = item.kind === 'location' ? item.parent_id : item.location_id
+      return (
+        (!filter.value || item.kind === filter.value) &&
+        (!locationFilter.value ||
+          (locationFilter.value === 'unassigned'
+            ? !location
+            : location === locationFilter.value)) &&
+        (!ownerFilter.value ||
+          (ownerFilter.value === 'unowned' ? !item.owner_id : item.owner_id === ownerFilter.value))
+      )
+    }) ?? [],
 )
 async function load() {
   catalog.value = await api<AccessCatalog>('/resource-access')
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e))))
+onMounted(async () => {
+  try {
+    await load()
+    if (typeof route.query.user === 'string') {
+      graphUser.value = route.query.user
+      openGraph()
+    }
+  } catch (e) {
+    error.value = errorMessage(e)
+  }
+})
 function edit(item: ResourceEntry) {
   selected.value = item
   preview.value = undefined
@@ -34,11 +68,13 @@ function edit(item: ResourceEntry) {
     kind: item.kind,
     identifier: item.id,
     ...(item.kind === 'location' ? { name: item.name, parent_id: item.parent_id } : {}),
-    ...(item.abilities.transfer && item.owner_id ? { owner_id: item.owner_id } : {}),
+    ...(item.abilities.transfer && (item.owner_id || item.kind === 'location')
+      ? { owner_id: item.owner_id }
+      : {}),
     ...(item.kind !== 'location' && item.abilities.locate ? { location_id: item.location_id } : {}),
     ...(item.abilities.grants
       ? {
-          grants: item.grants
+          grants: exclusiveGrantModes(item.grants)
             .filter((g) => item.abilities.roles || g.principal_kind === 'user')
             .map((g) => ({ ...g })),
         }
@@ -54,7 +90,7 @@ function createLocation() {
     owner_id: null,
     location_id: null,
     grants: [],
-    abilities: { transfer: false, locate: true, grants: true, roles: true },
+    abilities: { transfer: true, locate: true, grants: true, roles: true },
   })
 }
 async function review() {
@@ -97,18 +133,41 @@ async function confirm() {
   <section class="panel">
     <div class="row wrap spread">
       <h2>Resources</h2>
-      <button v-if="catalog?.manage_locations" @click="createLocation">New location</button>
+      <div class="row wrap">
+        <button class="secondary" @click="openGraph()">Permissions graph</button
+        ><button v-if="catalog?.manage_locations" @click="createLocation">New location</button>
+      </div>
     </div>
     <p v-if="error && !form" class="alert danger" role="alert">{{ error }}</p>
     <p v-if="saved" class="alert success" role="status">{{ saved }}</p>
-    <label
-      >Show<select v-model="filter">
-        <option value="">All resources</option>
-        <option value="location">Locations</option>
-        <option value="printer">Printers</option>
-        <option value="cartridge">Cartridges</option>
-      </select></label
-    >
+    <div class="resource-filters">
+      <label
+        >Show<select v-model="filter">
+          <option value="">All resources</option>
+          <option value="location">Locations</option>
+          <option value="printer">Printers</option>
+          <option value="cartridge">Cartridges</option>
+        </select></label
+      >
+      <label
+        >Filter by location<select v-model="locationFilter">
+          <option value="">All locations</option>
+          <option value="unassigned">Unassigned</option>
+          <option v-for="location in catalog?.locations" :key="location.id" :value="location.id">
+            {{ location.name }}
+          </option>
+        </select></label
+      >
+      <label
+        >Filter by owner<select v-model="ownerFilter">
+          <option value="">All owners</option>
+          <option value="unowned">No owner</option>
+          <option v-for="user in catalog?.users" :key="user.id" :value="user.id">
+            {{ user.name }}
+          </option>
+        </select></label
+      >
+    </div>
     <div class="table-scroll">
       <table>
         <thead>
@@ -136,9 +195,17 @@ async function confirm() {
               }}
             </td>
             <td>
-              <button class="secondary" :aria-label="`Manage ${item.name}`" @click="edit(item)">
-                Manage
-              </button>
+              <div class="row wrap">
+                <button class="secondary" :aria-label="`Manage ${item.name}`" @click="edit(item)">
+                  Manage</button
+                ><button
+                  class="secondary"
+                  :aria-label="`Permissions graph for ${item.name}`"
+                  @click="openGraph(item)"
+                >
+                  Permissions graph
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -146,6 +213,14 @@ async function confirm() {
     </div>
     <p v-if="catalog && !resources.length" class="empty">No resources to manage.</p>
   </section>
+  <AdminDialog :open="graphOpen" title="Permissions graph" wide @close="graphOpen = false">
+    <AccessGraph
+      v-if="graphOpen && catalog"
+      :catalog="catalog"
+      :initial-resource="graphResource"
+      :initial-user="graphUser || undefined"
+    />
+  </AdminDialog>
   <AdminDialog
     :open="!!form"
     :title="preview ? 'Review access changes' : selected?.name || 'New location'"
@@ -172,13 +247,20 @@ async function confirm() {
         >
         <label v-if="selected.abilities.transfer"
           >Owner<select v-model="form.owner_id">
-            <option :value="undefined" disabled>No owner</option>
+            <option
+              :value="form.kind === 'location' ? null : undefined"
+              :disabled="form.kind !== 'location'"
+            >
+              No owner
+            </option>
             <option v-for="user in catalog.users" :key="user.id" :value="user.id">
               {{ user.name }}
             </option>
           </select></label
         >
-        <p v-if="selected.inherited_location" class="muted">Location is inherited from the companion.</p>
+        <p v-if="selected.inherited_location" class="muted">
+          Location is inherited from the companion.
+        </p>
         <label v-if="selected.abilities.locate && form.kind !== 'location'"
           >Location<select v-model="form.location_id">
             <option :value="null">Unassigned</option>
@@ -192,6 +274,7 @@ async function confirm() {
           v-model="form.grants"
           :catalog="catalog"
           :kind="form.kind"
+          :identifier="form.identifier"
           :roles="selected.abilities.roles"
         />
         <button :disabled="busy">Review changes</button>
@@ -214,3 +297,12 @@ async function confirm() {
     </template>
   </AdminDialog>
 </template>
+
+<style scoped>
+.resource-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 16px;
+  margin-block: 20px;
+}
+</style>

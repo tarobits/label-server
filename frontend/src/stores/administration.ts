@@ -22,7 +22,18 @@ export interface DeletedItem {
 export type Permission =
   | { kind: 'application'; permission: string }
   | { kind: 'destination'; destination_id: string; level: AccessLevel }
-  | { kind: 'destination_permissions'; destination_id: string; permissions: string[] }
+  | {
+      kind: 'destination_permissions'
+      destination_id: string
+      permissions: string[]
+      denied_permissions?: string[]
+    }
+  | {
+      kind: 'location_permissions'
+      location_id: string
+      permissions: string[]
+      denied_permissions?: string[]
+    }
 export interface Role {
   id: string
   name: string

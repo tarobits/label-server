@@ -43,13 +43,26 @@ export function legacyPrinterPermissions(level: AccessLevel, group = false): str
       'stop_after_label',
     )
   if (level === 'full') result.push('configure', 'swap_cartridges', 'emergency_stop')
-  return result.map((name) => `printer.${name}`).filter((name) => !group || !physical.has(name))
+  return exclusiveSubmissionPermissions(
+    result.map((name) => `printer.${name}`).filter((name) => !group || !physical.has(name)),
+  )
 }
 
 export const printerPreset = (level: AccessLevel, group = false) =>
   level === 'full'
-    ? permissionOptions(group).map((option) => option.id)
+    ? exclusiveSubmissionPermissions(permissionOptions(group).map((option) => option.id))
     : legacyPrinterPermissions(level, group)
 
 export const printerPermissionLabel = (permission: string) =>
   printerPermissionOptions.find((option) => option.id === permission)?.label ?? permission
+
+export const oppositeSubmissionPermission = (permission: string) =>
+  permission === 'printer.submit_requests'
+    ? 'printer.submit_directly'
+    : permission === 'printer.submit_directly'
+      ? 'printer.submit_requests'
+      : undefined
+export const exclusiveSubmissionPermissions = (permissions: string[]) =>
+  permissions.includes('printer.submit_directly')
+    ? permissions.filter((p) => p !== 'printer.submit_requests')
+    : permissions

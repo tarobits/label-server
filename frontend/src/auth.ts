@@ -28,6 +28,7 @@ export interface User {
   permissions: string[]
   group_ids: string[]
   printer_ids: string[]
+  managed_location_ids?: string[]
   role_ids: string[]
   destination_levels: Record<string, AccessLevel>
   destination_permissions?: Record<string, string[]>

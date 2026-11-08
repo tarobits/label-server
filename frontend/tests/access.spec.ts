@@ -145,12 +145,8 @@ test('administration saves roles, account access, and notification settings', as
     {
       kind: 'destination_permissions',
       destination_id: printers[0].id,
-      permissions: [
-        'printer.start_own',
-        'printer.submit_directly',
-        'printer.submit_requests',
-        'printer.view',
-      ],
+      denied_permissions: [],
+      permissions: ['printer.start_own', 'printer.submit_directly', 'printer.view'],
     },
   ])
   await page.getByRole('button', { name: 'Account settings', exact: true }).click()
@@ -179,10 +175,14 @@ test('granular printer grants keep independent controls and animate both disclos
   const summary = dialog.locator('summary').filter({ hasText: 'Desk printer' })
   await summary.click()
   const grants = dialog.getByRole('group', { name: 'Desk printer permissions', exact: true })
-  await grants.getByLabel('View printer', { exact: true }).check()
-  await grants.getByLabel('Swap cartridges', { exact: true }).check()
-  await grants.getByLabel('Hold/resume printing', { exact: true }).check()
-  await expect(grants.getByLabel('Configure printer', { exact: true })).not.toBeChecked()
+  await grants.getByRole('combobox', { name: 'View printer', exact: true }).selectOption('allow')
+  await grants.getByRole('combobox', { name: 'Swap cartridges', exact: true }).selectOption('allow')
+  await grants
+    .getByRole('combobox', { name: 'Hold/resume printing', exact: true })
+    .selectOption('allow')
+  await expect(
+    grants.getByRole('combobox', { name: 'Configure printer', exact: true }),
+  ).toHaveValue('inherit')
   await expect(dialog.getByRole('combobox', { name: 'Access to Desk printer' })).toHaveValue(
     'custom',
   )
@@ -190,9 +190,13 @@ test('granular printer grants keep independent controls and animate both disclos
   await summary.click()
   await expect(grants).toBeHidden()
   await summary.click()
-  await expect(grants.getByLabel('Swap cartridges', { exact: true })).toBeChecked()
+  await expect(grants.getByRole('combobox', { name: 'Swap cartridges', exact: true })).toHaveValue(
+    'allow',
+  )
   await page.setViewportSize({ width: 390, height: 844 })
-  await grants.getByLabel('Swap cartridges', { exact: true }).scrollIntoViewIfNeeded()
+  await grants
+    .getByRole('combobox', { name: 'Swap cartridges', exact: true })
+    .scrollIntoViewIfNeeded()
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(390)
@@ -209,10 +213,12 @@ test('granular printer grants keep independent controls and animate both disclos
   ])
   await page.getByRole('button', { name: 'Edit role Station operator', exact: true }).click()
   await page.getByRole('dialog').locator('summary').filter({ hasText: 'Desk printer' }).click()
-  await expect(page.getByRole('checkbox', { name: 'Swap cartridges', exact: true })).toBeChecked()
-  await expect(
-    page.getByRole('checkbox', { name: 'Emergency stop', exact: true }),
-  ).not.toBeChecked()
+  await expect(page.getByRole('combobox', { name: 'Swap cartridges', exact: true })).toHaveValue(
+    'allow',
+  )
+  await expect(page.getByRole('combobox', { name: 'Emergency stop', exact: true })).toHaveValue(
+    'inherit',
+  )
 })
 
 test('revoked access pauses queued labels while their owner can cancel and an administrator can release', async ({

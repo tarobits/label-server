@@ -16,9 +16,10 @@ sessions are omitted. Revocation also removes the session's push subscription.
 ## Roles and user groups
 
 Roles contain permission objects and are assigned directly to users. A role can
-contain application permissions and independent grants scoped to individual printers
-or distribution groups. Applicable grants combine. Legacy access levels expand to
-their previous abilities; an empty grant does not remove rights granted elsewhere.
+contain application permissions and resource rules scoped to printers, distribution
+groups and locations. Resource rules have **Inherit**, **Allow** or **Deny** states.
+An inherited state removes the explicit rule rather than denying access. Application
+permissions remain additive; resource rules use the precedence below.
 
 Content groups share templates, fonts and images. They never assign roles or
 confer printer permissions. Ownership, scope and group membership determine
@@ -169,8 +170,50 @@ still cannot guarantee a mid-label stop or perform a standalone manual cut.
 Session responses include `destination_permissions`; `destination_levels` remains
 for compatibility with existing clients. New role grants use
 `{"kind":"destination_permissions","destination_id":"…","permissions":["printer.view","printer.swap_cartridges"]}`.
-Location, direct-user, and ownership grants participate in resolution, but their
-management UI and the administrator migration wizard are still under development.
+Location rules are editable in both **Locations & access** and the role editor.
+Both views edit the same stored rules, with separate printer and cartridge sections.
+Roles accept `location_permissions` entries with `location_id`, `permissions` and
+`denied_permissions`; destination entries also accept `denied_permissions`.
+
+## Inheritance, ownership and overrides
+
+For each resource permission, the resolver applies this order:
+
+1. An individual printer/cartridge rule overrides location rules. A nested
+   location overrides its ancestors.
+2. At the same resource scope, a direct user rule overrides role rules.
+3. At equal specificity, a deny overrides an allow from another role.
+4. Without a matching allow, access is absent.
+
+Administrator and individual printer/cartridge owner rights are protected from
+resource denials. Global audit access remains protected for audit viewing.
+A location owner may rename/reparent that location, transfer its ownership and
+manage its user/role rules. Ownership alone does not grant rights on its contents
+or on nested locations. Global **Manage locations** remains necessary to create
+locations. Deleting an account leaves its locations unowned and preserves grants.
+
+**Submit requests** and **Submit directly** are mutually exclusive editor choices.
+Selecting Allow for one returns the other to Inherit. If inherited grants provide
+both modes, the more specific grant determines the mode; equally specific old
+grants prefer direct submission. Protected owners and administrators retain their
+universal rights. Existing requests and approved labels remain valid when the
+requester gains direct submission; this does not allow ordinary direct-submitters
+to create new approval requests.
+
+**Locations & access** filters by resource type, owner (including No owner) and
+location (including Unassigned). Printer/cartridge location filters match their
+recorded location; location rows match their parent. The **Permissions graph** can
+be opened for a resource or from a user's Administration row. Choose a user,
+resource/location and permission to trace applicable and overridden paths. Resource
+editors show saved effective access and its origin when selecting a user. Unsaved
+changes are evaluated in the existing access-impact preview before confirmation.
+Graph responses contain only resources the viewer may inspect; a location owner
+may inspect inheritance affecting that location's contents.
+
+Upgrading from pre1 adds nullable location ownership and an allow/deny column.
+Existing locations remain unowned, and existing grants remain allows. The migration
+supports SQLite and MariaDB; back up before upgrading. Explicit denial rules must
+be removed before downgrading to a version that cannot enforce them.
 
 ## Audit access and current coverage
 

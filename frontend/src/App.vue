@@ -189,6 +189,7 @@ const links = computed(() =>
     if (path === '/resource-access')
       return (
         auth.can('locations.manage') ||
+        !!auth.user?.managed_location_ids?.length ||
         auth.can('printers.edit_all') ||
         auth.can('cartridges.edit_all') ||
         auth.anyPrinter('configure') ||
