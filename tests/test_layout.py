@@ -74,7 +74,7 @@ def test_auto_length_resolves_values_and_freezes_each_job(client: TestClient) ->
                 "x": 2,
                 "y": 2,
                 "width": 30,
-                "height": 20,
+                "height": 4,
                 "content": "{{text}}",
                 "auto_width": True,
             }
@@ -83,7 +83,7 @@ def test_auto_length_resolves_values_and_freezes_each_job(client: TestClient) ->
     saved = client.post("/api/templates", json={"name": "Fitted", "document": doc}).json()
     tape = profile(client)
     lengths = []
-    for text in ["A", "A longer label value"]:
+    for text in ["A", "A longer label value", "A longer label value\nSecond line"]:
         data = {"text": text}
         preview = client.post("/api/preview", json={"document": doc, "data": data}).json()
         response = client.post(
@@ -102,6 +102,7 @@ def test_auto_length_resolves_values_and_freezes_each_job(client: TestClient) ->
         lengths.append(queued["length_mm"])
     assert lengths[0] == 10
     assert lengths[1] > lengths[0]
+    assert lengths[2] < lengths[1]
     original = client.get(f"/api/templates/{saved['id']}").json()["document"]
     assert original["auto_length"] and original["length_mm"] == 60
     assert original["elements"][0]["width"] == 30

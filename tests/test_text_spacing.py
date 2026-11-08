@@ -144,6 +144,42 @@ def test_tracking_preserves_right_to_left_wrapping(client):
     assert ink_bounds(spaced) == ink_bounds(normal)
 
 
+@pytest.mark.parametrize("separator", ["\n", "\r\n", "\n\n"])
+@pytest.mark.parametrize("wrap", [False, True])
+@pytest.mark.parametrize("spacing", [False, True])
+def test_auto_width_fits_multiline_text_at_the_rendered_size(separator, wrap, spacing):
+    doc = document(
+        content="HHHHHHHHHHHH",
+        auto_width=True,
+        wrap=wrap,
+        font_size=8,
+        height=8,
+        character_spacing=0.7 if spacing else 0,
+        line_spacing=1.2 if spacing else 0,
+        padding_left=1,
+        padding_right=2,
+        padding_top=1,
+        padding_bottom=1,
+    )
+    doc.auto_length = True
+    single = raster(doc)
+    doc.elements[0].content += separator + "HHH"
+    multiple = raster(doc)
+    element = multiple.document.elements[0]
+    # Explicit lines shrink within the fixed height and must shorten the tape.
+    assert element.width - 3 < (single.document.elements[0].width - 3) * 0.51
+    assert multiple.document.length_mm < single.document.length_mm
+    # No additional wrapping, and no large unused area after the longest line.
+    assert multiple.svg.count("<text ") == len(doc.elements[0].content.splitlines())
+    left, top, right, bottom = ink_bounds(multiple)
+    assert left >= (element.x + element.padding_left) * 10
+    assert right / 10 == pytest.approx(element.x + element.width - element.padding_right, abs=0.5)
+    assert top >= (element.y + element.padding_top) * 10
+    assert bottom <= (element.y + element.height - element.padding_bottom) * 10
+    # Frozen queue geometry reproduces the preview without measuring it again.
+    assert raster(multiple.document).image.tobytes() == multiple.image.tobytes()
+
+
 def test_spacing_affects_auto_width_linked_positions_and_label_length():
     doc = document(width=5, auto_width=True, character_spacing=0)
     doc.auto_length = True

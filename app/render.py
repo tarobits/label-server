@@ -157,6 +157,12 @@ def text_width(font: ImageFont.FreeTypeFont, text: str, spacing: float) -> float
     return text_advance(font, text, spacing) + max(0, len(text_clusters(text)) - 1) * spacing
 
 
+def text_block_height(font: ImageFont.FreeTypeFont, count: int, spacing: float) -> float:
+    ascent, descent = font.getmetrics()
+    base_line_height = (ascent + descent) / 100
+    return count * base_line_height + max(0, count - 1) * spacing
+
+
 def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str:
     path = font_path(element, fonts)
     family = "Noto Sans" if path is None else f"LabelFont_{element.font[:48]}"
@@ -175,7 +181,7 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
         return text_width(font, line, element.character_spacing) * scale
 
     def block_height(count: int) -> float:
-        return count * base_line_height + max(0, count - 1) * element.line_spacing
+        return text_block_height(font, count, element.line_spacing)
 
     def layout(scale: float) -> list[str] | None:
         lines: list[str] = []
@@ -324,12 +330,21 @@ def resolve_layout(
             )
             font = font_for(element.font_size, element.bold, font_path(element, fonts))
             lines = content.replace("\t", "    ").splitlines() or [""]
+            inner_height = element.height - element.padding_top - element.padding_bottom
+            if inner_height <= 0:
+                raise ValueError(f"Element {element.id}: text padding leaves no space for text")
+            # Rendering shrinks the entire block to fit its height. Measure at
+            # that same scale so explicit line breaks do not leave unused width.
+            scale = min(
+                1.0, inner_height / text_block_height(font, len(lines), element.line_spacing)
+            )
             # Round outward so floating point measurement never forces an extra wrap.
             element.width = (
                 max(
                     0.1,
                     math.ceil(
                         max(text_width(font, line, element.character_spacing) for line in lines)
+                        * scale
                         * 100
                     )
                     / 100,
