@@ -60,7 +60,9 @@ def test_user_pins_are_personal_rate_limited_and_reset_revokes_station_sessions(
     body = {"current_password": "example test password", "pin": "123456"}
     assert alice.put("/api/companions/account/pin", json=body).status_code == 200
     response = admin.get("/api/companion/users", headers=headers)
-    assert response.json()["users"] == [{"id": "alice", "username": "alice"}]
+    assert response.json()["users"] == [
+        {"id": "alice", "username": "alice", "avatar_version": None}
+    ]
     unlocked = admin.post(
         "/api/companion/unlock", headers=headers, json={"user_id": "alice", "pin": "123456"}
     )

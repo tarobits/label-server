@@ -5,6 +5,7 @@ import { motionPreference } from '../preferences'
 import AccountEmail from '../components/AccountEmail.vue'
 import AccountPush from '../components/AccountPush.vue'
 import AccountSessions from '../components/AccountSessions.vue'
+import AccountPicture from '../components/AccountPicture.vue'
 import AccountPin from '../components/AccountPin.vue'
 import {
   vValidateForm,
@@ -72,6 +73,7 @@ async function savePassword() {
 
 <template>
   <div class="account-settings panel">
+    <section class="settings-section" aria-label="Profile picture"><AccountPicture /></section>
     <section class="settings-section" aria-labelledby="preferences-heading">
       <h2 id="preferences-heading">Preferences</h2>
       <div class="settings-preferences">

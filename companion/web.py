@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, AsyncGenerator, Literal
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -244,6 +244,16 @@ def create_app(
                 "offline_after_current": settings.allow_offline_stop_after_label,
             },
         }
+
+    @app.get("/api/station/users/{identifier}/avatar")
+    def user_avatar(identifier: str) -> Response:
+        if not agent.online:
+            raise HTTPException(503, "The main server is unavailable")
+        if not any(user["id"] == identifier for user in agent.users.get("users", [])):
+            raise HTTPException(404, "User is not available at this station")
+        # The main server rechecks current station access, including revocations.
+        result = agent.request("GET", f"/api/companion/users/{quote(identifier, safe='')}/avatar")
+        return Response(result.content, media_type="image/png")
 
     @app.post("/api/station/unlock")
     def unlock(body: Unlock, request: Request, response: Response) -> dict[str, bool]:

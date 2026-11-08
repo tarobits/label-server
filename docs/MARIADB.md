@@ -37,7 +37,7 @@ verified TLS. The CA path must be readable by the service user (and mounted at
 that path in Docker). Keep database access restricted to trusted hosts; do not
 expose MariaDB publicly just because the main web server is public.
 
-`LABEL_DATA_DIR` holds uploaded images/fonts, authentication files and update
+`LABEL_DATA_DIR` holds uploaded images/fonts, profile pictures, authentication files and update
 state. When converting an existing installation, set it to the **old SQLite file's
 parent directory**, including when that directory is outside the installation.
 Your remote database backup does not include these local files or `.env`.

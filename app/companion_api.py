@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.access import access_context
 from app.action_audit import record_action
 from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.auth import actor_for_user, hash_password, token_hash, verify_password
+from app.avatars import avatar_path, avatar_version
 from app.companion_auth import DeviceDB, accessible_user, operator
 from app.http import db
 from app.models import (
@@ -370,7 +371,7 @@ def set_pin(body: PinInput, request: Request, session: DB) -> dict[str, bool]:
 
 
 @router.get("/companion/users")
-def station_users(session: DeviceDB) -> dict[str, Any]:
+def station_users(request: Request, session: DeviceDB) -> dict[str, Any]:
     item: Companion = session.info["companion"]
     users = []
     for user in session.scalars(
@@ -380,7 +381,15 @@ def station_users(session: DeviceDB) -> dict[str, Any]:
             continue
         if resolve_resource_access(session, user).can("companion", item.id, "companion.access"):
             if item.bound_user_id or session.get(CompanionPin, user.id):
-                users.append({"id": user.id, "username": user.username})
+                users.append(
+                    {
+                        "id": user.id,
+                        "username": user.username,
+                        "avatar_version": avatar_version(
+                            request.app.state.images.root.parent, user.id
+                        ),
+                    }
+                )
     return {
         "id": item.id,
         "name": item.name,
@@ -388,6 +397,19 @@ def station_users(session: DeviceDB) -> dict[str, Any]:
         "bound_user_id": item.bound_user_id,
         "users": users,
     }
+
+
+@router.get("/companion/users/{identifier}/avatar")
+def station_avatar(identifier: str, request: Request, session: DeviceDB) -> Response:
+    item: Companion = session.info["companion"]
+    user = accessible_user(session, item, identifier)
+    if not item.bound_user_id and not session.get(CompanionPin, user.id):
+        raise HTTPException(404, "User is not available at this station")
+    try:
+        data = avatar_path(request.app.state.images.root.parent, user.id).read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(404, "No profile picture") from None
+    return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/companion/unlock")

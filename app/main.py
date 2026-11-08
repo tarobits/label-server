@@ -180,6 +180,7 @@ def create_app(
     from app.admin_api import router as admin_router
     from app.audit_api import router as audit_router
     from app.auth_api import router as auth_router
+    from app.avatar_api import router as avatar_router
     from app.cartridge_quote_api import router as cartridge_quote_router
     from app.companion_api import router as companion_router
     from app.companion_transport_api import router as companion_transport_router
@@ -200,6 +201,7 @@ def create_app(
     from app.runs import router as runs_router
 
     app.include_router(auth_router)
+    app.include_router(avatar_router)
     app.include_router(audit_router)
     app.include_router(resource_router)
     app.include_router(migration_router)

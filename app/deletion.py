@@ -251,6 +251,9 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
                 .where(RegistrationCode.redeemed_by == item.identifier)
                 .values(redeemed_by=None)
             )
+            from app.avatars import avatar_path
+
+            avatar_path(images.root.parent, item.identifier).unlink(missing_ok=True)
             session.execute(delete(User).where(User.id == item.identifier))
         item.details = {}
         item.purged_at = now

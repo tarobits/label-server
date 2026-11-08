@@ -71,6 +71,7 @@ ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
     "companion.printer_cleared": {},
     "companion.batch_authorized": {"batch_id": "text"},
     "companion.result_received": {"batch_id": "text", "state": "text", "copy_count": "integer"},
+    "account.picture_changed": {"configured": "boolean"},
     "account.pin_changed": {"configured": "boolean"},
     "companion.created": {"companion_id": "text", "name": "text"},
     "companion.settings_changed": {
