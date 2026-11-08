@@ -204,6 +204,6 @@ def test_review_consumption_to_zero_alerts_before_the_next_worker_tick(client):
     assert response.status_code == 200, response.text
     assert len(notices(client)) == 1
     worker.tick()
-    assert job_state(client, queued) == "queued"
+    assert job_state(client, queued) == "failed"
     assert len(worker.backend.batches) == 1
     assert len(notices(client)) == 1

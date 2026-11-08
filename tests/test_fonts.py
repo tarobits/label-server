@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
+from app_client import TestClient
 from conftest import install, profile
-from fastapi.testclient import TestClient
 
 from app.font_assets import MAX_FONT_BYTES, FontStore
 

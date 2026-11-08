@@ -10,8 +10,8 @@ from threading import Event
 import pytest
 from alembic import command
 from alembic.config import Config
+from app_client import TestClient
 from conftest import profile, seed_test_printer
-from fastapi.testclient import TestClient
 from mock_backend import MockPrinterBackend
 from printer_factory import test_printer as printer_factory
 from sqlalchemy import func, select

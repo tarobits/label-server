@@ -244,9 +244,9 @@ def test_destination_only_migration_preserves_scope_and_cancels_old_pending_deli
             assert selected.revision == 8
             assert all_channel.token == selected.token == "preserved-secret"
             assert all_channel.priorities == selected.priorities == DEFAULT_PRIORITIES
-            assert session.get(Notification, "old-pending").cancelled
-            assert session.get(Notification, "old-done").delivered_at == 2
-            assert not session.get(Notification, "old-done").cancelled
+            assert session.get_one(Notification, "old-pending").cancelled
+            assert session.get_one(Notification, "old-done").delivered_at == 2
+            assert not session.get_one(Notification, "old-done").cancelled
         deliveries = Table("notification_deliveries", MetaData(), autoload_with=engine)
         with engine.connect() as connection:
             rows = list(connection.execute(select(deliveries)).mappings())

@@ -2,8 +2,8 @@ import base64
 import io
 
 import pytest
+from app_client import TestClient
 from conftest import profile
-from fastapi.testclient import TestClient
 from PIL import Image, ImageOps
 
 from app.models import LabelCopy, PrintJob

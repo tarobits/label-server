@@ -3,8 +3,8 @@ import io
 from typing import Any
 
 import pytest
+from app_client import TestClient
 from conftest import install, profile
-from fastapi.testclient import TestClient
 from PIL import Image, ImageOps
 
 from app.image_assets import MAX_IMAGE_BYTES, ImageStore

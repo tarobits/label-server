@@ -4,6 +4,7 @@ import base64
 import io
 
 import pytest
+from assertions import require_value
 from conftest import profile
 from PIL import Image, ImageOps
 
@@ -40,7 +41,7 @@ def test_full_bleed_artwork_clips_to_exact_device_rows(width, dpi_x, length):
     )
     ink = ImageOps.invert(output.image.convert("L")).convert("1")
     top = (ink.height - PRINT_PINS[width]) // 2
-    assert ink.getbbox()[1::2] == (top, top + PRINT_PINS[width])
+    assert require_value(ink.getbbox())[1::2] == (top, top + PRINT_PINS[width])
     assert encode_raster(
         RenderedLabel("edge", width, length, *ink.size, ink.tobytes(), dpi_x=dpi_x)
     )
@@ -121,7 +122,7 @@ def test_legacy_render_spec_preserves_original_band():
         RenderSpec(stretch_canvas=True, printable_widths_mm=capabilities().printable_widths_mm),
     )
     ink = ImageOps.invert(output.image.convert("L")).convert("1")
-    assert ink.getbbox()[1::2] == (8, 78)
+    assert require_value(ink.getbbox())[1::2] == (8, 78)
 
 
 @pytest.mark.parametrize("width", PRINT_PINS)

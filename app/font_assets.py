@@ -52,8 +52,9 @@ class FontStore(AssetStore):
                 family = (names.getBestFamilyName() or "Uploaded font")[:120]
                 style = (names.getBestSubFamilyName() or "Regular")[:120]
                 if style.lower() == "regular" and "OS/2" in font:
-                    weight = font["OS/2"].usWeightClass
-                    italic = bool(font["OS/2"].fsSelection & 1)
+                    # fontTools populates these table fields dynamically when decoding.
+                    weight = int(getattr(font["OS/2"], "usWeightClass"))
+                    italic = bool(int(getattr(font["OS/2"], "fsSelection")) & 1)
                     style = "Bold" if weight >= 700 else "Regular"
                     if italic:
                         style = "Italic" if style == "Regular" else f"{style} Italic"

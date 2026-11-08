@@ -84,7 +84,10 @@ def test_active_stop_holds_printer_and_keeps_uncertain_output_for_review(client,
         == 200
     )
     worker.tick()
-    assert client.get(f"/api/jobs/{submitted['id']}").json()["status"] == "queued"
+    assert [
+        item["state"] for item in client.get(f"/api/jobs/{submitted['id']}").json()["labels"]
+    ] == ["printed"] + ["failed"] * 3
+    assert client.get("/api/status").json()["automatic_printing_held"]
     assert not backend.batches  # Saving review must not clear the operator's hold.
 
 

@@ -215,7 +215,7 @@ def converted_image(
     if mode == "dither":
         ink = paper.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
     else:
-        ink = paper.point(lambda value: 255 if value >= threshold else 0, mode="1")
+        ink = paper.point([255 if value >= threshold else 0 for value in range(256)], mode="1")
     output = io.BytesIO()
     artwork = ink.convert("RGBA")
     artwork.putalpha(rgba.getchannel("A").point(lambda value: 255 if value else 0))

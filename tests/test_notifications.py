@@ -2,8 +2,8 @@ import time
 
 import httpx
 import pytest
+from app_client import TestClient
 from conftest import install, job, profile
-from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.models import Notification, NotificationEndpoint

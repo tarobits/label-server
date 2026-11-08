@@ -4,8 +4,9 @@ from typing import Any
 
 import pytest
 import zxingcpp
+from app_client import TestClient
+from assertions import require_value
 from conftest import install, profile
-from fastapi.testclient import TestClient
 from PIL import Image, ImageOps
 
 from app.models import LabelCopy, PrintJob
@@ -231,7 +232,7 @@ def test_qr_overlap_is_advisory_and_can_be_saved_and_queued(client: TestClient) 
     assert preview.status_code == 200, preview.text
     assert len(preview.json()["warnings"]) == 1
     image = Image.open(io.BytesIO(base64.b64decode(preview.json()["png"].split(",")[1])))
-    assert zxingcpp.read_barcode(image).text == "https://example.org/42"
+    assert require_value(zxingcpp.read_barcode(image)).text == "https://example.org/42"
     # Even actual overlap is the designer's choice, rather than a save/print prohibition.
     doc["elements"][1]["x"] = 5
     response = client.post("/api/templates", json={"name": "Overlap", "document": doc})
@@ -253,6 +254,7 @@ def test_qr_fill_box_scales_up_across_versions(client: TestClient, content: str)
     import re
 
     import qrcode
+    import qrcode.constants
 
     from app.render import RenderSpec, qr_svg
     from app.template_schema import Element
@@ -265,19 +267,21 @@ def test_qr_fill_box_scales_up_across_versions(client: TestClient, content: str)
     original = qr_svg(element, content, RenderSpec())
     element.qr_fill_box = True
     scaled = qr_svg(element, content, RenderSpec())
-    original_module = float(re.search(r"h([\d.]+)v", original)[1])
-    scaled_module = float(re.search(r"h([\d.]+)v", scaled)[1])
+    original_module = float(require_value(re.search(r"h([\d.]+)v", original))[1])
+    scaled_module = float(require_value(re.search(r"h([\d.]+)v", scaled))[1])
     assert scaled_module >= original_module
     assert scaled_module * count == pytest.approx(element.width)
     # First finder module starts after exactly four quiet-zone modules, no extra padding.
-    assert float(re.search(r"M([\d.]+),", scaled)[1]) == pytest.approx(4 * scaled_module)
+    assert float(require_value(re.search(r"M([\d.]+),", scaled))[1]) == pytest.approx(
+        4 * scaled_module
+    )
     doc = {"elements": [element.model_dump()]}
     # Content is supplied directly, without variable fields.
     doc["elements"][0]["content"] = content
     response = client.post("/api/preview", json={"document": doc})
     assert response.status_code == 200, response.text
     image = Image.open(io.BytesIO(base64.b64decode(response.json()["png"].split(",")[1])))
-    assert zxingcpp.read_barcode(image).text == content
+    assert require_value(zxingcpp.read_barcode(image)).text == content
     element.width = element.height = 2
     with pytest.raises(ValueError, match="too small"):
         qr_svg(element, content, RenderSpec())
@@ -308,7 +312,7 @@ def test_qr_explicit_margin_fills_box(client: TestClient, margin: float) -> None
     response = client.post("/api/preview", json={"document": {"elements": [element.model_dump()]}})
     assert response.status_code == 200, response.text
     image = Image.open(io.BytesIO(base64.b64decode(response.json()["png"].split(",")[1])))
-    assert zxingcpp.read_barcode(image).text == element.content
+    assert require_value(zxingcpp.read_barcode(image)).text == element.content
     element.qr_margin_mm = 10
     with pytest.raises(ValueError, match="too small"):
         qr_svg(element, element.content, RenderSpec())
@@ -333,7 +337,8 @@ def test_text_vertical_alignment_positions_whole_block(content: str) -> None:
         assert center == pytest.approx((top + bottom) / 2)
     element.height = 1
     assert (
-        float(re.search(r'font-size="([\d.]+)"', text_svg(element, content))[1]) < element.font_size
+        float(require_value(re.search(r'font-size="([\d.]+)"', text_svg(element, content)))[1])
+        < element.font_size
     )
 
 
@@ -349,7 +354,7 @@ def test_design_preview_rerenders_vectors_with_antialiasing(client: TestClient) 
     assert design.size == (raster.width * 4, raster.height * 4)
     assert set(raster.tobytes()) == {0, 255}
     assert any(0 < value < 255 for value in design.tobytes())
-    assert zxingcpp.read_barcode(design).text == "https://example.org/42"
+    assert require_value(zxingcpp.read_barcode(design)).text == "https://example.org/42"
 
 
 @pytest.mark.parametrize("wrap", [False, True])
@@ -375,7 +380,7 @@ def test_text_fits_box_without_exceeding_chosen_font_size(
         vertical_align="center",
     )
     svg = text_svg(element, "Wide text\nSecond line")
-    actual = float(re.search(r'font-size="([\d.]+)"', svg)[1])
+    actual = float(require_value(re.search(r'font-size="([\d.]+)"', svg))[1])
     assert 0 < actual <= element.font_size
     font = font_for(element.font_size, False)
     ratio = actual / element.font_size

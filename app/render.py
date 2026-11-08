@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import qrcode
+import qrcode.constants
 import resvg_py
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import Image, ImageFont, ImageOps
@@ -105,7 +106,7 @@ def font_for(size: float, bold: bool, path: str | None = None) -> ImageFont.Free
 @lru_cache(maxsize=128)
 def supported_characters(path: str | None = None) -> frozenset[int]:
     with TTFont(path or FONT_DIR / "NotoSans.ttf") as font:
-        return frozenset(font.getBestCmap())
+        return frozenset(font.getBestCmap() or {})
 
 
 def font_path(element: Element, fonts: FontStore | None) -> str | None:
@@ -456,7 +457,11 @@ def artwork_bounds(
         skip_system_fonts=True,
         font_files=font_files,
     )
-    ink = Image.open(io.BytesIO(png)).convert("L").point(lambda value: 255 if value < 128 else 0)
+    ink = (
+        Image.open(io.BytesIO(png))
+        .convert("L")
+        .point([255 if value < 128 else 0 for value in range(256)])
+    )
     box = ink.getbbox()
     if box is None:
         return None
@@ -695,7 +700,7 @@ def render_document(
         font_files=font_files,
     )
     source = Image.open(io.BytesIO(png)).convert("L")
-    image = source.point(lambda value: 255 if value >= 128 else 0, mode="1")
+    image = source.point([255 if value >= 128 else 0 for value in range(256)], mode="1")
     return RenderOutput(
         svg, image, warnings, document, font_files, missing, template_padding, resolved_inputs
     )

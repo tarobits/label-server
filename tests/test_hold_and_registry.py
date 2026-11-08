@@ -1,6 +1,7 @@
 import pytest
+from app_client import TestClient
 from conftest import install, job, profile
-from fastapi.testclient import TestClient
+from mock_backend import MockPrinterBackend
 
 from app.models import PrinterState
 from app.printer.registry import (
@@ -24,6 +25,7 @@ def test_hold_survives_new_worker_and_allows_manual_flush(client: TestClient) ->
         printer_id="main",
         enforce_job_access=False,
     )
+    assert isinstance(worker.backend, MockPrinterBackend)
     worker.tick()
     assert not worker.backend.batches
     with client.app.state.factory() as session:
@@ -63,7 +65,9 @@ def test_shipping_wifi_definition_needs_an_explicit_driver() -> None:
         PrinterCapabilities(MediaKind.FIXED_LABEL, 203, 203, (102,), 2, ((102, 152),)),
     )
     registry.register(device)
-    assert registry.definition("shipping").connection.link == "wifi"
+    connection = registry.definition("shipping").connection
+    assert isinstance(connection, NetworkConnection)
+    assert connection.link == "wifi"
     with pytest.raises(ValueError, match="no enabled driver"):
         registry.backend("shipping")
     with pytest.raises(ValueError, match="already registered"):

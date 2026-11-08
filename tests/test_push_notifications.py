@@ -7,10 +7,10 @@ import time
 import http_ece
 import pytest
 import requests
+from app_client import TestClient
 from conftest import install, job, profile
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from fastapi.testclient import TestClient
 from pywebpush import WebPushException
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture

@@ -5,11 +5,12 @@ import urllib.error
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from email.message import Message
 
 import pytest
+from app_client import TestClient
 from conftest import create_test_app as create_app
 from conftest import install, profile
-from fastapi.testclient import TestClient
 from PIL import Image, ImageOps
 from test_access import Policy
 
@@ -193,7 +194,7 @@ def test_bridge_does_not_retry_conflicts(monkeypatch):
     def conflict(request, timeout):
         calls.append(request)
         raise urllib.error.HTTPError(
-            request.full_url, 409, "Conflict", {}, io.BytesIO(b"changed input")
+            request.full_url, 409, "Conflict", Message(), io.BytesIO(b"changed input")
         )
 
     monkeypatch.setattr(submit_image.urllib.request, "urlopen", conflict)

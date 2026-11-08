@@ -11,14 +11,14 @@ accounts = account_fixture
 def test_pending_request_counts_respect_ownership_moderation_and_status(accounts):
     admin, alice, bob = accounts
     with admin.app.state.factory.begin() as session:
-        for owner, destination, status, count in [
+        for owner, destination, status, quantity in [
             ("alice", "main", "pending", 205),
             ("bob", "main", "pending", 1),
             ("bob", "other", "pending", 1),
             ("alice", "main", "approved", 1),
             ("alice", "main", "rejected", 1),
         ]:
-            for _ in range(count):
+            for _ in range(quantity):
                 session.add(
                     PrintRequest(
                         owner_id=owner,

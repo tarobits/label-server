@@ -1,8 +1,8 @@
 from pathlib import Path
 
+from app_client import TestClient
 from conftest import create_test_app as create_app
 from conftest import install, job, profile
-from fastapi.testclient import TestClient
 
 
 def test_mock_controls_interrupt_once_and_link_to_review(client: TestClient) -> None:

@@ -49,6 +49,7 @@ def request(server, path, data, *, key=None, raw=False):
             if attempt == 2:
                 raise SystemExit(str(error)) from error
         time.sleep(2**attempt)
+    raise RuntimeError("Request retries exhausted")
 
 
 def homebox_key(path: Path, data: bytes) -> str:

@@ -1,10 +1,10 @@
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
+from app_client import TestClient
+from settings_helpers import IsolatedSettings as Settings
 from sqlalchemy import MetaData, Table
 
 from app.access import LocalOwnerPolicy
-from app.config import Settings
 from app.db import make_engine
 from app.main import create_app as production_app
 from app.models import PrinterDevice
@@ -18,7 +18,7 @@ def create_app(*args, **kwargs):
 
 
 def setup(tmp_path):
-    settings = Settings(_env_file=None, database_url=f"sqlite:///{tmp_path / 'web.db'}")
+    settings = Settings(database_url=f"sqlite:///{tmp_path / 'web.db'}")
     config = Config("alembic.ini")
     config.attributes["database_url"] = settings.database_url
     command.upgrade(config, "head")
@@ -119,7 +119,7 @@ def test_config_change_preserves_frozen_work_and_group_geometry(tmp_path):
             "/api/printer-groups",
             json={"name": "Station", "printer_ids": [first["id"], second["id"]]},
         ).json()
-        update = {"name": "First", "usb_serial": "ONE", "resolution": "high"}
+        update: dict[str, object] = {"name": "First", "usb_serial": "ONE", "resolution": "high"}
         assert client.put(f"/api/printers/{first['id']}", json=update).status_code == 409
         profile = client.post("/api/tape-profiles", json={"name": "White", "width_mm": 24}).json()
         job = client.post(

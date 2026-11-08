@@ -1,4 +1,4 @@
-"""Extra copies use saved label content and new, authorized submission ownership."""
+"""The legacy requeue route cannot bypass explicit retry funding."""
 
 import copy
 
@@ -24,7 +24,7 @@ def printed(client):
     return original, batch, path, worker
 
 
-def test_requeue_one_frozen_copy_preserves_history_and_retry_is_idempotent(client):
+def test_legacy_requeue_leaves_history_unchanged_and_requires_funding(client):
     original, batch, path, worker = printed(client)
     history = client.get(f"/api/batches/{batch['id']}").json()
     with client.app.state.factory.begin() as session:
@@ -34,33 +34,17 @@ def test_requeue_one_frozen_copy_preserves_history_and_retry_is_idempotent(clien
         template.document = document
         template.revision += 1
     response = client.post(path, headers={"Idempotency-Key": "extra-copy"})
-    assert response.status_code == 201, response.text
-    extra = response.json()
-    assert extra["id"] != original["id"]
-    assert extra["copies"] == len(extra["labels"]) == 1
-    assert extra["status"] == "queued"
-    assert extra["payload"] == original["payload"]
-    assert extra["template_snapshot"]["document"] == original["template_snapshot"]["document"]
-    assert extra["template_snapshot"]["render_spec"] == original["template_snapshot"]["render_spec"]
-    assert extra["destination_id"] == batch["printer_id"]
+    assert response.status_code == 409, response.text
+    assert "retry funding" in response.json()["detail"]
     retry = client.post(path, headers={"Idempotency-Key": "extra-copy"})
-    assert retry.status_code == 201 and retry.json()["id"] == extra["id"]
-    assert len(client.get("/api/jobs").json()) == 2
+    assert retry.status_code == 409
+    assert len(client.get("/api/jobs").json()) == 1
     assert client.get(f"/api/batches/{batch['id']}").json() == history
     worker.tick()
-    first, second = worker.backend.batches[0][0], worker.backend.batches[1][0]
-    assert first.raster == second.raster
-    assert (first.pixel_width, first.pixel_height, first.dpi_x, first.dpi_y) == (
-        second.pixel_width,
-        second.pixel_height,
-        second.dpi_x,
-        second.dpi_y,
-    )
-    again = client.post(path, headers={"Idempotency-Key": "another-copy"})
-    assert again.status_code == 201 and again.json()["id"] != extra["id"]
+    assert len(worker.backend.batches) == 1
 
 
-def test_requeue_requires_batch_access_and_attributes_new_copy_to_actor(accounts):
+def test_legacy_requeue_requires_batch_access_and_never_changes_requester(accounts):
     admin, alice, bob = accounts
     grant(admin, "alice", "print")
     grant(admin, "bob", "moderator")
@@ -70,20 +54,14 @@ def test_requeue_requires_batch_access_and_attributes_new_copy_to_actor(accounts
     batch = admin.get("/api/batches").json()[0]
     path = f"/api/batches/{batch['id']}/items/{original['labels'][0]['id']}/requeue"
     assert alice.post(path).status_code == 403
-    # A physical printer moderator can repeat a frozen batch label even if the
-    # job's group is not readable to them; the new job goes to that printer.
+    # Batch visibility does not let a moderator bypass funding or take ownership.
     with admin.app.state.factory.begin() as session:
         session.add(PrinterGroup(id="private-group", name="Private", printer_ids=["main"]))
         session.get(PrintJob, original["id"]).destination_id = "private-group"
     assert bob.get(f"/api/jobs/{original['id']}").status_code == 403
     response = bob.post(path, headers={"Idempotency-Key": "moderator-copy"})
-    assert response.status_code == 201, response.text
-    extra = response.json()
-    assert extra["owner_id"] == "bob"
-    assert extra["destination_id"] == "main"
-    assert extra["authorization_basis"] == "print"
-    assert extra["attribution"]["requested_by"] == {"id": "bob", "name": "bob"}
-    assert extra["attribution"]["authorization"]["kind"] == "direct"
+    assert response.status_code == 409, response.text
+    assert len(admin.get("/api/jobs").json()) == 1
     assert admin.get(f"/api/jobs/{original['id']}").json()["owner_id"] == "alice"
     grant(admin, "bob", "request")
     assert bob.post(path, headers={"Idempotency-Key": "moderator-copy"}).status_code == 403

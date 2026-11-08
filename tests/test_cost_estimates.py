@@ -15,7 +15,7 @@ from app.models import Batch, Cartridge, PrintJob, Role, TapeAllocation
 accounts = account_fixture
 
 
-def set_price(client, cartridge, value=2000, currency="EUR"):
+def set_price(client, cartridge, value: int | None = 2000, currency="EUR"):
     response = client.put(
         f"/api/cartridges/{cartridge['id']}/price",
         json={"price_minor": value, "currency": currency},

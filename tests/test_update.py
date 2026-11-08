@@ -9,10 +9,12 @@ import stat
 import subprocess
 import tarfile
 import zipfile
+from email.message import Message
 from pathlib import Path
 from threading import Event, current_thread
 
 import pytest
+from assertions import require_value
 
 from scripts import update
 from scripts.package_frontend import package_frontend
@@ -84,6 +86,46 @@ def test_prebuilt_separate_install(deployment, monkeypatch):
     test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         deployment, monkeypatch, "native", None, prebuilt=True, separate=True
     )
+
+
+@pytest.mark.parametrize("failure", [None, "dependencies", "migration", "health"])
+def test_mariadb_native_update_coordinates_remote_backup_and_recovery(
+    deployment, monkeypatch, failure
+):
+    root, _, _, _ = deployment
+    original_options = update.options
+    events = []
+
+    def options(argv):
+        args = original_options(argv)
+        args.database_kind = "mariadb"
+        return args
+
+    class Remote:
+        owner = "12345"
+
+        def __init__(self, args, env):
+            pass
+
+        def perform(self, action, path):
+            assert (root / "version.txt").read_text() == "old"
+            assert path.name == "database.json.gz"
+            events.append(action)
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr(update, "options", options)
+    monkeypatch.setattr(update, "RemoteDatabase", Remote)
+    test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
+        deployment, monkeypatch, "native", failure
+    )
+    if failure is None:
+        assert events == ["backup", "close"]
+    elif failure == "health":
+        assert events == ["backup", "close", "restore", "close"]
+    else:
+        assert events == ["backup", "restore", "close"]
 
 
 @pytest.mark.parametrize(
@@ -171,6 +213,7 @@ def test_download_verifies_digest_and_authenticates_only_api(tmp_path, monkeypat
         {},
         "https://release-assets.githubusercontent.com/file?signature=test",
     )
+    assert redirected is not None
     assert redirected.get_header("Authorization") is None
     with pytest.raises(update.UpdateError, match="redirect"):
         update.AssetRedirectHandler().redirect_request(
@@ -360,22 +403,30 @@ def git(root, *args):
 
 
 @pytest.fixture
-def deployment(tmp_path):
+def deployment(tmp_path, monkeypatch):
+    monkeypatch.setattr(update.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _: "yes")
     root = tmp_path / "labels"
     root.mkdir()
     git(root, "init", "--initial-branch=main")
     git(root, "config", "user.name", "Updater test")
     git(root, "config", "user.email", "updater@example.invalid")
     (root / ".gitignore").write_text(
-        ".venv/\ndata/\n.env\nfrontend/dist/\nfrontend/node_modules/\n"
+        ".venv/\ndata/\n.env\n.env.companion\n.label-server-role\nfrontend/dist/\nfrontend/dist-companion/\nfrontend/node_modules/\n"
     )
     (root / "version.txt").write_text("old")
     for filename in (
         "scripts/update.py",
+        "scripts/database_maintenance.py",
+        "app/database_lock.py",
+        "migrations/mariadb_baseline.sql",
         "pyproject.toml",
         "requirements.lock",
         "alembic.ini",
         "Dockerfile",
+        "Dockerfile.companion",
+        "docker-compose.companion.yml",
+        "companion/requirements.txt",
         "docker-compose.yml",
         "frontend/package.json",
         "frontend/package-lock.json",
@@ -384,8 +435,9 @@ def deployment(tmp_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("placeholder")
     (root / "scripts/update.py").write_text(Path(update.__file__).read_text())
-    (root / "app").mkdir()
+    (root / "app").mkdir(exist_ok=True)
     (root / "app/main.py").write_text("UPDATE_VALIDATION_PROTOCOL = 1\n")
+    (root / "companion/web.py").write_text("UPDATE_VALIDATION_PROTOCOL = 1\n")
     git(root, "add", ".")
     git(root, "commit", "-m", "Previous installation")
     previous = git(root, "rev-parse", "HEAD")
@@ -437,6 +489,8 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
     args.channel = channel
     args.tag = explicit_tag
     args.prebuilt_frontend = prebuilt
+    lock_inode = None
+    token_path = None
     if mode == "native":
         args.database_lock = data / "labels.worker.lock"
         args.database_lock.touch()
@@ -512,11 +566,16 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
     def migrate():
         backup = next(args.backup_dir.glob("*/data.tar.gz"))
         with tarfile.open(backup) as archive:
-            assert archive.extractfile("data/labels.db").read() == b"original database"
-            assert archive.extractfile("data/assets/images/art.image").read() == b"original image"
+            assert (
+                require_value(archive.extractfile("data/labels.db")).read() == b"original database"
+            )
+            assert (
+                require_value(archive.extractfile("data/assets/images/art.image")).read()
+                == b"original image"
+            )
         assert (backup.parent / "environment.env").read_text() == (root / ".env").read_text()
         with tarfile.open(backup.parent / "source.tar.gz") as archive:
-            assert archive.extractfile("version.txt").read() == b"old"
+            assert require_value(archive.extractfile("version.txt")).read() == b"old"
         assert git(root, "rev-parse", "HEAD") == newest
         (data / "labels.db").write_bytes(b"migrated database")
         (data / "labels.db-wal").write_bytes(b"new WAL")
@@ -688,6 +747,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
     assert not (data / update.UPDATE_MARKER).exists()
     assert (install / "version.txt").read_text() == ("old" if failure else "new")
     if token_file:
+        assert token_path is not None
         assert token_path.read_text() == token
     record = json.loads(next(args.backup_dir.glob("*/update.json")).read_text())
     assert record["status"] == (
@@ -713,7 +773,10 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
             )
             assert (install / "frontend/dist/stale.js").exists() is bool(failure)
             with tarfile.open(next(args.backup_dir.glob("*/source.tar.gz"))) as archive:
-                assert archive.extractfile("frontend/dist/index.html").read() == b"old frontend"
+                assert (
+                    require_value(archive.extractfile("frontend/dist/index.html")).read()
+                    == b"old frontend"
+                )
         elif failure not in ("dependencies", "backup"):
             assert ["npm", "ci", "--prefix", "frontend"] in events
             assert ["npm", "run", "build", "--prefix", "frontend"] in events
@@ -881,6 +944,7 @@ def test_token_sources_and_relative_file_paths(tmp_path, monkeypatch):
 def test_askpass_supplies_token_only_via_child_environment_and_is_removed():
     token = "github_pat_helperTest"
     with update.git_credentials(token) as env:
+        assert env is not None
         helper = Path(env["GIT_ASKPASS"])
         assert token not in helper.read_text()
         assert (
@@ -912,6 +976,7 @@ def test_dirty_checkout_is_rejected_before_network_or_shutdown(deployment, monke
 def test_check_only_does_not_fetch_switch_back_up_or_manage_service(deployment, monkeypatch):
     root, _, previous, _ = deployment
     monkeypatch.setattr(update, "latest_release", lambda _: "v2.0.0")
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Check must not prompt"))
     monkeypatch.setattr(
         update, "native_configuration", lambda _: pytest.fail("No service operations")
     )
@@ -996,6 +1061,8 @@ def test_native_config_uses_service_settings_not_callers_environment(tmp_path, m
         if command[0] == "systemctl":
             if "--property=WorkingDirectory" in command:
                 return str(root)
+            if "--property=ExecStart" in command:
+                return "uvicorn app.main:create_app --factory"
             if "--property=User" in command:
                 return "labels"
             if "--property=Environment" in command:
@@ -1188,7 +1255,7 @@ def test_selected_release_lookup_failure_stops_before_deployment(
     root, _, previous, _ = deployment
 
     def missing(request, timeout):
-        raise update.urllib.error.HTTPError(request.full_url, 404, "Not found", {}, None)
+        raise update.urllib.error.HTTPError(request.full_url, 404, "Not found", Message(), None)
 
     monkeypatch.setattr(update.urllib.request, "urlopen", missing)
     monkeypatch.setattr(

@@ -7,7 +7,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from conftest import install, profile
-from printer_factory import BrowserPrinter
+from printer_factory import BrowserPrinter, NoIOTransport
 from sqlalchemy import create_engine, inspect
 
 from app.models import Batch
@@ -18,7 +18,7 @@ from app.printer.factory import configured_printer
 
 @pytest.mark.parametrize("dpi_x", [180, 360])
 def test_short_cut_plan_accounts_for_feed_and_padding_on_12mm_tape(dpi_x):
-    backend = BrotherPTP710BT(object())
+    backend = BrotherPTP710BT(NoIOTransport())
     labels = [LabelGeometry(str(i), 12, length, dpi_x) for i, length in enumerate((10, 18, 60))]
     plan = backend.plan_batch(labels)
     assert plan.minimum_cut_length_mm == 24.5
@@ -46,12 +46,13 @@ def test_short_cut_plan_accounts_for_feed_and_padding_on_12mm_tape(dpi_x):
 def test_template_minimum_moves_padding_from_design_to_unused_without_double_charging(
     dpi_x, cut_each
 ):
-    backend = BrotherPTP710BT(object(), feed_mm=4, cut_each=cut_each)
+    backend = BrotherPTP710BT(NoIOTransport(), feed_mm=4, cut_each=cut_each)
     labels = [
         LabelGeometry(str(i), 12, length, dpi_x, template_padding_mm=padding)
         for i, (length, padding) in enumerate([(10, 4), (10, 3), (40, 0)])
     ]
     plan = backend.plan_batch(labels)
+    assert plan.breakdown is not None
     assert plan.breakdown.design_mm == 53
     assert plan.breakdown.feed_mm == pytest.approx(sum(item.feed_mm for item in plan.label_output))
     assert plan.breakdown.leader_mm == 24.5  # Once for the batch, never per copy.
@@ -64,8 +65,9 @@ def test_template_minimum_moves_padding_from_design_to_unused_without_double_cha
 
 
 def test_ten_mm_label_with_four_mm_feed_explains_six_point_five_mm_cut_padding():
-    backend = BrotherPTP710BT(object(), feed_mm=4)
+    backend = BrotherPTP710BT(NoIOTransport(), feed_mm=4)
     plan = backend.plan_batch([LabelGeometry("one", 12, 10, 360)])
+    assert plan.breakdown is not None
     assert plan.breakdown.design_mm == 10
     assert plan.breakdown.feed_mm == pytest.approx(8.0433333333)
     assert plan.breakdown.unused_mm == pytest.approx(6.4566666667)
@@ -74,7 +76,7 @@ def test_ten_mm_label_with_four_mm_feed_explains_six_point_five_mm_cut_padding()
 
 
 def test_strip_floor_is_applied_once_to_the_complete_strip():
-    backend = BrotherPTP710BT(object(), cut_each=False)
+    backend = BrotherPTP710BT(NoIOTransport(), cut_each=False)
     short = LabelGeometry("short", 12, 10)
     single = backend.plan_batch([short])
     assert single.strip_padding_mm > 0
@@ -90,6 +92,7 @@ def test_strip_floor_is_applied_once_to_the_complete_strip():
 
 def configure_brother(client):
     definition, production = configured_printer("brother-pt-p710bt", {})
+    assert isinstance(production, BrotherPTP710BT)
     backend = BrowserPrinter(production)
     definition = replace(definition, id="main", name="Test printer")
     client.app.state.registry.replace(definition, backend)

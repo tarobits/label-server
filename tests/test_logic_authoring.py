@@ -35,6 +35,8 @@ def test_reconciliation_keeps_call_identity_and_unchanged_sibling():
     old = reconcile_program(Program(), compile_for(doc, "text1.height = if(enabled, 12, 14);"))
     new = reconcile_program(old, compile_for(doc, "text1.height = if(enabled, 10, 14);"))
     assert new.bindings[0].expression.node_id == old.bindings[0].expression.node_id
+    assert new.bindings[0].expression.kind == "call"
+    assert old.bindings[0].expression.kind == "call"
     assert (
         new.bindings[0].expression.arguments[2].node_id
         == old.bindings[0].expression.arguments[2].node_id

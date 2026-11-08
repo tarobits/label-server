@@ -27,6 +27,7 @@ def adjustment(user="alice", amount=1000, **values):
     return {
         "request_id": str(uuid4()),
         "user_id": user,
+        "recipient_id": "administrator",
         "amount_minor": amount,
         "currency": "EUR",
         "note": "Payment received",

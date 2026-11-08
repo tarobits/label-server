@@ -5,13 +5,14 @@ import io
 import re
 
 import pytest
+from assertions import require_value
 from conftest import profile
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageOps
 
 from app.models import LabelCopy, PrintJob
 from app.render import FONT_DIR, RenderSpec, render_document, render_job
-from app.template_schema import Element, TemplateDocument, TemplateField
+from app.template_schema import DistanceHolder, Element, TemplateDocument, TemplateField
 
 
 def document(**changes):
@@ -101,7 +102,7 @@ def test_large_spacing_shrinks_with_text_to_fit_small_boxes(wrap):
         )
     )
     element = output.document.elements[0]
-    size = float(re.search(r'font-size="([\d.]+)"', output.svg)[1])
+    size = float(require_value(re.search(r'font-size="([\d.]+)"', output.svg))[1])
     assert 0 < size < element.font_size
     left, top, right, bottom = ink_bounds(output)
     assert left >= 20 and top >= 20
@@ -192,7 +193,7 @@ def test_spacing_affects_auto_width_linked_positions_and_label_length():
             width=5,
             height=20,
             content="H",
-            distance_holder={"element_id": "text", "gap_mm": 2},
+            distance_holder=DistanceHolder(element_id="text", gap_mm=2),
         )
     )
     normal = raster(doc).document

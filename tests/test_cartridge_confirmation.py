@@ -3,7 +3,7 @@
 from collections import deque
 
 import pytest
-from conftest import install, job, profile
+from conftest import grant_cartridge, install, job, profile
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_brother import label
@@ -49,7 +49,7 @@ class DetectedTapeTransport:
     def __init__(self, *, width=24, media=0xFF):
         self.width, self.media = width, media
         self.tape_color, self.text_color = 4, 1
-        self.errors = (0, 0)
+        self.errors: tuple[int, int] = (0, 0)
         self.pending = deque()
         self.writes = []
         self.disconnected = False
@@ -201,10 +201,12 @@ def test_confirmation_cannot_bypass_hardware_errors(errors):
     transport = DetectedTapeTransport()
     backend = BrotherPTP710BT(transport)
     detected = backend.get_status()
+    assert detected.media is not None
     backend.configure_media(MediaSelection(24, detected.media.fingerprint))
     assert backend.get_status().media_confirmed
     transport.errors = errors
     status = backend.get_status()
+    assert status.media is not None
     assert status.error and not status.media_confirmed and not status.media.confirmable
     with pytest.raises(PrintNotStarted, match="Printer error"):
         backend.print_batch([label()])
@@ -215,6 +217,7 @@ def test_preflight_rechecks_detection_and_disconnect_invalidates_confirmation():
     transport = DetectedTapeTransport()
     backend = BrotherPTP710BT(transport)
     status = backend.get_status()
+    assert status.media is not None
     backend.configure_media(MediaSelection(24, status.media.fingerprint))
     transport.text_color = 8
     with pytest.raises(PrintNotStarted, match="confirm the installed cartridge"):
@@ -222,6 +225,7 @@ def test_preflight_rechecks_detection_and_disconnect_invalidates_confirmation():
     transport.text_color = 1
     assert not backend.get_status().media_confirmed
     status = backend.get_status()
+    assert status.media is not None
     backend.configure_media(MediaSelection(24, status.media.fingerprint))
     assert backend.get_status().media_confirmed
     transport.disconnected = True
@@ -234,6 +238,7 @@ def test_only_users_with_cartridge_swap_access_can_confirm(accounts):
     admin, alice, _ = accounts
     tape = profile(admin)
     cart = cartridge(admin, tape)
+    grant_cartridge(admin, cart["id"], "alice", "view")
     attach(admin)
     token = challenge(admin, cart)["confirmation"]
     for level in ("request", "print", "moderator"):
@@ -414,6 +419,7 @@ def test_cover_notifications_in_final_preflight_stop_before_transmission():
     transport = DetectedTapeTransport(media=1)
     backend = BrotherPTP710BT(transport)
     hardware = backend.get_status()
+    assert hardware.media is not None
     backend.configure_media(
         MediaSelection(24, verified_fingerprint=hardware.media.verification_key)
     )

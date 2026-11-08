@@ -11,7 +11,9 @@ from scripts import install, update
 def installer(tmp_path, monkeypatch):
     for name in ("GITHUB_TOKEN", "LABEL_GITHUB_TOKEN", "LABEL_GITHUB_TOKEN_FILE"):
         monkeypatch.delenv(name, raising=False)
-    args = install.options(["--repository", "example/labels", "--ref", "v1.0.0", "--skip-packages"])
+    args = install.options(
+        ["--repository", "example/labels", "--ref", "v1.0.0", "--skip-packages", "--yes"]
+    )
     args.install_dir = tmp_path / "deployment"
     units, rules, runtime = [tmp_path / name for name in ("units", "rules", "systemd")]
     units.mkdir()
@@ -40,14 +42,22 @@ def installer(tmp_path, monkeypatch):
                 "pyproject.toml",
                 "requirements.lock",
                 "alembic.ini",
+                "companion/requirements.txt",
                 "frontend/package-lock.json",
             ):
                 path = args.install_dir / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("fixture")
-        if command[:5] == ["runuser", "-u", "labels", "--", "npm"] and "build" in command:
-            (args.install_dir / "frontend/dist").mkdir()
-            (args.install_dir / "frontend/dist/index.html").write_text("built fixture")
+        if command[:5] == ["runuser", "-u", "labels", "--", "npm"] and any(
+            item in command for item in ("build", "build:companion")
+        ):
+            entry = args.install_dir / (
+                "frontend/dist-companion/companion.html"
+                if "build:companion" in command
+                else "frontend/dist/index.html"
+            )
+            entry.parent.mkdir()
+            entry.write_text("built fixture")
         return ""
 
     monkeypatch.setattr(install, "run", run)
@@ -162,6 +172,34 @@ def test_ipv6_lan_binding_uses_loopback_for_health(installer):
     install.install(args)
     assert "--host :: --port 8000" in (units / "labels.service").read_text()
     assert health == ["http://[::1]:8000/api/health"]
+
+
+def test_mariadb_install_keeps_credentials_in_private_configuration(installer, tmp_path, capsys):
+    from dotenv import dotenv_values
+
+    args, calls, _, _, _, _ = installer
+    url = "mariadb+pymysql://labels:fixture%40password@database.invalid/labels"
+    args.database_url_file = tmp_path / "database-url"
+    args.database_url_file.write_text(url + "\n")
+    install.install(args)
+    path = args.install_dir / ".env"
+    configuration = dotenv_values(path, interpolate=False)
+    assert configuration["LABEL_DATABASE_URL"] == url
+    assert configuration["LABEL_DATA_DIR"] == "./data"
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert url not in repr([call[0] for call in calls])
+    assert url not in capsys.readouterr().out
+    assert any(command[-2:] == ["upgrade", "head"] for command, _, _ in calls)
+
+
+def test_installer_rejects_database_url_before_creating_deployment(installer, tmp_path):
+    args, calls, _, _, _, _ = installer
+    args.database_url_file = tmp_path / "database-url"
+    args.database_url_file.write_text("postgresql://fixture:private@database.invalid/labels")
+    with pytest.raises(update.UpdateError, match="mariadb\\+pymysql"):
+        install.install(args)
+    assert not args.install_dir.exists()
+    assert calls == []
 
 
 @pytest.mark.parametrize(

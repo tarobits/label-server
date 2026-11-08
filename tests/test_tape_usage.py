@@ -102,6 +102,18 @@ def test_pending_review_reported_waste_and_retry_are_separate_idempotent_charges
     with admin.app.state.factory.begin() as session:
         settle_usage(session, session.get(Batch, batch["id"]), 999)  # Never charge twice.
     assert report(alice)["users"][0]["consumed_mm"] == 100
+    from uuid import uuid4
+
+    retry = admin.post(
+        f"/api/batches/{batch['id']}/retry-offers",
+        json={
+            "request_id": str(uuid4()),
+            "copy_ids": list(decisions),
+            "mode": "free",
+            "cartridge_id": batch["cartridge_id"],
+        },
+    )
+    assert retry.status_code == 201, retry.text
     worker.tick()
     final = report(alice)
     assert len(final["entries"]) == 2

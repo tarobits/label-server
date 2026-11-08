@@ -6,8 +6,8 @@ from threading import Event
 import pytest
 from alembic import command
 from alembic.config import Config
+from app_client import TestClient
 from conftest import create_test_app, install, job, profile
-from fastapi.testclient import TestClient
 from printer_factory import browser_printer
 from sqlalchemy import select
 from test_access import Policy

@@ -145,6 +145,19 @@ def test_release_and_retried_attempt_keep_separate_historical_snapshots(accounts
         ).status_code
         == 200
     )
+    from uuid import uuid4
+
+    retry = admin.post(
+        f"/api/batches/{first['id']}/retry-offers",
+        json={
+            "request_id": str(uuid4()),
+            "copy_ids": [job["labels"][0]["id"]],
+            "mode": "free",
+            "cartridge_id": first["cartridge_id"],
+        },
+    )
+    assert retry.status_code == 201, retry.text
+    job = admin.get(f"/api/jobs/{retry.json()[0]['job_id']}").json()
     with admin.app.state.factory.begin() as session:
         session.get(User, "alice").disabled = True
         reconcile_access_holds(session)
@@ -154,6 +167,12 @@ def test_release_and_retried_attempt_keep_separate_historical_snapshots(accounts
     with admin.app.state.factory.begin() as session:
         session.get(User, "administrator").username = "renamed-after-release"
     worker.backend.fail_after = None
+    worker.tick()
+    assert len(admin.get("/api/batches").json()) == 1
+    # Restoring the requester restores shared cartridge use; the earlier release
+    # remains part of the frozen authorization history.
+    with admin.app.state.factory.begin() as session:
+        session.get(User, "alice").disabled = False
     worker.tick()
     second = next(batch for batch in admin.get("/api/batches").json() if batch["id"] != first["id"])
     second_snapshot = detail(admin, second["id"])["items"][0]["attribution"]
@@ -259,6 +278,10 @@ def test_delegated_csv_requires_explicit_admin_override_and_preserves_snapshot(
         session.get(User, "administrator").username = "Renamed after override"
     assert admin.post(f"/api/runs/{run['id']}/submit").json() == submitted.json()
     worker.tick()
+    if discrepancy in {"disabled", "unavailable"}:
+        # A printer override does not authorize use of a cartridge on their behalf.
+        assert not worker.backend.batches
+        return
     assert all(job["status"] == "printed" for job in admin.get("/api/jobs").json())
     batch = admin.get("/api/batches").json()[0]
     assert (

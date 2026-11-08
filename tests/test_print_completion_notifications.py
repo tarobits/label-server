@@ -1,8 +1,10 @@
 """Confirmed completion, per-item preferences, and recipient boundaries."""
 
 import time
+from uuid import uuid4
 
 import pytest
+from assertions import require_value
 from conftest import install, job, profile
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
@@ -54,10 +56,11 @@ def test_success_is_once_per_item_and_batch_with_item_opt_out(client):
     assert client.get(f"/api/jobs/{muted['id']}").json()["notify_on_completion"] is False
 
 
-@pytest.mark.parametrize("decision", ["printed", "queued", "cancelled"])
-def test_uncertain_copies_wait_for_review_and_retries_do_not_duplicate(client, decision):
+@pytest.mark.parametrize("decision", ["printed", "failed", "queued", "cancelled"])
+def test_uncertain_copies_wait_for_review_and_retries_do_not_duplicate(accounts, decision):
+    client, _, _ = accounts
     tape = profile(client, threshold=1)
-    install(client, tape["id"])
+    cartridge = install(client, tape["id"])
     item = job(client, tape["id"], 2)
     worker = client.app.state.fleet.workers["main"]
     worker.backend.fail_after = 1
@@ -72,11 +75,28 @@ def test_uncertain_copies_wait_for_review_and_retries_do_not_duplicate(client, d
         },
     )
     assert response.status_code == 200, response.text
-    if decision == "queued":
+    if decision in ("queued", "failed"):
         assert completions(client) == []
         worker.backend.fail_after = None
-        client.post("/api/queue/print")
         worker.tick()
+        assert len(worker.backend.batches) == 1
+        retry = client.post(
+            f"/api/batches/{batch['id']}/retry-offers",
+            json={
+                "request_id": str(uuid4()),
+                "copy_ids": [item["labels"][1]["id"]],
+                "mode": "free",
+                "cartridge_id": cartridge["id"],
+            },
+        )
+        assert retry.status_code == 201, retry.text
+        assert client.post("/api/queue/print").status_code == 202
+        worker.tick()
+        worker.tick()
+        assert len(worker.backend.batches) == 2
+        assert next(n for n in completions(client) if n.kind == "job_printed").context == {
+            "job_id": retry.json()[0]["job_id"]
+        }
     notices = completions(client)
     assert sorted(n.kind for n in notices) == (
         [] if decision == "cancelled" else ["batch_printed", "job_printed"]
@@ -182,7 +202,8 @@ def test_batch_completion_uses_per_printer_choices_and_current_moderator_access(
         role.permissions = [{"kind": "destination", "destination_id": "main", "level": "moderator"}]
         session.flush()
         assert (
-            endpoint_message(session, notice, channel).message == "Mock printer: 2 labels printed."
+            require_value(endpoint_message(session, notice, channel)).message
+            == "Mock printer: 2 labels printed."
         )
         channel.printer_kinds = {"main": []}
         assert endpoint_message(session, notice, channel) is None

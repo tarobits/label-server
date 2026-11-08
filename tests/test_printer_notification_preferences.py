@@ -103,6 +103,7 @@ def test_combined_reminder_priority_uses_only_included_printers(client, monkeypa
             context={"destination_ids": ["main", "other", "muted"]},
         )
         message = endpoint_message(session, notice, channel)
+        assert message is not None
         assert message.context["destination_ids"] == ["main", "other"]
         assert notice.context["destination_ids"] == ["main", "other", "muted"]
         NtfySender(Settings(), channel).send(message)
@@ -233,11 +234,13 @@ def test_waiting_reminder_includes_only_printers_with_the_event_enabled(client, 
             context={"destination_ids": ["main", "other", "group"]},
         )
         message = endpoint_message(session, notice, channel)
+        assert message is not None
         assert "3 queued copies at Main" in message.message
         assert "Other" not in message.message and "Group" not in message.message
         channel.kinds = ["tape_waiting"]
         channel.printer_kinds = {"main": []}
         message = endpoint_message(session, notice, channel)
+        assert message is not None
         assert "Main" not in message.message
         assert "5 queued copies at Other" in message.message
         assert "7 queued copies at Group" in message.message

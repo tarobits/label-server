@@ -103,6 +103,9 @@ def test_change_records_actor_source_target_reason_and_keeps_requester(accounts)
         "/api/cartridges",
         json={"profile_id": tape["id"], "name": "Packing tape", "nominal_length_mm": 8000},
     ).json()
+    from conftest import grant_cartridge
+
+    grant_cartridge(admin, cartridge["id"])
     assert (
         admin.put(
             f"/api/printer/active-tape?printer_id={target}", json={"cartridge_id": cartridge["id"]}

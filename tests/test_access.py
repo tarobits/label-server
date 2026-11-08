@@ -3,9 +3,9 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
+from app_client import TestClient
 from conftest import create_test_app as create_app
 from conftest import install, job, profile
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.access import Action, Actor, Resource
@@ -118,8 +118,8 @@ def test_notification_routing_does_not_fall_back_to_another_recipient() -> None:
         def __init__(self) -> None:
             self.sent: list[Notification] = []
 
-        def send(self, notice: Notification) -> None:
-            self.sent.append(notice)
+        def send(self, notification: Notification) -> None:
+            self.sent.append(notification)
 
     sender = Sender()
     router = RoutedNotificationSender({LOCAL_OWNER_ID: sender})

@@ -184,6 +184,9 @@ def test_inventory_rights_do_not_bypass_installation_locks_or_reveal_printer_ide
     tape = profile(admin)
     cartridge = install(admin, tape["id"])
     identifier = cartridge["id"]
+    from conftest import grant_cartridge
+
+    grant_cartridge(admin, identifier, "alice", "edit_details")
     with admin.app.state.factory.begin() as session:
         session.get(Role, "alice-access").permissions = [
             {"kind": "application", "permission": "inventory.manage"}

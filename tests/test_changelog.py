@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from app_client import TestClient
 from sqlalchemy import select
 from test_auth import auth_client as auth_fixture
 from test_auth import invite, login, register_member, setup_admin

@@ -1,5 +1,6 @@
 from mock_backend import MockPrinterBackend
 
+from app.printer.brother import BrotherPTP710BT
 from app.printer.factory import configured_printer
 from app.printer.registry import MediaKind, PrinterCapabilities, PrinterDefinition
 
@@ -29,7 +30,7 @@ def test_printer(driver, config):
 class BrowserPrinter(MockPrinterBackend):
     """Production geometry, planning and raster validation with simulated physical I/O."""
 
-    def __init__(self, backend):
+    def __init__(self, backend: BrotherPTP710BT):
         super().__init__()
         self.production = backend
 
@@ -53,4 +54,21 @@ class BrowserPrinter(MockPrinterBackend):
 
 def browser_printer(driver, config):
     definition, backend = configured_printer(driver, config)
+    assert isinstance(backend, BrotherPTP710BT)
     return definition, BrowserPrinter(backend)
+
+
+class NoIOTransport:
+    """Planning tests must not send bytes to any printer."""
+
+    def open(self) -> None:
+        raise AssertionError("Unexpected printer I/O")
+
+    def close(self) -> None:
+        raise AssertionError("Unexpected printer I/O")
+
+    def write(self, data: bytes) -> None:
+        raise AssertionError("Unexpected printer I/O")
+
+    def read(self, size: int, timeout_seconds: float) -> bytes:
+        raise AssertionError("Unexpected printer I/O")

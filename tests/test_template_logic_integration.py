@@ -114,6 +114,7 @@ def test_final_automatic_length_follows_logic_and_never_mutates_template(subtitl
     assert result.document.logic is None
     assert result.document.auto_length is False
     assert all(element.literal_content for element in result.document.elements)
+    assert result.resolved_inputs is not None
     assert result.resolved_inputs["quantity"] == 3
     assert result.document.elements[0].content == "3 / true"
     assert doc.model_dump_json() == before
@@ -144,6 +145,7 @@ def test_text_binding_is_literal_and_intermediate_tokens_are_supported():
     bound = document("text1.content = variable1; text2.visible = false;")
     result = render_document(bound, {"variable1": "{{not_a_variable}}"}, RenderSpec())
     assert result.document.elements[0].content == "{{not_a_variable}}"
+    assert result.resolved_inputs is not None
     assert render_document(result.document, result.resolved_inputs, RenderSpec()).svg == result.svg
 
 
@@ -207,7 +209,9 @@ def test_v1_rejects_logic_and_typed_inputs_and_still_accepts_legacy_names():
     raw["version"] = 1
     with pytest.raises(ValidationError, match="version 2"):
         TemplateDocument.model_validate(raw)
-    legacy = TemplateDocument(fields=[{"name": "label", "label": "Label", "default": "Legacy"}])
+    legacy = TemplateDocument.model_validate(
+        {"fields": [{"name": "label", "label": "Label", "default": "Legacy"}]}
+    )
     render_document(legacy, {}, RenderSpec())
 
 

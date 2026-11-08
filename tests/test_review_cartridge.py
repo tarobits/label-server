@@ -145,6 +145,9 @@ def test_review_cartridge_correction_requires_review_permission_not_install_perm
     tape = profile(admin, threshold=1)
     original = install(admin, tape["id"])
     corrected = spare(admin, tape)
+    from conftest import grant_cartridge
+
+    grant_cartridge(admin, corrected["id"], "alice", "view")
     batch, body = interrupted(admin, tape)
     path = f"/api/batches/{batch['id']}/review"
     body["cartridge_id"] = corrected["id"]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
+from app_client import TestClient
 from sqlalchemy import select, text
 from test_auth import PASSWORD, auth_client, invite, register_member, setup_admin
 

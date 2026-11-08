@@ -13,6 +13,8 @@ from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.engine import make_url
 
 from app.config import Settings
+from app.database_lock import database_owner
+from app.db import make_engine
 from app.printer.base import PrintInterrupted, PrintNotStarted, RenderedLabel
 from app.printer.brother import PRODUCT_ID, VENDOR_ID, BrotherPTP710BT, encode_raster
 from app.printer.usb import UsbTransport
@@ -97,28 +99,37 @@ def main(argv: list[str] | None = None) -> int:
         print("Estimate only. Add --print to physically print this batch.")
         return 0
 
-    database = make_url(Settings().database_url).database
-    if not database or database == ":memory:":
-        parser.error("A local file-backed database is required for the server ownership lock")
-    lock_path = Path(database).resolve().with_suffix(".worker.lock")
+    settings = Settings()
+    url = make_url(settings.database_url)
+    if url.get_backend_name() == "sqlite" and url.database in (None, "", ":memory:"):
+        parser.error("A file-backed database is required for the server ownership lock")
+    lock_path = settings.worker_lock_path
     with lock_path.open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print("Stop the label server before running direct calibration prints.")
             return 1
-        status = backend.get_status()
-        if not status.connected or status.error or status.tape_width_mm != 24:
-            print(f"Not printing: a ready printer with 24 mm tape is required. {status}")
-            return 1
+        engine = make_engine(settings.database_url)
         try:
-            backend.print_batch(labels)
-        except PrintNotStarted as error:
-            print(f"Nothing printed: {error}")
+            with database_owner(engine, enforce=True):
+                status = backend.get_status()
+                if not status.connected or status.error or status.tape_width_mm != 24:
+                    print(f"Not printing: a ready printer with 24 mm tape is required. {status}")
+                    return 1
+                try:
+                    backend.print_batch(labels)
+                except PrintNotStarted as error:
+                    print(f"Nothing printed: {error}")
+                    return 1
+                except (PrintInterrupted, KeyboardInterrupt) as error:
+                    print(f"Output is uncertain: {error}. Inspect all output; no automatic retry.")
+                    return 1
+        except RuntimeError:
+            print("Stop the label server before running direct calibration prints.")
             return 1
-        except (PrintInterrupted, KeyboardInterrupt) as error:
-            print(f"Output is uncertain: {error}. Inspect all output; no automatic retry.")
-            return 1
+        finally:
+            engine.dispose()
     print("Completed. Measure all emitted tape, including blank leaders, in millimetres.")
     print("This direct print did not update the queue or cartridge estimate.")
     return 0

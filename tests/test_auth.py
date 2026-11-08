@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
+from app_client import TestClient
 from sqlalchemy import select
 
 from app.access import AccountPolicy, Action, Resource
@@ -569,7 +569,7 @@ def test_administrator_role_is_universal_protected_and_required(auth_client, tmp
     result = client.get("/api/auth/session").json()["user"]
     assert result["destination_levels"] == {"first": "full", "second": "full", "station": "full"}
     with client.app.state.factory() as session:
-        actor = actor_for_user(session, session.get(User, LOCAL_OWNER_ID))
+        actor = actor_for_user(session, session.get_one(User, LOCAL_OWNER_ID))
         policy = AccountPolicy({})
         assert policy.can_destination(actor, "not-enumerated-yet", "full")
         assert policy.allows(
@@ -608,14 +608,14 @@ def test_role_grants_combine_by_maximum_without_group_expansion(auth_client, tmp
         {"username": "member", "password": PASSWORD, "role_ids": [reader["id"], printer["id"]]},
     ).json()
     with client.app.state.factory() as session:
-        actor = actor_for_user(session, session.get(User, member["id"]))
+        actor = actor_for_user(session, session.get_one(User, member["id"]))
         policy = AccountPolicy({"first": None, "second": None, "station": None})
         assert policy.can_destination(actor, "first", "print")
         assert not policy.can_destination(actor, "first", "moderator")
         assert policy.can_destination(actor, "station", "full")
         assert not policy.can_destination(actor, "second")
         with pytest.raises(TypeError):
-            actor.destination_levels["second"] = "full"
+            actor.destination_levels["second"] = "full"  # pyright: ignore[reportIndexIssue] -- verify runtime immutability
 
 
 @pytest.mark.parametrize(
@@ -667,7 +667,7 @@ def test_independent_group_membership_and_owner_rights(auth_client, tmp_path):
         },
     ).json()
     with client.app.state.factory() as session:
-        actor = actor_for_user(session, session.get(User, member["id"]))
+        actor = actor_for_user(session, session.get_one(User, member["id"]))
         policy = AccountPolicy({})
         assert not actor.permissions and not actor.destination_levels
         assert not actor.group_memberships[group["id"]].can_create
@@ -947,21 +947,21 @@ def test_role_migration_preserves_accounts_without_granting_new_moderation(tmp_p
     engine = make_engine(url)
     try:
         with session_factory(engine)() as session:
-            assert actor_for_user(session, session.get(User, "admin")).is_admin
+            assert actor_for_user(session, session.get_one(User, "admin")).is_admin
             assert (
-                actor_for_user(session, session.get(User, "viewer")).destination_levels["first"]
+                actor_for_user(session, session.get_one(User, "viewer")).destination_levels["first"]
                 == "none"
             )
             assert (
-                actor_for_user(session, session.get(User, "printer")).destination_levels["first"]
+                actor_for_user(session, session.get_one(User, "printer")).destination_levels["first"]
                 == "print"
             )
             assert (
-                actor_for_user(session, session.get(User, "editor")).destination_levels["first"]
+                actor_for_user(session, session.get_one(User, "editor")).destination_levels["first"]
                 == "request"
             )
             memberships = {
-                member["user_id"]: member for member in session.get(UserGroup, "sharing").members
+                member["user_id"]: member for member in session.get_one(UserGroup, "sharing").members
             }
             assert not memberships["viewer"]["can_create"]
             assert not memberships["printer"]["can_edit_others"]

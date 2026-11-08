@@ -2,9 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
+from app_client import TestClient
 from conftest import create_test_app as create_app
 from conftest import profile
-from fastapi.testclient import TestClient
 
 from app.models import PrintRun
 from app.printer.base import PrintNotStarted
@@ -27,6 +27,20 @@ def fit(client, identifier, tape):
         "/api/cartridges",
         json={"profile_id": tape["id"], "name": identifier, "nominal_length_mm": 8000},
     ).json()
+    # Shared test inventory has explicit use grants after the ownership upgrade.
+    from app.models import ResourceGrant
+
+    with client.app.state.factory.begin() as session:
+        for permission in ("cartridge.view", "cartridge.use"):
+            session.add(
+                ResourceGrant(
+                    principal_kind="role",
+                    principal_id="member",
+                    scope_kind="cartridge",
+                    scope_id=cartridge["id"],
+                    permission=permission,
+                )
+            )
     response = client.put(
         f"/api/printer/active-tape?printer_id={identifier}", json={"cartridge_id": cartridge["id"]}
     )
@@ -228,7 +242,7 @@ def test_csv_run_stays_on_assigned_printer_after_review(client):
         == 200
     )
     client.app.state.fleet.workers[second].tick()
-    assert job_state(client, jobs[1]) == "queued"
+    assert job_state(client, jobs[1]) == "failed"
     assert (
         client.post(
             f"/api/queue/print?printer_id={second}&destination_id={dest}",
@@ -237,7 +251,9 @@ def test_csv_run_stays_on_assigned_printer_after_review(client):
         == 409
     )
     client.app.state.fleet.workers["main"].tick()
-    assert job_state(client, jobs[1]) == "printed"
+    assert (
+        job_state(client, jobs[1]) == "failed"
+    )  # Review preserves the pin but does not fund a retry.
     with client.app.state.factory() as session:
         assert session.get(PrintRun, run["id"]).assigned_printer_id == "main"
 
@@ -465,5 +481,15 @@ def test_upgrade_preserves_populated_single_printer_database(client, monkeypatch
         assert job_state(upgraded, printed) == "printed"
         assert job_state(upgraded, queued) == "queued"
         assert upgraded.get("/api/batches").json()[0]["printer_id"] == "main"
+        upgraded.app.state.fleet.workers["main"].tick()
+        assert job_state(upgraded, queued) == "queued"
+        from app.models import ReleaseMigration
+
+        # The ownership workflow has separate integration coverage. Here verify
+        # that its gate preserves the pre-upgrade manual reservation intact.
+        with upgraded.app.state.factory.begin() as session:
+            migration = session.get(ReleaseMigration, "0.13.0")
+            assert migration.completed_at is None
+            migration.completed_at = 1
         upgraded.app.state.fleet.workers["main"].tick()
         assert job_state(upgraded, queued) == "printed"

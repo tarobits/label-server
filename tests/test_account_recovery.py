@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 
 import pytest
-from fastapi.testclient import TestClient
+from app_client import TestClient
+from assertions import require_value
 from sqlalchemy import select
 from test_auth import PASSWORD, change, login, setup_admin
 from test_auth import auth_client as auth_client_fixture
@@ -33,7 +34,7 @@ def mailbox(auth_client, monkeypatch):
 
 
 def email_token(mailbox):
-    return re.search(r"token=([A-Za-z0-9_-]+)", mailbox[-1][2]).group(1)
+    return require_value(re.search(r"token=([A-Za-z0-9_-]+)", mailbox[-1][2])).group(1)
 
 
 def verify_address(client, mailbox, address="admin@example.invalid"):

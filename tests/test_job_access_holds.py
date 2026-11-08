@@ -76,7 +76,8 @@ def test_administrator_can_release_frozen_job_while_owner_remains_disabled(accou
     assert bob.post(f"/api/access-holds/{job['id']}/cancel").status_code == 403
     assert admin.post(f"/api/access-holds/{job['id']}/release").status_code == 200
     worker.tick()
-    assert len(worker.backend.batches) == 1
+    # Printer release is independent of cartridge-use consent for a disabled requester.
+    assert len(worker.backend.batches) == 0
     with admin.app.state.factory() as session:
         assert session.get(User, "alice").disabled
         assert session.get(JobAccessHold, job["id"]).resolved_by == "administrator"

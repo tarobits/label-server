@@ -123,7 +123,7 @@ def test_private_release_request_uses_server_token(monkeypatch, tmp_path, use_fi
         return io.BytesIO(json.dumps({"tag_name": "v0.1.1"}).encode())
 
     monkeypatch.setattr("app.releases.urlopen", open_request)
-    assert fetch_release(Settings(**config)) == "v0.1.1"
+    assert fetch_release(Settings.model_validate(config)) == "v0.1.1"
 
 
 def test_version_endpoint_requires_signin_and_returns_no_token(accounts):
@@ -134,7 +134,7 @@ def test_version_endpoint_requires_signin_and_returns_no_token(accounts):
     assert response.status_code == 200
     assert response.json()["current_version"] == __version__
     assert "token" not in response.text
-    from fastapi.testclient import TestClient
+    from app_client import TestClient
 
     anonymous = TestClient(app)
     try:

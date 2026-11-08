@@ -65,7 +65,8 @@ def test_queue_and_history_previews_use_the_job_tape_colors(client, foreground, 
     preview = Image.open(io.BytesIO(queued_preview.content)).convert("RGB")
     assert preview.size == expected.size
     assert preview.tobytes() == expected.tobytes()
-    assert len(preview.getcolors()) == 2
+    colors = preview.getcolors()
+    assert colors is not None and len(colors) == 2
 
     batch = client.get("/api/batches").json()[0]
     item = client.get(f"/api/batches/{batch['id']}").json()["items"][0]

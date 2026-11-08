@@ -142,6 +142,8 @@ def job_information(
                 "Uploaded image"
                 if isinstance(value, dict) and "image_asset" in value
                 else display_value(value)
+                if isinstance(value, (str, bool, int, float)) or value is None
+                else str(value)
             )
     return {
         "process_name": snapshot.get("process_name") or template_name,
@@ -187,10 +189,10 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
 
         context = access_context(request)
         owns = context.actor.id == job.owner_id
-        moderates = context.can_destination(job.destination_id, "moderator")
+        moderates = context.can_printer(job.destination_id, "manage_queue")
         permissions = {
             "can_change_copies": (owns or moderates)
-            and context.can_destination(job.destination_id, "print")
+            and (moderates or context.can_printer(job.destination_id, "submit_directly"))
             and copy_count_blocker(session, job, request.app.state.fleet.enforce_job_access)
             is None,
             "can_cancel": owns or moderates,
@@ -200,7 +202,11 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
             and State.QUEUED in states
             and not states.intersection({State.PRINTING, State.NEEDS_REVIEW}),
             "can_print": not held
-            and (moderates or owns and context.can_destination(job.destination_id, "print")),
+            and (
+                context.can_printer(job.destination_id, "start_any")
+                or owns
+                and context.can_printer(job.destination_id, "start_own")
+            ),
         }
     return {
         **record(job),

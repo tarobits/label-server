@@ -5,9 +5,9 @@ from threading import Event
 import pytest
 from alembic import command
 from alembic.config import Config
+from app_client import TestClient
 from conftest import create_test_app as create_app
 from conftest import install, job, profile, seed_test_printer
-from fastapi.testclient import TestClient
 from mock_backend import MockPrinterBackend
 
 from app.config import Settings

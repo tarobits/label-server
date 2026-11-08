@@ -38,6 +38,10 @@ def test_inventory_only_user_sees_actual_installation_and_locks_without_printer_
     )
     assert response.status_code == 201, response.text
     spare = response.json()
+    from conftest import grant_cartridge
+
+    grant_cartridge(admin, mounted["id"], "alice", "edit_details")
+    grant_cartridge(admin, spare["id"], "alice", "view", "edit_details")
     with admin.app.state.factory.begin() as session:
         session.add(
             Batch(

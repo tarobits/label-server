@@ -4,8 +4,9 @@ from threading import Event
 import pytest
 from alembic import command
 from alembic.config import Config
+from app_client import TestClient
+from assertions import require_value
 from conftest import create_test_app, profile, seed_test_printer
-from fastapi.testclient import TestClient
 from sqlalchemy import select
 from test_fleet import device, fit, submit
 
@@ -133,6 +134,7 @@ def test_explicit_group_includes_member_operational_alerts_but_not_member_approv
             path="/",
         )
         message = endpoint_message(session, notice, channel)
+        assert message is not None
         assert message.message == "Mock printer: Out of tape"
 
 
@@ -224,11 +226,12 @@ def test_scoped_digest_counts_only_exact_logical_destinations(client):
             destination_ids=["station"],
         )
         assert (
-            endpoint_message(session, notice, channel).message == "1 print request(s) await review."
+            require_value(endpoint_message(session, notice, channel)).message
+            == "1 print request(s) await review."
         )
         global_channel = endpoint(session, "global", all_printers=False)
         assert (
-            endpoint_message(session, notice, global_channel).message
+            require_value(endpoint_message(session, notice, global_channel)).message
             == "3 print request(s) await review."
         )
 
@@ -241,7 +244,7 @@ def test_unscoped_general_messages_route_by_kind_without_printer_filters(client)
             endpoint(session, "scoped", destination_ids=["main"]),
             endpoint(session, "all"),
         ):
-            assert endpoint_message(session, notice, channel).message == "Private"
+            assert require_value(endpoint_message(session, notice, channel)).message == "Private"
         excluded = endpoint(session, "excluded", kinds=["approval_digest"], all_printers=False)
         assert endpoint_message(session, notice, excluded) is None
 

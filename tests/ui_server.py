@@ -17,7 +17,7 @@ from app.admin_api import DB
 from app.auth import hash_password
 from app.config import Settings
 from app.identity import LOCAL_OWNER_ID
-from app.models import User
+from app.models import ReleaseMigration, User
 from app.push_delivery import generate_key
 
 if __name__ == "__main__":
@@ -96,6 +96,19 @@ if __name__ == "__main__":
         @application.get("/api/test/emails")
         def captured_emails(session: DB):
             return messages
+
+        @application.post("/api/test/ownership-upgrade")
+        def stage_ownership_upgrade(session: DB):
+            # Browser-test-only simulation of upgrading an existing installation.
+            session.get_one(ReleaseMigration, "0.13.0").completed_at = None
+            return {"required": True}
+
+        @application.post("/api/test/inbox")
+        def seed_inbox(session: DB):
+            from app.notifications import enqueue
+
+            enqueue(session, "Labels ready", "Your labels are ready to collect.", "/#/activity", recipient_id=LOCAL_OWNER_ID)
+            return {"ok": True}
 
         with application.state.factory.begin() as session:
             session.add(

@@ -182,9 +182,9 @@ def test_existing_admin_digests_migrate_without_changing_ordinary_notifications(
                 )
         command.upgrade(config, "head")
         with session_factory(engine)() as session:
-            assert session.get(Notification, "digest").kind == "approval_digest"
-            assert session.get(Notification, "ordinary").kind == "general"
-            assert session.get(Notification, "digest").context == {}
+            assert session.get_one(Notification, "digest").kind == "approval_digest"
+            assert session.get_one(Notification, "ordinary").kind == "general"
+            assert session.get_one(Notification, "digest").context == {}
         command.downgrade(config, "e84a91c607d2")
         command.upgrade(config, "head")
     finally:

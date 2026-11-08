@@ -1,7 +1,7 @@
 import fcntl
-from types import SimpleNamespace
 
 import pytest
+from settings_helpers import IsolatedSettings as Settings
 
 from app.printer.base import PrinterStatus, PrintInterrupted
 from scripts import calibrate_tape
@@ -22,9 +22,20 @@ def configure_lock(monkeypatch, tmp_path):
     monkeypatch.setattr(
         calibrate_tape,
         "Settings",
-        lambda: SimpleNamespace(database_url=f"sqlite:///{tmp_path / 'labels.db'}"),
+        lambda: Settings(database_url=f"sqlite:///{tmp_path / 'labels.db'}"),
     )
     return tmp_path / "labels.worker.lock"
+
+
+def test_in_memory_database_cannot_guard_direct_prints(monkeypatch):
+    monkeypatch.setattr(
+        calibrate_tape,
+        "Settings",
+        lambda: Settings(database_url="sqlite:///:memory:"),
+    )
+    monkeypatch.setattr(calibrate_tape.BrotherPTP710BT, "get_status", no_hardware)
+    with pytest.raises(SystemExit):
+        calibrate_tape.main(["--serial", "test", "--print"])
 
 
 def test_running_server_blocks_before_usb_access(monkeypatch, tmp_path, capsys):

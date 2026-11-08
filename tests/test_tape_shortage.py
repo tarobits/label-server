@@ -1,5 +1,6 @@
 import pytest
 from conftest import install, job, profile
+from printer_factory import NoIOTransport
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_fleet import device, fit, group, submit
@@ -175,7 +176,7 @@ def test_brother_preflight_matches_print_estimate_including_feed_and_minimum_len
     dpi_x, cut_each
 ):
     # No transport access: both estimates must agree for saved dimensions at either resolution.
-    backend = BrotherPTP710BT(object(), feed_mm=3, leader_mm=25, cut_each=cut_each)
+    backend = BrotherPTP710BT(NoIOTransport(), feed_mm=3, leader_mm=25, cut_each=cut_each)
     lengths = [8, 14, 60]
     geometry = [LabelGeometry(str(i), 24, length, dpi_x, 180) for i, length in enumerate(lengths)]
     rendered = [

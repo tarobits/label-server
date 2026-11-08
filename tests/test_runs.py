@@ -1,8 +1,8 @@
 from typing import Any
 
 import pytest
+from app_client import TestClient
 from conftest import install, profile
-from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from app.models import PrintJob
@@ -131,7 +131,9 @@ def test_draft_and_submitted_run_survive_restart(client: TestClient) -> None:
         ] == [j["id"] for j in jobs]
 
 
-def test_run_interruption_preserves_copy_review_and_retry_order(client: TestClient) -> None:
+def test_run_interruption_preserves_copy_order_without_silently_retrying(
+    client: TestClient,
+) -> None:
     body = run_body(client)
     install(client, body["tape_profile"])
     run = client.post("/api/runs/prepare", json=body).json()["run"]
@@ -150,7 +152,12 @@ def test_run_interruption_preserves_copy_review_and_retry_order(client: TestClie
         == 200
     )
     worker.tick()
-    assert [label.copy_id for label in worker.backend.batches[1]] == ids[1:]
+    assert len(worker.backend.batches) == 1
+    detail = client.get(f"/api/batches/{batch['id']}").json()
+    assert [item["copy_id"] for item in detail["items"]] == ids
+    assert [item["outcome"] for item in detail["items"]] == ["printed"] + ["failed"] * (
+        len(ids) - 1
+    )
 
 
 def test_run_migration_keeps_existing_jobs_and_copies(client: TestClient) -> None:

@@ -31,7 +31,8 @@ def test_library_preview_is_bounded_png_with_transparency_and_original_aspect(cl
         assert image.width <= bounds[0] and image.height <= bounds[1]
         assert image.width / image.height == 4
         assert image.getpixel((0, 0)) == (255, 0, 0, 255)
-        assert image.getpixel((image.width - 1, 0))[3] == 0
+        pixel = image.getpixel((image.width - 1, 0))
+        assert isinstance(pixel, tuple) and pixel[3] == 0
         assert client.get(url).content == response.content
     assert client.get(f"/api/image-assets/{identifier}/preview?size=huge").status_code == 422
     assert client.get("/api/image-assets/invalid/preview").status_code == 404

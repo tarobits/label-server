@@ -186,9 +186,9 @@ def test_strip_mode_and_estimate_are_explicit() -> None:
 def test_configured_brother_uses_real_capabilities_and_builtin_layout(
     client, resolution, dpi_x
 ) -> None:
+    from app_client import TestClient
     from conftest import create_test_app as create_app
     from conftest import install, profile
-    from fastapi.testclient import TestClient
 
     from app.models import PrinterDevice
 

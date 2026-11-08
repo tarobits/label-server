@@ -1,5 +1,7 @@
 """Logic geometry follows label axes while persisted print geometry stays stable."""
 
+from typing import Literal
+
 import pytest
 
 from app.element_geometry import element_geometry, local_geometry
@@ -9,7 +11,13 @@ from app.template_logic import logic_fields, logic_property_values, logic_target
 from app.template_schema import Element, TemplateDocument
 
 
-def document(rotation, source="", *, kind="text", auto_width=False):
+def document(
+    rotation,
+    source="",
+    *,
+    kind: Literal["text", "qr", "rectangle", "line", "image"] = "text",
+    auto_width=False,
+):
     element = Element(
         id="object",
         logic_name="object",
@@ -40,6 +48,7 @@ def test_resizing_logic_height_changes_only_visible_height(rotation):
     after = element_geometry(result.document.elements[0])
     assert after == {**before, "height": 2}
     assert result.document.length_mm == before["x"] + before["width"] + 1
+    assert result.resolved_inputs is not None
     frozen = render_document(result.document, result.resolved_inputs, RenderSpec())
     assert frozen.image.tobytes() == result.image.tobytes()
 

@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from alembic import command
 from alembic.config import Config
-from fastapi.testclient import TestClient
+from app_client import TestClient
 from mock_backend import MockPrinterBackend
 
 from app.config import Settings
@@ -77,7 +77,7 @@ def profile(
     name: str = "White",
     threshold: int = 10,
     reminders: bool = False,
-    width: int = 24,
+    width: float = 24,
 ) -> dict[str, Any]:
     response = client.post(
         "/api/tape-profiles",
@@ -93,6 +93,14 @@ def profile(
     return response.json()
 
 
+def grant_cartridge(client, cartridge_id, user_id="alice", *permissions):
+    from app.models import ResourceGrant
+
+    with client.app.state.factory.begin() as session:
+        for permission in permissions or ("view", "use"):
+            session.add(ResourceGrant(principal_kind="user", principal_id=user_id, scope_kind="cartridge", scope_id=cartridge_id, permission=f"cartridge.{permission}"))
+
+
 def install(client: TestClient, profile_id: str, remaining: float = 8000) -> dict[str, Any]:
     response = client.post(
         "/api/cartridges",
@@ -105,6 +113,15 @@ def install(client: TestClient, profile_id: str, remaining: float = 8000) -> dic
     )
     assert response.status_code == 201, response.text
     cartridge = response.json()
+    # Most printing fixtures model shared inventory. Sharing is explicit in 0.13;
+    # permission-boundary tests remove or replace these grants as needed.
+    from app.models import ResourceGrant
+
+    with client.app.state.factory.begin() as session:
+        for permission in ("cartridge.view", "cartridge.use"):
+            session.add(ResourceGrant(principal_kind="role", principal_id="member",
+                                      scope_kind="cartridge", scope_id=cartridge["id"],
+                                      permission=permission))
     response = client.put("/api/printer/active-tape", json={"cartridge_id": cartridge["id"]})
     assert response.status_code == 200, response.text
     return cartridge
@@ -121,3 +138,17 @@ def job(client: TestClient, profile_id: str, copies: int = 1) -> dict[str, Any]:
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.fixture
+def foundation_session(tmp_path):
+    """Isolated storage for the staged resource-access and audit primitives."""
+    from app.models import Base
+
+    engine = make_engine(f"sqlite:///{tmp_path / 'foundation.db'}")
+    Base.metadata.create_all(engine)
+    try:
+        with session_factory(engine)() as session:
+            yield session
+    finally:
+        engine.dispose()

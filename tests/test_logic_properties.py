@@ -90,6 +90,7 @@ def test_automatic_text_measurements_are_fixed_while_label_length_refits():
     assert output.document.elements[0].content == "X"
     assert not output.document.elements[0].auto_width
     assert not output.document.auto_length
+    assert output.resolved_inputs is not None
     repeated = render_document(output.document, output.resolved_inputs, RenderSpec())
     assert output.image.tobytes() == repeated.image.tobytes()
 

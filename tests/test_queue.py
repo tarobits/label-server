@@ -2,8 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
+from app_client import TestClient
 from conftest import install, job, profile
-from fastapi.testclient import TestClient
+from mock_backend import MockPrinterBackend
 
 from app.models import Batch, BatchItem, LabelCopy, State
 from app.printer.base import PrintNotStarted, PrintResult
@@ -20,6 +21,7 @@ def test_nine_wait_tenth_prints_one_batch(client: TestClient) -> None:
     assert worker.backend.batches == []
     job(client, tape["id"])
     worker.tick()
+    assert isinstance(worker.backend, MockPrinterBackend)
     assert len(worker.backend.batches) == 1
     assert len(worker.backend.batches[0]) == 10
     assert all(j["status"] == "printed" for j in client.get("/api/jobs").json())
@@ -78,6 +80,7 @@ def test_width_and_connection_gate(client: TestClient, width: int | None, connec
     assert len(client.get("/api/notifications").json()) == 1
     worker.backend.width_mm, worker.backend.connected = 24, True
     worker.tick()
+    assert isinstance(worker.backend, MockPrinterBackend)
     assert len(worker.backend.batches) == 1
 
 
@@ -92,6 +95,7 @@ def test_interrupted_batch_review_preserves_confirmed_copies(client: TestClient)
     assert batch["state"] == "needs_review"
     assert client.get("/api/cartridges").json()[0]["consumption_uncertain"]
     worker.tick()
+    assert isinstance(worker.backend, MockPrinterBackend)
     assert len(worker.backend.batches) == 1
     assert client.post("/api/queue/print").status_code == 409
     assert client.delete(f"/api/jobs/{item['id']}").status_code == 409
@@ -121,8 +125,13 @@ def test_interrupted_batch_review_preserves_confirmed_copies(client: TestClient)
     worker.backend.fail_after = None
     client.post("/api/queue/print")
     worker.tick()
-    assert len(worker.backend.batches[1]) == 1
-    assert worker.backend.batches[1][0].copy_id == labels[1]["id"]
+    assert isinstance(worker.backend, MockPrinterBackend)
+    assert len(worker.backend.batches) == 1  # Review alone cannot authorize another charge.
+    assert [label["state"] for label in client.get(f"/api/jobs/{item['id']}").json()["labels"]] == [
+        "printed",
+        "failed",
+        "cancelled",
+    ]
 
 
 def test_restart_recovers_inflight_intent_once(client: TestClient) -> None:
@@ -141,6 +150,7 @@ def test_restart_recovers_inflight_intent_once(client: TestClient) -> None:
     worker.recover()
     worker.recover()
     worker.tick()
+    assert isinstance(worker.backend, MockPrinterBackend)
     assert not worker.backend.batches
     assert client.get("/api/batches").json()[0]["state"] == "needs_review"
     assert len(client.get("/api/notifications").json()) == 1
@@ -191,12 +201,14 @@ def test_no_write_failure_waits_for_explicit_retry(
     if manual:
         retry = client.post("/api/queue/print")
         assert retry.status_code == 202, retry.text
+        assert original_request is not None
         assert retry.json()["id"] != original_request["id"]
     else:
         assert (
             client.put("/api/printer/automatic-printing", json={"held": False}).status_code == 200
         )
     worker.tick()
+    assert isinstance(worker.backend, MockPrinterBackend)
     assert len(worker.backend.batches) == 1
     assert client.get("/api/jobs").json()[0]["status"] == "printed"
     assert len(client.get("/api/batches").json()) == 2

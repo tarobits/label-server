@@ -75,7 +75,7 @@ def test_fifty_requests_coalesce_into_fixed_persistent_window(client, monkeypatc
         now[0] = 1070
         assert client.post("/api/requests", json=body).status_code == 201
         with fresh_factory() as session:
-            assert session.get(RequestDigest, 1).due_at == 1130
+            assert session.get_one(RequestDigest, 1).due_at == 1130
     finally:
         engine.dispose()
 
