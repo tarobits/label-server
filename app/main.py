@@ -1,23 +1,22 @@
 import fcntl
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager
-from pathlib import Path
+from contextlib import ExitStack, asynccontextmanager
 from threading import Lock, Thread
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.engine import make_url
 
 from app import __version__
 from app.access import authorize_request
 from app.api import router
 from app.auth import AuthRateLimiter, initialize_auth, session_user
 from app.config import Settings
+from app.database_lock import database_owner
 from app.db import make_engine, session_factory
 from app.deletion import is_deleted, purge_expired
 from app.fleet import PrinterFleet
@@ -45,14 +44,14 @@ def create_app(
         [str, dict[str, Any]], tuple[PrinterDefinition, PrinterBackend]
     ] = configured_printer,
 ) -> FastAPI:
+    from app.deployment import require_role
+
+    require_role("main")
     settings = settings or Settings()
     engine = make_engine(settings.database_url)
     factory = session_factory(engine)
-    fonts = FontStore(
-        Path(make_url(settings.database_url).database or "data/labels.db").resolve().parent
-        / "assets"
-        / "fonts"
-    )
+    settings.state_directory.mkdir(parents=True, exist_ok=True)
+    fonts = FontStore(settings.state_directory / "assets" / "fonts")
     images = ImageStore(fonts.root.parent / "images")
 
     def asset_deleted(kind: str, identifier: str) -> bool:
@@ -86,11 +85,11 @@ def create_app(
             stop.wait(settings.worker_interval_seconds)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        db_path = make_url(settings.database_url).database
-        if not db_path or db_path == ":memory:":
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+        if engine.dialect.name == "sqlite" and engine.url.database in (None, "", ":memory:"):
             raise RuntimeError("Use a file-backed SQLite database")
-        lock_file = Path(db_path).resolve().with_suffix(".worker.lock").open("a")
+        lock_file = settings.worker_lock_path.open("a")
+        ownership = ExitStack()
         threads: list[Thread] = []
         try:
             try:
@@ -99,12 +98,13 @@ def create_app(
                 raise RuntimeError(
                     "Another server owns this database; run exactly one process"
                 ) from error
+            ownership.enter_context(database_owner(engine, enforce=True))
             with factory.begin() as session:
                 import time
 
                 purge_expired(session, fonts, images, time.time())
                 seed_templates(session)
-            initialize_auth(factory, Path(db_path).resolve().parent)
+            initialize_auth(factory, settings.state_directory)
             fleet.enforce_job_access = app.state.access_policy is None
             if fleet.enforce_job_access:
                 from app.job_access import reconcile_access_holds
@@ -142,6 +142,7 @@ def create_app(
                 fleet.close()
             for thread in threads:
                 thread.join()
+            ownership.close()
             engine.dispose()
             lock_file.close()
 
@@ -149,7 +150,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> Response:
-        if request.url.path.startswith("/api/auth/"):
+        if request.url.path.startswith(("/api/auth/", "/api/companion/", "/api/companions/")):
             # Recovery credentials and passwords must not be echoed in errors.
             return JSONResponse(
                 status_code=422,
@@ -175,20 +176,38 @@ def create_app(
     app.state.fleet = fleet
     app.state.engine = engine
     app.state.wake = wake
+    from app.accounting_api import router as accounting_router
     from app.admin_api import router as admin_router
+    from app.audit_api import router as audit_router
     from app.auth_api import router as auth_router
+    from app.cartridge_quote_api import router as cartridge_quote_router
+    from app.companion_api import router as companion_router
+    from app.companion_transport_api import router as companion_transport_router
     from app.fleet_api import router as fleet_router
     from app.font_api import router as font_router
     from app.image_api import router as image_router
+    from app.inbox_api import router as inbox_router
     from app.job_access_api import router as access_holds_router
+    from app.migration_api import router as migration_router
     from app.notification_api import router as notification_endpoints_router
     from app.push_api import router as push_router
     from app.queue_routing_api import router as queue_routing_router
     from app.recovery_api import router as recovery_router
     from app.request_api import router as requests_router
+    from app.resource_api import router as resource_router
+    from app.retry_api import router as retry_router
     from app.runs import router as runs_router
 
     app.include_router(auth_router)
+    app.include_router(audit_router)
+    app.include_router(resource_router)
+    app.include_router(migration_router)
+    app.include_router(accounting_router)
+    app.include_router(retry_router)
+    app.include_router(cartridge_quote_router)
+    app.include_router(companion_router)
+    app.include_router(companion_transport_router)
+    app.include_router(inbox_router)
     app.include_router(recovery_router)
     app.include_router(push_router)
     app.include_router(admin_router)
@@ -212,7 +231,21 @@ def create_app(
                 content={"detail": "Update validation in progress"},
                 headers={"Cache-Control": "no-store", "Retry-After": "1"},
             )
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            from starlette.concurrency import run_in_threadpool
+
+            from app.action_failures import record_failed_action
+
+            await run_in_threadpool(record_failed_action, request, 500)
+            raise
+        if response.status_code >= 400:
+            from starlette.concurrency import run_in_threadpool
+
+            from app.action_failures import record_failed_action
+
+            await run_in_threadpool(record_failed_action, request, response.status_code)
         if response.status_code < 400 and getattr(
             request.state, "authenticated_session_hash", None
         ):

@@ -1,5 +1,7 @@
 .venv
+.venv-companion
 .env
+.env.companion
 .git
 data
 tests
@@ -13,3 +15,7 @@ frontend/dist
 frontend/test-results
 frontend/test-results-*
 frontend/playwright-report
+
+frontend/dist-companion/
+.label-server-role
+database-migration-backups/

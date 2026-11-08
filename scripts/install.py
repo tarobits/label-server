@@ -12,12 +12,13 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 if sys.version_info < (3, 12):
     raise SystemExit("The installer requires Python 3.12+. Debian 13 provides a suitable Python.")
 
-if __package__:
+if TYPE_CHECKING or __package__:
     from . import update
 else:
     import update
@@ -32,7 +33,21 @@ SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "-y", "--yes", action="store_true", help="Confirm installation without prompting"
+    )
     parser.add_argument("--install-dir", type=Path, default=Path("/opt/labels"))
+    parser.add_argument("--role", choices=("main", "companion"), default="main")
+    parser.add_argument(
+        "--database-url-file",
+        type=Path,
+        help="Main only: private file containing the MariaDB database URL",
+    )
+    parser.add_argument(
+        "--companion-config",
+        type=Path,
+        help="Private companion environment file to copy into the installation",
+    )
     parser.add_argument(
         "--repository",
         default=update.DEFAULT_REPOSITORY,
@@ -48,7 +63,7 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--host", default="127.0.0.1", help="Bind address; use 0.0.0.0 for LAN access"
     )
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int)
     parser.add_argument(
         "--public-url", help="Browser-reachable HTTP(S) origin for notification links"
     )
@@ -64,6 +79,17 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         help="Resolve the GitHub version and show the plan without changing anything",
     )
     args = parser.parse_args(argv)
+    args.port = args.port if args.port is not None else (8001 if args.role == "companion" else 8000)
+    if args.role == "companion" and not args.companion_config and not args.check:
+        parser.error(
+            "--role companion requires --companion-config with the main server URL and API key"
+        )
+    if args.role == "main" and args.companion_config:
+        parser.error("--companion-config is only for companion installations")
+    if args.role == "companion" and args.database_url_file:
+        parser.error("Companions use their local SQLite journal")
+    if args.companion_config:
+        args.companion_config = args.companion_config.resolve()
     raw = args.install_dir.absolute()
     if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(raw)) or len(raw.parts) < 3:
         parser.error(
@@ -106,11 +132,23 @@ def run(
     return update.command(args, directory, capture=capture, env=env)
 
 
-def render_unit(directory: Path, host: str, port: int) -> str:
+def render_unit(directory: Path, host: str, port: int, role: str = "main") -> str:
     # Keep the packaged hardening and USB group; change only installation/bind settings.
-    return (SOURCE / "deploy/labels.service").read_text().replace(
+    unit = (SOURCE / "deploy/labels.service").read_text().replace(
         "/opt/labels", str(directory)
     ).replace("--host 0.0.0.0 --port 8000", f"--host {host} --port {port}") + "\n"
+    if role == "companion":
+        unit = unit.replace(
+            "Description=Label printer server", "Description=Label printer companion"
+        )
+        unit = unit.replace(
+            f"EnvironmentFile={directory}/.env", f"EnvironmentFile={directory}/.env.companion"
+        )
+        unit = unit.replace(
+            f"ExecStart={directory}/.venv/bin/uvicorn app.main:create_app --factory --host {host} --port {port}",
+            f"ExecStart={directory}/.venv/bin/python -m companion",
+        )
+    return unit
 
 
 def system_dependencies(args: argparse.Namespace) -> None:
@@ -202,6 +240,23 @@ def install(args: argparse.Namespace) -> None:
         raise update.UpdateError(
             "Installation directory already exists; use scripts/update.py for an existing service"
         )
+    if args.role == "companion" and not args.check:
+        if not args.companion_config or not args.companion_config.is_file():
+            raise update.UpdateError("A readable --companion-config file is required")
+    database_url = None
+    if args.database_url_file:
+        database_url = args.database_url_file.read_text().strip()
+        parsed = urlsplit(database_url)
+        if (
+            parsed.scheme != "mariadb+pymysql"
+            or not parsed.hostname
+            or not parsed.path.strip("/")
+            or parsed.fragment
+            or any(char.isspace() for char in database_url)
+        ):
+            raise update.UpdateError(
+                "The database URL file must contain a mariadb+pymysql URL with an existing database name"
+            )
     repository = args.repository
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
         raise update.UpdateError("Repository must be GitHub OWNER/REPOSITORY")
@@ -212,12 +267,14 @@ def install(args: argparse.Namespace) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", ref):
         raise update.UpdateError("Unsupported release tag name")
     print(
-        f"Install {repository} at {ref} into {target}; service {SERVICE}; bind {args.host}:{args.port}"
+        f"Install {repository} at {ref} into {target}; mode native; role {args.role}; service {SERVICE}; bind {args.host}:{args.port}"
+    )
+    print("Database: " + ("MariaDB" if database_url else "SQLite"))
+    print(
+        f"Plan: {'use existing system packages' if args.skip_packages else 'install system packages'}; clone GitHub; create service user and USB group; build {args.role}; initialize database; install udev/systemd; enable"
+        + ("; leave stopped." if args.no_start else "; start; check health.")
     )
     if args.check:
-        print(
-            "Plan: install system packages; clone GitHub; create service user and USB group; build; migrate; install udev/systemd; enable; check health."
-        )
         return
     if sys.platform != "linux" or os.geteuid() != 0 or not SYSTEMD_DIRECTORY.is_dir():
         raise update.UpdateError(
@@ -239,6 +296,8 @@ def install(args: argparse.Namespace) -> None:
         raise update.UpdateError(
             "An existing USB rule differs; preserve it and resolve the configuration before installation"
         )
+    if not update.confirm_operation(f"Install {args.role} server at {ref}?", yes=args.yes):
+        return
     os.umask(0o022)
     system_dependencies(args)
     user = service_identity()
@@ -263,7 +322,7 @@ def install(args: argparse.Namespace) -> None:
         for filename in (
             "pyproject.toml",
             "requirements.lock",
-            "alembic.ini",
+            "companion/requirements.txt" if args.role == "companion" else "alembic.ini",
             "frontend/package-lock.json",
         ):
             if not (target / filename).is_file():
@@ -276,14 +335,31 @@ def install(args: argparse.Namespace) -> None:
             f"LABEL_PUBLIC_URL={args.public_url.rstrip('/')}\n"
             "LABEL_WORKER_INTERVAL_SECONDS=2\nLABEL_CHECK_FOR_UPDATES=true\n"
         )
+        if database_url:
+            import json
+
+            config = config.replace(
+                "LABEL_DATABASE_URL=sqlite:///./data/labels.db",
+                "LABEL_DATABASE_URL=" + json.dumps(database_url),
+            )
+            config += "LABEL_DATA_DIR=./data\n"
+        config_file = ".env.companion" if args.role == "companion" else ".env"
+        if args.role == "companion":
+            config = args.companion_config.read_text()
+            config += (
+                f"\nLABEL_COMPANION_HOST={args.host}\nLABEL_COMPANION_PORT={args.port}\n"
+                f"LABEL_COMPANION_PUBLIC_URL={args.public_url.rstrip('/')}\n"
+                "LABEL_COMPANION_DATA_DIR=data/companion\n"
+            )
         if token:
             descriptor = os.open(data / "github-token", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "w") as file:
                 file.write(token + "\n")
             config += "LABEL_GITHUB_TOKEN_FILE=data/github-token\n"
-        descriptor = os.open(target / ".env", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+        descriptor = os.open(target / config_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
         with os.fdopen(descriptor, "w") as file:
             file.write(config)
+        (target / update.ROLE_MARKER).write_text(args.role + "\n")
         own_tree(target, user.pw_uid, user.pw_gid)
         build_env = {
             "PATH": SAFE_PATH,
@@ -304,22 +380,56 @@ def install(args: argparse.Namespace) -> None:
                 "install",
                 "-c",
                 "requirements.lock",
-                ".",
+                *(["-r", "companion/requirements.txt"] if args.role == "companion" else ["."]),
             ]
         )
         as_user(["npm", "ci", "--prefix", "frontend"])
-        as_user(["npm", "run", "build", "--prefix", "frontend"])
-        if not (target / "frontend/dist/index.html").is_file():
-            raise update.UpdateError("Frontend build did not produce frontend/dist/index.html")
-        as_user([str(target / ".venv/bin/alembic"), "upgrade", "head"])
-        if data.is_symlink() or (target / ".env").is_symlink():
+        as_user(
+            [
+                "npm",
+                "run",
+                "build:companion" if args.role == "companion" else "build",
+                "--prefix",
+                "frontend",
+            ]
+        )
+        entry = (
+            "frontend/dist-companion/companion.html"
+            if args.role == "companion"
+            else "frontend/dist/index.html"
+        )
+        if not (target / entry).is_file():
+            raise update.UpdateError(f"Frontend build did not produce {entry}")
+        if args.role == "companion":
+            as_user(
+                [
+                    str(target / ".venv/bin/python"),
+                    "-c",
+                    (
+                        "from companion.config import Settings; from companion.journal import Journal; "
+                        "s=Settings(); Journal(s.data_dir / 'journal.db'); "
+                        "(s.data_dir / 'station.lock').touch(mode=0o600)"
+                    ),
+                ]
+            )
+        else:
+            as_user([str(target / ".venv/bin/alembic"), "upgrade", "head"])
+            if database_url:
+                as_user(
+                    [
+                        str(target / ".venv/bin/python"),
+                        "-c",
+                        "from pathlib import Path; Path('data/server.worker.lock').touch(mode=0o600)",
+                    ]
+                )
+        if data.is_symlink() or (target / config_file).is_symlink():
             raise update.UpdateError("Runtime configuration must not be a symlink")
         # Service owns state; installed application code is read-only to it.
         own_tree(target, 0, user.pw_gid, skip_data=True)
-        os.chmod(target / ".env", 0o640)
+        os.chmod(target / config_file, 0o640)
         RULE_DIRECTORY.mkdir(parents=True, exist_ok=True)
         rule_path.write_text(rule)
-        unit_path.write_text(render_unit(target, args.host, args.port))
+        unit_path.write_text(render_unit(target, args.host, args.port, args.role))
         run(["udevadm", "control", "--reload-rules"])
         run(
             [
@@ -352,6 +462,11 @@ def install(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
         raise
+    if args.role == "companion":
+        print(
+            f"Installed companion as {SERVICE}. Open {args.public_url}; unlock and add printers.\nLogs: journalctl -u {SERVICE} -f"
+        )
+        return
     print(
         f"Installed {SERVICE}. Open {args.public_url}; configure printers in the web UI.\n"
         f"First-run setup token: {data / 'auth-setup-token'} (created when the service starts).\n"
@@ -372,6 +487,9 @@ def main() -> None:
                 install(args)
     except (update.UpdateError, OSError, ValueError) as error:
         raise SystemExit(f"Install failed: {error}") from error
+    except KeyboardInterrupt:
+        print("Installation interrupted", file=sys.stderr)
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

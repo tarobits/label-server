@@ -1,4 +1,5 @@
 .venv/
+.venv-companion/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
@@ -6,6 +7,7 @@ __pycache__/
 *.egg-info/
 build/
 .env
+.env.companion
 *vapid*.pem
 data/
 dist/
@@ -16,3 +18,7 @@ test-results/
 test-results-*/
 
 /**/.DS_Store
+
+frontend/dist-companion/
+.label-server-role
+database-migration-backups/

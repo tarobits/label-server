@@ -30,6 +30,10 @@ logs or `data/auth-setup-token` to create an administrator account. The token fi
 is removed after setup. New installations have no printers configured.
 
 Run **one server process per database**. Do not use multiple Uvicorn workers.
+
+SQLite is the default; main servers can also use MariaDB 10.11+ (tested with
+11.8.6). See [MariaDB setup and SQLite migration](docs/MARIADB.md) for the verified
+migration tool, native installation, and database backup/recovery instructions.
 Migrations must be applied explicitly before starting the local server.
 
 For frontend development, keep the backend on port 8000 and run
@@ -626,7 +630,7 @@ unverified. Automated tests do not establish hardware compatibility.
 
 ## Development
 
-The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite; the frontend uses Vue 3, Pinia,
+The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite or MariaDB; the frontend uses Vue 3, Pinia,
 TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
 domain code use the generic backend contract. [PLAN.md](PLAN.md) describes the
 implementation constraints and [TODO.md](TODO.md) lists remaining work.
@@ -645,14 +649,21 @@ Run backend and frontend checks with the development dependencies installed:
 .venv/bin/ruff check app tests migrations
 .venv/bin/ruff format --check app tests migrations
 .venv/bin/mypy app
+.venv/bin/pyright
 npm run build --prefix frontend
 npm run format:check --prefix frontend
 ```
+
+Pylance and `.venv/bin/pyright` share the standard-mode configuration in
+`pyproject.toml`, including deprecation warnings. The check covers all application,
+companion, migration, script and test Python files; generated build copies and
+third-party dependencies are outside that scope.
 
 Build the frontend before running browser tests:
 
 ```sh
 cd frontend
+npm run build:all
 npx playwright install chromium
 npm run test:e2e
 ```
@@ -660,18 +671,26 @@ npm run test:e2e
 Tests use isolated databases and simulated printer hardware, without contacting
 real printers, ntfy, or SMTP providers. Browser screenshots are written to `frontend/test-results`.
 
+The companion has a separate native installation role and frontend build. See
+[Companion stations](docs/COMPANION.md) for installation, updates, and its local
+SQLite database. Main and companion run on separate machines. Use
+`npm run build:companion --prefix frontend` for the station alone; `build:main`
+(or `build`) builds the main UI, and `build:all` builds both for browser tests.
+
 ### Release frontend builds
 
 The `Release frontend` GitHub Actions workflow builds each published stable or
-prerelease tag and uploads `label-server-frontend.zip` directly to that release.
+prerelease tag and uploads `label-server-frontend.zip` and
+`label-companion-frontend.zip` directly to that release. The updater selects the
+archive for the installed server role.
 It uses a standard Ubuntu runner without Actions artifact uploads or dependency
 caching. Standard runner compute is free for public repositories; release assets
 are separate from Actions artifact storage. See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 and [release storage](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
 
 Wait for the workflow to finish before using `--prebuilt-frontend` in the native
-updater. Builds are architecture-independent static files, including the service
-worker and install icons. See [deployment instructions](docs/DEPLOYMENT.md) for
+updater. Builds are architecture-independent static files; the main build also
+includes its service worker and install icons. See [deployment instructions](docs/DEPLOYMENT.md) for
 verification and updater handoffs. The workflow can also be run manually with a
 published release tag containing the packaging script. Existing assets are not
 overwritten. Repositories with immutable releases must attach assets before

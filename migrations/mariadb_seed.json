@@ -1,0 +1,32 @@
+{
+  "auth_settings": [
+    {
+      "id": 1,
+      "registration_code_required": 1,
+      "approval_notification_debounce_seconds": 60,
+      "approval_notifications_enabled": 1
+    }
+  ],
+  "release_migrations": [
+    {
+      "version": "0.13.0",
+      "draft": "{}",
+      "completed_at": 0.0,
+      "completed_by": null
+    }
+  ],
+  "roles": [
+    {
+      "id": "member",
+      "name": "Member",
+      "permissions": "[{\"kind\": \"application\", \"permission\": \"templates.create_personal\"}, {\"kind\": \"application\", \"permission\": \"fonts.create_personal\"}, {\"kind\": \"application\", \"permission\": \"images.create_personal\"}]",
+      "protected": 0
+    },
+    {
+      "id": "administrator",
+      "name": "Administrator",
+      "permissions": "[]",
+      "protected": 1
+    }
+  ]
+}

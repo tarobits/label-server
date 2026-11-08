@@ -4,7 +4,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 COPY CHANGELOG.md /CHANGELOG.md
-RUN npm run build
+RUN npm run build:main
 
 FROM python:3.14-slim
 

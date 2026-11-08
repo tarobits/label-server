@@ -8,6 +8,18 @@ Paths such as `/opt/labels`, service accounts such as `labels`, and port 8000
 below are project defaults or examples, not details of a particular installation.
 Replace placeholder device paths and IDs with values discovered on your host.
 
+Main and companion servers are separate native installation roles and must run
+on different machines. Both use the single `labels.service` identity. The
+installer defaults to `--role main`; for `--role companion`, its minimal
+requirements, and SQLite journal, see [Companion stations](COMPANION.md).
+The updater detects the installed role automatically and selects its frontend,
+dependencies, and database handling.
+
+The main server supports SQLite (default) or MariaDB 10.11+ (tested with 11.8.6).
+See [MariaDB setup and SQLite migration](MARIADB.md) for connection settings,
+the native installer's `--database-url-file` option, and verified data transfer.
+Companions keep their local SQLite journal.
+
 ## GitHub installer
 
 The request quantity-editing and session-management updates add database migrations
@@ -49,6 +61,10 @@ Restrict access at the host firewall and use HTTPS for remote access.
 
 Options include `--install-dir /opt/labels`, `--port 8000`, `--skip-packages`
 (for pre-provisioned dependencies) and `--no-start` (enable without starting).
+The installer displays the selected version, role, destination and plan, then asks
+for confirmation before installing packages or creating the deployment. Enter
+`y` or `yes` to continue; Enter or EOF cancels. `--yes` (or `-y`) skips the prompt
+for unattended installations. `--check` never prompts or installs anything.
 The runtime requires Python 3.12+; the frontend build accepts Node 20.19+ on 20.x,
 or Node 22.12+. Older Debian releases need compatible dependencies provisioned
 separately.
@@ -275,6 +291,8 @@ Keep the setting disabled when the same origin accepts untrusted direct traffic.
 Stop the service and copy the entire data directory/volume, including database,
 WAL/SHM files if present, and `assets/fonts` and `assets/images`. Preserve `.env`
 separately. Do not copy only the database while uploads or printing are active.
+For MariaDB, also take a coordinated database backup; copying the local data
+directory alone does not include the remote database. See [MariaDB backups](MARIADB.md#backups-and-updates).
 On restore, stop every old worker, restore permissions and the complete data,
 apply migrations and start a single server process. A stale lock file can remain on disk;
 the operating-system lock, not file existence, prevents concurrent workers.
@@ -350,6 +368,31 @@ published release leaves the version visible without an update notice.
 
 ### Running an update
 
+The updater defaults to `--mode auto`. It looks for the configured systemd service
+whose working directory matches the installation, or existing Compose containers
+for the checkout, project and server role. Stopped services/containers count.
+Dockerfiles, Compose files and virtual environments alone are not evidence of an
+installation. Use `--install-dir` when the native application is separate from
+the source checkout, and `--service` or `--project-name` for custom identities.
+
+Use `--mode native` or `--mode docker` to override detection. If both installations
+match, or neither can be identified, the updater stops and requests an explicit
+mode. An inaccessible Docker daemon or systemd instance is reported when detection
+cannot identify a deployment; it does not silently default to another mode.
+
+Before fetching source, creating backups or stopping the application, the updater
+displays the selected release, detected/overridden mode, role, paths and plan, then
+asks for confirmation. Only `y` or `yes` continues. Unattended updates require
+`--yes` (or `-y`); piped input is not treated as interactive confirmation.
+`--check` performs read-only discovery and release lookup without prompting.
+
+```sh
+python3 scripts/update.py --check
+sudo python3 scripts/update.py
+# Explicit override and unattended confirmation:
+sudo python3 scripts/update.py --mode native --yes
+```
+
 The checkout must have a GitHub `origin` and no tracked or untracked local changes.
 Use `.env` for deployment settings. The updater fetches the release's exact tag
 and switches a local `release` branch to that commit, leaving `main` intact. If
@@ -392,7 +435,7 @@ sudo python3 scripts/update.py --mode native --channel beta --prebuilt-frontend
 
 The flag works with stable releases and `--tag` too. Local building remains the
 default; Docker builds do not accept this flag. The selected release must have
-`label-server-frontend.zip` attached. The updater downloads it before stopping the
+`label-server-frontend.zip` (main) or `label-companion-frontend.zip` (companion) attached. The updater downloads it before stopping the
 service, checks its size and GitHub-provided SHA-256 digest, validates the archive,
 and requires its recorded source commit to match the fetched release. Missing or
 invalid assets abort the update without stopping the application; there is no
@@ -404,7 +447,8 @@ If the selected release contains a different `scripts/update.py`, the updater
 saves that script in the backup directory, prints an exact relaunch command, and
 exits before shutdown, frontend downloads, dependency installation, or migrations.
 Run the printed command to continue with the release's updater. It preserves your
-options and pins the selected tag. Installed application files remain untouched
+options and pins the selected tag and resolved runtime mode. The relaunched updater
+asks for confirmation again unless `--yes` was explicitly supplied. Installed application files remain untouched
 during the handoff; the saved script is outside the checkout so the checkout stays
 clean. This behavior starts with the new updater: older installed scripts must
 be refreshed once before they can use these options or perform the handoff.
@@ -441,12 +485,16 @@ systemd/runuser, and rsync for separate source/install directories. Run as root.
 Node/npm are unnecessary with `--prebuilt-frontend`.
 `--service` defaults to `labels.service`; its WorkingDirectory must match the
 installation. The supported layout uses `.env`, `.venv`, `frontend/dist`, and a
-dedicated SQLite data directory. Database/assets outside the installation are
+dedicated local data directory, with SQLite or MariaDB for the main server. Assets outside the installation are
 discovered from its settings. An alternate systemd EnvironmentFile or frontend
 output path requires a tailored deployment process. Existing service-unit and
 udev customizations are preserved. Migrations run as the configured service user.
 
 For Docker, run from the existing Compose checkout and keep its usual files:
+
+Automatic Docker updates currently require SQLite. MariaDB deployments can run
+in Docker, but need a manually coordinated database and local-assets backup and
+restore procedure; the Docker updater refuses that configuration.
 
 ```sh
 python3 scripts/update.py --mode docker \
@@ -469,7 +517,10 @@ outside the source, installation and data directories. Each backup contains
 `source.tar.gz`, `data.tar.gz`, `.env` as `environment.env` when present, and an
 `update.json` recovery record with old/new commits and Docker image/mount details.
 Native backups also include `venv.tar.gz`, so the previous Python dependencies
-can be restored without downloading them. Allow enough free disk space for these
+can be restored without downloading them. Native MariaDB backups additionally
+include `database.json.gz`; a database ownership lock excludes other main servers
+and maintenance operations until validation startup. Rollback restores that database
+alongside the previous local state and code. Allow enough free disk space for these
 archives and their temporary extraction during recovery. A native `.venv` must be
 a local directory, not a symlink to a shared environment.
 Backups contain credentials and should retain restricted permissions. Docker
@@ -536,7 +587,8 @@ source control and restrict the populated `.env` to the service owner.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LABEL_DATABASE_URL` | `sqlite:///./data/labels.db` | Database location; Compose sets its persistent-volume path. |
+| `LABEL_DATABASE_URL` | `sqlite:///./data/labels.db` | SQLite location or `mariadb+pymysql://` connection URL; see [MariaDB](MARIADB.md). |
+| `LABEL_DATA_DIR` | SQLite database directory, otherwise `./data` | Local assets, authentication files, and update state. Keep the existing directory when switching databases. |
 | `LABEL_WORKER_INTERVAL_SECONDS` | `2` | Worker polling interval in seconds; must be positive. |
 | `LABEL_PUBLIC_URL` | `http://localhost:8000` | Browser-reachable URL for notification and recovery links; use HTTPS remotely. |
 | `LABEL_FRONTEND_DIST` | `frontend/dist` beside the source tree | Built frontend directory. |

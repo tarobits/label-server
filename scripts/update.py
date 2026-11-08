@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -35,13 +35,15 @@ from typing import Any
 
 DEFAULT_REPOSITORY = "tarobits/label-server"
 FRONTEND_ASSET = "label-server-frontend.zip"
+COMPANION_FRONTEND_ASSET = "label-companion-frontend.zip"
+ROLE_MARKER = ".label-server-role"
 FRONTEND_METADATA = "frontend-build.json"
 MAX_FRONTEND_DOWNLOAD = 64 * 1024 * 1024
 MAX_FRONTEND_UNPACKED = 256 * 1024 * 1024
 UPDATE_MARKER = ".update-in-progress"
 
 
-def frontend_file(name: str) -> bool:
+def frontend_file(name: str, role: str = "main") -> bool:
     """Only public build outputs; no dotfiles, source maps or server state."""
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", name):
         return False
@@ -60,9 +62,12 @@ def frontend_file(name: str) -> bool:
             ".woff",
             ".woff2",
         }
-    return name in {"index.html", "sw.js", "manifest.webmanifest", FRONTEND_METADATA} or (
-        Path(name).suffix in {".png", ".ico", ".svg"}
+    entrypoints = (
+        {"companion.html", FRONTEND_METADATA}
+        if role == "companion"
+        else {"index.html", "sw.js", "manifest.webmanifest", FRONTEND_METADATA}
     )
+    return name in entrypoints or (Path(name).suffix in {".png", ".ico", ".svg"})
 
 
 class AssetRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -89,14 +94,17 @@ class AssetRedirectHandler(urllib.request.HTTPRedirectHandler):
         return redirected
 
 
-def download_frontend(repository: str, tag: str, destination: Path, token: str | None) -> Path:
+def download_frontend(
+    repository: str, tag: str, destination: Path, token: str | None, role: str = "main"
+) -> Path:
+    asset_name = COMPANION_FRONTEND_ASSET if role == "companion" else FRONTEND_ASSET
     release = release_request(repository, f"/tags/{urllib.parse.quote(tag, safe='')}", token)
     if release_tag(release) != tag:
         raise UpdateError("GitHub returned a different release tag than requested")
     assets = release.get("assets", [])
     if not isinstance(assets, list):
         raise UpdateError("GitHub returned an invalid release asset list")
-    matches = [a for a in assets if isinstance(a, dict) and a.get("name") == FRONTEND_ASSET]
+    matches = [a for a in assets if isinstance(a, dict) and a.get("name") == asset_name]
     if len(matches) != 1:
         raise UpdateError(
             "Selected release has no unique prebuilt frontend. Wait for its release workflow "
@@ -120,7 +128,7 @@ def download_frontend(repository: str, tag: str, destination: Path, token: str |
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repository}/releases/assets/{asset_id}", headers=headers
     )
-    archive = destination / FRONTEND_ASSET
+    archive = destination / asset_name
     checksum = hashlib.sha256()
     received = 0
     try:
@@ -140,25 +148,29 @@ def download_frontend(repository: str, tag: str, destination: Path, token: str |
     return archive
 
 
-def unpack_frontend(archive: Path, destination: Path, commit: str) -> None:
+def unpack_frontend(archive: Path, destination: Path, commit: str, role: str = "main") -> None:
     """Validate the whole archive before writing any file; never use extractall."""
     try:
         with zipfile.ZipFile(archive) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
+            required = {FRONTEND_METADATA} | (
+                {"companion.html"}
+                if role == "companion"
+                else {"index.html", "sw.js", "manifest.webmanifest"}
+            )
             if (
                 len(entries) > 4096
                 or len(set(names)) != len(names)
                 or sum(entry.file_size for entry in entries) > MAX_FRONTEND_UNPACKED
-                or not {"index.html", "sw.js", "manifest.webmanifest", FRONTEND_METADATA}
-                <= set(names)
+                or not required <= set(names)
                 or not any(name.startswith("assets/") and name.endswith(".js") for name in names)
             ):
                 raise UpdateError("Prebuilt frontend has an invalid file list or size")
             for entry in entries:
                 mode = stat.S_IFMT(entry.external_attr >> 16)
                 if (
-                    not frontend_file(entry.filename)
+                    not frontend_file(entry.filename, role)
                     or entry.is_dir()
                     or mode not in {0, stat.S_IFREG}
                     or entry.flag_bits & 1
@@ -171,6 +183,7 @@ def unpack_frontend(archive: Path, destination: Path, commit: str) -> None:
                 not isinstance(metadata, dict)
                 or metadata.get("schema") != 1
                 or metadata.get("commit") != commit
+                or metadata.get("role", "main") != role
             ):
                 raise UpdateError("Prebuilt frontend does not match the selected source commit")
             destination.mkdir(mode=0o755)
@@ -194,9 +207,9 @@ def unpack_frontend(archive: Path, destination: Path, commit: str) -> None:
         raise UpdateError("Prebuilt frontend archive is invalid") from error
 
 
-def install_frontend(staged: Path, install_dir: Path) -> None:
+def install_frontend(staged: Path, install_dir: Path, role: str = "main") -> None:
     frontend = install_dir / "frontend"
-    target = frontend / "dist"
+    target = frontend / ("dist-companion" if role == "companion" else "dist")
     if target.is_symlink() or (target.exists() and not target.is_dir()):
         raise UpdateError("Frontend dist must be a directory, not a file or symlink")
     with tempfile.TemporaryDirectory(prefix=".frontend-install-", dir=frontend) as temporary:
@@ -242,6 +255,8 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
         str(args.backup_dir),
         "--tag",
         tag,
+        "--mode",
+        args.mode,
     ]
     print(
         "The selected release contains a different updater. No shutdown or installation "
@@ -253,6 +268,22 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
 
 class UpdateError(Exception):
     pass
+
+
+def confirm_operation(question: str, *, yes: bool) -> bool:
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        raise UpdateError(
+            "Confirmation requires an interactive terminal; use --yes for unattended operation"
+        )
+    try:
+        accepted = input(question + " [y/N] ").strip().lower() in {"y", "yes"}
+    except EOFError:
+        accepted = False
+    if not accepted:
+        print("Cancelled. No installation or update was performed.")
+    return accepted
 
 
 def command(
@@ -376,7 +407,9 @@ def installation_token(args: argparse.Namespace) -> str | None:
     """Read credentials as data, never execute installation configuration."""
     args.github_token_path = None
     values: dict[str, str] = {}
-    dotenv = args.install_dir / ".env"
+    dotenv = args.install_dir / (
+        ".env.companion" if getattr(args, "role", "main") == "companion" else ".env"
+    )
     if dotenv.is_file():
         for line in dotenv.read_text().splitlines():
             match = re.match(r"\s*(?:export\s+)?(LABEL_GITHUB_TOKEN(?:_FILE)?)\s*=\s*(.*)", line)
@@ -410,7 +443,7 @@ def installation_token(args: argparse.Namespace) -> str | None:
 
 
 @contextmanager
-def git_credentials(token: str | None) -> Iterator[dict[str, str] | None]:
+def git_credentials(token: str | None) -> Generator[dict[str, str] | None, None, None]:
     """Supply HTTPS credentials without saving them in Git URLs/config or argv."""
     if not token:
         yield None
@@ -430,9 +463,127 @@ def git_credentials(token: str | None) -> Iterator[dict[str, str] | None]:
         }
 
 
+def deployment_role(directory: Path) -> str:
+    """A role is installation state, never inferred from source files present in both builds."""
+    marker = directory / ROLE_MARKER
+    if marker.is_symlink():
+        raise UpdateError("The installation role marker must not be a symlink")
+    role = marker.read_text().strip() if marker.exists() else None
+    if role is not None and role not in {"main", "companion"}:
+        raise UpdateError("Invalid installation role marker")
+    main = (directory / ".env").exists()
+    companion = (directory / ".env.companion").exists()
+    if (main and companion) or (role == "main" and companion) or (role == "companion" and main):
+        raise UpdateError(
+            "Conflicting main and companion configuration; one server role is allowed per machine"
+        )
+    return role or ("companion" if companion else "main")
+
+
+def config_name(args: argparse.Namespace) -> str:
+    return ".env.companion" if args.role == "companion" else ".env"
+
+
+def compose_service(args: argparse.Namespace) -> str:
+    return "companion" if args.role == "companion" else "labels"
+
+
+def probe_deployment(command: list[str], directory: Path) -> str:
+    """Read installed runtime state without creating files or exposing captured errors."""
+    try:
+        result = subprocess.run(
+            command,
+            cwd=directory if directory.is_dir() else None,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise UpdateError(
+            f"Could not inspect {command[0]}; specify --mode native or --mode docker"
+        ) from error
+    if result.returncode:
+        raise UpdateError(f"Could not inspect {command[0]}; specify --mode native or --mode docker")
+    return result.stdout.strip()
+
+
+def detect_mode(args: argparse.Namespace) -> str:
+    """Use installed services/containers, never Dockerfiles shipped with every checkout."""
+    detected: set[str] = set()
+    unavailable: list[str] = []
+    if shutil.which("systemctl"):
+        try:
+            properties = dict(
+                line.split("=", 1)
+                for line in probe_deployment(
+                    [
+                        "systemctl",
+                        "show",
+                        args.service,
+                        "--property=LoadState",
+                        "--property=WorkingDirectory",
+                    ],
+                    args.install_dir,
+                ).splitlines()
+                if "=" in line
+            )
+            working = properties.get("WorkingDirectory")
+            if (
+                properties.get("LoadState") == "loaded"
+                and working
+                and Path(working).resolve() == args.install_dir
+            ):
+                detected.add("native")
+        except UpdateError:
+            unavailable.append("systemd")
+    if shutil.which("docker") and args.checkout.is_dir():
+        command = [
+            "docker",
+            "ps",
+            "--all",
+            "--filter",
+            f"label=com.docker.compose.project.working_dir={args.checkout}",
+            "--filter",
+            f"label=com.docker.compose.service={compose_service(args)}",
+            "--format",
+            "{{.ID}}",
+        ]
+        if args.project_name:
+            command += ["--filter", f"label=com.docker.compose.project={args.project_name}"]
+        try:
+            if probe_deployment(command, args.checkout):
+                detected.add("docker")
+        except UpdateError:
+            unavailable.append("Docker")
+    if len(detected) == 1:
+        return detected.pop()
+    reason = (
+        "Both native and Docker installations match"
+        if detected
+        else "No installed service or Compose container matched the selected paths"
+    )
+    if unavailable:
+        reason += "; could not inspect " + ", ".join(unavailable)
+    raise UpdateError(
+        reason
+        + ". Specify --mode native or --mode docker (and --install-dir for a separate native installation)."
+    )
+
+
 def options(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", required=True, choices=("native", "docker"))
+    parser.add_argument(
+        "--mode",
+        default="auto",
+        choices=("auto", "native", "docker"),
+        help="Detect the installed runtime (default), or explicitly select native/docker",
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Confirm the displayed update plan without prompting",
+    )
     parser.add_argument(
         "--channel",
         choices=("stable", "beta"),
@@ -469,7 +620,7 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         help="Compose file; repeat for USB/local overrides",
     )
     parser.add_argument("--project-name", help="Existing Compose project name, if explicitly set")
-    parser.add_argument("--health-url", default="http://127.0.0.1:8000/api/health")
+    parser.add_argument("--health-url", help="Override the service's local health URL")
     parser.add_argument("--health-timeout", type=float, default=60)
     parser.add_argument(
         "--check", action="store_true", help="Show the release and plan without changing anything"
@@ -481,6 +632,14 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--tag must be a valid release tag name")
     args.checkout = args.checkout.resolve()
     args.install_dir = (args.install_dir or args.checkout).resolve()
+    args.role = deployment_role(args.install_dir)
+    args.health_url_explicit = args.health_url is not None
+    args.health_url = (
+        args.health_url
+        or f"http://127.0.0.1:{8001 if args.role == 'companion' else 8000}/api/health"
+    )
+    if args.role == "companion" and not args.compose_file:
+        args.compose_file = ["docker-compose.companion.yml"]
     args.backup_dir = (
         args.backup_dir or args.install_dir.parent / f"{args.install_dir.name}-backups"
     ).resolve()
@@ -491,12 +650,15 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("Separate source and installation directories must not be nested")
     if args.health_timeout <= 0:
         parser.error("--health-timeout must be positive")
+    if not args.service or args.service.startswith("-"):
+        parser.error("Invalid service name")
+    args.mode_detected = args.mode == "auto"
+    if args.mode_detected:
+        args.mode = detect_mode(args)
     if args.mode == "docker" and args.install_dir != args.checkout:
         parser.error("--install-dir is for native deployments; Compose runs from --checkout")
     if args.mode == "docker" and args.prebuilt_frontend:
         parser.error("--prebuilt-frontend is for native deployments only")
-    if not args.service or args.service.startswith("-"):
-        parser.error("Invalid service name")
     return args
 
 
@@ -526,6 +688,14 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
     )
     if not unit or Path(unit).resolve() != args.install_dir:
         raise UpdateError("The systemd WorkingDirectory must match --install-dir")
+    executable = command(
+        ["systemctl", "show", args.service, "--property=ExecStart", "--value"],
+        args.install_dir,
+        capture=True,
+    )
+    expected_entrypoint = "-m companion" if args.role == "companion" else "app.main:create_app"
+    if expected_entrypoint not in executable:
+        raise UpdateError("The systemd service does not match the detected server role")
     user = (
         command(
             ["systemctl", "show", args.service, "--property=User", "--value"],
@@ -550,18 +720,19 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
         args.install_dir,
         capture=True,
     )
-    expected = str(args.install_dir / ".env")
+    configuration_file = config_name(args)
+    expected = str(args.install_dir / configuration_file)
     if files and files not in (f"{expected} (ignore_errors=no)", f"{expected} (ignore_errors=yes)"):
         raise UpdateError(
-            "Custom systemd EnvironmentFiles are unsupported; use the installation's .env"
+            "Custom systemd EnvironmentFiles are unsupported; use the installation's role-specific configuration"
         )
-    if (args.install_dir / ".env").is_file():
+    if (args.install_dir / configuration_file).is_file():
         values = json.loads(
             command(
                 [
                     str(python),
                     "-c",
-                    "import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values('.env', interpolate=False)))",
+                    f"import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values({configuration_file!r}, interpolate=False)))",
                 ],
                 args.install_dir,
                 capture=True,
@@ -577,24 +748,42 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
     code = (
         "import json; from app.config import Settings; from sqlalchemy.engine import make_url; "
         "from pathlib import Path; s=Settings(); u=make_url(s.database_url); "
-        "assert u.drivername.startswith('sqlite') and u.database not in (None, ':memory:'); "
-        "assert Path(u.database).resolve().is_file(), 'Configured database is missing'; "
+        "kind=u.get_backend_name(); assert kind in ('sqlite','mariadb'); "
+        "assert u.database not in (None, ':memory:'); "
+        "d=getattr(s,'state_directory',Path(u.database).resolve().parent); "
+        "assert kind != 'sqlite' or (Path(u.database).resolve().is_file() and d == Path(u.database).resolve().parent), 'SQLite database and assets must share a directory'; "
         "assert s.frontend_dist.resolve() == Path('frontend/dist').resolve(), 'Custom frontend path unsupported'; "
-        "print(json.dumps({'data': str(Path(u.database).resolve().parent), "
-        "'lock': str(Path(u.database).resolve().with_suffix('.worker.lock'))}))"
+        "print(json.dumps({'data': str(d), 'database_kind': kind, "
+        "'lock': str(getattr(s,'worker_lock_path',Path(u.database).resolve().with_suffix('.worker.lock')))}))"
     )
+    if args.role == "companion":
+        code = (
+            "import json; from pathlib import Path; from companion.config import Settings; "
+            "s=Settings(); d=s.data_dir.resolve(); "
+            "assert (d/'journal.db').is_file(), 'Companion database is missing'; "
+            "print(json.dumps({'data': str(d), 'lock': str(d/'station.lock'), "
+            "'host': s.host, 'port': s.port}))"
+        )
     configuration = json.loads(
         command([str(python), "-c", code], args.install_dir, capture=True, env=env)
     )
     data = Path(configuration["data"])
     args.database_lock = Path(configuration["lock"])
+    args.database_kind = configuration.get("database_kind", "sqlite")
+    if args.role == "companion" and not args.health_url_explicit:
+        host: str = configuration["host"]
+        host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+        host = f"[{host}]" if ":" in host else host
+        args.health_url = f"http://{host}:{configuration['port']}/api/health"
     if not data.is_dir():
         raise UpdateError("Configured data directory is missing")
     return data, user, env
 
 
 def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
-    identifiers = compose(args, "ps", "--all", "--quiet", "labels", capture=True).splitlines()
+    identifiers = compose(
+        args, "ps", "--all", "--quiet", compose_service(args), capture=True
+    ).splitlines()
     if len(identifiers) != 1:
         raise UpdateError(
             "Expected one existing labels container; check Compose files/project name"
@@ -604,8 +793,14 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
     )[0]
     environment = dict(entry.split("=", 1) for entry in container["Config"]["Env"] if "=" in entry)
     url = environment.get("LABEL_DATABASE_URL", "sqlite:///./data/labels.db")
+    if args.role == "companion":
+        url = "sqlite:///" + str(
+            Path(environment.get("LABEL_COMPANION_DATA_DIR", "data/companion")) / "journal.db"
+        )
     if not url.startswith("sqlite:///") or "?" in url:
-        raise UpdateError("Automatic volume backup requires an ordinary SQLite file URL")
+        raise UpdateError(
+            "Automatic Docker updates require SQLite. MariaDB updates currently use the native updater; do not replace the image without a coordinated database backup."
+        )
     path = url.removeprefix("sqlite:///")
     database = Path(
         os.path.normpath(
@@ -640,7 +835,7 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
 
 
 @contextmanager
-def backup_progress(label: str, target: Path, interval: float = 10) -> Iterator[None]:
+def backup_progress(label: str, target: Path, interval: float = 10) -> Generator[None, None, None]:
     """Report slow compression without exposing archived filenames or contents."""
     started = time.monotonic()
     finished = Event()
@@ -908,7 +1103,7 @@ def running(args: argparse.Namespace) -> bool:
         if result.returncode not in (0, 3):
             raise UpdateError("Could not determine the systemd service state")
         return result.returncode == 0
-    return bool(compose(args, "ps", "--quiet", "labels", capture=True))
+    return bool(compose(args, "ps", "--quiet", compose_service(args), capture=True))
 
 
 def stop_application(args: argparse.Namespace) -> None:
@@ -926,7 +1121,7 @@ def stop_application(args: argparse.Namespace) -> None:
             "--filter",
             f"label=com.docker.compose.project={args.project_name}",
             "--filter",
-            "label=com.docker.compose.service=labels",
+            f"label=com.docker.compose.service={compose_service(args)}",
         ]
         identifiers = command(query, args.checkout, capture=True).splitlines()
         if identifiers:
@@ -974,7 +1169,7 @@ def restore_deployment(
         for item in metadata.get("compose_files", []):
             shutil.copy2(item["backup"], item["original"])
         configuration = json.loads(json.dumps(docker["compose"]))
-        service = configuration["services"]["labels"]
+        service = configuration["services"][compose_service(args)]
         service.pop("build", None)
         service["image"] = docker["image"]
         service["pull_policy"] = "never"
@@ -1005,7 +1200,16 @@ def start_application(args: argparse.Namespace) -> None:
         command(["systemctl", "daemon-reload"], args.install_dir)
         command(["systemctl", "start", args.service], args.install_dir)
     else:
-        compose(args, "up", "--detach", "--no-deps", "--no-build", "--pull", "never", "labels")
+        compose(
+            args,
+            "up",
+            "--detach",
+            "--no-deps",
+            "--no-build",
+            "--pull",
+            "never",
+            compose_service(args),
+        )
 
 
 def wait_healthy(url: str, timeout: float) -> None:
@@ -1024,7 +1228,7 @@ def wait_healthy(url: str, timeout: float) -> None:
 
 
 @contextmanager
-def update_lock(path: Path) -> Iterator[None]:
+def update_lock(path: Path) -> Generator[None, None, None]:
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "w") as lock:
         try:
@@ -1032,6 +1236,59 @@ def update_lock(path: Path) -> Iterator[None]:
         except BlockingIOError as error:
             raise UpdateError("Another update is running for this installation") from error
         yield
+
+
+class RemoteDatabase:
+    """Keep credentials inside the service environment and a dedicated DB lock process."""
+
+    def __init__(self, args: argparse.Namespace, env: dict[str, str] | None):
+        self.process = subprocess.Popen(
+            [str(args.install_dir / ".venv/bin/python"), "-m", "scripts.database_maintenance"],
+            cwd=args.install_dir,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        try:
+            result = self.response()
+            if not result.get("ready") or not isinstance(result.get("owner"), int):
+                raise UpdateError("MariaDB maintenance did not acquire ownership")
+            self.owner = str(result["owner"])
+        except BaseException:
+            self.close()
+            raise
+
+    def response(self) -> dict[str, Any]:
+        assert self.process.stdout is not None
+        line = self.process.stdout.readline()
+        if not line:
+            raise UpdateError("MariaDB maintenance stopped; no automatic activation is allowed")
+        result = json.loads(line)
+        if not isinstance(result, dict) or result.get("error"):
+            raise UpdateError(
+                "MariaDB maintenance failed; check access, schema, and available backup space"
+            )
+        return result
+
+    def perform(self, action: str, path: Path) -> None:
+        assert self.process.stdin is not None
+        self.process.stdin.write(json.dumps({"action": action, "path": str(path)}) + "\n")
+        self.process.stdin.flush()
+        if self.response().get("ok") is not True:
+            raise UpdateError("MariaDB maintenance did not complete")
+
+    def close(self) -> None:
+        if self.process.stdin is not None and not self.process.stdin.closed:
+            self.process.stdin.close()
+        try:
+            self.process.wait(timeout=35)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()
+            self.process.wait(timeout=5)
+        if self.process.stdout is not None:
+            self.process.stdout.close()
 
 
 def update(args: argparse.Namespace) -> None:
@@ -1067,20 +1324,17 @@ def update(args: argparse.Namespace) -> None:
         if args.backup_dir.is_relative_to(protected):
             raise UpdateError("Backup directory must be outside the checkout and installation")
     print(
-        f"Selected release: {repository} {tag}\nSelection: {'explicit tag' if args.tag else args.channel}\nMode: {args.mode}\nCheckout: {checkout}\nBackups: {args.backup_dir}",
+        f"Selected release: {repository} {tag}\nServer role: {args.role}\nSelection: {'explicit tag' if args.tag else args.channel}\nMode: {args.mode}{' (detected)' if args.mode_detected else ' (override)'}\nCheckout: {checkout}\nInstallation: {args.install_dir}\nBackups: {args.backup_dir}",
         flush=True,
     )
+    print(
+        ("Plan: download and verify prebuilt frontend; " if args.prebuilt_frontend else "Plan: ")
+        + "stop app; back up code/config/data; switch release branch; install"
+        + (" prebuilt frontend" if args.prebuilt_frontend else "/build")
+        + ("; migrate" if args.role == "main" else "; preserve companion journal")
+        + "; start with printing paused; verify health; resume. Roll back on failure."
+    )
     if args.check:
-        print(
-            (
-                "Plan: download and verify prebuilt frontend; "
-                if args.prebuilt_frontend
-                else "Plan: "
-            )
-            + "stop app; back up code/config/data; switch release branch; install"
-            + (" prebuilt frontend" if args.prebuilt_frontend else "/build")
-            + "; migrate; start with printing paused; verify health; resume. Roll back on failure."
-        )
         return
     required = ["git", "systemctl", "runuser"] if args.mode == "native" else ["git", "docker"]
     if args.mode == "native" and not args.prebuilt_frontend:
@@ -1106,6 +1360,11 @@ def update(args: argparse.Namespace) -> None:
             raise UpdateError("Docker updates require an existing checkout and Compose container")
         # Pin the old project even if a later release changes the top-level Compose name.
         args.project_name = docker["project"] or args.project_name
+    print(
+        f"Target: {args.service if args.mode == 'native' else 'Compose project ' + str(args.project_name)}"
+    )
+    if not confirm_operation(f"Update {args.role} server to {tag}?", yes=args.yes):
+        return
     args.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = args.install_dir.parent / f".{args.install_dir.name}.update.lock"
     with update_lock(lock_path), ExitStack() as runtime_locks, ExitStack() as database_locks:
@@ -1143,17 +1402,32 @@ def update(args: argparse.Namespace) -> None:
             "scripts/update.py",
             "pyproject.toml",
             "requirements.lock",
-            "alembic.ini",
+            "companion/requirements.txt" if args.role == "companion" else "alembic.ini",
             "frontend/package.json",
             "frontend/package-lock.json",
         }
+        if getattr(args, "database_kind", "sqlite") == "mariadb":
+            required_files.update(
+                {
+                    "scripts/database_maintenance.py",
+                    "app/database_lock.py",
+                    "migrations/mariadb_baseline.sql",
+                }
+            )
         if args.mode == "docker":
-            required_files.add("Dockerfile")
+            required_files.add("Dockerfile.companion" if args.role == "companion" else "Dockerfile")
         if missing := required_files - set(files):
             raise UpdateError(
                 "Release is missing required deployment files: " + ", ".join(sorted(missing))
             )
-        protected = [".env", "data", ".venv", "frontend/node_modules"]
+        protected = [
+            ".env",
+            ".env.companion",
+            ROLE_MARKER,
+            "data",
+            ".venv",
+            "frontend/node_modules",
+        ]
         if args.github_token_path:
             for directory in (checkout, args.install_dir):
                 if args.github_token_path.is_relative_to(directory):
@@ -1212,7 +1486,15 @@ def update(args: argparse.Namespace) -> None:
         if handoff_updater(args, commit, tag):
             return
         require_validation_protocol(
-            command(["git", "show", f"{commit}:app/main.py"], checkout, capture=True)
+            command(
+                [
+                    "git",
+                    "show",
+                    f"{commit}:{'companion/web.py' if args.role == 'companion' else 'app/main.py'}",
+                ],
+                checkout,
+                capture=True,
+            )
         )
         validation_marker(args, data, docker, None)
         staged_frontend = None
@@ -1221,9 +1503,13 @@ def update(args: argparse.Namespace) -> None:
                 runtime_locks.enter_context(tempfile.TemporaryDirectory(prefix="label-frontend-"))
             )
             print("Downloading and verifying the release frontend before shutdown...", flush=True)
-            archive = download_frontend(repository, tag, temporary, token)
+            archive = (
+                download_frontend(repository, tag, temporary, token, args.role)
+                if args.role == "companion"
+                else download_frontend(repository, tag, temporary, token)
+            )
             staged_frontend = temporary / "dist"
-            unpack_frontend(archive, staged_frontend, commit)
+            unpack_frontend(archive, staged_frontend, commit, args.role)
         backup = args.backup_dir / (
             datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         )
@@ -1239,6 +1525,7 @@ def update(args: argparse.Namespace) -> None:
             else None,
             "previous_release": branch.stdout.strip() if branch.returncode == 0 else None,
             "mode": args.mode,
+            "role": args.role,
             "install_dir": str(args.install_dir),
             "data_dir": str(data) if data else None,
             "docker": docker,
@@ -1255,11 +1542,29 @@ def update(args: argparse.Namespace) -> None:
         changed = False
         database_locked = False
         activated = False
+        remote_database = None
         try:
             stop_application(args)
             record("stopped")
             print("Service stopped. Preparing rollback backups...", flush=True)
             if args.mode == "native" and getattr(args, "database_lock", None):
+                if not args.database_lock.exists():
+                    # A freshly migrated installation may not have started yet.
+                    # Create its lock as the service user, not the root updater.
+                    command(
+                        [
+                            "runuser",
+                            "-u",
+                            user,
+                            "--",
+                            str(args.install_dir / ".venv/bin/python"),
+                            "-c",
+                            "from pathlib import Path; import sys; Path(sys.argv[1]).touch(mode=0o600)",
+                            str(args.database_lock),
+                        ],
+                        args.install_dir,
+                        env=env,
+                    )
                 try:
                     database_locks.enter_context(update_lock(args.database_lock))
                     database_locked = True
@@ -1272,10 +1577,14 @@ def update(args: argparse.Namespace) -> None:
                 if docker and docker["mount"]["Type"] == "bind"
                 else data
             )
+            if getattr(args, "database_kind", "sqlite") == "mariadb":
+                remote_database = RemoteDatabase(args, env)
+                with backup_progress("MariaDB database", backup / "database.json.gz"):
+                    remote_database.perform("backup", backup / "database.json.gz")
             with backup_progress("application files", backup / "source.tar.gz"):
                 archive_source(args.install_dir, backup / "source.tar.gz", archive_data)
-            if (args.install_dir / ".env").is_file():
-                shutil.copy2(args.install_dir / ".env", backup / "environment.env")
+            if (args.install_dir / config_name(args)).is_file():
+                shutil.copy2(args.install_dir / config_name(args), backup / "environment.env")
             if docker:
                 compose_backup = backup / "compose-files"
                 compose_backup.mkdir(mode=0o700)
@@ -1307,10 +1616,13 @@ def update(args: argparse.Namespace) -> None:
                     excludes = [
                         "--exclude=/.git",
                         "--exclude=/.env",
+                        "--exclude=/.env.companion",
+                        f"--exclude=/{ROLE_MARKER}",
                         "--exclude=/.venv",
                         "--exclude=/data",
                         "--exclude=/frontend/node_modules",
                         "--exclude=/frontend/dist",
+                        "--exclude=/frontend/dist-companion",
                     ]
                     if args.github_token_path and args.github_token_path.is_relative_to(
                         args.install_dir
@@ -1336,40 +1648,74 @@ def update(args: argparse.Namespace) -> None:
                     )
                 python = args.install_dir / ".venv/bin/python"
                 command(
-                    [str(python), "-m", "pip", "install", "-c", "requirements.lock", "."],
-                    args.install_dir,
-                    env=env,
-                )
-                if staged_frontend is not None:
-                    install_frontend(staged_frontend, args.install_dir)
-                else:
-                    command(["npm", "ci", "--prefix", "frontend"], args.install_dir)
-                    command(["npm", "run", "build", "--prefix", "frontend"], args.install_dir)
-                record("migrating")
-                command(
                     [
-                        "runuser",
-                        "--user",
-                        user,
-                        "--",
-                        str(args.install_dir / ".venv/bin/alembic"),
-                        "upgrade",
-                        "head",
+                        str(python),
+                        "-m",
+                        "pip",
+                        "install",
+                        "-c",
+                        "requirements.lock",
+                        *(
+                            ["-r", "companion/requirements.txt"]
+                            if args.role == "companion"
+                            else ["."]
+                        ),
                     ],
                     args.install_dir,
                     env=env,
                 )
+                if staged_frontend is not None:
+                    install_frontend(staged_frontend, args.install_dir, args.role)
+                else:
+                    command(["npm", "ci", "--prefix", "frontend"], args.install_dir)
+                    command(
+                        [
+                            "npm",
+                            "run",
+                            "build:companion" if args.role == "companion" else "build",
+                            "--prefix",
+                            "frontend",
+                        ],
+                        args.install_dir,
+                    )
+                if args.role == "main":
+                    record("migrating")
+                    command(
+                        [
+                            "runuser",
+                            "--user",
+                            user,
+                            "--",
+                            str(args.install_dir / ".venv/bin/alembic"),
+                            "upgrade",
+                            "head",
+                        ],
+                        args.install_dir,
+                        env={
+                            **(env or {}),
+                            "LABEL_DATABASE_MAINTENANCE_OWNER": remote_database.owner,
+                        }
+                        if remote_database
+                        else env,
+                    )
                 validation_marker(args, data, docker, True)
                 database_locks.close()
                 database_locked = False
+                if remote_database:
+                    remote_database.close()
+                    remote_database = None
                 start_application(args)
             else:
-                compose(args, "build", "--pull", "labels")
-                migration = ["run", "--rm", "--no-deps"]
-                if (args.install_dir / ".env").is_file():
-                    migration += ["--volume", f"{args.install_dir / '.env'}:/srv/labels/.env:ro"]
-                record("migrating")
-                compose(args, *migration, "labels", "alembic", "upgrade", "head")
+                compose(args, "build", "--pull", compose_service(args))
+                if args.role == "main":
+                    migration = ["run", "--rm", "--no-deps"]
+                    if (args.install_dir / ".env").is_file():
+                        migration += [
+                            "--volume",
+                            f"{args.install_dir / '.env'}:/srv/labels/.env:ro",
+                        ]
+                    record("migrating")
+                    compose(args, *migration, "labels", "alembic", "upgrade", "head")
                 validation_marker(args, data, docker, True)
                 start_application(args)
             wait_healthy(args.health_url, args.health_timeout)
@@ -1396,6 +1742,12 @@ def update(args: argparse.Namespace) -> None:
                     if data and getattr(args, "database_lock", None) and not database_locked:
                         database_locks.enter_context(update_lock(args.database_lock))
                     recovery_args = restore_deployment(args, metadata, backup, data, docker)
+                    if getattr(args, "database_kind", "sqlite") == "mariadb":
+                        remote_database = remote_database or RemoteDatabase(args, env)
+                        remote_database.perform("restore", backup / "database.json.gz")
+                if remote_database:
+                    remote_database.close()
+                    remote_database = None
                 database_locks.close()
                 if was_running:
                     start_application(recovery_args)
@@ -1403,6 +1755,15 @@ def update(args: argparse.Namespace) -> None:
                     if not running(recovery_args):
                         raise UpdateError("Previous application did not remain running")
             except BaseException as recovery_error:
+                if remote_database:
+                    try:
+                        remote_database.close()
+                    except Exception:
+                        print(
+                            "Database maintenance did not shut down cleanly; inspect it before recovery.",
+                            file=sys.stderr,
+                        )
+                    remote_database = None
                 try:
                     stop_application(recovery_args)
                 except BaseException:

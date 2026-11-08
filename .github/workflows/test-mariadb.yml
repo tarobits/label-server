@@ -1,0 +1,39 @@
+name: MariaDB integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mariadb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      database:
+        image: mariadb:11.8.6@sha256:78a5047d3ba33975f183f183c2464cc7f1eab13ec8667e57cc9a5821d6da7577
+        env:
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
+          MARIADB_DATABASE: labels_test
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -c requirements.lock '.[dev]'
+      - name: Test schema, migration, recovery and main-server operations
+        env:
+          LABEL_TEST_MARIADB_URL: mariadb+pymysql://root@127.0.0.1:${{ job.services.database.ports[3306] }}/labels_test
+        run: .venv/bin/python -m pytest tests/test_mariadb.py -q --show-capture=no --tb=short
