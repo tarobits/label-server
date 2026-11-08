@@ -31,6 +31,7 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { tags } from '@lezer/highlight'
 import type { TemplateDocument } from '../editor'
 import type { LogicCatalog, SourceDiagnostic } from '../logicGraph'
+import { logicTargetLabel } from '../logicGraph'
 import { referenceEntries } from '../logicReference'
 
 const props = defineProps<{
@@ -140,6 +141,7 @@ function complete(context: CompletionContext) {
       })),
     ...Object.keys(props.catalog.targets).map((label) => ({
       label,
+      displayLabel: logicTargetLabel(props.document, label),
       type: 'class',
       detail: 'property target',
     })),

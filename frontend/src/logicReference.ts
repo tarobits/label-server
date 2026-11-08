@@ -1,4 +1,4 @@
-import type { LogicCatalog } from './logicGraph'
+import { logicTargetLabel, type LogicCatalog } from './logicGraph'
 import type { TemplateDocument } from './editor'
 export interface ReferenceEntry {
   id: string
@@ -248,7 +248,7 @@ export function referenceEntries(
           Object.hasOwn(target.properties, name) ||
           Object.hasOwn(target.readable_properties ?? {}, name),
       )
-      .map(([alias]) => alias)
+      .map(([alias]) => logicTargetLabel(document, alias))
     entries.push({
       id: `property:${name}`,
       group: 'Properties',

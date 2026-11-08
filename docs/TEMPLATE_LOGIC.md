@@ -121,6 +121,10 @@ Sizing expressions cannot depend on an unmeasured automatic dimension, including
 indirectly through another object's position. Such dependencies are rejected.
 Unbound `content` inputs return the stored string, including any `{{tokens}}`.
 
+Named objects appear as **Name (technical identifier)** in property pickers and
+source completion; graph nodes include the property in parentheses. Renaming an
+object does not change the technical identifiers or rewrite expressions.
+
 For a number input `quantity`, disable **Automatic label length** and assign:
 
 ```text

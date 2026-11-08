@@ -11,6 +11,11 @@ import { randomUUID } from './uuid'
 import { automaticDimension } from './editor'
 import { validVariableName } from './variableInputs'
 export type SocketType = ValueType | 'null' | 'any'
+export function logicTargetLabel(document: TemplateDocument, alias: string, property?: string) {
+  const element = document.elements.find((item) => item.logic_name === alias)
+  const technical = property ? `${alias}.${property}` : alias
+  return element?.name?.trim() ? `${element.name.trim()} (${technical})` : technical
+}
 export interface Operation {
   name: string
   minimum_arguments: number

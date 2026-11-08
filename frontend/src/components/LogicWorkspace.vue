@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { logicTargetLabel } from '../logicGraph'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ChevronDownIcon,
@@ -565,7 +566,15 @@ function label(node: LogicNode) {
   if (node.kind === 'literal') return `${title(node.type)} value`
   if (node.kind === 'call') return title(node.operation ?? '')
   const element = props.document.elements.find((element) => element.id === node.target)
-  return `${node.kind === 'property' ? 'Read ' : ''}${node.target === 'label' ? 'Label' : (element?.logic_name ?? node.target)}.${node.property}`
+  const name =
+    node.target === 'label'
+      ? `Label.${node.property}`
+      : logicTargetLabel(
+          props.document,
+          element?.logic_name ?? node.target ?? '',
+          node.property ?? undefined,
+        )
+  return `${node.kind === 'property' ? 'Read ' : ''}${name}`
 }
 function typeOf(node: LogicNode, depth = 0): SocketType {
   const type = catalog.value ? nodeType(node, state.value.nodes, catalog.value) : node.type
@@ -950,7 +959,7 @@ onBeforeUnmount(() => {
                         :key="alias"
                         :value="alias"
                       >
-                        {{ alias }}
+                        {{ logicTargetLabel(document, alias) }}
                       </option>
                     </select></label
                   >
