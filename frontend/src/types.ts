@@ -9,6 +9,8 @@ export interface PrinterConfig {
   timeout_seconds?: number
 }
 export interface Printer {
+  connection_kind?: 'main' | 'companion'
+  companion?: { name: string; enabled: boolean } | null
   owner_id?: string | null
   configuration_error?: string | null
   config: PrinterConfig

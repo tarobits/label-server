@@ -163,7 +163,12 @@ retired destinations do not block unrelated mutations or reroute historical work
 ## APIs and compatibility
 
 - `POST /api/printers`: register a Brother USB printer.
-- `PUT /api/printers/{id}`: edit any printer, including migrated registrations.
+- `PUT /api/printers/{id}`: edit an active printer, including migrated registrations.
+- `DELETE /api/printers/{id}`: retire an idle registration with no pending work or
+  group membership; retain history and uninstall its cartridge. Requires Configure.
+- `POST /api/printers/{id}/move-to-companion`: administrator-only adoption of a
+  companion connection (`target_printer_id`), preserving the original identity and
+  queue, retiring the duplicate, and holding printing for a cartridge check.
 - `GET /api/workspace`: workspace counts and notification status, including when
   no devices exist.
 - `GET /api/printers`, `/api/printers/status`, `/api/destinations`: definitions,

@@ -198,3 +198,31 @@ versions; the initial batch protocol is version 1.
 
 Automated tests use simulated adapters. Physical USB printing, Pi packaging, and
 real network interruption still require hardware acceptance on the deployment.
+
+## Moving an existing main-server printer
+
+After adding the physical printer through the companion's web interface, an
+administrator can open **Printers & groups** on the main server and choose
+**Move to companion** on the original printer. Select the new companion
+registration. Both registrations must be idle and have matching drivers and
+rendering capabilities, including resolution. Cancel any pending flush on the
+original first; its labels stay queued.
+
+The original printer keeps its ID, ownership, explicit permissions, history,
+groups and queued work. It inherits the companion's location and therefore that
+location's access grants. The duplicate registration is retired, retaining its
+own history. Finish or reroute its pending work, remove it from groups and
+uninstall its cartridge before moving. The original cartridge selection remains,
+but its physical confirmation is reset. Its recorded location is unchanged.
+
+Printing is held after the move. Check the installed cartridge and resume
+printing when ready. Updated companions refresh the binding automatically;
+companions running **0.13.0-pre1 must be restarted after the move**. This workflow
+currently moves main-server printers to companions.
+
+**Retire printer** removes an obsolete registration from active views and stops
+its worker without deleting history or audit records. It requires the printer's
+Configure permission. Unfinished work, group membership, unresolved batches and
+companion error blocks must be resolved first. Retirement uninstalls its
+cartridge and disables its companion slot when applicable. Retired registrations
+cannot be restored with the companion's local Restore control.

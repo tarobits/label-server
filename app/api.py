@@ -562,7 +562,7 @@ def cartridge_check(
 def printers(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
-    from app.models import PrinterDevice
+    from app.models import Companion, CompanionPrinter, PrinterDevice
 
     result = []
     definitions = {item.id: item for item in request.app.state.registry.definitions()}
@@ -572,6 +572,8 @@ def printers(
         ):
             continue
         definition = definitions.get(device.id)
+        link = session.get(CompanionPrinter, device.id)
+        station = session.get(Companion, link.companion_id) if link else None
         result.append(
             {
                 **(
@@ -588,6 +590,13 @@ def printers(
                 "config": device.config
                 if access_context(request).can_printer(device.id, "configure")
                 else {},
+                "connection_kind": "companion" if link else "main",
+                "companion": {
+                    "name": station.name,
+                    "enabled": bool(link and link.enabled and station.key_hash),
+                }
+                if station and access_context(request).actor.is_admin
+                else None,
                 "configuration_error": request.app.state.fleet.configuration_errors.get(device.id),
                 "owner_id": device.owner_id,
                 "location_id": device.location_id,

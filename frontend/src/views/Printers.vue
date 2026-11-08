@@ -8,6 +8,7 @@ import { requestPrinting } from '../printing'
 import { useWorkspaceStore, metres } from '../workspace'
 import PropertySection from '../components/PropertySection.vue'
 import AdminDialog from '../components/AdminDialog.vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
 import { installCartridge } from '../cartridges'
 import { confirmAction } from '../confirmation'
@@ -20,6 +21,39 @@ const showPrinter = ref(false),
 const editingPrinter = ref('')
 const detailsPrinter = ref('')
 const cartridgeChecks = reactive<Record<string, boolean>>({})
+const movingPrinter = ref('')
+const moveTarget = ref('')
+const moveError = ref('')
+const moveChoices = computed(() => w.printers.filter((p) => p.companion?.enabled))
+async function retirePrinter(device: Printer) {
+  if (
+    !(await confirmAction(
+      `Retire “${device.name}”? It will disappear from active printers and its cartridge will be uninstalled. Print history and audit records will be retained.`,
+      'Retire printer',
+    ))
+  )
+    return
+  await w.action(() => api(`/printers/${device.id}`, 'DELETE'), 'Printer retired.')
+}
+function openMove(device: Printer) {
+  movingPrinter.value = device.id
+  moveTarget.value = ''
+  moveError.value = ''
+}
+async function movePrinter() {
+  moveError.value = ''
+  if (
+    await w.action(
+      () =>
+        api(`/printers/${movingPrinter.value}/move-to-companion`, 'POST', {
+          target_printer_id: moveTarget.value,
+        }),
+      'Printer moved. Check its cartridge before resuming printing.',
+    )
+  )
+    movingPrinter.value = ''
+  else moveError.value = w.actionError
+}
 const detailsDevice = computed(() => w.printers.find((p) => p.id === detailsPrinter.value))
 async function cancelFlush(id: string) {
   const pending = state(id)?.pending_flush
@@ -382,9 +416,63 @@ function move(index: number, offset: number) {
         >
           Configure
         </button>
+        <button
+          v-if="auth.user?.is_admin && device.connection_kind === 'main'"
+          class="secondary"
+          :disabled="w.busy"
+          @click="openMove(device)"
+        >
+          Move to companion
+        </button>
+        <button
+          v-if="auth.printer(device.id, 'configure')"
+          class="danger"
+          :disabled="w.busy"
+          @click="retirePrinter(device)"
+        >
+          Retire printer
+        </button>
       </div>
     </section>
   </TransitionGroup>
+  <AdminDialog
+    :open="!!movingPrinter"
+    title="Move printer to companion"
+    :busy="w.busy"
+    @close="movingPrinter = ''"
+  >
+    <form v-validate-form class="form-stack" @submit.prevent="movePrinter">
+      <ExpandableContent :open="!!moveError"
+        ><p class="alert danger" role="alert">{{ moveError }}</p></ExpandableContent
+      >
+      <label
+        >Companion printer
+        <select v-model="moveTarget" required>
+          <option disabled value="">Select the new connection</option>
+          <option v-for="device in moveChoices" :key="device.id" :value="device.id">
+            {{ device.companion?.name }} · {{ device.name }}
+          </option>
+        </select>
+      </label>
+      <p v-if="!moveChoices.length" role="status">
+        Add the printer in the companion’s web interface first.
+      </p>
+      <p>
+        The original printer keeps its history, permissions, owner and queued work. The selected
+        duplicate registration will be retired. Printing stays on hold for a cartridge check.
+      </p>
+      <p>
+        The printer inherits the companion’s location and its location-based permissions. Restart
+        companions running 0.13.0-pre1 after moving.
+      </p>
+      <div class="row wrap">
+        <button class="primary" :disabled="w.busy || !moveTarget">Move printer</button>
+        <button type="button" class="secondary" :disabled="w.busy" @click="movingPrinter = ''">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </AdminDialog>
   <AdminDialog
     :open="!!detailsDevice"
     :title="`${detailsDevice?.name ?? 'Printer'} · Detected details`"
