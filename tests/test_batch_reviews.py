@@ -241,6 +241,9 @@ def test_evidence_retention_blocks_destructive_downgrade(accounts):
     config.attributes["database_url"] = url
     with pytest.raises(RuntimeError, match="audit evidence"):
         command.downgrade(config, "141415b69cb2")
+    # Newer migrations may already have downgraded before the evidence guard
+    # stops the operation. Restore the current schema before using its API.
+    command.upgrade(config, "head")
     assert admin.get(f"/api/batches/{batch['id']}").json()["reviews"][-1]["photo_url"]
 
 
