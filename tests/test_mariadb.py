@@ -18,6 +18,7 @@ from mock_backend import MockPrinterBackend
 from printer_factory import test_printer as printer_factory
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from app.config import Settings
 from app.database_lock import database_owner, lock_name
@@ -26,6 +27,7 @@ from app.main import create_app
 from app.models import (
     AssetImport,
     Batch,
+    BatchReview,
     Cartridge,
     Location,
     PrinterDevice,
@@ -42,16 +44,19 @@ from scripts.migrate_database import MigrationError, migrate
 
 
 @pytest.fixture
-def maria_engine():
+def maria_engine(request):
     value = os.environ.get("LABEL_TEST_MARIADB_URL")
     if not value:
         pytest.skip("Set LABEL_TEST_MARIADB_URL to run MariaDB integration tests")
     url = make_url(value)
     admin = make_engine(value)
     name = "label_test_" + uuid.uuid4().hex
+    collation = getattr(request, "param", "utf8mb4_nopad_bin")
+    assert collation in {"utf8mb4_nopad_bin", "utf8mb4_general_ci", "latin1_swedish_ci"}
+    charset = collation.split("_", 1)[0]
     with admin.begin() as connection:
         connection.exec_driver_sql(
-            f"CREATE DATABASE `{name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin"
+            f"CREATE DATABASE `{name}` CHARACTER SET {charset} COLLATE {collation}"
         )
     engine = make_engine(url.set(database=name).render_as_string(hide_password=False))
     try:
@@ -67,6 +72,95 @@ def upgrade(url):
     config = Config("alembic.ini")
     config.attributes["database_url"] = url
     command.upgrade(config, "head")
+
+
+@pytest.mark.parametrize("maria_engine", ["utf8mb4_general_ci", "latin1_swedish_ci"], indirect=True)
+@pytest.mark.parametrize("partial", [False, True])
+def test_pre3_upgrade_with_different_database_collation(maria_engine, partial):
+    config = Config("alembic.ini")
+    config.attributes["database_url"] = maria_engine.url.render_as_string(hide_password=False)
+    command.upgrade(config, "141415b69cb2")
+    factory = session_factory(maria_engine)
+    with factory.begin() as session:
+        session.add(TapeProfile(id="profile", name="Tape", width_mm=24))
+        session.flush()
+        session.add(
+            Cartridge(
+                id="cartridge",
+                profile_id="profile",
+                name="Tape",
+                nominal_length_mm=8000,
+                remaining_mm=7900,
+            )
+        )
+        session.flush()
+        session.add(
+            Batch(
+                id="batch",
+                cartridge_id="cartridge",
+                state=State.PRINTED,
+                estimated_mm=100,
+                consumed_mm=99.5,
+            )
+        )
+    if partial:
+        # MariaDB commits this DDL before the original CREATE TABLE fails.
+        with maria_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE auth_settings ADD COLUMN batch_review_evidence "
+                "VARCHAR(16) NOT NULL DEFAULT 'optional'"
+            )
+            connection.exec_driver_sql("UPDATE auth_settings SET batch_review_evidence='required'")
+    command.upgrade(config, "head")
+    command.upgrade(config, "head")
+    command.check(config)
+    with maria_engine.connect() as connection:
+        assert connection.scalar(text("SELECT batch_review_evidence FROM auth_settings")) == (
+            "required" if partial else "optional"
+        )
+        collations = (
+            connection.execute(
+                text(
+                    "SELECT COLLATION_NAME FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA=DATABASE() AND "
+                    "((TABLE_NAME='batches' AND COLUMN_NAME='id') OR "
+                    "(TABLE_NAME='batch_reviews' AND COLUMN_NAME='batch_id'))"
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert collations == ["utf8mb4_nopad_bin", "utf8mb4_nopad_bin"]
+    with factory.begin() as session:
+        assert session.get_one(Batch, "batch").consumed_mm == 99.5
+        session.add(
+            BatchReview(
+                id="review",
+                request_hash="a" * 64,
+                batch_id="batch",
+                kind="misprint",
+                actor_id="reviewer",
+                actor_name="Reviewer 🦊",
+                reason="Tape ran out",
+                decisions={},
+                previous_outcomes={},
+            )
+        )
+    with pytest.raises(IntegrityError), factory.begin() as session:
+        session.add(
+            BatchReview(
+                id="invalid",
+                request_hash="b" * 64,
+                batch_id="missing",
+                kind="misprint",
+                actor_id="reviewer",
+                actor_name="Reviewer",
+                reason="Tape ran out",
+                decisions={},
+                previous_outcomes={},
+            )
+        )
+        session.flush()
 
 
 def sqlite_source(tmp_path):

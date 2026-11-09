@@ -11,12 +11,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "auth_settings",
-        sa.Column(
-            "batch_review_evidence", sa.String(16), nullable=False, server_default="optional"
-        ),
+    # MariaDB commits ADD COLUMN even if the subsequent CREATE TABLE fails.
+    # Preserve the existing policy when retrying that partially applied migration.
+    bind = op.get_bind()
+    policy_exists = bind.dialect.name in {"mysql", "mariadb"} and any(
+        column["name"] == "batch_review_evidence"
+        for column in sa.inspect(bind).get_columns("auth_settings")
     )
+    if not policy_exists:
+        op.add_column(
+            "auth_settings",
+            sa.Column(
+                "batch_review_evidence", sa.String(16), nullable=False, server_default="optional"
+            ),
+        )
     text = sa.String().with_variant(LONGTEXT(), "mysql", "mariadb")
     op.create_table(
         "batch_reviews",
@@ -32,6 +40,14 @@ def upgrade() -> None:
         sa.Column("previous_outcomes", sa.JSON(), nullable=False),
         sa.Column("has_photo", sa.Boolean(), nullable=False),
         sa.Column("photo", text, nullable=True),
+        # Match the frozen MariaDB baseline's referenced batches.id column,
+        # independently of database defaults. Both dialects need their own options.
+        mysql_engine="InnoDB",
+        mysql_charset="utf8mb4",
+        mysql_collate="utf8mb4_nopad_bin",
+        mariadb_engine="InnoDB",
+        mariadb_charset="utf8mb4",
+        mariadb_collate="utf8mb4_nopad_bin",
     )
     op.create_index("ix_batch_reviews_batch_id", "batch_reviews", ["batch_id"])
 
