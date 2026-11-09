@@ -217,6 +217,16 @@ export interface Batch {
   shortage_warning: boolean
 }
 export interface BatchDetail extends Batch {
+  evidence_policy?: 'disabled' | 'optional' | 'required'
+  reviews?: {
+    id: string
+    kind: string
+    actor_name: string
+    created_at: number
+    reason: string
+    decisions: Record<string, string>
+    photo_url: string | null
+  }[]
   items: (LabelInformation & {
     output_plan?: LabelOutputPlan | null
     attribution: PrintAttribution

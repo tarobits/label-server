@@ -14,6 +14,10 @@ import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import TapeUsage from '../components/TapeUsage.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import RetryControls from '../components/RetryControls.vue'
+import ReviewEvidence from '../components/ReviewEvidence.vue'
+import MisprintReport from '../components/MisprintReport.vue'
+import AdminDialog from '../components/AdminDialog.vue'
+import { randomUUID } from '../uuid'
 import { useAuthStore } from '../auth'
 import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
@@ -54,6 +58,20 @@ function applyDecision() {
   for (const item of uncertain.value)
     if (selected.value.includes(item.copy_id)) decisions.value[item.copy_id] = bulkDecision.value
 }
+const photo = ref<string | null>(null),
+  evidenceUrl = ref('')
+let requestId = randomUUID()
+watch(
+  [decisions, consumed, cartridgeId, photo],
+  () => {
+    requestId = randomUUID()
+  },
+  { deep: true, flush: 'sync' },
+)
+async function refresh() {
+  resources.invalidate(['/batches'])
+  await load(true)
+}
 let stopped = false,
   generation = 0
 async function load(force = false) {
@@ -84,6 +102,8 @@ watch(
   () => route.params.id,
   () => {
     generation++
+    photo.value = null
+    evidenceUrl.value = ''
     batch.value = null
     decisions.value = {}
     selected.value = []
@@ -106,6 +126,8 @@ async function resolve() {
     await w.action(
       () =>
         api(`/batches/${batch.value!.id}/review`, 'POST', {
+          request_id: requestId,
+          evidence_photo: photo.value,
           decisions: payload,
           consumed_mm: consumed.value,
           cartridge_id: cartridgeId.value,
@@ -113,8 +135,8 @@ async function resolve() {
       'Review saved. Choose retry funding separately for any unprinted copies.',
     )
   ) {
-    resources.invalidate(['/batches'])
-    await load(true)
+    photo.value = null
+    await refresh()
   }
 }
 </script>
@@ -279,13 +301,19 @@ async function resolve() {
           Include confirmed labels, partial labels, and feed waste. This total is deducted once from
           the selected cartridge. The installed cartridge stays unchanged.
         </p>
+        <ReviewEvidence
+          v-model="photo"
+          :policy="batch.evidence_policy ?? 'optional'"
+          :disabled="w.busy"
+        />
         <button
           class="primary"
           :disabled="
             w.busy ||
             !cartridgeId ||
             consumed === null ||
-            uncertain.some((i) => !decisions[i.copy_id])
+            uncertain.some((i) => !decisions[i.copy_id]) ||
+            (batch.evidence_policy === 'required' && !photo)
           "
         >
           Save review
@@ -296,12 +324,56 @@ async function resolve() {
         {{ metres(batch.consumed_mm) }}. This attempt has been accounted for.
       </p>
     </form>
-    <RetryControls :batch="batch" />
+    <div class="batch-actions">
+      <MisprintReport :key="batch.id" :batch="batch" @saved="refresh" />
+      <RetryControls :batch="batch" />
+    </div>
+    <AnimatedDetails v-if="batch.reviews?.length" class="review-history">
+      <template #summary>Review history</template>
+      <div class="form-stack">
+        <article v-for="review in batch.reviews" :key="review.id" class="form-stack">
+          <strong
+            >{{ review.kind === 'misprint' ? 'Misprint reported' : 'Batch reviewed' }} ·
+            {{ review.actor_name }}</strong
+          >
+          <span class="muted"
+            >{{ date(review.created_at) }} · {{ Object.keys(review.decisions).length }} copies</span
+          >
+          <p v-if="review.reason">{{ review.reason }}</p>
+          <button
+            v-if="review.photo_url"
+            type="button"
+            class="secondary"
+            @click="evidenceUrl = review.photo_url"
+          >
+            View evidence photo
+          </button>
+        </article>
+      </div>
+    </AnimatedDetails>
+    <AdminDialog :open="!!evidenceUrl" title="Evidence photo" @close="evidenceUrl = ''">
+      <img v-if="evidenceUrl" :src="evidenceUrl" alt="Batch review evidence" class="review-photo" />
+    </AdminDialog>
   </section>
   <div v-else-if="!error" class="panel empty">Loading batch…</div>
 </template>
 
 <style scoped>
+.batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.review-history {
+  margin-top: 24px;
+}
+.review-photo {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
 .review-bulk {
   display: flex;
   align-items: flex-end;

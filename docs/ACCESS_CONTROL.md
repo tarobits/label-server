@@ -161,6 +161,16 @@ An activity reader cannot reconcile uncertain output. Review permission permits
 reading the uncertain physical batch, including labels routed through groups the
 reviewer cannot otherwise access. It does not grant general completed-batch history.
 
+With both Review batches and View everyone's print activity, a reviewer can report
+previously confirmed copies as misprinted. This records a human correction without
+changing the original charges or tape consumption. Offering a paid retry still
+requires Start own/anyone's prints as appropriate; a free retry additionally
+requires the cartridge's Approve use permission. Reporting alone never queues work.
+Review photos follow current batch access, including after permission revocation.
+Administrators choose Disabled, Optional (default), or Required evidence in
+Administration → Account settings. The policy applies to both uncertain-batch
+reviews and later misprint reports; disabling uploads retains historical evidence.
+
 Selecting work for manual printing only holds unselected work when the operator
 has both Start anyone's prints and Hold/resume printing. Stop commands intentionally hold the printer and
 cancel its pending manual requests, even when the operator lacks a separate

@@ -113,6 +113,7 @@ const busy = ref(false),
   success = ref(''),
   issuedCode = ref('')
 const settings = reactive({
+  batch_review_evidence: 'optional',
   registration_code_required: true,
   approval_notification_debounce_seconds: 60,
   approval_notifications_enabled: true,
@@ -925,6 +926,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 >Combine pending requests during a fixed interval beginning with the first
                 request.</span
               ></label
+            ><label
+              >Batch review evidence<select v-model="settings.batch_review_evidence">
+                <option value="disabled">Disabled</option>
+                <option value="optional">Optional</option>
+                <option value="required">Required</option>
+              </select></label
             ><button class="primary" :disabled="busy">Save account settings</button>
           </form>
         </section>

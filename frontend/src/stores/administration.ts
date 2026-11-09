@@ -56,6 +56,7 @@ export interface Code {
   revoked: boolean
 }
 export interface AccountSettings {
+  batch_review_evidence: 'disabled' | 'optional' | 'required'
   registration_code_required: boolean
   approval_notification_debounce_seconds: number
   approval_notifications_enabled: boolean

@@ -114,6 +114,8 @@ test('batch review applies outcomes to selected following uncertain copies befor
   )
   await save.click()
   expect((await review).postDataJSON()).toEqual({
+    request_id: expect.any(String),
+    evidence_photo: null,
     decisions: {
       [items[1].copy_id]: 'cancelled',
       [items[2].copy_id]: 'printed',

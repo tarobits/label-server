@@ -261,3 +261,21 @@ authorizer and restricted viewer. Check API responses as well as hidden controls
   notification delivery and a final small print. Record unresolved issues and retain
   backups until the deployment has been accepted. Do not treat prerelease publication
   as completion of these manual checks.
+
+### Batch review evidence and misprint corrections
+
+- [ ] Apply migration `151516c70dc3` before starting the updated main server.
+  Review records and sanitized evidence photos are stored in the database and
+  included in database backups. Downgrading with retained reviews requires a
+  coordinated backup restore.
+- [ ] In Administration → Account settings, check **Batch review evidence** with
+  Disabled, Optional, and Required. Required must block both ordinary batch reviews
+  and later misprint reports without a photo; Disabled must hide the upload.
+- [ ] Report a successful copy as misprinted. Confirm only selected outcomes change,
+  tape use and existing charges remain unchanged, and the requester is notified.
+  Check the reviewer, reason and photo in Review history.
+- [ ] Check that review-only operators cannot send retry offers; an operator with
+  the appropriate start-print permission can request a paid retry, and a free retry
+  additionally requires cartridge Approve use. Paid retries await requester consent.
+- [ ] Revoke batch-history access and verify evidence photos are no longer accessible.
+  Test opening and closing the photo and report dialogs on a narrow screen.
