@@ -8,16 +8,16 @@ remaining individual permissions under D1 and D2 have not yet been supplied.
 A5 still needs role-separation verification; D1/D2 cover many permissions that
 have not all been tested.
 
-Summary: **39 passed, 3 partial, 1 failed, 41 not tested** (84 checks).
+Summary: **40 passed, 3 partial, 0 failed, 41 not tested** (84 checks).
 
-**Open failure: G7 — automatic companion recovery without a browser refresh.**
-The operator clarified that the companion page stayed disconnected/loading after
-an update and required a manual browser refresh. The tested versions still need
-confirmation. Keep this failed until the updated behavior is verified on the
-deployment; a local regression test does not replace that retest.
+**G7 passed — operator retest reported on 2026-11-09.** The operator confirmed
+automatic companion recovery now passes. The exact tested main/companion versions
+were not supplied. All other reported results remain unchanged; testing continues.
+The earlier failure was a companion page staying disconnected/loading after an
+update and requiring a manual browser refresh.
 
 Local investigation: both existing simulated browser-reconnection tests passed.
-The companion refreshes station data but has no frontend-build update detection;
+Before pre5, the companion refreshed station data without frontend-build update detection;
 the main application's service-worker update notice is not used by the companion.
 Inspection of pre2 found that its page can stop retrying after the shared request
 helper marks the service unavailable: its polling does not recheck health. The
@@ -34,7 +34,10 @@ to adopt this behavior. These changes are included in 0.13.0-pre5.
 Local verification passed: 16 companion backend tests, seven browser checks
 covering reconnect/update recovery, safe reload deferral, stale-cache protection,
 and existing station controls; companion build, Pyright, targeted mypy and Ruff
-checks also passed. Production retesting is still outstanding.
+checks also passed. The subsequent operator retest marks G7 passed.
+
+The operator requested publication as stable **0.13.0** after reporting this
+retest. Publication does not mark the partial or untested checks below as passed.
 
 G11 concerns the companion status/version feature added in pre5; it is not
 included in pre4. Previously successful 0.12.2 checks and
@@ -137,7 +140,7 @@ Use the [deployment checklist](DEPLOYMENT_CHECKLIST.md),
 | G4 | Administrator-bound shared-PIN mode | Not tested |
 | G5 | Locking, timeout, countdown and keypad | Passed |
 | G6 | Locked/offline stop policy | Passed |
-| G7 | Automatic recovery without browser refresh | Failed — page required manual refresh after an update |
+| G7 | Automatic recovery without browser refresh | Passed — operator retest on 2026-11-09; exact versions not supplied |
 | G8 | No execution before complete transfer and authorization | Not tested |
 | G9 | Authorized offline completion and exactly-once reconciliation | Not tested |
 | G10 | Operational dashboard and 1024 × 600 layout | Not tested |

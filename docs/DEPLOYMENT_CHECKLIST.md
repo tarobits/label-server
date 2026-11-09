@@ -1,16 +1,15 @@
-# Deployment checklist: 0.12.2 and 0.13.0-pre5
+# Deployment checklist: 0.13.0
 
-Use **0.12.2** for the isolated automatic text-field sizing fix. Use
-**0.13.0-pre5** for staged evaluation of the larger upgrade. The prerelease includes
-the patch, changes the database schema, and requires administrator inventory
-migration before printing resumes when upgrading from before pre1. These are manual
+Use **0.13.0** for the current release. Historical **0.12.2** checks remain below.
+The 0.13.0 upgrade includes the patch, changes the database schema, and requires
+administrator inventory migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
 unchecked items remain to be verified.
 
 The operator's 2026-11-09 stable-release results are recorded by checklist ID in
 [the acceptance results](V0_13_0_ACCEPTANCE.md). They include passed, partial,
-failed and untested checks; tested versions still need confirmation. Consult that
-record alongside the historical rollout notes below.
+and untested checks; G7 passed its operator retest, and exact tested versions still
+need confirmation. Consult that record alongside the historical rollout notes below.
 
 Record the operator, date, source version, target tag, installation role and mode,
 backup location, and results. Keep credentials and private backup paths out of
@@ -37,8 +36,8 @@ public issues. Main servers and companions must run on separate machines.
 
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
-  # Or, for the prerelease:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre5
+  # Or, for the current release:
+  sudo python3 scripts/update.py --mode native --check --tag v0.13.0
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -65,7 +64,7 @@ public issues. Main servers and companions must run on separate machines.
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
-## Prerelease main server: 0.13.0-pre5
+## Main server: 0.13.0
 
 **Reported result — 2026-11-09:** the pre2-to-pre3 MariaDB upgrade failed in
 migration `151516c70dc3` when creating the `batch_reviews` foreign key to `batches`
@@ -84,10 +83,10 @@ users must skip pre3 and use pre4, including when retrying after rollback to pre
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
   Use a maintenance window and retain the pre-upgrade backup.
-- [ ] Upgrade the native main server using the exact prerelease tag:
+- [ ] Upgrade the native main server using the exact release tag:
 
   ```sh
-  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre5 --prebuilt-frontend
+  sudo python3 scripts/update.py --mode native --tag v0.13.0 --prebuilt-frontend
   ```
 
   Review and confirm the plan. Reserve `--yes` for reviewed automation. The updater
@@ -103,7 +102,21 @@ users must skip pre3 and use pre4, including when retrying after rollback to pre
 - [ ] Check the updater's role marker and service entry point. Verify the deployment
   does not run a second main process against the same database.
 
-### Additional checks for pre5
+### Additional checks for 0.13.0 after pre5
+
+- [ ] Install the updated main-server dependencies. Confirm existing templates
+  still preview and print; no new schema revision is added after pre5.
+- [ ] Save named preview examples, browse them on the unsaved canvas, and verify
+  persistence, variable renames, undo/redo, and image access permissions.
+- [ ] Test minimum/maximum text lengths in the editor, New label, API and CSV runs.
+- [ ] Preview and scan physical Code 128, Code 39, EAN-13, EAN-8, Data Matrix and
+  Aztec labels, including variable content, captions, rotation and both resolutions.
+  Check invalid EAN check digits and too-small code rejection.
+- [ ] Check spacing between Permissions graph and Edit in the user table.
+- [ ] Keep the pre-upgrade database backup: older code cannot read templates saved
+  with new preview-example fields, text limits or code element types.
+
+### Checks introduced in pre5
 
 - [ ] Apply migration `171718e92fe5` on the main server. Confirm companion
   registrations, grants and last-contact records survive with initially unknown
@@ -188,7 +201,7 @@ builds require Python 3.12+ and Node 22.12+. Physical Pi/USB acceptance is still
   its one-time API key into a protected `.env.companion` on the station. Verify
   outbound HTTPS to the main server across the intended networks. Inbound public
   access to the companion is not required.
-- [ ] Install from a checkout of `v0.13.0-pre5`:
+- [ ] Install from a checkout of `v0.13.0`:
 
   ```sh
   sudo python3 scripts/install.py --role companion \

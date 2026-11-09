@@ -202,19 +202,27 @@ with the server stopped before restarting to create the adjustment ledger.
 
 ## Templates and previews
 
-The visual editor supports text, QR codes, images, rectangles, and lines. Drag,
+The visual editor supports text, QR codes, linear barcodes, Data Matrix, Aztec
+codes, images, rectangles, and lines. Drag,
 resize, rotate in 90° steps, or enter dimensions in millimetres. Alignment,
 layer ordering, duplication, snapping, and undo/redo are available.
 
 Give elements an **Element name** to identify them in the element list, inspector,
 and distance-holder selector. Names do not print. Rename, duplicate, and delete
-controls are on the first inspector tab: Content for text, QR codes and images,
+controls are on the first inspector tab: Content for text, codes and images,
 or Style for shapes.
 
 - Define text, number, boolean, or uploaded-image variable fields with defaults
-  and sample values. Numbers can have minimum and maximum limits. Use `{{name}}`
-  in text or QR content; bind image inputs through **Template logic**. Samples
-  drive the editor preview; submitted values or defaults drive printing.
+  and sample values. Numbers can have minimum and maximum limits; text fields
+  can have minimum and maximum lengths (up to 2,000 Unicode characters).
+  Empty optional fields remain allowed. Use `{{name}}` in text or code content;
+  bind image inputs through **Template logic**.
+- **Preview inputs** stores up to 50 named examples with the template. Add,
+  duplicate or delete examples and browse them with the previous/next controls.
+  The selected example drives the canvas using current unsaved edits, including
+  logic and automatic sizing. Choose **Sample values** to return to the normal
+  editor samples. Examples share the template's access and revision history;
+  they do not change submission defaults or queue any printing.
 - **Template logic** provides connected nodes and an IDE-style **Source** editor
   for conditions, calculations, intermediate variables, and property bindings.
   **Reference** opens searchable documentation and examples. See the
@@ -278,10 +286,21 @@ artwork: 0.5 uses half the box's width and height. Logic can also set `image_sca
 Existing templates render at scale 1 until changed.
 
 Labels support up to 50 elements and 20 variable fields. Invalid layouts, missing
-required values, unsupported glyphs, and QR modules smaller than two device pixels
+required values, unsupported glyphs, and code modules smaller than two device pixels
 are rejected. QR codes have a four-module quiet zone by default. **Scale up to
 bounding box** fills the box and allows an explicit **QR margin (mm)**; a blank
 margin keeps the automatic quiet zone.
+
+Linear barcodes support **Code 128**, **Code 39**, **EAN-13** and **EAN-8**, with
+an optional caption. Code 128 accepts printable ASCII; Code 39 accepts uppercase
+letters, digits and its standard punctuation. EAN accepts 12/7 digits and computes
+the check digit, or validates a supplied 13/8-digit code. Quiet zones are retained
+inside each code's box. Data Matrix and Aztec use square modules fitted inside
+their boxes. Content can come from variables or logic. Verify a physical sample
+with the intended scanner before relying on a new label design.
+
+Code generation uses `python-barcode` and `zxing-cpp`, installed with the main
+server dependencies. Companions continue to receive rendered output.
 
 ### Fonts and images
 

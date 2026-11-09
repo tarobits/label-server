@@ -34,8 +34,10 @@ output, accurate previews, and clear control over queued and interrupted work.
 
 ## Capabilities and Constraints
 
-- Reusable, revisioned templates support text, QR codes, images, rectangles,
-  lines, variable fields, physical dimensions in millimetres, and raster previews.
+- Reusable, revisioned templates support text, QR codes, linear barcodes, Data
+  Matrix, Aztec codes, images, rectangles, lines, variable fields, physical
+  dimensions in millimetres, and raster previews. Saved input examples preview
+  unsaved edits; variables support numeric bounds and text-length constraints.
 - CSV runs support field mapping, record selection, copy counts, ordering,
   validation, saved drafts, and explicit submission of the entire run.
 - Persistent queues batch compatible copies by destination and exact tape
