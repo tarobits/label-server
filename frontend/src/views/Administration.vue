@@ -761,21 +761,23 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                     }}</span>
                   </td>
                   <td class="action-cell">
-                    <RouterLink
-                      v-if="!user.disabled"
-                      class="button secondary"
-                      :to="{ path: '/resource-access', query: { user: user.id } }"
-                      :aria-label="`Permissions graph for ${user.username}`"
-                      >Permissions graph</RouterLink
-                    >
-                    <button
-                      class="secondary"
-                      :disabled="busy"
-                      :aria-label="`Edit ${user.username}`"
-                      @click="editUser(user)"
-                    >
-                      Edit
-                    </button>
+                    <div class="row wrap user-actions">
+                      <RouterLink
+                        v-if="!user.disabled"
+                        class="button secondary"
+                        :to="{ path: '/resource-access', query: { user: user.id } }"
+                        :aria-label="`Permissions graph for ${user.username}`"
+                        >Permissions graph</RouterLink
+                      >
+                      <button
+                        class="secondary"
+                        :disabled="busy"
+                        :aria-label="`Edit ${user.username}`"
+                        @click="editUser(user)"
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -1470,6 +1472,9 @@ h2 span {
   text-align: right;
   white-space: nowrap;
   overflow-wrap: normal;
+}
+.user-actions {
+  justify-content: flex-end;
 }
 .settings-section form {
   max-width: 600px;
