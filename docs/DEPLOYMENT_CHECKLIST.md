@@ -4,7 +4,8 @@ Use **0.12.2** for the isolated automatic text-field sizing fix. Use
 **0.13.0-pre3** for staged evaluation of the larger upgrade. The prerelease includes
 the patch, changes the database schema, and requires administrator inventory
 migration before printing resumes when upgrading from before pre1. These are manual
-acceptance checks, not claims that a deployment has already passed them.
+acceptance checks. Dated results below describe reported deployment tests;
+unchecked items remain to be verified.
 
 Record the operator, date, source version, target tag, installation role and mode,
 backup location, and results. Keep credentials and private backup paths out of
@@ -43,7 +44,9 @@ public issues. Main servers and companions must run on separate machines.
 
 ## Stable patch: 0.12.2
 
-- [ ] Update the native main server after backing it up:
+**Reported result — 2026-11-09:** all 0.12.2 checks passed in manual deployment testing.
+
+- [x] Update the native main server after backing it up:
 
   ```sh
   sudo python3 scripts/update.py --mode native --tag v0.12.2 --prebuilt-frontend
@@ -51,13 +54,18 @@ public issues. Main servers and companions must run on separate machines.
 
   For an existing Docker deployment, use `--mode docker` without
   `--prebuilt-frontend`. The patch has no new database migrations relative to 0.12.1.
-- [ ] Confirm service health, login, version 0.12.2 and successful frontend loading.
+- [x] Confirm service health, login, version 0.12.2 and successful frontend loading.
   Refresh any installed PWA so its code matches the server.
-- [ ] Preview and print a multiline automatic-width text field whose text shrinks
+- [x] Preview and print a multiline automatic-width text field whose text shrinks
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
 ## Prerelease main server: 0.13.0-pre3
+
+**Reported result — 2026-11-09:** the pre2-to-pre3 MariaDB upgrade failed in
+migration `151516c70dc3` when creating the `batch_reviews` foreign key to `batches`
+(error 1005 / errno 150). The updater reported successful rollback to pre2 and a
+healthy service. This attempt did not validate the pre3 deployment checks below.
 
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
