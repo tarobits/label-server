@@ -94,6 +94,7 @@ const availableGroups = computed(() =>
 const editable = ref(true)
 const imageFile = ref<File | null>(null)
 const imageInput = ref<HTMLInputElement | null>(null)
+const widthInput = ref<HTMLInputElement | null>(null)
 const selectedId = ref(typeof route.query.element === 'string' ? route.query.element : ''),
   zoom = ref(100),
   snap = ref(true),
@@ -619,8 +620,8 @@ function move(event: PointerEvent) {
     selected.value.auto_width = false
     if (selected.value.kind === 'line') selected.value.height = selected.value.stroke
     selected.value.width = Math.max(1, round(drag.element.width + localX))
-    if (selected.value.kind === 'image' && selected.value.preserve_aspect) {
-      const ratio = imageRatio(selected.value) ?? drag.element.width / drag.element.height
+    if (selected.value.kind === 'image' && boxAspectLocked(selected.value)) {
+      const ratio = drag.element.width / drag.element.height
       // Snap the actively dragged dimension; derive the other without rounding.
       if (Math.abs(localY / drag.element.height) > Math.abs(localX / drag.element.width)) {
         selected.value.height = Math.max(1, round(drag.element.height + localY))
@@ -726,31 +727,63 @@ async function uploadImage() {
   if (ok && asset && document.value.elements.includes(target)) {
     target.image_asset = asset.id
     selectedId.value = target.id
-    fitImageBox()
+    record()
     imageFile.value = null
     if (imageInput.value) imageInput.value.value = ''
   }
 }
 function imageRatio(element: Element): number | undefined {
-  const asset = w.images.find((asset) => asset.id === element.image_asset)
+  const bound = document.value.logic?.bindings.some(
+    (binding) => binding.target === element.id && binding.property === 'image_asset',
+  )
+  const identifier = bound
+    ? preview.value?.resolved_elements.find((item) => item.id === element.id)?.image_asset
+    : element.image_asset
+  const asset = w.images.find((asset) => asset.id === identifier)
   return asset ? asset.width / asset.height : undefined
+}
+const imageBoxMismatch = computed(() => {
+  const element = selected.value
+  if (!element || element.kind !== 'image') return false
+  const ratio = imageRatio(element)
+  const box = positionedElement(element)
+  return ratio !== undefined && Math.abs(box.width / box.height - ratio) > ratio * 0.000001
+})
+function boxAspectLocked(element: Element) {
+  return element.lock_aspect ?? element.preserve_aspect ?? true
+}
+function setBoxAspectLock(event: Event) {
+  if (!selected.value) return
+  selected.value.lock_aspect = (event.target as HTMLInputElement).checked
+  record()
 }
 function fitImageBox() {
   const element = selected.value
   if (!element || element.kind !== 'image') return
   const ratio = imageRatio(element)
   if (ratio) {
-    const before = elementGeometry(element)
-    // Fit within the existing box so selecting artwork does not enlarge the label.
-    element.width = Math.min(element.width, element.height * ratio)
+    const current = positionedElement(element)
+    const before = elementGeometry(current)
+    // Fit within the existing box without enlarging the label.
+    element.width = Math.min(current.width, current.height * ratio)
     element.height = element.width / ratio
     setElementGeometry(element, { ...elementGeometry(element), x: before.x, y: before.y })
   }
   record()
+  widthInput.value?.focus()
 }
-function setPreserveAspect() {
-  if (selected.value?.preserve_aspect) fitImageBox()
-  else record()
+function setPreserveAspect(event: Event) {
+  if (!selected.value) return
+  // Old documents shared this setting. Freeze their resize preference before
+  // changing artwork fitting so the two controls remain independent.
+  selected.value.lock_aspect = boxAspectLocked(selected.value)
+  selected.value.preserve_aspect = (event.target as HTMLInputElement).checked
+  record()
+}
+function setImageScale(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (selected.value && Number.isFinite(value) && value >= 0.1 && value <= 1)
+    selected.value.image_scale = value
 }
 function resize(axis: 'width' | 'height', event: Event) {
   const element = selected.value
@@ -758,15 +791,12 @@ function resize(axis: 'width' | 'height', event: Event) {
   const value = Number((event.target as HTMLInputElement).value)
   if (!Number.isFinite(value) || value <= 0) return
   const geometry = elementGeometry(positionedElement(element))
+  const ratio = geometry.width / geometry.height
   geometry[axis] = value
   if (element.kind === 'qr') geometry.height = geometry.width
-  if (element.kind === 'image' && element.preserve_aspect) {
-    const sourceRatio = imageRatio(element)
-    const ratio = sourceRatio && (element.rotation % 180 ? 1 / sourceRatio : sourceRatio)
-    if (ratio) {
-      if (axis === 'width') geometry.height = geometry.width / ratio
-      else geometry.width = geometry.height * ratio
-    }
+  if (element.kind === 'image' && boxAspectLocked(element)) {
+    if (axis === 'width') geometry.height = geometry.width / ratio
+    else geometry.width = geometry.height * ratio
   }
   setElementGeometry(element, geometry)
 }
@@ -1373,7 +1403,7 @@ onUnmounted(() => {
           >
           <template v-if="selected.kind === 'image'">
             <label
-              >Image<select v-model="selected.image_asset" @change="fitImageBox">
+              >Image<select v-model="selected.image_asset" @change="record">
                 <option :value="null" disabled>Select an uploaded image</option>
                 <option
                   v-if="preview?.missing_assets?.[selected.id] === 'image'"
@@ -1548,6 +1578,33 @@ onUnmounted(() => {
             title="Image adjustments"
             initially-open
           >
+            <label class="checkbox"
+              ><input
+                type="checkbox"
+                :checked="selected.preserve_aspect ?? true"
+                @change="setPreserveAspect"
+              />Keep image proportions</label
+            >
+            <label
+              >Image scale<input
+                type="number"
+                min="0.1"
+                max="1"
+                step="0.05"
+                :value="selected.image_scale ?? 1"
+                @input="setImageScale"
+                @change="record"
+            /></label>
+            <input
+              type="range"
+              aria-label="Image scale slider"
+              min="0.1"
+              max="1"
+              step="0.05"
+              :value="selected.image_scale ?? 1"
+              @input="setImageScale"
+              @change="record"
+            />
             <label
               >Brightness<input
                 type="number"
@@ -1642,6 +1699,7 @@ onUnmounted(() => {
               <label
                 >{{ selected.kind === 'line' ? 'Length (mm)' : 'Width (mm)'
                 }}<input
+                  ref="widthInput"
                   :value="
                     elementGeometry(positionedElement(selected))[
                       selected.kind === 'line' && selected.rotation % 180 ? 'height' : 'width'
@@ -1684,9 +1742,26 @@ onUnmounted(() => {
               <label class="checkbox"
                 ><input
                   type="checkbox"
-                  v-model="selected.preserve_aspect"
-                  @change="setPreserveAspect"
-                />Preserve aspect ratio</label
+                  :checked="boxAspectLocked(selected)"
+                  @change="setBoxAspectLock"
+                />Lock box proportions</label
+              >
+              <ExpandableContent :open="imageBoxMismatch"
+                ><div class="image-fit-action">
+                  <button
+                    type="button"
+                    class="secondary"
+                    :disabled="
+                      rendering ||
+                      selectedBindings.some((property) =>
+                        ['width', 'height', 'rotation'].includes(property),
+                      )
+                    "
+                    @click="fitImageBox"
+                  >
+                    Fit box to image
+                  </button>
+                </div></ExpandableContent
               >
             </template>
             <template v-if="selected.kind === 'text'">
@@ -1877,6 +1952,12 @@ onUnmounted(() => {
   />
 </template>
 <style scoped>
+.image-fit-action {
+  padding-block: 4px 8px;
+}
+.image-fit-action button {
+  min-height: 44px;
+}
 .element-list button,
 .editor-properties > h2 {
   max-width: 100%;

@@ -190,7 +190,7 @@ test('element types expose meaningful tabs and selection stays aligned with rule
   await page.getByRole('combobox', { name: 'Image', exact: true }).selectOption(asset.id)
   await expect(tabs.getByRole('tab')).toHaveText(['Content', 'Style', 'Layout'])
   await showEditorSettings(page, 'Position & size')
-  await expect(page.getByLabel('Preserve aspect ratio', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Lock box proportions', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '1. qr', exact: true }).click()
   await expect(page.getByLabel('QR margin (mm)', { exact: true })).toHaveValue('0.5')
   const boundary = page.locator('.object-boundary.selected')

@@ -1,5 +1,6 @@
 import base64
 import io
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import pytest
@@ -8,6 +9,9 @@ from conftest import install, profile
 from PIL import Image, ImageOps
 
 from app.image_assets import MAX_IMAGE_BYTES, ImageStore
+from app.logic_source import compile_source
+from app.template_logic import logic_fields, logic_targets
+from app.template_schema import Element, TemplateDocument
 
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><path d="M0 0H50V50H0Z" fill="black"/><rect x="50" width="50" height="50" fill="#999999"/></svg>'
 
@@ -164,6 +168,87 @@ def test_tonal_controls_aspect_and_tape_colors(client: TestClient) -> None:
     assert set(
         Image.open(io.BytesIO(base64.b64decode(colored["png"].split(",")[1]))).get_flattened_data()
     ) == {(255, 0, 0), (255, 255, 0)}
+
+
+@pytest.mark.parametrize("preserve", [True, False])
+@pytest.mark.parametrize("scale", [0.1, 0.5, 1])
+def test_image_scale_fits_inside_unchanged_box(client, preserve, scale):
+    identifier = upload(client, b'<svg viewBox="0 0 100 50"><rect width="100" height="50"/></svg>')
+    response = client.post(
+        "/api/preview",
+        json={
+            "document": document(
+                identifier,
+                preserve_aspect=preserve,
+                lock_aspect=False,
+                image_scale=scale,
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    artwork = ET.fromstring(result["svg"]).find(".//{http://www.w3.org/2000/svg}image")
+    assert artwork is not None
+    width, height = 30 * scale, (15 if preserve else 18) * scale
+    assert float(artwork.attrib["width"]) == pytest.approx(width)
+    assert float(artwork.attrib["height"]) == pytest.approx(height)
+    assert float(artwork.attrib["x"]) == pytest.approx((30 - width) / 2)
+    assert float(artwork.attrib["y"]) == pytest.approx((18 - height) / 2)
+    assert ImageOps.invert(pixels(result)).getbbox() is not None
+    element = result["resolved_elements"][0]
+    assert (element["width"], element["height"]) == (30, 18)
+
+
+@pytest.mark.parametrize("scale", [0, 0.09, 1.01, -1])
+def test_image_scale_rejects_out_of_range_values(client, scale):
+    identifier = upload(client)
+    assert (
+        client.post(
+            "/api/preview", json={"document": document(identifier, image_scale=scale)}
+        ).status_code
+        == 422
+    )
+
+
+def test_logic_changes_image_and_scale_without_resizing_box(client):
+    wide = upload(client)
+    tall = upload(client, b'<svg viewBox="0 0 50 100"><rect width="50" height="100"/></svg>')
+    raw = document(wide, logic_name="picture", lock_aspect=True)
+    raw.update(
+        version=2,
+        fields=[
+            {"name": "photo", "type": "image", "label": "Photo"},
+            {"name": "size", "type": "number", "label": "Scale", "default": 1},
+        ],
+    )
+    base = TemplateDocument.model_validate(raw)
+    raw["logic"] = compile_source(
+        "picture.image_asset = photo; picture.image_scale = size;",
+        logic_fields(base),
+        logic_targets(base),
+    ).model_dump()
+    for asset, size in [(wide, 1), (tall, 0.5)]:
+        response = client.post(
+            "/api/preview",
+            json={"document": raw, "data": {"photo": {"image_asset": asset}, "size": size}},
+        )
+        assert response.status_code == 200, response.text
+        item = response.json()["resolved_elements"][0]
+        assert (item["width"], item["height"]) == (30, 18)
+        assert item["image_scale"] == size
+    rejected = client.post(
+        "/api/preview", json={"document": raw, "data": {"photo": {"image_asset": tall}, "size": 2}}
+    )
+    assert rejected.status_code == 422
+
+
+@pytest.mark.parametrize("preserve", [True, False])
+def test_legacy_image_settings_keep_existing_defaults(preserve):
+    raw = document("a" * 64, preserve_aspect=preserve)["elements"][0]
+    element = Element.model_validate(raw)
+    assert element.image_scale == 1
+    assert element.lock_aspect is preserve
+    assert Element.model_validate({**raw, "lock_aspect": not preserve}).lock_aspect is not preserve
 
 
 @pytest.mark.parametrize(

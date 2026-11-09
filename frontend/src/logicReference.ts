@@ -39,6 +39,8 @@ const propertyHelp: Record<string, string> = {
   image_asset:
     'An uploaded image value, or null to clear the image. Use an image input or image("asset-id"). URLs and local file paths are not accepted. Asset permissions still apply.',
   preserve_aspect: 'Preserve the image’s aspect ratio when fitting it into its box.',
+  image_scale:
+    'Scale artwork inside its box from 0.1 to 1. A value of 0.5 uses half the width and height, centred in the unchanged box.',
   brightness: 'Image brightness multiplier, from 0 to 3; 1 leaves it unchanged.',
   contrast: 'Image contrast multiplier, from 0 to 3; 1 leaves it unchanged.',
   image_threshold: 'Integer threshold for monochrome conversion, from 1 to 255.',

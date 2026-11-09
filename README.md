@@ -268,6 +268,15 @@ paged in groups of 12. The six most recently chosen or submitted templates appea
 first, saved per account in that browser; only currently accessible templates are
 shown. Closing the picker without a selection preserves the label draft.
 
+Image controls separate **Keep image proportions** (artwork fitting) from
+**Lock box proportions** (linked width/height edits using the box's current ratio).
+Selecting or uploading another image, including a replacement through logic,
+leaves the box unchanged. **Fit box to image** appears when the ratios differ and
+fits the box within its current bounds; dimensions controlled by logic must be
+changed in the logic instead. **Image scale** ranges from 0.1 to 1 and centres the
+artwork: 0.5 uses half the box's width and height. Logic can also set `image_scale`.
+Existing templates render at scale 1 until changed.
+
 Labels support up to 50 elements and 20 variable fields. Invalid layouts, missing
 required values, unsupported glyphs, and QR modules smaller than two device pixels
 are rejected. QR codes have a four-module quiet zone by default. **Scale up to

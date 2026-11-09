@@ -76,6 +76,7 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
                 {
                     "image_asset": "image",
                     "preserve_aspect": "boolean",
+                    "image_scale": "number",
                     "brightness": "number",
                     "contrast": "number",
                     "image_threshold": "number",

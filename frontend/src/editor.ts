@@ -80,6 +80,8 @@ export interface Element {
   filled: boolean
   image_asset?: string | null
   preserve_aspect?: boolean
+  lock_aspect?: boolean
+  image_scale?: number
   brightness?: number
   contrast?: number
   image_mode?: 'threshold' | 'dither'
@@ -185,6 +187,8 @@ export function newElement(kind: Element['kind']): Element {
     filled: false,
     image_asset: null,
     preserve_aspect: true,
+    lock_aspect: true,
+    image_scale: 1,
     brightness: 1,
     contrast: 1,
     image_mode: 'threshold',

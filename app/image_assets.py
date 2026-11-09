@@ -230,7 +230,7 @@ def image_svg(
         raise ValueError("Select an uploaded image for this element")
     path = store.path(element.image_asset)
     metadata = store.metadata(element.image_asset)
-    width, height = element.width, element.height
+    width, height = element.width * element.image_scale, element.height * element.image_scale
     if element.preserve_aspect:
         scale = min(width / metadata["width"], height / metadata["height"])
         width, height = metadata["width"] * scale, metadata["height"] * scale

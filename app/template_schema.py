@@ -58,12 +58,20 @@ class Element(Input):
     filled: bool = False
     image_asset: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     preserve_aspect: bool = True
+    lock_aspect: bool = True
+    image_scale: float = Field(default=1, ge=0.1, le=1)
     brightness: float = Field(default=1, ge=0, le=3)
     contrast: float = Field(default=1, ge=0, le=3)
     image_mode: Literal["threshold", "dither"] = "threshold"
     image_threshold: int = Field(default=128, ge=1, le=255)
     qr_fill_box: bool = False
     qr_margin_mm: float | None = Field(default=None, ge=0, le=50)
+
+    @model_validator(mode="after")
+    def legacy_image_box_lock(self) -> "Element":
+        if "lock_aspect" not in self.model_fields_set:
+            self.lock_aspect = self.preserve_aspect
+        return self
 
 
 class PreviewTape(Input):
