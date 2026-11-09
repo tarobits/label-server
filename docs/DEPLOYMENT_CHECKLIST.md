@@ -1,11 +1,16 @@
-# Deployment checklist: 0.12.2 and 0.13.0-pre4
+# Deployment checklist: 0.12.2 and 0.13.0-pre5
 
 Use **0.12.2** for the isolated automatic text-field sizing fix. Use
-**0.13.0-pre4** for staged evaluation of the larger upgrade. The prerelease includes
+**0.13.0-pre5** for staged evaluation of the larger upgrade. The prerelease includes
 the patch, changes the database schema, and requires administrator inventory
 migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
 unchecked items remain to be verified.
+
+The operator's 2026-11-09 stable-release results are recorded by checklist ID in
+[the acceptance results](V0_13_0_ACCEPTANCE.md). They include passed, partial,
+failed and untested checks; tested versions still need confirmation. Consult that
+record alongside the historical rollout notes below.
 
 Record the operator, date, source version, target tag, installation role and mode,
 backup location, and results. Keep credentials and private backup paths out of
@@ -33,7 +38,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the prerelease:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre4
+  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre5
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -60,7 +65,7 @@ public issues. Main servers and companions must run on separate machines.
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
-## Prerelease main server: 0.13.0-pre4
+## Prerelease main server: 0.13.0-pre5
 
 **Reported result — 2026-11-09:** the pre2-to-pre3 MariaDB upgrade failed in
 migration `151516c70dc3` when creating the `batch_reviews` foreign key to `batches`
@@ -82,7 +87,7 @@ users must skip pre3 and use pre4, including when retrying after rollback to pre
 - [ ] Upgrade the native main server using the exact prerelease tag:
 
   ```sh
-  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre4 --prebuilt-frontend
+  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre5 --prebuilt-frontend
   ```
 
   Review and confirm the plan. Reserve `--yes` for reviewed automation. The updater
@@ -97,6 +102,20 @@ users must skip pre3 and use pre4, including when retrying after rollback to pre
   and refresh installed PWAs.
 - [ ] Check the updater's role marker and service entry point. Verify the deployment
   does not run a second main process against the same database.
+
+### Additional checks for pre5
+
+- [ ] Apply migration `171718e92fe5` on the main server. Confirm companion
+  registrations, grants and last-contact records survive with initially unknown
+  software versions until updated companions report them.
+- [ ] Verify Online, Offline, Never connected and Key revoked states, last-contact
+  times, version mismatch warnings and live refresh on the Companions page.
+- [ ] Refresh an already-open companion page once to adopt the new update detector.
+  During a subsequent frontend update, verify recovery after service restart and
+  update validation, then automatic reload only while locked with no open dialog
+  or pending control request. Retest G7 on the actual kiosk and record both versions.
+- [ ] Check navigation avatars on desktop and mobile, including upload/removal,
+  missing-image fallback, account switching, and opening/closing the account menu.
 
 ### Additional checks when upgrading from pre1 to pre2
 
@@ -169,7 +188,7 @@ builds require Python 3.12+ and Node 22.12+. Physical Pi/USB acceptance is still
   its one-time API key into a protected `.env.companion` on the station. Verify
   outbound HTTPS to the main server across the intended networks. Inbound public
   access to the companion is not required.
-- [ ] Install from a checkout of `v0.13.0-pre4`:
+- [ ] Install from a checkout of `v0.13.0-pre5`:
 
   ```sh
   sudo python3 scripts/install.py --role companion \
