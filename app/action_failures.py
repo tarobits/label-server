@@ -39,6 +39,11 @@ CATALOGUE: dict[tuple[str, str], tuple[str, ScopeKind, str | None]] = {
     ),
     ("GET", "/api/audit"): ("audit.viewed", "global", None),
     ("POST", "/api/batches/{identifier}/review"): ("batch.reviewed", "printer", "batch"),
+    ("POST", "/api/batches/{identifier}/misprints"): (
+        "batch.misprint_reported",
+        "printer",
+        "batch",
+    ),
     ("POST", "/api/batches/{identifier}/retry-offers"): ("retry.requested", "printer", "batch"),
     ("POST", "/api/cartridges"): ("cartridge.created", "global", None),
     ("PUT", "/api/cartridges/{identifier}"): ("cartridge.renamed", "cartridge", "identifier"),

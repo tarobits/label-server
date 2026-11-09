@@ -13,6 +13,7 @@ from app.http import job_template_name
 from app.models import (
     Batch,
     BatchItem,
+    BatchReview,
     CompanionBatch,
     LabelCopy,
     Notification,
@@ -65,6 +66,7 @@ def duplicate_history(session: Session) -> DuplicateHistory:
         Batch.consumed_mm.is_(None),
         Batch.consumption_source.is_(None),
         ~Batch.id.in_(select(RetryOffer.batch_id)),
+        ~Batch.id.in_(select(BatchReview.batch_id)),
         ~Batch.id.in_(select(CompanionBatch.batch_id)),
     )
     items: dict[str, list[BatchItem]] = defaultdict(list)

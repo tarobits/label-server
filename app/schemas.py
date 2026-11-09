@@ -117,6 +117,8 @@ class ReminderInput(Input):
 
 
 class ReviewInput(Input):
+    request_id: str | None = Field(default=None, min_length=1, max_length=100)
+    evidence_photo: str | None = Field(default=None, max_length=6_666_668)
     decisions: dict[str, Literal["printed", "failed", "queued", "cancelled"]]
     cartridge_id: str | None = Field(default=None, min_length=1, max_length=100)
     consumed_mm: float = Field(

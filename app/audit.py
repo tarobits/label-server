@@ -36,6 +36,17 @@ COMMON_FIELDS: dict[str, FieldType] = {
     "victim_names": "identifiers",
 }
 ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
+    "settings.review_evidence_changed": {"previous": "text", "current": "text"},
+    **{
+        action: {
+            "batch_id": "text",
+            "review_id": "text",
+            "copy_ids": "identifiers",
+            "reason": "text",
+            "has_photo": "boolean",
+        }
+        for action in ("batch.misprint_reported", "batch.review_evidence_saved")
+    },
     **{
         action: {"configured": "boolean"}
         for action in (

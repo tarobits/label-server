@@ -189,6 +189,9 @@ class AuthSettings(Base):
     registration_code_required: Mapped[bool] = mapped_column(default=True)
     approval_notification_debounce_seconds: Mapped[int] = mapped_column(default=60)
     approval_notifications_enabled: Mapped[bool] = mapped_column(default=True)
+    batch_review_evidence: Mapped[str] = mapped_column(
+        String(16), default="optional", server_default="optional"
+    )
 
 
 class State(str, enum.Enum):
@@ -410,6 +413,26 @@ class BatchItem(Base):
     copy_id: Mapped[str] = mapped_column(ForeignKey("label_copies.id"), primary_key=True)
     position: Mapped[int]
     outcome: Mapped[State] = mapped_column(default=State.PRINTING)
+
+
+class BatchReview(Base):
+    """Human findings retained separately from hardware receipts and settled charges."""
+
+    __tablename__ = "batch_reviews"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    batch_id: Mapped[str] = mapped_column(ForeignKey("batches.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    actor_id: Mapped[str] = mapped_column(String(128))
+    actor_name: Mapped[str]
+    created_at: Mapped[float] = mapped_column(default=time.time)
+    reason: Mapped[str]
+    decisions: Mapped[dict[str, str]] = mapped_column(JSON)
+    previous_outcomes: Mapped[dict[str, str]] = mapped_column(JSON)
+    has_photo: Mapped[bool] = mapped_column(default=False)
+    # Sanitized JPEG as base64 keeps native JSON backups and cross-database
+    # migration byte-exact, without exposing attachments in ordinary responses.
+    photo: Mapped[str | None]
 
 
 class FlushRequest(Base):

@@ -189,6 +189,7 @@ class SettingsInput(AdminInput):
     registration_code_required: bool
     approval_notification_debounce_seconds: int = Field(default=60, ge=0, le=86400)
     approval_notifications_enabled: bool = True
+    batch_review_evidence: Literal["disabled", "optional", "required"] = "optional"
 
 
 class PreviewInput(AdminInput):
@@ -853,13 +854,29 @@ def revoke_code(identifier: str, session: DB) -> None:
 def settings(session: DB) -> dict[str, Any]:
     return record(
         session.get(AuthSettings, 1),
-        "registration_code_required approval_notification_debounce_seconds approval_notifications_enabled",
+        "registration_code_required approval_notification_debounce_seconds approval_notifications_enabled batch_review_evidence",
     )
 
 
 @router.put("/settings")
-def update_settings(body: SettingsInput, session: DB) -> dict[str, Any]:
+def update_settings(body: SettingsInput, request: Request, session: DB) -> dict[str, Any]:
     value = session.get(AuthSettings, 1)
-    for key, item in body.model_dump().items():
+    assert value is not None
+    previous = value.batch_review_evidence
+    for key, item in body.model_dump(exclude_unset=True).items():
         setattr(value, key, item)
-    return body.model_dump()
+    if previous != value.batch_review_evidence:
+        from app.action_audit import record_action
+
+        session.info["request"] = request
+        record_action(
+            session,
+            "settings.review_evidence_changed",
+            "global",
+            "",
+            {
+                "previous": previous,
+                "current": value.batch_review_evidence,
+            },
+        )
+    return settings(session)

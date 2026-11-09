@@ -1620,6 +1620,8 @@ def batch_detail(
     identifier: str, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
+    from app.batch_reviews import evidence_policy, review_records
+
     output_plans = {
         item["copy_id"]: item for item in (batch.print_plan or {}).get("label_output", [])
     }
@@ -1649,6 +1651,8 @@ def batch_detail(
         **record(batch),
         **batch_audit(session, batch),
         "items": items,
+        "evidence_policy": evidence_policy(session),
+        "reviews": review_records(session, batch.id),
     }
 
 
@@ -1661,6 +1665,23 @@ def review(
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
     access_context(request).require_printer(batch.printer_id, "review")
+    from app.batch_reviews import normalize_photo, repeated_review, save_review
+    from app.submissions import input_fingerprint
+
+    fingerprint = input_fingerprint(
+        {"batch_id": identifier, "kind": "review", **body.model_dump(mode="json")}
+    )
+    if repeated_review(session, request, body.request_id, fingerprint):
+        return {**record(batch), **batch_audit(session, batch)}
+    photo = normalize_photo(session, body.evidence_photo)
+    previous = {
+        item.copy_id: item.outcome.value
+        for item in session.scalars(
+            select(BatchItem).where(
+                BatchItem.batch_id == batch.id, BatchItem.copy_id.in_(body.decisions)
+            )
+        )
+    }
     try:
         resolve_batch(
             session,
@@ -1671,6 +1692,20 @@ def review(
         )
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
+    save_review(
+        session,
+        request,
+        batch,
+        identifier=body.request_id,
+        fingerprint=fingerprint,
+        kind="review",
+        reason="",
+        previous=previous,
+        decisions={
+            key: "failed" if value == "queued" else value for key, value in body.decisions.items()
+        },
+        photo=photo,
+    )
     session.flush()
     return {**record(batch), **batch_audit(session, batch)}
 
