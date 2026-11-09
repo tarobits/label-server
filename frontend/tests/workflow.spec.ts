@@ -1,3 +1,4 @@
+import { chooseTemplate, templateControl } from './template-picker-helpers'
 import { showEditorSettings, showEditorTab } from './editor-settings'
 import { test, expect } from './fixtures'
 
@@ -316,7 +317,7 @@ test('CSV runs map columns, preview reordered rows, survive reload and submit on
   const profile = await response.json()
   await page.goto('/#/runs')
   await page.getByLabel('Run name', { exact: true }).fill('Inventory CSV')
-  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption('text')
+  await chooseTemplate(page, 'text')
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
 
   await page
@@ -974,24 +975,20 @@ test('distance holders follow text and selection URLs survive refresh', async ({
   expect(saved.document.elements[2].distance_holder.element_id).toBe('divider')
   await page.screenshot({ path: 'test-results/cable-distance-holders.png', fullPage: true })
   await page.goto('/#/new')
-  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption(template.id)
+  await chooseTemplate(page, template.id)
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
   await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
   await page.reload()
-  await expect(page.getByRole('combobox', { name: 'Template', exact: true })).toHaveValue(
-    template.id,
-  )
+  await expect(templateControl(page)).toHaveJSProperty('value', template.id)
   await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
     profile.id,
   )
   await page.goto('/#/runs')
-  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption(template.id)
+  await chooseTemplate(page, template.id)
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
   await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
   await page.reload()
-  await expect(page.getByRole('combobox', { name: 'Template', exact: true })).toHaveValue(
-    template.id,
-  )
+  await expect(templateControl(page)).toHaveJSProperty('value', template.id)
   await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
     profile.id,
   )
@@ -1198,7 +1195,7 @@ test('printer groups route different tapes and preserve destination choices', as
   const destination = await page
     .getByRole('combobox', { name: 'Print destination', exact: true })
     .inputValue()
-  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption('text')
+  await chooseTemplate(page, 'text')
   await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tapes[0].id)
   await page.reload()
   await expect(page.getByRole('combobox', { name: 'Print destination', exact: true })).toHaveValue(

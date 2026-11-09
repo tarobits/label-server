@@ -15,6 +15,9 @@ import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
+import TemplatePicker from '../components/TemplatePicker.vue'
+import { rememberTemplate } from '../templateBrowser'
+import type { Template } from '../types'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
 import { mediaLabel, compatibleProfile } from '../media'
@@ -140,6 +143,20 @@ function clearSubmissionError(event: Event) {
 }
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
 const destination = computed(() => w.destinations.find((d) => d.id === form.destination_id))
+const templateCompatible = (item: Template) =>
+  profiles.value.some((profile) =>
+    w.printers.some(
+      (printer) =>
+        destination.value?.printer_ids.includes(printer.id) &&
+        compatibleProfile(
+          profile,
+          printer.capabilities ?? undefined,
+          item.id === 'text' && item.revision === 2
+            ? { ...item.document, width_mm: profile.width_mm }
+            : item.document,
+        ),
+    ),
+  )
 const planningConfig = computed(() =>
   w.printers
     .filter((printer) => destination.value?.printer_ids.includes(printer.id))
@@ -344,6 +361,7 @@ async function submit() {
         : 'Label sent for approval. Nothing has been queued yet.',
     )
   ) {
+    rememberTemplate(auth.user?.id, body.template)
     submissionBody = ''
     submissionKey = ''
     if (route.path === '/new') await router.push(direct ? '/queue' : '/requests')
@@ -385,13 +403,11 @@ async function submit() {
           </option>
         </select></label
       >
-      <label
-        >Template<select v-model="form.template" name="template">
-          <option v-for="item in templates" :key="item.id" :value="item.id">
-            {{ item.name }} · revision {{ item.revision }}
-          </option>
-        </select></label
-      >
+      <TemplatePicker
+        v-model="form.template"
+        :templates="templates"
+        :compatible="templateCompatible"
+      />
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <label
         >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>

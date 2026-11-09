@@ -262,6 +262,12 @@ and reused across requests and restarts. Saving a new revision invalidates its
 thumbnail; missing or restored assets also refresh it. Retention cleanup purges
 derived previews with deleted content. Older templates default to black on white.
 
+On **New label**, **Change template** opens a searchable preview picker with
+visibility, tape-width, media and destination-compatibility filters. Results are
+paged in groups of 12. The six most recently chosen or submitted templates appear
+first, saved per account in that browser; only currently accessible templates are
+shown. Closing the picker without a selection preserves the label draft.
+
 Labels support up to 50 elements and 20 variable fields. Invalid layouts, missing
 required values, unsupported glyphs, and QR modules smaller than two device pixels
 are rejected. QR codes have a four-module quiet zone by default. **Scale up to

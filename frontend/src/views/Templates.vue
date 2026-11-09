@@ -7,6 +7,7 @@ import { api } from '../api'
 import { useAuthStore } from '../auth'
 import type { Template } from '../types'
 import { templateLength } from '../templateDimensions'
+import { matchesTemplateSearch, compareTemplateNames } from '../templateBrowser'
 import { useWorkspaceStore } from '../workspace'
 import TemplatePreview from '../components/TemplatePreview.vue'
 import MotionTrack from '../components/MotionTrack.vue'
@@ -69,15 +70,7 @@ function clearFilters() {
 const activeFilters = computed(
   () => filters.scope !== 'all' || !!filters.search || !!filters.width || !!filters.group,
 )
-const normalize = (value: string) =>
-  value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase()
-const sorted = computed(() =>
-  [...w.templates].sort(
-    (a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) ||
-      a.id.localeCompare(b.id),
-  ),
-)
+const sorted = computed(() => [...w.templates].sort(compareTemplateNames))
 const widths = computed(() =>
   [...new Set(w.templates.map((template) => template.document.width_mm))].sort((a, b) => a - b),
 )
@@ -89,18 +82,9 @@ const groups = computed(() => {
   return [...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
 })
 const matching = computed(() => {
-  const terms = normalize(filters.search).split(/\s+/).filter(Boolean)
   return sorted.value.filter((template) => {
     if (filters.width && template.document.width_mm !== Number(filters.width)) return false
-    const text = normalize(
-      [
-        template.name,
-        template.group_name ?? '',
-        ...template.fields,
-        ...template.document.fields.map((field) => field.label),
-      ].join(' '),
-    )
-    return terms.every((term) => text.includes(term))
+    return matchesTemplateSearch(template, filters.search)
   })
 })
 const scopeCount = (scope: Scope) =>

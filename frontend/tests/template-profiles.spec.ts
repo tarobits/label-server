@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { chooseTemplate, templateControl } from './template-picker-helpers'
 import type { Profile } from '../src/types'
 
 for (const path of ['/new', '/runs']) {
@@ -39,7 +40,7 @@ for (const path of ['/new', '/runs']) {
     const legacy = await createTemplate('Legacy template', null)
     const missing = await createTemplate('Missing profile template', { ...saved, id: 'deleted' })
     const tapeSelect = page.getByRole('combobox', { name: 'Tape profile', exact: true })
-    const templateSelect = page.getByRole('combobox', { name: 'Template', exact: true })
+    const templateSelect = templateControl(page)
 
     await page.goto('/#/templates')
     await page
@@ -53,19 +54,19 @@ for (const path of ['/new', '/runs']) {
     await page.reload()
     await expect(tapeSelect).toHaveValue(active.id)
 
-    await templateSelect.selectOption(other.id)
-    await templateSelect.selectOption(template.id)
+    await chooseTemplate(page, other.id)
+    await chooseTemplate(page, template.id)
     await expect(tapeSelect).toHaveValue(saved.id)
-    await templateSelect.selectOption(legacy.id)
+    await chooseTemplate(page, legacy.id)
     await expect(tapeSelect).toHaveValue(saved.id)
-    await templateSelect.selectOption(missing.id)
+    await chooseTemplate(page, missing.id)
     await expect(tapeSelect).toHaveValue(saved.id)
 
     await page.goto(`/#${path}?template=${other.id}&profile=${saved.id}`)
-    await expect(templateSelect).toHaveValue(other.id)
+    await expect(templateSelect).toHaveJSProperty('value', other.id)
     await expect(tapeSelect).toHaveValue(saved.id)
     await page.goto(`/#${path}?template=${template.id}`)
-    await expect(templateSelect).toHaveValue(template.id)
+    await expect(templateSelect).toHaveJSProperty('value', template.id)
     await expect(tapeSelect).toHaveValue(saved.id)
   })
 }
