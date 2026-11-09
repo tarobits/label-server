@@ -5,7 +5,15 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from app.logic_schema import LogicEditorState, LogicInput, Program, Symbol, Value, ValueType
+from app.logic_schema import (
+    LogicEditorState,
+    LogicInput,
+    Program,
+    Symbol,
+    Value,
+    ValueType,
+    check_text_length,
+)
 from app.media import MediaProperties
 from app.schemas import Input
 
@@ -18,6 +26,20 @@ class TemplateField(Input):
     required: bool = True
     default: str = Field(default="", max_length=2000)
     sample: str = Field(default="", max_length=2000)
+    min_length: int | None = Field(default=None, ge=0, le=2000)
+    max_length: int | None = Field(default=None, ge=0, le=2000)
+
+    @model_validator(mode="after")
+    def valid_lengths(self) -> "TemplateField":
+        if (
+            self.min_length is not None
+            and self.max_length is not None
+            and self.min_length > self.max_length
+        ):
+            raise ValueError("Minimum text length exceeds maximum")
+        for value in (self.default, self.sample):
+            check_text_length(value, self.min_length, self.max_length, self.label)
+        return self
 
 
 class DistanceHolder(Input):
@@ -32,7 +54,7 @@ class Element(Input):
     logic_name: Symbol | None = None
     visible: bool = True
     literal_content: bool = False
-    kind: Literal["text", "qr", "rectangle", "line", "image"]
+    kind: Literal["text", "qr", "barcode", "datamatrix", "aztec", "rectangle", "line", "image"]
     # The unrotated origin may be negative while the rotated bounds are inside the label.
     x: float = Field(ge=-1000, le=1000)
     y: float = Field(ge=-100, le=100)
@@ -66,6 +88,8 @@ class Element(Input):
     image_threshold: int = Field(default=128, ge=1, le=255)
     qr_fill_box: bool = False
     qr_margin_mm: float | None = Field(default=None, ge=0, le=50)
+    barcode_format: Literal["code128", "ean13", "ean8", "code39"] = "code128"
+    barcode_caption: bool = True
 
     @model_validator(mode="after")
     def legacy_image_box_lock(self) -> "Element":
@@ -81,6 +105,21 @@ class PreviewTape(Input):
     background: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
 
 
+class PreviewExample(Input):
+    id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=100)
+    data: dict[Symbol, Value] = Field(default_factory=dict, max_length=20)
+
+    @model_validator(mode="after")
+    def bounded_values(self) -> "PreviewExample":
+        for value in self.data.values():
+            if isinstance(value, str) and len(value) > 2000:
+                raise ValueError("Preview text exceeds 2000 characters")
+            if isinstance(value, (int, float)) and abs(value) > 1e12:
+                raise ValueError("Preview number exceeds supported limits")
+        return self
+
+
 class TemplateDocument(Input):
     version: Literal[1, 2] = 1
     width_mm: float = Field(default=24, gt=0, le=100)
@@ -92,11 +131,14 @@ class TemplateDocument(Input):
     preview_tape: PreviewTape | None = None
     elements: list[Element] = Field(default_factory=list, max_length=50)
     fields: list[TemplateField | LogicInput] = Field(default_factory=list, max_length=20)
+    preview_examples: list[PreviewExample] = Field(default_factory=list, max_length=50)
     logic: Program | None = None
     logic_editor: LogicEditorState | None = None
 
     @model_validator(mode="after")
     def validate_document(self) -> "TemplateDocument":
+        if len({example.id for example in self.preview_examples}) != len(self.preview_examples):
+            raise ValueError("Preview example IDs must be unique")
         if self.media.media_kind == "fixed_label":
             if self.auto_length:
                 raise ValueError("Automatic label length requires continuous media")

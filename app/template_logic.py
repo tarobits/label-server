@@ -50,7 +50,7 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
         }
         if element.distance_holder:
             properties["gap_mm"] = "number"
-        if element.kind in ("text", "qr"):
+        if element.kind in ("text", "qr", "barcode", "datamatrix", "aztec"):
             properties["content"] = "text"
         if element.kind == "text":
             properties.update(
@@ -71,6 +71,10 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
             properties.update({"align": "text", "vertical_align": "text"})
         elif element.kind == "qr":
             properties.update({"qr_fill_box": "boolean", "qr_margin_mm": "number"})
+        elif element.kind == "barcode":
+            properties.update(
+                {"barcode_format": "text", "barcode_caption": "boolean", "font_size": "number"}
+            )
         elif element.kind == "image":
             properties.update(
                 {

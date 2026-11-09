@@ -18,10 +18,11 @@ from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import Image, ImageFont, ImageOps
 
 from app.asset_cache import using_cache
+from app.barcodes import encode_barcode, encode_matrix
 from app.element_geometry import element_geometry
 from app.font_assets import FontStore
 from app.image_assets import ImageStore, image_svg
-from app.logic_schema import Value
+from app.logic_schema import Value, check_text_length
 from app.models import LabelCopy, PrintJob
 from app.printer.base import RenderedLabel
 from app.template_schema import TOKEN, Element, TemplateDocument, TemplateField
@@ -111,6 +112,7 @@ def resolve_values(
             raise ValueError(f"{field.label}: expected text")
         if len(value) > 2000:
             raise ValueError(f"{field.label}: input exceeds 2000 characters")
+        check_text_length(value, field.min_length, field.max_length, field.label)
         if field.required and not value.strip():
             raise ValueError(f"{field.label} is required")
         values[field.name] = value
@@ -287,6 +289,72 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
             f'<svg x="{element.padding_left}" y="{element.padding_top}" '
             f'width="{inner_width}" height="{inner_height}" overflow="hidden">{body}</svg>'
         )
+    return body
+
+
+def matrix_svg(element: Element, content: str, spec: RenderSpec) -> str:
+    matrix = encode_matrix(element.kind, content)
+    rows, columns = len(matrix), len(matrix[0])
+    # An additional clear module on all sides also protects Aztec symbols,
+    # whose encoder need not supply a quiet zone.
+    dpi = min(spec.dpi, spec.horizontal_dpi)
+    pixels = math.floor(
+        min(element.width / (columns + 2), element.height / (rows + 2)) * dpi / 25.4
+    )
+    if pixels < 2:
+        raise ValueError(
+            "Matrix code is too small: enlarge it or shorten its content (minimum 2 pixels per module)"
+        )
+    module = pixels * 25.4 / dpi
+    x, y = (element.width - columns * module) / 2, (element.height - rows * module) / 2
+    cells = "".join(
+        f"M{x + column * module},{y + row * module}h{module}v{module}h{-module}z"
+        for row, values in enumerate(matrix)
+        for column, ink in enumerate(values)
+        if ink
+    )
+    return f'<path d="{cells}" fill="black"/>'
+
+
+def barcode_svg(element: Element, content: str, spec: RenderSpec, fonts: FontStore | None) -> str:
+    pattern, caption = encode_barcode(element.barcode_format, content)
+    # Keep quiet zones inside the element box. Use whole printer pixels per
+    # module, with the horizontal physical axis following element rotation.
+    dpi = spec.dpi if element.rotation % 180 else spec.horizontal_dpi
+    quiet = 11 if element.barcode_format.startswith("ean") else 10
+    pixels = math.floor(element.width * dpi / 25.4 / (len(pattern) + quiet * 2))
+    if pixels < 2:
+        raise ValueError(
+            "Barcode is too narrow: widen it or shorten its content (minimum 2 pixels per module)"
+        )
+    module = pixels * 25.4 / dpi
+    offset = (element.width - len(pattern) * module) / 2
+    caption_height = element.font_size + 1 if element.barcode_caption else 0
+    height = element.height - caption_height
+    if height < 3:
+        raise ValueError(
+            "Barcode is too short: allow at least 3 mm for bars plus space for its caption"
+        )
+    bars = "".join(
+        f"M{offset + i * module},0h{module}v{height}h{-module}z"
+        for i, bit in enumerate(pattern)
+        if bit == "1"
+    )
+    body = f'<path d="{bars}" fill="black"/>'
+    if element.barcode_caption:
+        text = Element(
+            id="barcode-caption",
+            kind="text",
+            x=0,
+            y=0,
+            width=element.width,
+            height=element.font_size,
+            font_size=element.font_size,
+            align="center",
+            vertical_align="center",
+            wrap=False,
+        )
+        body += f'<g transform="translate(0,{height + 1})">{text_svg(text, caption, fonts)}</g>'
     return body
 
 
@@ -672,6 +740,12 @@ def render_document(
         elif element.kind == "qr":
             qr_boxes.append(box)
             body = qr_svg(element, content, spec)
+        elif element.kind == "barcode":
+            qr_boxes.append(box)
+            body = barcode_svg(element, content, spec, fonts)
+        elif element.kind in ("datamatrix", "aztec"):
+            qr_boxes.append(box)
+            body = matrix_svg(element, content, spec)
         elif element.kind == "image":
             body = image_svg(element, images, spec.horizontal_dpi, spec.dpi)
         elif element.kind == "rectangle":
@@ -684,7 +758,7 @@ def render_document(
             # QR quiet zones are meaningful even where they contain no ink.
             visible = (
                 (x, y, right, bottom)
-                if element.kind == "qr"
+                if element.kind in ("qr", "barcode", "datamatrix", "aztec")
                 else artwork_bounds(
                     artwork,
                     (x, y, right, bottom),
@@ -720,8 +794,14 @@ def render_document(
                 and q[1] < other[3]
                 and q[3] > other[1]
             ):
+                code_name = {
+                    "qr": "QR code",
+                    "barcode": "Barcode",
+                    "datamatrix": "Data Matrix",
+                    "aztec": "Aztec code",
+                }[next(e for e in document.elements if e.id == q[4]).kind]
                 warnings.append(
-                    f"QR code {q[4]} has overlapping element bounds. "
+                    f"{code_name} {q[4]} has overlapping element bounds. "
                     "Overlap is allowed; check that its modules and clear border remain readable."
                 )
                 break

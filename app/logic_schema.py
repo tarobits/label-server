@@ -79,6 +79,15 @@ def bounded_value(value: Value) -> Value:
     return value
 
 
+def check_text_length(value: str, minimum: int | None, maximum: int | None, label: str) -> None:
+    # Empty optional inputs and unconfigured defaults remain empty. Requiredness
+    # is checked when resolving the values for a preview or submission.
+    if value and minimum is not None and len(value) < minimum:
+        raise ValueError(f"{label}: enter at least {minimum} characters")
+    if maximum is not None and len(value) > maximum:
+        raise ValueError(f"{label}: enter at most {maximum} characters")
+
+
 class LogicInput(LogicModel):
     name: Symbol
     label: str = Field(min_length=1, max_length=100)
@@ -88,6 +97,8 @@ class LogicInput(LogicModel):
     sample: Value = None
     minimum: float | None = None
     maximum: float | None = None
+    min_length: int | None = Field(default=None, ge=0, le=MAX_TEXT)
+    max_length: int | None = Field(default=None, ge=0, le=MAX_TEXT)
 
     def check_value(self, value: Value) -> Value:
         bounded_value(value)
@@ -95,6 +106,8 @@ class LogicInput(LogicModel):
             return value
         if value_type(value) != self.type:
             raise ValueError(f"{self.label}: expected {self.type}")
+        if isinstance(value, str):
+            check_text_length(value, self.min_length, self.max_length, self.label)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if self.minimum is not None and value < self.minimum:
                 raise ValueError(f"{self.label}: value is below {self.minimum:g}")
@@ -110,6 +123,14 @@ class LogicInput(LogicModel):
             raise ValueError("Only number inputs may define numeric limits")
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
             raise ValueError("Minimum exceeds maximum")
+        if self.type != "text" and (self.min_length is not None or self.max_length is not None):
+            raise ValueError("Only text inputs may define length limits")
+        if (
+            self.min_length is not None
+            and self.max_length is not None
+            and self.min_length > self.max_length
+        ):
+            raise ValueError("Minimum text length exceeds maximum")
         self.check_value(self.default)
         self.check_value(self.sample)
         return self

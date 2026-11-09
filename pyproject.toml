@@ -13,10 +13,12 @@ dependencies = [
   "pydantic-settings>=2.7,<3", "httpx>=0.28,<1",
   "pyusb>=1.3,<2", "pywebpush>=2.5,<3", "cryptography>=47,<51", "requests>=2.31,<3",
   "pillow>=13,<14", "resvg-py>=0.5,<0.6", "qrcode>=8,<9", "fonttools>=4,<5",
+  "python-barcode>=0.16.1,<0.17",
+  "zxing-cpp>=3.1.1,<4",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2", "pyright==1.1.414", "zxing-cpp>=2.3,<4", "types-qrcode"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "mypy>=1.15,<2", "pyright==1.1.414", "types-qrcode"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
