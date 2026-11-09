@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.13.0-pre5] - 2026-11-09
+
+### Added
+
+- The Companions page shows connection status, last contact time and reported
+  software version, with automatic refresh and warnings for main-server version
+  mismatches. Older companions show an unknown version until updated.
+
+### Changed
+
+- The navigation account menu shows the user's rounded-square profile picture,
+  with an initial fallback. Uploading or removing a picture updates it immediately.
+
+### Fixed
+
+- Companion pages detect newly installed frontends and reload once the station
+  is locked, dialogs are closed and control requests have finished. Reload waits
+  for the new page to be available and prevents loops caused by stale cached pages.
+
+**Migration requirements:** back up the database, local data and private
+configuration before upgrading. Apply migration `171718e92fe5` on the main server
+to retain companion versions. Update both main and companion servers. An already
+open companion page needs one manual refresh to adopt automatic update detection;
+later frontend updates can reload safely without a keyboard. Earlier asset-import
+and coordinated rollback requirements still apply. Includes the pre4 MariaDB fix;
+MariaDB users should continue to skip pre3.
+
+**Acceptance status:** the recorded manual results are 39 passed, 3 partial,
+1 failed and 41 untested. G7 (the page remaining disconnected/loading after an
+update) remains open for deployment retesting; the original tested versions were
+not confirmed. Comprehensive audit coverage and physical/outage acceptance remain
+release gates. This is a prerelease, not stable 0.13.0 sign-off.
+
+See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre5/docs/DEPLOYMENT_CHECKLIST.md)
+and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0-pre5/docs/V0_13_0_ACCEPTANCE.md).
+
 ## [0.13.0-pre4] - 2026-11-09
 
 ### Fixed
