@@ -129,8 +129,8 @@ def test_images_freeze_in_jobs_and_runs_and_match_print_pixels(client: TestClien
         json={"name": "Changed", "document": doc, "expected_revision": 1},
     )
     assert changed.status_code == 200, changed.text
-    # New store instance reads only durable files; old jobs do not depend on the picker or template.
-    store = ImageStore(client.app.state.images.root)
+    # New store instance reads durable database assets; old jobs do not depend on the picker or template.
+    store = ImageStore(client.app.state.images.root, client.app.state.factory)
     client.app.state.images = client.app.state.fleet.workers["main"].images = store
     assert client.get(endpoint).json() == frozen
     assert client.post(f"/api/runs/{run['id']}/submit").status_code == 200

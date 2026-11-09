@@ -49,7 +49,7 @@ async def upload_font(
     data = b"".join(chunks)
 
     def store() -> dict[str, Any]:
-        with request.app.state.fleet.lock, request.app.state.factory() as session:
+        with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
             context = access_context(request)
             require_asset_scope(request, session, "font_asset", scope, group_id)
             try:
@@ -95,7 +95,9 @@ def change_visibility(
     )
     try:
         return asset_record(
-            request, "font_asset", request.app.state.fonts.set_archived(identifier, archived)
+            request,
+            "font_asset",
+            request.app.state.fonts.set_archived(identifier, archived, session=session),
         )
     except ValueError as error:
         raise HTTPException(404, str(error)) from error

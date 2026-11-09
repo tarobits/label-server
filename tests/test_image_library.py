@@ -46,7 +46,9 @@ def test_rename_is_persistent_without_changing_artwork_or_content_identity(clien
     assert response.status_code == 200
     assert response.json()["name"] == "New name"
     assert response.json()["id"] == identifier
-    assert ImageStore(store.root).metadata(identifier)["name"] == "New name"
+    assert (
+        ImageStore(store.root, client.app.state.factory).metadata(identifier)["name"] == "New name"
+    )
     assert store.path(identifier).read_bytes() == original
     assert upload(client) == identifier
     assert store.metadata(identifier)["name"] == "New name"

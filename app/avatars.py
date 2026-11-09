@@ -1,12 +1,14 @@
-"""Small, sanitized profile pictures kept with the backed-up local assets."""
+"""Small, sanitized profile pictures stored with the account database."""
 
 import hashlib
 import io
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.asset_store import AssetStore
+from app.models import StoredAsset
 
 MAX_UPLOAD = 5_000_000
 
@@ -15,11 +17,26 @@ def avatar_path(root: Path, user_id: str) -> Path:
     return root / "avatars" / (hashlib.sha256(user_id.encode()).hexdigest() + ".png")
 
 
-def avatar_version(root: Path, user_id: str) -> str | None:
-    try:
-        return str(avatar_path(root, user_id).stat().st_mtime_ns)
-    except FileNotFoundError:
-        return None
+def avatar_version(session: Session, user_id: str) -> str | None:
+    return session.scalar(
+        select(StoredAsset.checksum).where(
+            StoredAsset.kind == "avatar",
+            StoredAsset.id == hashlib.sha256(user_id.encode()).hexdigest(),
+        )
+    )
+
+
+def read_avatar(session: Session, user_id: str) -> bytes:
+    asset = session.get(StoredAsset, ("avatar", hashlib.sha256(user_id.encode()).hexdigest()))
+    if asset is None:
+        raise FileNotFoundError("No profile picture")
+    return asset.content
+
+
+def remove_avatar(session: Session, user_id: str) -> None:
+    asset = session.get(StoredAsset, ("avatar", hashlib.sha256(user_id.encode()).hexdigest()))
+    if asset is not None:
+        session.delete(asset)
 
 
 def normalize_avatar(data: bytes) -> bytes:
@@ -48,6 +65,12 @@ def normalize_avatar(data: bytes) -> bytes:
         raise ValueError("Image could not be decoded") from error
 
 
-def save_avatar(root: Path, user_id: str, normalized: bytes) -> None:
-    path = avatar_path(root, user_id)
-    AssetStore(path.parent)._write(path, normalized)
+def save_avatar(session: Session, user_id: str, normalized: bytes) -> None:
+    identifier = hashlib.sha256(user_id.encode()).hexdigest()
+    asset = session.get(StoredAsset, ("avatar", identifier))
+    if asset is None:
+        asset = StoredAsset(kind="avatar", id=identifier, details={"user_id": user_id}, source=None)
+        session.add(asset)
+    asset.content = normalized
+    asset.checksum = hashlib.sha256(normalized).hexdigest()
+    session.flush()

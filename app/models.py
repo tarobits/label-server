@@ -5,8 +5,16 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, Double, ForeignKey, String, UniqueConstraint
-from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Double,
+    ForeignKey,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
@@ -22,6 +30,26 @@ class Base(DeclarativeBase):
         str: String().with_variant(LONGTEXT(), "mysql", "mariadb"),
         float: Double(),
     }
+
+
+class StoredAsset(Base):
+    __tablename__ = "stored_assets"
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON)
+    content: Mapped[bytes] = mapped_column(
+        LargeBinary().with_variant(LONGBLOB(), "mysql", "mariadb")
+    )
+    source: Mapped[bytes | None] = mapped_column(
+        LargeBinary().with_variant(LONGBLOB(), "mysql", "mariadb")
+    )
+    checksum: Mapped[str] = mapped_column(String(64))
+
+
+class AssetImport(Base):
+    __tablename__ = "asset_imports"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    completed_at: Mapped[float] = mapped_column(default=time.time)
 
 
 class Location(Base):

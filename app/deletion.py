@@ -220,7 +220,7 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
             session, fonts.root.parent / "template-previews", item.kind, item.identifier
         )
         if item.kind in ("images", "fonts"):
-            (images if item.kind == "images" else fonts).purge(item.identifier)
+            (images if item.kind == "images" else fonts).purge(item.identifier, session=session)
         elif item.kind == "templates":
             session.execute(
                 delete(TemplateRevision).where(TemplateRevision.template_id == item.identifier)
@@ -251,9 +251,9 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
                 .where(RegistrationCode.redeemed_by == item.identifier)
                 .values(redeemed_by=None)
             )
-            from app.avatars import avatar_path
+            from app.avatars import remove_avatar
 
-            avatar_path(images.root.parent, item.identifier).unlink(missing_ok=True)
+            remove_avatar(session, item.identifier)
             session.execute(delete(User).where(User.id == item.identifier))
         item.details = {}
         item.purged_at = now

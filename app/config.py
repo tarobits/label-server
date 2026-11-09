@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default="sqlite:///./data/labels.db", repr=False)
     data_dir: Path | None = None
+    asset_cache_idle_seconds: int = Field(default=604800, ge=60)
 
     @property
     def state_directory(self) -> Path:

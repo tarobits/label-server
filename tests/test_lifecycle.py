@@ -21,7 +21,7 @@ def test_update_validation_blocks_requests_and_external_effects(
     install(client, tape["id"])
     queued = job(client, tape["id"])
     settings = client.app.state.settings.model_copy(update={"worker_interval_seconds": 0.02})
-    marker = client.app.state.fonts.root.parent.parent / ".update-in-progress"
+    marker = client.app.state.settings.state_directory / ".update-in-progress"
     client.__exit__(None, None, None)
     marker.touch()
     notifications = Event()

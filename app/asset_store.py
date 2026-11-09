@@ -1,4 +1,4 @@
-"""Atomic files and immutable asset references shared by asset libraries."""
+"""Database-backed immutable assets; filesystem mode is reserved for legacy import."""
 
 import hashlib
 import json
@@ -10,7 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import ScalarResult, delete, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.asset_cache import cache_use, touch
+from app.binary_json import check_packet_size
 from app.identity import LOCAL_OWNER_ID
+from app.models import StoredAsset
 
 ASSET_ID = re.compile(r"^[a-f0-9]{64}$")
 
@@ -18,8 +24,9 @@ ASSET_ID = re.compile(r"^[a-f0-9]{64}$")
 class AssetStore:
     suffix = "asset"
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, factory: sessionmaker[Session] | None = None):
         self.root = root
+        self.factory = factory
         self.unavailable: Callable[[str], bool] = lambda _: False
 
     def path(self, identifier: str, *, include_deleted: bool = False) -> Path:
@@ -28,11 +35,43 @@ class AssetStore:
         if not include_deleted and self.unavailable(identifier):
             raise ValueError("This asset was deleted; restore or replace it before printing")
         path = self.root / f"{identifier}.{self.suffix}"
+        if self.factory:
+            with cache_use(), self.factory() as session:
+                # Cached bytes never make a removed database record available.
+                checksum = session.scalar(
+                    select(StoredAsset.checksum).where(
+                        StoredAsset.kind == self.suffix, StoredAsset.id == identifier
+                    )
+                )
+                if checksum is None:
+                    raise ValueError("Asset is missing from the database")
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
+                    asset = session.get(StoredAsset, (self.suffix, identifier))
+                    assert asset is not None
+                    if hashlib.sha256(asset.content).hexdigest() != checksum:
+                        raise ValueError("Asset failed database integrity verification")
+                    self._write(path, asset.content)
+                touch(path)
+                return path
         if not path.is_file():
             raise ValueError("Asset is missing; restore it from your data backup")
         return path
 
     def metadata(self, identifier: str, *, include_deleted: bool = False) -> dict[str, Any]:
+        if self.factory:
+            if not ASSET_ID.fullmatch(identifier):
+                raise ValueError("Invalid asset ID")
+            if not include_deleted and self.unavailable(identifier):
+                raise ValueError("This asset was deleted; restore or replace it before printing")
+            with self.factory() as session:
+                details = session.scalar(
+                    select(StoredAsset.details).where(
+                        StoredAsset.kind == self.suffix, StoredAsset.id == identifier
+                    )
+                )
+                if details is None:
+                    raise ValueError("Asset is missing from the database")
+                return dict(details)
         self.path(identifier, include_deleted=include_deleted)
         metadata = dict(json.loads((self.root / f"{identifier}.json").read_text()))
         # Legacy assets gain ownership metadata without rewriting their immutable bytes.
@@ -42,12 +81,23 @@ class AssetStore:
         return metadata
 
     def list(self, *, include_deleted: bool = False) -> list[dict[str, Any]]:
-        return sorted(
-            [
+        if self.factory:
+            with self.factory() as session:
+                entries: list[dict[str, Any]] = []
+                rows: ScalarResult[dict[str, Any]] = session.scalars(
+                    select(StoredAsset.details).where(StoredAsset.kind == self.suffix)
+                )
+                for details in rows:
+                    if include_deleted or not self.unavailable(details["id"]):
+                        entries.append(dict(details))
+        else:
+            entries = [
                 self.metadata(path.stem, include_deleted=include_deleted)
                 for path in self.root.glob("*.json")
                 if include_deleted or not self.unavailable(path.stem)
-            ],
+            ]
+        return sorted(
+            entries,
             key=lambda item: (
                 item.get("family", item.get("name", "")).lower(),
                 item.get("style", "").lower(),
@@ -61,7 +111,7 @@ class AssetStore:
         namespace = owner_id if scope == "personal" else f"{owner_id}\0{scope}\0{group_id or ''}"
         identifier = hashlib.sha256(namespace.encode() + b"\0" + data).hexdigest()
         moved = False
-        if (self.root / f"{identifier}.json").exists() and not self.unavailable(identifier):
+        if self.exists(identifier) and not self.unavailable(identifier):
             metadata = self.metadata(identifier)
             moved = (metadata["scope"], metadata["group_id"]) != (scope, group_id)
         if self.unavailable(identifier) or moved:
@@ -69,15 +119,27 @@ class AssetStore:
             identifier = hashlib.sha256(secrets.token_bytes(32) + data).hexdigest()
         return identifier
 
-    def set_sharing(self, identifier: str, scope: str, group_id: str | None) -> dict[str, Any]:
+    def set_sharing(
+        self, identifier: str, scope: str, group_id: str | None, *, session: Session | None = None
+    ) -> dict[str, Any]:
         metadata = self.metadata(identifier)
         metadata.update(scope=scope, group_id=group_id)
-        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        self.save_metadata(identifier, metadata, session=session)
         return metadata
 
-    def purge(self, identifier: str) -> None:
+    def purge(self, identifier: str, *, session: Session | None = None) -> None:
         if not ASSET_ID.fullmatch(identifier):
             raise ValueError("Invalid asset ID")
+        if self.factory:
+            if session is None:
+                with self.factory.begin() as transaction:
+                    self.purge(identifier, session=transaction)
+                return
+            session.execute(
+                delete(StoredAsset).where(
+                    StoredAsset.kind == self.suffix, StoredAsset.id == identifier
+                )
+            )
         for path in self.root.glob(f"{identifier}.*"):
             path.unlink(missing_ok=True)
 
@@ -93,8 +155,79 @@ class AssetStore:
         finally:
             Path(temporary).unlink(missing_ok=True)
 
-    def set_archived(self, identifier: str, archived: bool) -> dict[str, Any]:
+    def set_archived(
+        self, identifier: str, archived: bool, *, session: Session | None = None
+    ) -> dict[str, Any]:
         metadata = self.metadata(identifier)
         metadata["archived"] = archived
-        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        self.save_metadata(identifier, metadata, session=session)
         return metadata
+
+    def exists(self, identifier: str) -> bool:
+        if self.factory:
+            with self.factory() as session:
+                return (
+                    session.scalar(
+                        select(StoredAsset.id).where(
+                            StoredAsset.kind == self.suffix, StoredAsset.id == identifier
+                        )
+                    )
+                    is not None
+                )
+        return (self.root / f"{identifier}.json").exists()
+
+    def save_metadata(
+        self, identifier: str, metadata: dict[str, Any], *, session: Session | None = None
+    ) -> None:
+        if self.factory:
+            if session is None:
+                with self.factory.begin() as transaction:
+                    self.save_metadata(identifier, metadata, session=transaction)
+                return
+            asset = session.get(StoredAsset, (self.suffix, identifier))
+            if asset is None:
+                raise ValueError("Asset is missing from the database")
+            asset.details = metadata
+        else:
+            self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+
+    def save(
+        self,
+        identifier: str,
+        metadata: dict[str, Any],
+        content: bytes,
+        source: bytes | None = None,
+        *,
+        session: Session | None = None,
+    ) -> None:
+        if self.factory:
+            if session is None:
+                with self.factory.begin() as transaction:
+                    self.save(identifier, metadata, content, source, session=transaction)
+                return
+            check_asset_capacity(session, content, source, metadata)
+            session.add(
+                StoredAsset(
+                    kind=self.suffix,
+                    id=identifier,
+                    details=metadata,
+                    content=content,
+                    source=source,
+                    checksum=hashlib.sha256(content).hexdigest(),
+                )
+            )
+            session.flush()
+        else:
+            self._write(self.root / f"{identifier}.{self.suffix}", content)
+            if source is not None:
+                self._write(self.root / f"{identifier}.source", source)
+            self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+
+
+def check_asset_capacity(
+    session: Session, content: bytes, source: bytes | None, details: dict[str, Any]
+) -> None:
+    connection = session.connection()
+    if connection.dialect.name == "mariadb":
+        limit = int(connection.exec_driver_sql("SELECT @@max_allowed_packet").scalar_one())
+        check_packet_size([content, source, json.dumps(details)], limit)

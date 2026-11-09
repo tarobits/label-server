@@ -2,7 +2,6 @@
 
 import base64
 import io
-import json
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -11,7 +10,9 @@ from typing import Any, Literal
 
 import resvg_py
 from PIL import Image, ImageEnhance, ImageOps
+from sqlalchemy.orm import Session
 
+from app.asset_cache import touch, using_cache
 from app.asset_store import AssetStore
 from app.identity import LOCAL_OWNER_ID
 from app.template_schema import Element
@@ -87,16 +88,20 @@ def sanitize_svg(data: bytes) -> tuple[bytes, int, int]:
 class ImageStore(AssetStore):
     suffix = "image"
 
-    def rename(self, identifier: str, name: str) -> dict[str, Any]:
+    def rename(
+        self, identifier: str, name: str, *, session: Session | None = None
+    ) -> dict[str, Any]:
         metadata = self.metadata(identifier)
         metadata["name"] = name
-        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        self.save_metadata(identifier, metadata, session=session)
         return metadata
 
+    @using_cache
     def preview(self, identifier: str, size: Literal["thumbnail", "large"]) -> bytes:
         metadata = self.metadata(identifier)
         cached = self.root / f"{identifier}.{size}.png"
         if cached.is_file():
+            touch(cached)
             return cached.read_bytes()
         bounds = (240, 180) if size == "thumbnail" else (960, 720)
         data = self.path(identifier).read_bytes()
@@ -125,13 +130,14 @@ class ImageStore(AssetStore):
         owner_id: str = LOCAL_OWNER_ID,
         scope: str = "personal",
         group_id: str | None = None,
+        session: Session | None = None,
     ) -> dict[str, Any]:
         if not data or len(data) > MAX_IMAGE_BYTES:
             raise ValueError("Upload an image of at most 5 MB")
         # Identical uploads by different accounts must not disclose metadata or
         # acquire control of another account's library entry. Existing IDs stay valid.
         identifier = self.identifier(data, owner_id, scope, group_id)
-        if (self.root / f"{identifier}.json").exists():
+        if self.exists(identifier):
             return self.metadata(identifier)
         try:
             if data.lstrip(b"\xef\xbb\xbf \r\n\t").startswith(b"<"):
@@ -174,9 +180,7 @@ class ImageStore(AssetStore):
             "size_bytes": len(data),
             "archived": False,
         }
-        self._write(self.root / f"{identifier}.source", data)
-        self._write(self.root / f"{identifier}.image", normalized)
-        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        self.save(identifier, metadata, normalized, data, session=session)
         return metadata
 
 
@@ -223,6 +227,7 @@ def converted_image(
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
+@using_cache
 def image_svg(
     element: Element, store: ImageStore | None, dpi: int, dpi_y: int | None = None
 ) -> str:

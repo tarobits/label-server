@@ -1,11 +1,11 @@
-"""Immutable, content-addressed font files alongside the application's data."""
+"""Immutable uploaded fonts normalized for rendering and stored in the database."""
 
 import io
-import json
 from typing import Any
 
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import ImageFont
+from sqlalchemy.orm import Session
 
 from app.asset_store import AssetStore
 from app.identity import LOCAL_OWNER_ID
@@ -23,13 +23,14 @@ class FontStore(AssetStore):
         owner_id: str = LOCAL_OWNER_ID,
         scope: str = "personal",
         group_id: str | None = None,
+        session: Session | None = None,
     ) -> dict[str, Any]:
         if not data or len(data) > MAX_FONT_BYTES:
             raise ValueError("Upload a font of at most 5 MB")
         if data[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
             raise ValueError("Upload a static TTF or OTF font (not a collection or web font)")
         identifier = self.identifier(data, owner_id, scope, group_id)
-        if (self.root / f"{identifier}.json").exists():
+        if self.exists(identifier):
             return self.metadata(identifier)
         alias = f"LabelFont_{identifier[:48]}"
         try:
@@ -97,6 +98,5 @@ class FontStore(AssetStore):
             "size_bytes": len(data),
             "archived": False,
         }
-        self._write(self.root / f"{identifier}.font", normalized)
-        self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())
+        self.save(identifier, metadata, normalized, session=session)
         return metadata

@@ -126,7 +126,7 @@ def test_webp_is_generated_once_and_survives_store_recreation_until_template_cha
     client.app.state.template_previews = TemplatePreviews(root)
     assert client.get(url).content == first.content
     assert client.get(url).content == first.content
-    assert saved_file.stat().st_mtime_ns == modified
+    assert saved_file.stat().st_mtime_ns >= modified  # Cache access refreshes idle expiry.
     assert len(calls) == 1
     updated = client.put(
         f"/api/templates/{template['id']}",

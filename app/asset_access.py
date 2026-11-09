@@ -93,7 +93,7 @@ def share_asset(
     if (metadata["scope"], metadata["group_id"]) != (body.scope, body.group_id):
         require_asset_scope(request, session, kind, body.scope, body.group_id)
         store = request.app.state.images if kind == "image_asset" else request.app.state.fonts
-        metadata = store.set_sharing(identifier, body.scope, body.group_id)
+        metadata = store.set_sharing(identifier, body.scope, body.group_id, session=session)
     return asset_record(request, kind, metadata)
 
 

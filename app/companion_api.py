@@ -14,7 +14,7 @@ from app.access import access_context
 from app.action_audit import record_action
 from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.auth import actor_for_user, hash_password, token_hash, verify_password
-from app.avatars import avatar_path, avatar_version
+from app.avatars import avatar_version, read_avatar
 from app.companion_auth import DeviceDB, accessible_user, operator
 from app.http import db
 from app.models import (
@@ -385,9 +385,7 @@ def station_users(request: Request, session: DeviceDB) -> dict[str, Any]:
                     {
                         "id": user.id,
                         "username": user.username,
-                        "avatar_version": avatar_version(
-                            request.app.state.images.root.parent, user.id
-                        ),
+                        "avatar_version": avatar_version(session, user.id),
                     }
                 )
     return {
@@ -406,7 +404,7 @@ def station_avatar(identifier: str, request: Request, session: DeviceDB) -> Resp
     if not item.bound_user_id and not session.get(CompanionPin, user.id):
         raise HTTPException(404, "User is not available at this station")
     try:
-        data = avatar_path(request.app.state.images.root.parent, user.id).read_bytes()
+        data = read_avatar(session, user.id)
     except FileNotFoundError:
         raise HTTPException(404, "No profile picture") from None
     return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})

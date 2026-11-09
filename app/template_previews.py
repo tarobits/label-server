@@ -10,6 +10,7 @@ from threading import RLock
 from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
 
+from app.asset_cache import touch, using_cache
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
 from app.models import LabelTemplate
@@ -33,6 +34,7 @@ class TemplatePreviews:
                     if path != keep:
                         path.unlink(missing_ok=True)
 
+    @using_cache
     def get(
         self,
         template: LabelTemplate,
@@ -54,6 +56,7 @@ class TemplatePreviews:
         path = self.root / f"{self.prefix(template.id)}-{key}.webp"
         with self.lock:
             if path.is_file():
+                touch(path)
                 return path.read_bytes()
             document = TemplateDocument.model_validate(template.document)
             output = render_document(

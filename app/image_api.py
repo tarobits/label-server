@@ -66,7 +66,9 @@ def rename_image(
 ) -> dict[str, Any]:
     image_metadata(identifier, request, Action.WRITE, session)
     return asset_record(
-        request, "image_asset", request.app.state.images.rename(identifier, body.name)
+        request,
+        "image_asset",
+        request.app.state.images.rename(identifier, body.name, session=session),
     )
 
 
@@ -104,7 +106,7 @@ async def upload_image(
     data = b"".join(chunks)
 
     def store() -> dict[str, Any]:
-        with request.app.state.fleet.lock, request.app.state.factory() as session:
+        with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
             context = access_context(request)
             require_asset_scope(request, session, "image_asset", scope, group_id)
             try:
@@ -117,6 +119,7 @@ async def upload_image(
                         owner_id=context.actor.id,
                         scope=scope,
                         group_id=group_id,
+                        session=session,
                     ),
                 )
             except ValueError as error:
@@ -145,7 +148,9 @@ def change_visibility(
     image_metadata(identifier, request, Action.DELETE if archived else Action.WRITE, session)
     try:
         return asset_record(
-            request, "image_asset", request.app.state.images.set_archived(identifier, archived)
+            request,
+            "image_asset",
+            request.app.state.images.set_archived(identifier, archived, session=session),
         )
     except ValueError as error:
         raise HTTPException(404, str(error)) from error

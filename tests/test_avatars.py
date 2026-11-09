@@ -8,7 +8,7 @@ from test_access_security import accounts as accounts
 from test_companion_auth import station
 from test_companion_station import local_station
 
-from app.avatars import avatar_path, normalize_avatar
+from app.avatars import avatar_version, normalize_avatar
 from app.models import ResourceGrant, User
 from companion.web import create_app
 
@@ -97,8 +97,8 @@ def test_account_purge_removes_picture(accounts):
 
     admin, alice, _ = accounts
     alice.put("/api/auth/avatar", content=picture())
-    path = avatar_path(admin.app.state.images.root.parent, "alice")
-    assert path.exists()
+    with admin.app.state.factory() as session:
+        assert avatar_version(session, "alice")
     with admin.app.state.factory.begin() as session:
         delete_account(
             session,
@@ -110,4 +110,5 @@ def test_account_purge_removes_picture(accounts):
         purge_expired(
             session, admin.app.state.fonts, admin.app.state.images, time.time() + 100 * 86400
         )
-    assert not path.exists()
+    with admin.app.state.factory() as session:
+        assert avatar_version(session, "alice") is None

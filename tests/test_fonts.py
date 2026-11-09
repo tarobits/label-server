@@ -48,7 +48,7 @@ def test_uploaded_font_is_used_and_survives_hiding_and_store_reload(client: Test
     )
     assert queued.status_code == 201, queued.text
     assert client.delete(f"/api/font-assets/{font['id']}").json()["archived"]
-    store = FontStore(client.app.state.fonts.root)
+    store = FontStore(client.app.state.fonts.root, client.app.state.factory)
     assert store.list()[0]["archived"]
     client.app.state.fonts = store
     client.app.state.fleet.workers["main"].fonts = store

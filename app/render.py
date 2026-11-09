@@ -17,6 +17,7 @@ import resvg_py
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import Image, ImageFont, ImageOps
 
+from app.asset_cache import using_cache
 from app.element_geometry import element_geometry
 from app.font_assets import FontStore
 from app.image_assets import ImageStore, image_svg
@@ -59,10 +60,28 @@ class RenderOutput:
     missing_assets: dict[str, str]
     template_padding_mm: float = 0
     resolved_inputs: dict[str, Value] | None = None
+    font_store: FontStore | None = None
 
+    @using_cache
     def preview(self, foreground: str, background: str, *, smooth: bool = False) -> str:
         source = self.image.convert("L")
         if smooth:
+            # A retained output may outlive the idle cache timeout.
+            if self.font_store:
+                self.font_files = [
+                    str(FONT_DIR / "NotoSans.ttf"),
+                    str(FONT_DIR / "NotoSans-Bold.ttf"),
+                ]
+                self.font_files.extend(
+                    sorted(
+                        {
+                            path
+                            for element in self.document.elements
+                            if element.kind == "text" and element.visible
+                            if (path := font_path(element, self.font_store)) is not None
+                        }
+                    )
+                )
             # Re-render vector geometry, rather than enlarging thresholded device pixels.
             png = resvg_py.svg_to_bytes(
                 svg_string=self.svg,
@@ -314,6 +333,7 @@ def element_bounds(element: Element) -> tuple[float, float, float, float]:
     return x, y, x + geometry["width"], y + geometry["height"]
 
 
+@using_cache
 def resolve_layout(
     document: TemplateDocument,
     values: dict[str, str],
@@ -476,6 +496,7 @@ def artwork_bounds(
     )
 
 
+@using_cache
 def measure_logic_layout(
     document: TemplateDocument,
     data: Mapping[str, object],
@@ -512,6 +533,7 @@ def measure_logic_layout(
     return resolve_layout(source, values, spec, fonts, warnings=warnings, measure_hidden=True)
 
 
+@using_cache
 def render_document(
     document: TemplateDocument,
     data: Mapping[str, object],
@@ -713,7 +735,15 @@ def render_document(
     source = Image.open(io.BytesIO(png)).convert("L")
     image = source.point([255 if value >= 128 else 0 for value in range(256)], mode="1")
     return RenderOutput(
-        svg, image, warnings, document, font_files, missing, template_padding, resolved_inputs
+        svg,
+        image,
+        warnings,
+        document,
+        font_files,
+        missing,
+        template_padding,
+        resolved_inputs,
+        fonts,
     )
 
 

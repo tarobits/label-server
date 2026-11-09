@@ -51,8 +51,8 @@ def create_app(
     engine = make_engine(settings.database_url)
     factory = session_factory(engine)
     settings.state_directory.mkdir(parents=True, exist_ok=True)
-    fonts = FontStore(settings.state_directory / "assets" / "fonts")
-    images = ImageStore(fonts.root.parent / "images")
+    fonts = FontStore(settings.state_directory / "cache" / "assets" / "fonts", factory)
+    images = ImageStore(fonts.root.parent / "images", factory)
 
     def asset_deleted(kind: str, identifier: str) -> bool:
         with factory() as session:
@@ -63,16 +63,25 @@ def create_app(
     registry = PrinterRegistry()
     fleet = PrinterFleet(factory, settings, fonts, images, registry, backends, backend_factory)
     stop, wake = fleet.stop, fleet.wake
-    update_marker = fonts.root.parent.parent / ".update-in-progress"
+    update_marker = settings.state_directory / ".update-in-progress"
     activation_lock = Lock()
 
     def run_notifications() -> None:
         import time
 
         next_cleanup = 0.0
+        next_cache_cleanup = 0.0
         while not stop.is_set():
             try:
+                from app.asset_cache import expire
                 from app.request_notifications import schedule_request_digest
+
+                if time.time() >= next_cache_cleanup:
+                    expire(
+                        settings.state_directory / "cache" / "assets",
+                        settings.asset_cache_idle_seconds,
+                    )
+                    next_cache_cleanup = time.time() + min(60, settings.asset_cache_idle_seconds)
 
                 with fleet.lock, factory.begin() as session:
                     if time.time() >= next_cleanup:
@@ -102,8 +111,16 @@ def create_app(
             with factory.begin() as session:
                 import time
 
+                from app.asset_cache import expire
+                from app.asset_import import archive_legacy_assets, import_assets
+
+                import_assets(session, settings.state_directory / "assets")
                 purge_expired(session, fonts, images, time.time())
                 seed_templates(session)
+            archived_assets = archive_legacy_assets(factory, settings.state_directory / "assets")
+            if archived_assets:
+                logger.info("Legacy asset files archived to %s", archived_assets)
+            expire(settings.state_directory / "cache" / "assets", settings.asset_cache_idle_seconds)
             initialize_auth(factory, settings.state_directory)
             fleet.enforce_job_access = app.state.access_policy is None
             if fleet.enforce_job_access:
