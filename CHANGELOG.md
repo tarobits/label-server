@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.13.0-pre3] - 2026-11-09
+
+### Added
+
+- Profile pictures and a companion user-card picker with rounded-square avatars,
+  followed by PIN entry and a centered unlock button.
+- A touchscreen-friendly companion dashboard with queue counts, cartridge levels,
+  batch progress and a persistent main-server connection indicator. Operational
+  details on the locked screen can be disabled in deployment settings.
+- A searchable template picker for New label, with previews, filters, recent
+  templates and pagination for larger libraries.
+- Misprint reporting for previously confirmed copies, with reviewer attribution,
+  requester notifications and access to the existing retry workflow. Original
+  charges and recorded tape consumption remain unchanged.
+- Evidence photos for batch reviews and misprint reports, with an administrator
+  setting for Disabled, Optional or Required, and permission-protected history.
+
+### Changed
+
+- Image proportions and bounding-box proportions have independent controls.
+  Images can be scaled from 0.1 to 1 inside their box, and a reset button fits a
+  mismatched box to the image. Logic-driven image changes preserve the box size.
+- Uploaded images, fonts and profile pictures now live in the database for both
+  SQLite and MariaDB. Existing assets are imported and verified automatically;
+  the old assets directory then moves into a timestamped backup folder.
+- Rendering files and thumbnails use a disposable cache. Access refreshes their
+  timestamps, and files expire after seven idle days by default, configurable
+  with `LABEL_ASSET_CACHE_IDLE_SECONDS`.
+- Database transfer and native MariaDB backup/restore preserve binary assets and
+  check packet-size limits before importing or replacing data.
+
+### Fixed
+
+- Companions reconnect automatically when the main server becomes available,
+  including when the companion starts first, without refreshing the kiosk browser.
+
+**Migration requirements:** back up the database, complete local data directory
+and private configuration before upgrading. Pre3 adds schema migrations for review
+evidence and database assets. Keep the old assets directory available for the first
+main-server startup; successful import moves it to `data/backups/assets-…` (under
+`LABEL_DATA_DIR` when customized). Failed imports leave the original files intact.
+Keep the resulting archive for rollback. Before SQLite-to-MariaDB conversion,
+complete the asset import by starting this release once or running
+`scripts/migrate_assets.py` while the service is stopped. Database assets and review
+evidence require a coordinated backup restore for rollback once populated.
+Update both main and companion servers and refresh installed PWAs.
+
+Review evidence defaults to **Optional**. Locked companion operational details
+remain enabled by default; set
+`LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS=false` to hide them.
+
+**Known limits:** physical printer/Pi and real network-outage acceptance remain
+manual. Comprehensive audit coverage still needs review, and automatic Docker
+updates still require SQLite; native updates support MariaDB.
+
+See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre3/docs/DEPLOYMENT_CHECKLIST.md)
+for rollout, migration and recovery checks.
+
 ## [0.13.0-pre2] - 2026-11-08
 
 ### Added
@@ -731,6 +789,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.13.0-pre3]: https://github.com/tarobits/label-server/compare/v0.13.0-pre2...v0.13.0-pre3
 [0.13.0-pre2]: https://github.com/tarobits/label-server/compare/v0.13.0-pre1...v0.13.0-pre2
 [0.13.0-pre1]: https://github.com/tarobits/label-server/compare/v0.12.2...v0.13.0-pre1
 [0.12.2]: https://github.com/tarobits/label-server/compare/v0.12.1...v0.12.2
