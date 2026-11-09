@@ -17,6 +17,7 @@ from typing import Any, Iterator
 
 from sqlalchemy import Connection, inspect
 
+from app.binary_json import check_packet_size, decode_binary, encode_binary
 from app.config import Settings
 from app.database_lock import database_owner
 from app.db import make_engine
@@ -24,7 +25,10 @@ from app.db import make_engine
 
 def encode(value: Any) -> bytes:
     return (
-        json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
+        json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"), allow_nan=False, default=encode_binary
+        )
+        + "\n"
     ).encode()
 
 
@@ -38,7 +42,7 @@ def backup(connection: Connection, path: Path) -> None:
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     with os.fdopen(descriptor, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb") as output:
         output.write(
-            encode({"schema": 1, "database": connection.engine.url.database, "tables": tables})
+            encode({"schema": 2, "database": connection.engine.url.database, "tables": tables})
         )
         for table in tables:
             quoted = connection.dialect.identifier_preparer.quote(table)
@@ -60,13 +64,13 @@ def backup(connection: Connection, path: Path) -> None:
 def records(path: Path) -> Iterator[dict[str, Any]]:
     with gzip.open(path, "rb") as archive:
         for line in archive:
-            yield json.loads(line)
+            yield json.loads(line, object_hook=decode_binary)
 
 
-def validate(path: Path, database: str | None) -> None:
+def validate(path: Path, database: str | None, *, packet_limit: int | None = None) -> None:
     stream = records(path)
     header = next(stream)
-    if header.get("schema") != 1 or header.get("database") != database:
+    if header.get("schema") not in (1, 2) or header.get("database") != database:
         raise ValueError("Backup database or format mismatch")
     for table in header["tables"]:
         definition = next(stream)
@@ -84,6 +88,7 @@ def validate(path: Path, database: str | None) -> None:
                 break
             if len(record["row"]) != len(definition["columns"]):
                 raise ValueError("Backup column mismatch")
+            check_packet_size(record["row"], packet_limit)
             checksum.update(encode(record))
             count += 1
         else:
@@ -95,7 +100,8 @@ def validate(path: Path, database: str | None) -> None:
 def restore(connection: Connection, path: Path) -> None:
     # MariaDB DDL commits implicitly. Validate the whole archive before dropping
     # anything; failures after that point must leave the application stopped.
-    validate(path, connection.engine.url.database)
+    packet_limit = int(connection.exec_driver_sql("SELECT @@max_allowed_packet").scalar_one())
+    validate(path, connection.engine.url.database, packet_limit=packet_limit)
     quote = connection.dialect.identifier_preparer.quote
     connection.exec_driver_sql("SET SESSION FOREIGN_KEY_CHECKS=0")
     try:

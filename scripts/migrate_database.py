@@ -27,6 +27,7 @@ from dotenv import dotenv_values
 from sqlalchemy import Connection, Engine, inspect, text
 from sqlalchemy.engine import make_url
 
+from app.binary_json import check_packet_size, encode_binary
 from app.database_lock import database_owner, lock_name
 from app.db import make_engine
 
@@ -74,6 +75,12 @@ def stopped_source(path: Path) -> Generator[sqlite3.Connection, None, None]:
             revisions = source.execute("SELECT version_num FROM alembic_version").fetchall()
             if revisions != [(head_revision(),)]:
                 raise MigrationError("Upgrade the SQLite database to this release before migrating")
+            if not source.execute(
+                "SELECT 1 FROM asset_imports WHERE id='legacy-files-v1'"
+            ).fetchone():
+                raise MigrationError(
+                    "Import local assets first: start this release once or run scripts/migrate_assets.py before database migration"
+                )
             for table in ("batches", "label_copies"):
                 if source.execute(
                     f"SELECT 1 FROM {table} WHERE state='PRINTING' LIMIT 1"
@@ -157,7 +164,11 @@ def digest(rows: Any) -> tuple[int, str]:
     for row in rows:
         checksum.update(
             json.dumps(
-                list(row), ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                list(row),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=encode_binary,
             ).encode()
         )
         checksum.update(b"\n")
@@ -178,11 +189,13 @@ def copy_rows(
         for table, columns in tables.items():
             column_sql = ", ".join(f"`{c}`" for c in columns)
             cursor = source.execute(f"SELECT {column_sql} FROM `{table}`")
-            while rows := cursor.fetchmany(200):
-                connection.exec_driver_sql(
-                    f"INSERT INTO `{table}` ({column_sql}) VALUES ({', '.join(['%s'] * len(columns))})",
-                    rows,
-                )
+            while rows := cursor.fetchmany(1 if table == "stored_assets" else 200):
+                sql = f"INSERT INTO `{table}` ({column_sql}) VALUES ({', '.join(['%s'] * len(columns))})"
+                if any(isinstance(value, bytes) for row in rows for value in row):
+                    for row in rows:
+                        connection.exec_driver_sql(sql, row)
+                else:
+                    connection.exec_driver_sql(sql, rows)
             order = ", ".join(f"`{c.name}`" for c in Base.metadata.tables[table].primary_key)
             query = f"SELECT {column_sql} FROM `{table}` ORDER BY {order}"
             before = digest(source.execute(query))
@@ -216,6 +229,14 @@ def migrate(source_path: Path, engine: Engine, *, apply: bool, backup_dir: Path)
         tables = schema_tables(source)
         with engine.connect() as connection:
             require_empty_target(connection, tables)
+            packet_limit = int(
+                connection.exec_driver_sql("SELECT @@max_allowed_packet").scalar_one()
+            )
+            try:
+                for row in source.execute("SELECT content, source, details FROM stored_assets"):
+                    check_packet_size(row, packet_limit)
+            except ValueError as error:
+                raise MigrationError(str(error)) from error
             owner = connection.scalar(
                 text("SELECT IS_USED_LOCK(:name)"), {"name": lock_name(engine)}
             )

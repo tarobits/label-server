@@ -6,6 +6,7 @@ database named by the URL is modified. CREATE/DROP DATABASE privileges are neede
 
 import gzip
 import os
+import shutil
 import sqlite3
 import uuid
 
@@ -23,12 +24,14 @@ from app.database_lock import database_owner, lock_name
 from app.db import make_engine, session_factory
 from app.main import create_app
 from app.models import (
+    AssetImport,
     Batch,
     Cartridge,
     Location,
     PrinterDevice,
     PrinterState,
     State,
+    StoredAsset,
     TapeAllocation,
     TapeProfile,
     UsageAdjustment,
@@ -72,6 +75,17 @@ def sqlite_source(tmp_path):
     upgrade(url)
     engine = make_engine(url)
     with session_factory(engine).begin() as session:
+        session.add(AssetImport(id="legacy-files-v1"))
+        session.add(
+            StoredAsset(
+                kind="image",
+                id="a" * 64,
+                details={"id": "a" * 64, "name": "Binary fixture"},
+                content=b"\x00\xff\x80image",
+                source=b"\x00original",
+                checksum="b" * 64,
+            )
+        )
         session.add(
             User(
                 id="alice",
@@ -169,6 +183,7 @@ def test_migration_refuses_live_source(tmp_path):
     ("sql", "message"),
     [
         ("UPDATE alembic_version SET version_num='old'", "Upgrade the SQLite database"),
+        ("DELETE FROM asset_imports", "Import local assets first"),
         ("UPDATE locations SET parent_id='missing' WHERE id='child'", "broken foreign keys"),
         ("CREATE TABLE unexpected (id INTEGER)", "tables do not match"),
         ("UPDATE batches SET state='PRINTING'", "Printing is still in progress"),
@@ -204,6 +219,7 @@ def test_sqlite_copy_checks_all_data_preserves_source_and_refuses_existing_targe
     with sqlite3.connect(saved) as snapshot:
         assert snapshot.execute("PRAGMA integrity_check").fetchone() == ("ok",)
     with session_factory(maria_engine)() as session:
+        assert session.get_one(StoredAsset, ("image", "a" * 64)).content == b"\x00\xff\x80image"
         assert session.get_one(User, "alice").created_at == 1731234567.123456
         assert session.get_one(Location, "parent").name == "Work 🦊"
         assert session.get_one(PrinterDevice, "device").config["text"] == "é 漢字"
@@ -265,6 +281,10 @@ def test_database_backup_restore_and_corruption_guard(maria_engine, tmp_path):
         assert connection.exec_driver_sql("SELECT username FROM users").scalar() == "changed"
         restore(connection, path)
         assert connection.exec_driver_sql("SELECT username FROM users").scalar() == "alice"
+        assert connection.exec_driver_sql("SELECT content, source FROM stored_assets").one() == (
+            b"\x00\xff\x80image",
+            b"\x00original",
+        )
         assert "new_column" not in {c["name"] for c in inspect(connection).get_columns("users")}
 
 
@@ -303,6 +323,10 @@ def test_updater_bridge_holds_database_lock_and_restores_without_exposing_rows(
         remote.close()
     with database_owner(maria_engine), maria_engine.connect() as connection:
         assert connection.exec_driver_sql("SELECT username FROM users").scalar() == "alice"
+        assert connection.exec_driver_sql("SELECT content, source FROM stored_assets").one() == (
+            b"\x00\xff\x80image",
+            b"\x00original",
+        )
 
 
 def test_database_ownership_excludes_other_hosts_and_fails_closed_after_loss(maria_engine):
@@ -325,7 +349,7 @@ def test_database_ownership_excludes_other_hosts_and_fails_closed_after_loss(mar
         other.dispose()
 
 
-def test_main_server_auth_queue_and_local_assets_use_mariadb(maria_engine, tmp_path):
+def test_main_server_auth_queue_and_database_assets_use_mariadb(maria_engine, tmp_path):
     upgrade(maria_engine.url.render_as_string(hide_password=False))
     with session_factory(maria_engine).begin() as session:
         session.add(PrinterDevice(id="main", name="Printer", driver="mock", config={}))
@@ -376,6 +400,44 @@ def test_main_server_auth_queue_and_local_assets_use_mariadb(maria_engine, tmp_p
         app.state.fleet.workers["main"].tick()
         assert client.get(f"/api/jobs/{job.json()['id']}").json()["status"] == "printed"
         assert client.get("/api/batches?requester=local-owner").status_code == 200
+        from test_avatars import picture
+
+        from app.render import FONT_DIR
+
+        image = client.post("/api/image-assets", content=picture())
+        font = client.post("/api/font-assets", content=(FONT_DIR / "NotoSans.ttf").read_bytes())
+        assert image.status_code == font.status_code == 201
+        assert client.put("/api/auth/avatar", content=picture()).status_code == 200
+        avatar = client.get("/api/auth/avatar").content
+        document = {
+            "elements": [
+                {
+                    "id": "image1",
+                    "kind": "image",
+                    "image_asset": image.json()["id"],
+                    "x": 45,
+                    "y": 1,
+                    "width": 10,
+                    "height": 8,
+                },
+                {
+                    "id": "text1",
+                    "kind": "text",
+                    "font": font.json()["id"],
+                    "content": "Database assets",
+                    "x": 1,
+                    "y": 1,
+                    "width": 40,
+                    "height": 8,
+                },
+            ]
+        }
+        before = client.post("/api/preview", json={"document": document})
+        assert before.status_code == 200, before.text
+        shutil.rmtree(app.state.settings.state_directory / "cache")
+        assert client.post("/api/preview", json={"document": document}).json() == before.json()
+        assert client.get("/api/auth/avatar").content == avatar
+        assert not (app.state.settings.state_directory / "assets").exists()
         invitation = client.post("/api/admin/registration-codes", json={"name": "Test invitation"})
         assert invitation.status_code == 201, invitation.text
         assert client.post("/api/auth/logout").status_code == 204
@@ -384,3 +446,31 @@ def test_main_server_auth_queue_and_local_assets_use_mariadb(maria_engine, tmp_p
         )
         assert login.status_code == 200, login.text
     assert not (tmp_path / "state/auth-setup-token").exists()
+
+
+def test_binary_packet_limit_is_checked_before_restore_changes_tables(maria_engine, tmp_path):
+    migrate(
+        sqlite_source(tmp_path), maria_engine, apply=True, backup_dir=tmp_path / "source-backups"
+    )
+    path = tmp_path / "backup.gz"
+    with database_owner(maria_engine, enforce=True), maria_engine.connect() as connection:
+        backup(connection, path)
+        previous = int(
+            connection.exec_driver_sql("SELECT @@global.max_allowed_packet").scalar_one()
+        )
+        connection.exec_driver_sql("SET GLOBAL max_allowed_packet=1024")
+    # Session limits are inherited when opening a new connection.
+    maria_engine.dispose()
+    try:
+        with maria_engine.connect() as connection:
+            with pytest.raises(ValueError, match="max_allowed_packet"):
+                restore(connection, path)
+            assert connection.exec_driver_sql("SELECT username FROM users").scalar_one() == "alice"
+            assert (
+                connection.exec_driver_sql("SELECT content FROM stored_assets").scalar_one()
+                == b"\x00\xff\x80image"
+            )
+    finally:
+        with maria_engine.connect() as connection:
+            connection.exec_driver_sql(f"SET GLOBAL max_allowed_packet={previous}")
+        maria_engine.dispose()
