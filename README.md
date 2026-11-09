@@ -257,7 +257,7 @@ their layout, values, assets, dimensions, and resolution.
 
 The editor's **Preview tape** choice and display colors are saved with the template.
 Printing may use another compatible tape profile. Template cards load WebP
-thumbnails stored under `data/assets/template-previews`, generated on first view
+thumbnails stored under `data/cache/assets/template-previews`, generated on first view
 and reused across requests and restarts. Saving a new revision invalidates its
 thumbnail; missing or restored assets also refresh it. Retention cleanup purges
 derived previews with deleted content. Older templates default to black on white.
@@ -319,7 +319,28 @@ from use immediately and retains their data for 30 days. Restore them under
 **Administration → Deleted accounts and content** before the deadline; afterward,
 maintenance permanently purges the retained data. Global deletion permissions
 also permit removing referenced assets in that global library; other users may
-delete only unused assets they can manage. Back up `data/assets` with the database.
+delete only unused assets they can manage.
+
+Uploaded images, fonts, their ownership/sharing metadata, profile pictures and
+review evidence live in the database, for both SQLite and MariaDB. Database
+backups therefore include these assets. Rendering files and generated thumbnails
+under `data/cache/assets` are disposable: the server recreates them on demand.
+Each cache access refreshes its last-access timestamp. Files idle for seven days
+are removed automatically; set `LABEL_ASSET_CACHE_IDLE_SECONDS` (minimum 60) to
+change the interval. Cleanup runs periodically and skips active rendering.
+Bundled application fonts remain part of the installation.
+
+After upgrading the schema, the first main-server startup imports and verifies
+legacy `data/assets` files before printing begins. IDs, sharing, hidden assets and
+retained deleted assets remain unchanged. Missing or conflicting files stop the
+import; fix the source files and retry. The import is transactional and recorded
+in the database, so old files cannot later resurrect deleted assets. After the
+import commits, the original `assets` directory is moved into a timestamped
+`data/backups/assets-…` folder. The old `data/assets` path disappears; failed
+imports leave it untouched, and interrupted archive moves are retried on startup.
+The archive is retained for rollback and is separate from the expiring cache.
+Keep private configuration, authentication keys and companion journals backed up
+separately.
 
 Templates that reference deleted assets show a notice and placeholders: a file
 with a question mark for images, or **Aa** with a question mark in the top right

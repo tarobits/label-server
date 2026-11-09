@@ -119,7 +119,10 @@ MariaDB 11.8.6 is the integration-tested version; support targets 10.11 and newe
   files, never command-line arguments or Git.
 - [ ] Finish/review printing and synchronize companion results. Stop the main
   service and keep it stopped throughout migration. Ensure the SQLite source is at
-  this release's schema head. Back up data and configuration again.
+  this release's schema head. Complete the legacy asset import by starting this
+  release once, or (while stopped) running
+  `.venv/bin/python scripts/migrate_assets.py --env-file .env` as the service user.
+  Back up data and configuration again.
 - [ ] Run the migration readiness check as the service user:
 
   ```sh
@@ -279,3 +282,27 @@ authorizer and restricted viewer. Check API responses as well as hidden controls
   additionally requires cartridge Approve use. Paid retries await requester consent.
 - [ ] Revoke batch-history access and verify evidence photos are no longer accessible.
   Test opening and closing the photo and report dialogs on a narrow screen.
+
+### Database assets and idle rendering cache
+
+- [ ] Apply migration `161617d81ed4`. Keep the original asset directory available
+  for the first startup (including when `LABEL_DATA_DIR` is customized). Startup
+  must finish the verified asset import before the server accepts print work.
+- [ ] Check images, uploaded fonts, profile pictures, shared/hidden assets and
+  retained deleted assets. Restart the service and verify the import is not repeated.
+- [ ] Set `LABEL_ASSET_CACHE_IDLE_SECONDS` as desired (default 604800, minimum 60).
+  Cache files under `data/cache/assets` should refresh their timestamps when used,
+  expire after inactivity, and regenerate without changing printed output.
+- [ ] Restore a database backup into staging with an empty rendering cache and no
+  legacy asset directory. Verify previews, printing and profile pictures still work.
+  Native MariaDB backup format 2 includes binary values and can still restore old
+  format 1 backups. Confirm the old `assets` directory has moved to a timestamped
+  `backups/assets-…` folder after the import commits. Failed imports must leave the
+  source untouched. Keep this archive for rollback; cache expiration must not remove
+  it. Database assets block schema downgrade; use a coordinated restore.
+
+- [ ] For MariaDB, check that `max_allowed_packet` can accommodate the largest
+  stored asset, including its source bytes and SQL escaping. Upload, import and
+  migration checks report the required size if the configured limit is too small;
+  restore checks it before replacing tables. See the
+  [MariaDB variable reference](https://mariadb.com/docs/server/server-management/variables-and-modes/server-system-variables#max_allowed_packet).
