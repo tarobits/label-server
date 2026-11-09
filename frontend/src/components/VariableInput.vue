@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { TemplateField, VariableValue } from '../editor'
 import ImageValueInput from './ImageValueInput.vue'
+import { ref, watchEffect } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   field: TemplateField
   modelValue: VariableValue | undefined
   label: string
@@ -13,6 +14,22 @@ defineProps<{
   disabled?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: VariableValue]; change: [] }>()
+const textInput = ref<HTMLInputElement | HTMLTextAreaElement | null>(null)
+watchEffect(
+  () => {
+    const length = typeof props.modelValue === 'string' ? Array.from(props.modelValue).length : 0
+    const minimum = props.field.min_length ?? 0
+    const maximum = props.field.max_length ?? 2000
+    textInput.value?.setCustomValidity(
+      length && length < minimum
+        ? `Enter at least ${minimum} characters.`
+        : length > maximum
+          ? `Enter at most ${maximum} characters.`
+          : '',
+    )
+  },
+  { flush: 'post' },
+)
 function numberChanged(event: Event) {
   const value = (event.target as HTMLInputElement).valueAsNumber
   emit('update:modelValue', Number.isFinite(value) ? value : null)
@@ -80,20 +97,20 @@ function booleanChanged(event: Event) {
     >{{ label
     }}<textarea
       v-if="multiline"
+      ref="textInput"
       :value="typeof modelValue === 'string' ? modelValue : ''"
       :name="name"
       :required="required"
       :disabled="disabled"
-      maxlength="2000"
       rows="2"
       @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
       @change="emit('change')" /><input
       v-else
+      ref="textInput"
       :value="typeof modelValue === 'string' ? modelValue : ''"
       :name="name"
       :required="required"
       :disabled="disabled"
-      maxlength="2000"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       @change="emit('change')"
   /></label>

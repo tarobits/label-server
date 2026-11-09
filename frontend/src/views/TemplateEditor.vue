@@ -8,6 +8,7 @@ import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import TemplateHistory from '../components/TemplateHistory.vue'
 import VariableInput from '../components/VariableInput.vue'
+import TemplatePreviewInputs from '../components/TemplatePreviewInputs.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import {
   copyExpression,
@@ -17,7 +18,15 @@ import {
   visitReferences,
 } from '../variableInputs'
 import { decodeLabel } from '../labelPreview'
-import { PhotoIcon, LanguageIcon, QrCodeIcon, StopIcon, MinusIcon } from '@heroicons/vue/24/outline'
+import {
+  PhotoIcon,
+  LanguageIcon,
+  QrCodeIcon,
+  StopIcon,
+  MinusIcon,
+  ViewColumnsIcon,
+  Squares2X2Icon,
+} from '@heroicons/vue/24/outline'
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
@@ -108,6 +117,19 @@ const preview = ref<Preview | null>(null),
   error = ref(''),
   rendering = ref(false),
   ready = ref(false)
+const previewExampleId = ref('')
+const previewExample = computed(() =>
+  document.value.preview_examples?.find((example) => example.id === previewExampleId.value),
+)
+const previewData = computed(() =>
+  Object.fromEntries(
+    document.value.fields
+      .filter(
+        (field) => previewExample.value && Object.hasOwn(previewExample.value.data, field.name),
+      )
+      .map((field) => [field.name, previewExample.value!.data[field.name]!]),
+  ),
+)
 const sampleProfile = computed({
   get: () => document.value.preview_tape?.id ?? '',
   set: (id: string) => {
@@ -166,6 +188,9 @@ const selected = computed(() => document.value.elements.find((e) => e.id === sel
 const elementTitles = {
   text: 'Text',
   qr: 'QR code',
+  barcode: 'Barcode',
+  datamatrix: 'Data Matrix',
+  aztec: 'Aztec code',
   image: 'Image',
   rectangle: 'Rectangle',
   line: 'Line',
@@ -187,9 +212,11 @@ const inspectorTabs = computed(() =>
     { id: 'layout' as const, label: 'Layout' },
   ].filter((tab) =>
     tab.id === 'content'
-      ? ['text', 'qr', 'image'].includes(selected.value?.kind ?? '')
+      ? ['text', 'qr', 'barcode', 'datamatrix', 'aztec', 'image'].includes(
+          selected.value?.kind ?? '',
+        )
       : tab.id === 'style'
-        ? selected.value?.kind !== 'qr'
+        ? !['qr', 'barcode', 'datamatrix', 'aztec'].includes(selected.value?.kind ?? '')
         : true,
   ),
 )
@@ -429,6 +456,7 @@ async function load() {
         ? route.query.element
         : ''
     ready.value = true
+    previewExampleId.value = ''
     clearTimeout(timer)
     await updatePreview()
   } catch (e) {
@@ -445,6 +473,7 @@ async function updatePreview() {
         destination_id: w.selectedPrinter || undefined,
         document: { ...document.value, logic_editor: undefined },
         use_samples: true,
+        data: previewData.value,
       },
       w.destinationPrinter(w.selectedPrinter)?.capabilities,
     )
@@ -464,7 +493,7 @@ async function updatePreview() {
   }
 }
 watch(
-  [document, sampleProfile, () => w.selectedPrinter],
+  [document, previewData, sampleProfile, () => w.selectedPrinter],
   () => {
     serial++
     clearTimeout(timer)
@@ -514,7 +543,9 @@ function add(kind: Element['kind'], vertical = false) {
   }
   document.value.elements.push(element)
   selectedId.value = element.id
-  activeInspector.value = ['text', 'qr', 'image'].includes(kind) ? 'content' : 'style'
+  activeInspector.value = ['text', 'qr', 'barcode', 'datamatrix', 'aztec', 'image'].includes(kind)
+    ? 'content'
+    : 'style'
   record()
 }
 function remove() {
@@ -894,7 +925,11 @@ function changeFieldType(field: TemplateField, event: Event) {
     select.value = field.type ?? 'text'
   }
 }
-function changeLimit(field: TemplateField, key: 'minimum' | 'maximum', event: Event) {
+function changeLimit(
+  field: TemplateField,
+  key: 'minimum' | 'maximum' | 'min_length' | 'max_length',
+  event: Event,
+) {
   const value = (event.target as HTMLInputElement).valueAsNumber
   field[key] = Number.isFinite(value) ? value : null
   record()
@@ -910,6 +945,7 @@ function removeField(index: number) {
     return
   }
   document.value.fields.splice(index, 1)
+  for (const example of document.value.preview_examples ?? []) delete example.data[name]
   record()
 }
 function addField() {
@@ -1116,6 +1152,13 @@ onUnmounted(() => {
       </div>
     </div>
   </section>
+  <TemplatePreviewInputs
+    v-if="ready && w.profiles.length"
+    v-model="previewExampleId"
+    :document="document"
+    :disabled="!editable"
+    @change="record"
+  />
   <div
     v-if="ready && w.profiles.length"
     class="editor-layout"
@@ -1127,6 +1170,13 @@ onUnmounted(() => {
           <button aria-label="Add image" @click="add('image')"><PhotoIcon />Image</button>
           <button aria-label="Add text" @click="add('text')"><LanguageIcon />Text</button>
           <button aria-label="Add QR code" @click="add('qr')"><QrCodeIcon />QR code</button>
+          <button aria-label="Add barcode" @click="add('barcode')">
+            <ViewColumnsIcon />Barcode
+          </button>
+          <button aria-label="Add Data Matrix" @click="add('datamatrix')">
+            <Squares2X2Icon />Data Matrix
+          </button>
+          <button aria-label="Add Aztec code" @click="add('aztec')"><QrCodeIcon />Aztec</button>
           <button aria-label="Add rectangle" @click="add('rectangle')">
             <StopIcon />Rectangle
           </button>
@@ -1389,7 +1439,7 @@ onUnmounted(() => {
             @duplicate="duplicate"
             @remove="remove"
           />
-          <label v-if="selected.kind === 'text' || selected.kind === 'qr'"
+          <label v-if="['text', 'qr', 'barcode', 'datamatrix', 'aztec'].includes(selected.kind)"
             >Content<textarea
               aria-label="Content"
               v-model="selected.content"
@@ -1401,6 +1451,31 @@ onUnmounted(() => {
               >Use <code v-pre>{{ name }}</code> for a variable.</span
             ></label
           >
+          <template v-if="selected.kind === 'barcode'">
+            <label
+              >Barcode format<select v-model="selected.barcode_format" @change="record">
+                <option value="code128">Code 128</option>
+                <option value="ean13">EAN-13</option>
+                <option value="ean8">EAN-8</option>
+                <option value="code39">Code 39</option>
+              </select></label
+            >
+            <label class="checkbox"
+              ><input v-model="selected.barcode_caption" type="checkbox" @change="record" />Show
+              caption</label
+            >
+            <ExpandableContent :open="!!selected.barcode_caption">
+              <label
+                >Caption size (mm)<input
+                  v-model.number="selected.font_size"
+                  type="number"
+                  min="1"
+                  max="24"
+                  step="0.1"
+                  @change="record"
+              /></label>
+            </ExpandableContent>
+          </template>
           <template v-if="selected.kind === 'image'">
             <label
               >Image<select v-model="selected.image_asset" @change="record">
@@ -1936,6 +2011,28 @@ onUnmounted(() => {
               max="1000000000000"
               :value="field.maximum ?? ''"
               @change="changeLimit(field, 'maximum', $event)"
+          /></label>
+        </div>
+      </ExpandableContent>
+      <ExpandableContent :open="!field.type || field.type === 'text'" class="variable-limits">
+        <div class="field-row">
+          <label
+            >Minimum length<input
+              type="number"
+              min="0"
+              max="2000"
+              step="1"
+              :value="field.min_length ?? ''"
+              @change="changeLimit(field, 'min_length', $event)"
+          /></label>
+          <label
+            >Maximum length<input
+              type="number"
+              min="0"
+              max="2000"
+              step="1"
+              :value="field.max_length ?? ''"
+              @change="changeLimit(field, 'max_length', $event)"
           /></label>
         </div>
       </ExpandableContent>

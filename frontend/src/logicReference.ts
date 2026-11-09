@@ -46,6 +46,8 @@ const propertyHelp: Record<string, string> = {
   image_threshold: 'Integer threshold for monochrome conversion, from 1 to 255.',
   image_mode: 'Monochrome conversion mode: "threshold" or "dither".',
   qr_fill_box: 'Expand the QR code to fill its box.',
+  barcode_format: 'Barcode format: code128, ean13, ean8 or code39.',
+  barcode_caption: 'Show the human-readable barcode caption.',
   qr_margin_mm: 'QR margin in millimetres, from 0 to 50. QR boxes must remain square.',
   stroke:
     'Line or rectangle stroke width in millimetres, from 0.1 to 3, no wider than the object’s dimensions.',

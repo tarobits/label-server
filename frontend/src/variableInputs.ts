@@ -62,6 +62,9 @@ export function setFieldType(doc: TemplateDocument, field: TemplateField, type: 
     type === 'text' ? 'Example' : type === 'number' ? 0 : type === 'boolean' ? false : null
   delete field.minimum
   delete field.maximum
+  delete field.min_length
+  delete field.max_length
+  for (const example of doc.preview_examples ?? []) example.data[field.name] = field.sample
 }
 export function upgradeDocument(doc: TemplateDocument) {
   const invalid = doc.fields.find((f) => !validVariableName(f.name))
@@ -101,6 +104,12 @@ export function renameField(doc: TemplateDocument, field: TemplateField, name: s
       'Choose a unique variable name starting with a letter. Reserved names cannot be used in logic.',
     )
   const previous = field.name
+  for (const example of doc.preview_examples ?? []) {
+    if (Object.hasOwn(example.data, previous)) {
+      example.data[name] = example.data[previous]!
+      delete example.data[previous]
+    }
+  }
   visitReferences(doc, (reference) => {
     if (reference.name === previous) reference.name = name
   })

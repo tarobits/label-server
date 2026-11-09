@@ -48,6 +48,8 @@ export interface TemplateField {
   sample: VariableValue
   minimum?: number | null
   maximum?: number | null
+  min_length?: number | null
+  max_length?: number | null
 }
 export interface Element {
   id: string
@@ -55,7 +57,7 @@ export interface Element {
   logic_name?: string | null
   visible?: boolean
   literal_content?: boolean
-  kind: 'text' | 'qr' | 'rectangle' | 'line' | 'image'
+  kind: 'text' | 'qr' | 'barcode' | 'datamatrix' | 'aztec' | 'rectangle' | 'line' | 'image'
   x: number
   y: number
   width: number
@@ -88,8 +90,16 @@ export interface Element {
   image_threshold?: number
   qr_fill_box?: boolean
   qr_margin_mm?: number | null
+  barcode_format?: 'code128' | 'ean13' | 'ean8' | 'code39'
+  barcode_caption?: boolean
+}
+export interface PreviewExample {
+  id: string
+  name: string
+  data: Record<string, VariableValue>
 }
 export interface TemplateDocument {
+  preview_examples?: PreviewExample[]
   media?: import('./media').MediaProperties
   version: 1 | 2
   logic?: LogicProgram | null
@@ -166,10 +176,23 @@ export function newElement(kind: Element['kind']): Element {
     kind,
     x: 2,
     y: 2,
-    width: kind === 'qr' ? 20 : 30,
-    height: kind === 'line' ? 0.3 : kind === 'qr' ? 20 : 8,
+    width: ['qr', 'datamatrix', 'aztec'].includes(kind) ? 20 : kind === 'barcode' ? 50 : 30,
+    height:
+      kind === 'line'
+        ? 0.3
+        : ['qr', 'datamatrix', 'aztec'].includes(kind)
+          ? 20
+          : kind === 'barcode'
+            ? 12
+            : 8,
     rotation: 0,
-    content: kind === 'qr' ? 'https://example.org' : kind === 'text' ? 'Your label' : '',
+    content: ['qr', 'datamatrix', 'aztec'].includes(kind)
+      ? 'https://example.org'
+      : kind === 'text'
+        ? 'Your label'
+        : kind === 'barcode'
+          ? '12345678'
+          : '',
     font: 'Noto Sans',
     font_size: 3,
     character_spacing: 0,
@@ -194,6 +217,8 @@ export function newElement(kind: Element['kind']): Element {
     image_mode: 'threshold',
     image_threshold: 128,
     qr_fill_box: false,
+    barcode_format: 'code128',
+    barcode_caption: true,
     qr_margin_mm: 1,
   }
 }
