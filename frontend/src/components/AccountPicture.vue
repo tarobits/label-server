@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { api, errorMessage } from '../api'
 import { useAuthStore } from '../auth'
+import { useAvatarStore } from '../avatar'
 import UserAvatar from './UserAvatar.vue'
 const auth = useAuthStore()
-const version = ref<string | null>(null),
-  busy = ref(true),
+const avatar = useAvatarStore()
+const { version } = storeToRefs(avatar)
+const busy = ref(true),
   error = ref(''),
   success = ref('')
 let disposed = false
@@ -14,8 +17,7 @@ onBeforeUnmount(() => {
 })
 onMounted(async () => {
   try {
-    const result = await api<{ avatar_version: string | null }>('/auth/avatar/info')
-    if (!disposed) version.value = result.avatar_version
+    await avatar.refresh()
   } catch (issue) {
     if (!disposed) error.value = errorMessage(issue)
   } finally {
@@ -34,10 +36,11 @@ async function upload(event: Event) {
     return
   }
   busy.value = true
+  const owner = auth.user?.id
   try {
     const result = await api<{ avatar_version: string }>('/auth/avatar', 'PUT', file)
+    avatar.setVersion(result.avatar_version, owner)
     if (!disposed) {
-      version.value = result.avatar_version
       success.value = 'Profile picture saved.'
     }
   } catch (issue) {
@@ -51,10 +54,11 @@ async function remove() {
   busy.value = true
   error.value = ''
   success.value = ''
+  const owner = auth.user?.id
   try {
     await api('/auth/avatar', 'DELETE')
+    avatar.setVersion(null, owner)
     if (!disposed) {
-      version.value = null
       success.value = 'Profile picture removed.'
     }
   } catch (issue) {
@@ -68,10 +72,7 @@ async function remove() {
 <template>
   <div class="form-stack">
     <h2>Profile picture</h2>
-    <UserAvatar
-      :username="auth.user?.username ?? ''"
-      :src="version ? `/api/auth/avatar?v=${version}` : null"
-    />
+    <UserAvatar :username="auth.user?.username ?? ''" :src="avatar.src" />
     <label
       >Choose image<input
         type="file"

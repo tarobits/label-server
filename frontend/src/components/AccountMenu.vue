@@ -5,11 +5,13 @@ import {
   ArrowRightStartOnRectangleIcon,
   ChevronRightIcon,
   Cog6ToothIcon,
-  UserCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '../auth'
+import { useAvatarStore } from '../avatar'
+import UserAvatar from './UserAvatar.vue'
 import { useWorkspaceStore } from '../workspace'
 const auth = useAuthStore()
+const avatar = useAvatarStore()
 const workspace = useWorkspaceStore()
 const route = useRoute()
 const menu = ref<HTMLDetailsElement | null>(null)
@@ -142,9 +144,12 @@ async function logout() {
       @click.prevent="toggle"
       @keydown.tab="enterFlyout"
     >
-      <UserCircleIcon class="account-icon" /><span class="account-name">{{
-        auth.user?.username
-      }}</span
+      <UserAvatar
+        :key="auth.user?.id"
+        class="account-avatar"
+        :username="auth.user?.username ?? ''"
+        :src="avatar.src"
+      /><span class="account-name">{{ auth.user?.username }}</span
       ><ChevronRightIcon class="account-chevron" />
     </summary>
   </details>
@@ -199,11 +204,11 @@ details[open] > summary,
 .active > summary {
   background: var(--overlay);
 }
-.account-icon {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  color: var(--text-secondary);
+.account-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 14px;
 }
 .account-name {
   min-width: 0;
