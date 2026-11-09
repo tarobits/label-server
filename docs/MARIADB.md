@@ -37,10 +37,13 @@ verified TLS. The CA path must be readable by the service user (and mounted at
 that path in Docker). Keep database access restricted to trusted hosts; do not
 expose MariaDB publicly just because the main web server is public.
 
-`LABEL_DATA_DIR` holds uploaded images/fonts, profile pictures, authentication files and update
-state. When converting an existing installation, set it to the **old SQLite file's
-parent directory**, including when that directory is outside the installation.
-Your remote database backup does not include these local files or `.env`.
+From pre3, uploaded images/fonts, profile pictures and review evidence are stored
+in the database and included in its backups. `LABEL_DATA_DIR` holds the disposable
+rendering cache, archived legacy assets, authentication files and update state.
+When upgrading an existing installation, keep it at the **old SQLite file's parent
+directory** so the first startup can import and verify legacy assets, then move
+that directory into `backups/assets-…`. Private configuration, authentication keys
+and local rollback archives still need separate backups.
 
 For a fresh native installation, place only the connection URL, without a variable
 name, in a protected file outside the repository, then run:
@@ -69,7 +72,10 @@ the bundled Compose database setting.
    process. Keep the service stopped throughout the copy and configuration change.
 2. Back up the complete local data directory and `.env`. Apply this release's
    SQLite schema migrations while the old SQLite URL is still configured. The
-   source must be at this checkout's Alembic head.
+   source must be at this checkout's Alembic head. Before copying, complete the
+   asset import by starting pre3 once and stopping it again, or by running
+   `.venv/bin/python scripts/migrate_assets.py --env-file .env` as the service user
+   while stopped. The migration tool refuses a source whose asset import is incomplete.
 3. Create an empty MariaDB database as above. **Do not initialize or start the
    application against it first**: seeded application rows make it nonempty.
    Put the target `LABEL_DATABASE_URL="..."` line in a separate protected file

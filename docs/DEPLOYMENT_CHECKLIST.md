@@ -1,7 +1,7 @@
-# Deployment checklist: 0.12.2 and 0.13.0-pre2
+# Deployment checklist: 0.12.2 and 0.13.0-pre3
 
 Use **0.12.2** for the isolated automatic text-field sizing fix. Use
-**0.13.0-pre2** for staged evaluation of the larger upgrade. The prerelease includes
+**0.13.0-pre3** for staged evaluation of the larger upgrade. The prerelease includes
 the patch, changes the database schema, and requires administrator inventory
 migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks, not claims that a deployment has already passed them.
@@ -23,7 +23,7 @@ public issues. Main servers and companions must run on separate machines.
 - [ ] Back up the database, complete local data directory (including uploaded
   images/fonts), private configuration, code revision, and dependency environment.
   Stop the service for a coordinated snapshot. Check that the backup can be read
-  and restored into an isolated deployment. A MariaDB backup alone omits local assets.
+  and restored into an isolated deployment. Before pre3 asset import, a MariaDB backup alone omits local assets.
 - [ ] Check free space for backups and frontend builds, service ownership, USB
   permissions, reverse proxy configuration, and access to GitHub release assets.
 - [ ] Run the updater's read-only plan from the installation directory. Specify
@@ -32,7 +32,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the prerelease:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre2
+  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre3
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -57,7 +57,7 @@ public issues. Main servers and companions must run on separate machines.
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
-## Prerelease main server: 0.13.0-pre2
+## Prerelease main server: 0.13.0-pre3
 
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
@@ -65,14 +65,14 @@ public issues. Main servers and companions must run on separate machines.
 - [ ] Upgrade the native main server using the exact prerelease tag:
 
   ```sh
-  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre2 --prebuilt-frontend
+  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre3 --prebuilt-frontend
   ```
 
   Review and confirm the plan. Reserve `--yes` for reviewed automation. The updater
   applies schema migrations; a manual installation must run `alembic upgrade head`
   with the correct environment and service account before starting the server.
 - [ ] Confirm health and version, then open the interface as an administrator.
-  Verify that existing installations cannot print before inventory migration is
+  For upgrades from before pre1, verify printing waits until inventory migration is
   complete. Bulk-assign the appropriate owners and locations and review historical
   cartridge balances. Complete the migration deliberately; verify printing resumes.
 - [ ] Confirm existing users, roles, printers, cartridges, templates, images, fonts,
@@ -152,7 +152,7 @@ builds require Python 3.12+ and Node 22.12+. Physical Pi/USB acceptance is still
   its one-time API key into a protected `.env.companion` on the station. Verify
   outbound HTTPS to the main server across the intended networks. Inbound public
   access to the companion is not required.
-- [ ] Install from a checkout of `v0.13.0-pre2`:
+- [ ] Install from a checkout of `v0.13.0-pre3`:
 
   ```sh
   sudo python3 scripts/install.py --role companion \
