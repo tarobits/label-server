@@ -67,6 +67,15 @@ migration `151516c70dc3` when creating the `batch_reviews` foreign key to `batch
 (error 1005 / errno 150). The updater reported successful rollback to pre2 and a
 healthy service. This attempt did not validate the pre3 deployment checks below.
 
+**Fix verified in source — 2026-11-09 (not in the published pre3 tag):** reproduced
+the failure on MariaDB 11.8.6 with database defaults different from the baseline
+tables. The review migration now explicitly matches the baseline's InnoDB engine
+and `utf8mb4_nopad_bin` collation, and preserves an existing evidence-policy column
+when retrying the failed migration. All 18 MariaDB integration tests and 24 SQLite
+migration/review tests passed, including upgrades with different database defaults
+and a partially applied migration. Deployment validation is still pending. Use a
+release containing this fix before retrying; the original pre3 tag remains affected.
+
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
   Use a maintenance window and retain the pre-upgrade backup.
