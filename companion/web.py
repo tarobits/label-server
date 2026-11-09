@@ -33,6 +33,16 @@ PROXY_PATH = re.compile(
 )
 
 
+def frontend_build(path: Path) -> str | None:
+    """The installed shell identity, also embedded in the running browser page."""
+    try:
+        shell = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    match = re.search(r'<meta name="app-build" content="([a-f0-9]{64})"', shell)
+    return match.group(1) if match else None
+
+
 class Unlock(BaseModel):
     user_id: str = Field(min_length=1, max_length=100)
     pin: SecretStr = Field(min_length=4, max_length=12)
@@ -68,6 +78,8 @@ def create_app(
     journal = agent.journal if agent else Journal(settings.data_dir / "journal.db")
     agent = agent or Agent(settings, journal)
     station = StationSession()
+    assets = Path(__file__).resolve().parent.parent / "frontend" / "dist-companion"
+    build = frontend_build(assets / "companion.html")
     update_marker = settings.data_dir / ".update-in-progress"
 
     @asynccontextmanager
@@ -230,6 +242,7 @@ def create_app(
         ]
         return {
             "name": agent.users.get("name", "Companion"),
+            "frontend_build": build,
             "online": agent.online,
             "locked": token is None,
             "user": user,
@@ -444,7 +457,6 @@ def create_app(
             media_type=result.headers.get("content-type", "application/json"),
         )
 
-    assets = Path(__file__).resolve().parent.parent / "frontend" / "dist-companion"
     if (assets / "assets").exists():
         app.mount("/assets", StaticFiles(directory=assets / "assets"), name="assets")
     fonts = Path(__file__).resolve().parent.parent / "app" / "fonts"

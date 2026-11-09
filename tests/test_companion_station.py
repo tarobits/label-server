@@ -9,12 +9,13 @@ from pydantic import SecretStr, ValidationError
 from test_access_security import accounts as accounts
 from test_companion_auth import station
 
+from app import __version__
 from app.models import ResourceGrant
 from app.printer.factory import DeviceConfiguration
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 from companion.journal import Journal
-from companion.web import create_app
+from companion.web import create_app, frontend_build
 
 
 def local_station(admin, tmp_path, *, user="administrator"):
@@ -42,6 +43,51 @@ def unlock(client):
     )
     assert response.status_code == 200, response.text
     return client.get("/api/station").json()
+
+
+def test_frontend_build_identity_handles_missing_and_invalid_shell(tmp_path):
+    path = tmp_path / "companion.html"
+    assert frontend_build(path) is None
+    path.write_text('<html><meta name="app-build" content="invalid"></html>')
+    assert frontend_build(path) is None
+    path.write_text(f'<html><meta name="app-build" content="{"a" * 64}"></html>')
+    assert frontend_build(path) == "a" * 64
+    path.write_bytes(b"\xff")
+    assert frontend_build(path) is None
+
+
+def test_locked_offline_station_reports_build_after_update_validation(
+    accounts, tmp_path, monkeypatch
+):
+    settings, agent = local_station(accounts[0], tmp_path)
+    monkeypatch.setattr("companion.web.frontend_build", lambda path: "b" * 64)
+    agent.last_contact = 0
+    marker = settings.data_dir / ".update-in-progress"
+    marker.touch()
+    with TestClient(create_app(settings, agent, start_agent=False)) as client:
+        assert client.get("/api/station").status_code == 503
+        assert client.get("/api/health").json() == {"healthy": True}
+        marker.unlink()
+        state = client.get("/api/station").json()
+        assert state["frontend_build"] == "b" * 64
+        assert state["locked"] and not state["online"]
+
+
+def test_station_reports_version_without_printers(accounts, tmp_path):
+    admin, _, _ = accounts
+    item, _, _ = station(admin)
+    settings = Settings(
+        server_url="http://testserver",
+        api_key=item["api_key"],
+        data_dir=tmp_path / "station",
+        printers=[],
+    )
+    agent = Agent(settings, Journal(settings.data_dir / "journal.db"), client=admin)
+    agent.sync()
+    current = admin.get("/api/companions").json()[0]
+    assert current["software_version"] == __version__
+    assert current["status"] == "online"
+    assert current["server_version"] == __version__
 
 
 @pytest.mark.parametrize("mode", ["none", "once", "each_keypress"])

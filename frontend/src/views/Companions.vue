@@ -15,6 +15,10 @@ interface Companion {
   bound_user_id: string | null
   revision: number
   enabled: boolean
+  status: 'online' | 'offline' | 'never_connected' | 'revoked'
+  last_seen_at: number | null
+  software_version: string | null
+  server_version: string
   grants: Grant[]
 }
 interface Draft {
@@ -35,9 +39,19 @@ const busy = ref(false),
   key = ref(''),
   copied = ref(false)
 const principal = ref('')
+const refreshError = ref('')
+const statusLabels = {
+  online: 'Online',
+  offline: 'Offline',
+  never_connected: 'Never connected',
+  revoked: 'Key revoked',
+}
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let loadGeneration = 0
 let disposed = false
 onBeforeUnmount(() => {
   disposed = true
+  clearTimeout(refreshTimer)
   key.value = ''
 })
 const people = computed(() => [
@@ -45,16 +59,37 @@ const people = computed(() => [
   ...(catalog.value?.roles ?? []).map((r) => ({ id: `role:${r.id}`, name: `Role: ${r.name}` })),
 ])
 async function load() {
-  const [companions, access] = await Promise.all([
-    api<Companion[]>('/companions'),
-    api<AccessCatalog>('/resource-access'),
-  ])
+  const [, access] = await Promise.all([loadCompanions(), api<AccessCatalog>('/resource-access')])
   if (!disposed) {
-    items.value = companions
     catalog.value = access
   }
 }
-onMounted(() => load().catch((issue) => (error.value = errorMessage(issue))))
+async function loadCompanions() {
+  const generation = ++loadGeneration
+  try {
+    const companions = await api<Companion[]>('/companions')
+    if (!disposed && generation === loadGeneration) {
+      items.value = companions
+      refreshError.value = ''
+    }
+  } catch (issue) {
+    if (!disposed && generation === loadGeneration) refreshError.value = errorMessage(issue)
+    throw issue
+  }
+}
+async function refresh() {
+  try {
+    if (!busy.value) await (catalog.value ? loadCompanions() : load())
+  } catch (issue) {
+    if (!disposed) refreshError.value = errorMessage(issue)
+  } finally {
+    if (!disposed) refreshTimer = setTimeout(refresh, 5000)
+  }
+}
+onMounted(refresh)
+function versionMismatch(item: Companion) {
+  return !!item.software_version && item.software_version !== item.server_version
+}
 function edit(item?: Companion) {
   selected.value = item
   preview.value = undefined
@@ -171,18 +206,29 @@ function removeGrant(index: number) {
         Add companion
       </button>
     </div>
-    <p v-if="error && !form && !key" class="alert danger" role="alert">{{ error }}</p>
+    <p v-if="(error || refreshError) && !form && !key" class="alert danger" role="alert">
+      {{ error || refreshError }}
+    </p>
     <p v-if="success" class="alert success" role="status">{{ success }}</p>
     <p v-if="catalog && !catalog.locations.length">
       <RouterLink to="/resource-access">Add a location</RouterLink> before registering a companion.
     </p>
     <p v-else-if="!items.length" class="muted">No companions registered.</p>
     <div v-for="item in items" :key="item.id" class="companion-row">
-      <div>
-        <h3>{{ item.name }}</h3>
+      <div class="companion-details">
+        <div class="companion-heading">
+          <h3>{{ item.name }}</h3>
+          <span
+            class="badge"
+            :class="{
+              printed: !refreshError && item.status === 'online',
+              failed: !refreshError && ['offline', 'revoked'].includes(item.status),
+            }"
+            >{{ refreshError ? 'Status unavailable' : statusLabels[item.status] }}</span
+          >
+        </div>
         <p class="muted">
           {{ catalog?.locations.find((l) => l.id === item.location_id)?.name }} ·
-          {{ item.enabled ? 'Enabled' : 'Key revoked' }} ·
           {{
             item.bound_user_id
               ? (catalog?.users.find((u) => u.id === item.bound_user_id)?.name ??
@@ -190,6 +236,20 @@ function removeGrant(index: number) {
               : 'User picker'
           }}
         </p>
+        <div class="companion-telemetry muted">
+          <span>{{ item.software_version ? `v${item.software_version}` : 'Version unknown' }}</span>
+          <span v-if="item.last_seen_at !== null">
+            Last seen
+            <time :datetime="new Date(item.last_seen_at * 1000).toISOString()">
+              {{ new Date(item.last_seen_at * 1000).toLocaleString() }}
+            </time>
+          </span>
+        </div>
+        <ExpandableContent :open="versionMismatch(item)">
+          <p class="inline-warning companion-version-warning">
+            Version mismatch · Main server v{{ item.server_version }}
+          </p>
+        </ExpandableContent>
       </div>
       <div class="row wrap">
         <button class="secondary" :disabled="busy" @click="edit(item)">Settings</button
@@ -312,12 +372,32 @@ function removeGrant(index: number) {
   flex-wrap: wrap;
 }
 .companion-row h3 {
-  margin: 0 0 8px;
+  margin: 0;
 }
 .companion-row p {
   margin: 0;
 }
 .grant-row {
   margin-top: 16px;
+}
+.companion-details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.companion-heading,
+.companion-telemetry {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.companion-heading {
+  margin-bottom: 8px;
+}
+.companion-telemetry {
+  margin-top: 8px;
+}
+.companion-row .companion-version-warning {
+  margin-top: 8px;
 }
 </style>

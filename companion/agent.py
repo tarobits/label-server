@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import httpx
 
+from app import __version__
 from app.printer.base import ConfirmableMediaBackend, MediaSelection, PrinterBackend, PrinterStatus
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition
@@ -30,7 +31,10 @@ class Agent:
         self.client = client or httpx.Client(
             base_url=settings.server_url, timeout=10, follow_redirects=False
         )
-        self.key_headers = {"Authorization": f"Bearer {settings.api_key.get_secret_value()}"}
+        self.key_headers = {
+            "Authorization": f"Bearer {settings.api_key.get_secret_value()}",
+            "X-Companion-Version": __version__,
+        }
         self.backend_factory = backend_factory
         self.executors: dict[str, Executor] = {}
         self.identifiers: dict[str, str] = {}

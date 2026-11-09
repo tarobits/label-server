@@ -1,5 +1,6 @@
 """Installation keys never confer arbitrary user identity or account sessions."""
 
+import re
 import time
 from collections.abc import Iterator
 from dataclasses import replace
@@ -46,6 +47,14 @@ def installation(request: Request, session: Session) -> Companion:
 def device_db(request: Request) -> Iterator[Session]:
     with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
         companion = installation(request, session)
+        version = request.headers.get("x-companion-version")
+        # Missing headers are expected from older companions. Invalid telemetry
+        # must not interrupt printing or be reflected back into the interface.
+        companion.software_version = (
+            version
+            if version and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}", version)
+            else None
+        )
         session.info["companion"] = companion
         companion.last_seen_at = time.time()
         yield session

@@ -10,6 +10,7 @@ from pydantic import Field, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.access import access_context
 from app.action_audit import record_action
 from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
@@ -140,6 +141,14 @@ def admin(request: Request) -> None:
 
 
 def public_companion(session: Session, item: Companion) -> dict[str, Any]:
+    if item.key_hash is None:
+        status = "revoked"
+    elif item.last_seen_at is None:
+        status = "never_connected"
+    elif item.last_seen_at >= time.time() - 30:
+        status = "online"
+    else:
+        status = "offline"
     return {
         "id": item.id,
         "name": item.name,
@@ -148,6 +157,9 @@ def public_companion(session: Session, item: Companion) -> dict[str, Any]:
         "revision": item.revision,
         "enabled": item.key_hash is not None,
         "last_seen_at": item.last_seen_at,
+        "status": status,
+        "software_version": item.software_version,
+        "server_version": __version__,
         "grants": [
             {
                 "principal_kind": grant.principal_kind,

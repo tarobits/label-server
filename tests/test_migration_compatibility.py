@@ -10,7 +10,8 @@ from sqlalchemy import create_engine, inspect, text
 
 
 @pytest.mark.parametrize(
-    "previous", ["e92b4f06a318", "a91e2bf0c463", "merged_a91", "b37c60e14f92", "c84e21d690ab"]
+    "previous",
+    ["e92b4f06a318", "a91e2bf0c463", "merged_a91", "b37c60e14f92", "c84e21d690ab", "161617d81ed4"],
 )
 def test_upgrade_preserves_history_from_each_applied_migration_shape(tmp_path, previous):
     url = f"sqlite:///{tmp_path / 'compatibility.db'}"

@@ -16,6 +16,14 @@ needs an inbound connection to the station.
    `chmod 600 .env.companion`, and fill in the server URL and key. Keep this file
    private. Both Git and Docker build contexts exclude it.
 
+The main server's **Companions** page refreshes every five seconds and shows each
+station's connection status, last contact time and last reported software version.
+A station is offline after 30 seconds without contact; unused and revoked keys
+show **Never connected** and **Key revoked** respectively. Version differences
+from the main server are flagged. Older companions show **Version unknown** until
+updated to report their version. Apply migration `171718e92fe5` on the main server
+before running code with companion-version reporting.
+
 In user-picker mode, each user sets a personal PIN in the main server's Account
 settings. It works at companions they may access. For single-user mode, an admin
 selects the station user on the main server; set that same account ID in
@@ -33,6 +41,13 @@ are visible before unlock only for accounts eligible to use that companion.
 The bottom indicator distinguishes the main server being offline from the browser
 losing contact with the companion. The page retries automatically and recovers
 without a browser refresh. Print and other control requests are never replayed.
+
+After a companion frontend update, the page reloads automatically once the local
+service is ready, the station is locked, no dialog is open, and no control request
+is pending. The new shell must match the server's build identity before reload;
+a stale cached shell cannot cause a repeated reload loop. Printing is owned by
+the companion service and is not restarted by a browser reload. An already-open
+page from before this feature needs one manual refresh to load the new behavior.
 
 The dashboard shows each printer's queue counts, cartridge estimate, active batch
 size, last batch result, and confirmed labels printed in the last 24 hours. Shared

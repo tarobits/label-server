@@ -26,6 +26,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { checkServer, serverUnavailable } from './serverConnection'
 import { mediaLabel, compatibleProfile } from './media'
+import { reloadUpdatedCompanion } from './companionUpdates'
 
 interface LocalPrinter {
   dashboard?: StationDashboard | null
@@ -47,6 +48,7 @@ interface Operator {
   groups: Record<string, { name: string; printer_ids: string[] }>
 }
 interface Station {
+  frontend_build?: string | null
   name: string
   online: boolean
   locked: boolean
@@ -208,6 +210,23 @@ async function refresh() {
       stationReachable.value = false
       throw issue
     })
+    if (disposed || ticket !== generation) return
+    if (
+      await reloadUpdatedCompanion(
+        state.frontend_build,
+        () =>
+          !disposed &&
+          ticket === generation &&
+          state.locked &&
+          !busy.value &&
+          !unlocking.value &&
+          !adding.value &&
+          !config.value &&
+          !document.hidden &&
+          !document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]'),
+      )
+    )
+      return
     if (disposed || ticket !== generation) return
     const changed = state.user?.id !== station.value?.user?.id
     station.value = state

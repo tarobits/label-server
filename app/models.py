@@ -294,6 +294,7 @@ class Companion(Base):
     revision: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[float] = mapped_column(default=time.time)
     last_seen_at: Mapped[float | None]
+    software_version: Mapped[str | None] = mapped_column(String(64))
 
 
 class CompanionPin(Base):
