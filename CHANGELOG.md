@@ -1,5 +1,88 @@
 # Changelog
 
+## [0.13.0] - 2026-11-09
+
+### Added
+
+- Physical locations, printer and cartridge ownership, resource filters, granular
+  user/role permissions, location inheritance, explicit allow/deny overrides, and
+  an access graph explaining effective permissions.
+- Cartridge-attributed debts, owner/requester balances, repayments, price limits,
+  authorized substitutions with price protection, and failed-label retry offers.
+- Filterable Print Activity, completed-batch packing previews, permission-aware
+  audit views, and an in-app notification inbox.
+- Companion stations with local printer configuration, queue and printing controls,
+  cartridge swaps, personal or shared PINs, optional keypads, inactivity locking,
+  operational dashboards, and connection/version indicators. Authorized batches
+  can finish through temporary main-server outages.
+- MariaDB support, SQLite-to-MariaDB transfer, separate main/companion frontend
+  downloads, and native installation and updates for both server roles.
+- Profile pictures, a companion user picker, and a searchable template picker.
+- Misprint reporting, retry workflows, and review evidence photos with an
+  administrator-controlled Disabled/Optional/Required policy.
+- Saved template input examples with gallery controls that preview current
+  unsaved edits, plus minimum/maximum text lengths enforced in previews and printing.
+- Code 128, Code 39, EAN-13 and EAN-8 elements with optional captions, plus
+  Data Matrix and Aztec elements. Code content supports variables and logic.
+
+### Changed
+
+- Uploaded images, fonts and profile pictures are stored in the database.
+  Existing assets are verified and imported before the old assets folder moves
+  into a timestamped backup. Rendering uses a disposable cache with configurable
+  expiry based on last access.
+- Printer retirement preserves history; moving a printer to a companion retains
+  its identity, ownership, permissions, groups and queued work.
+- Image fitting, box proportions and artwork scaling have separate controls.
+  Design destination lives with template settings, and logic displays object names.
+- Controlled tape-profile media properties enforce design/cartridge compatibility.
+- Installers and updaters detect deployment role and mode, support explicit
+  overrides, show the intended plan, and require confirmation unless `--yes` is used.
+- Account navigation shows profile pictures. Updated companion pages reload
+  automatically when safely locked, with no open dialog or pending control request.
+
+### Fixed
+
+- MariaDB upgrades handle differing default collations and retries after a
+  partially applied review migration. Binary asset transfer and recovery are preserved.
+- Automatic text width accounts for logic-bound content and typography before
+  positioning dependent elements.
+- Companion installation preserves configured environment values; opening the
+  PIN form no longer immediately reports missing fields.
+- Companion setup and account permission controls retain spacing between buttons,
+  fields and feedback, including the Permissions graph and Edit buttons.
+
+### Security
+
+- Resource audit views redact inaccessible information. Companion controls use
+  main-server permissions, scoped station credentials and administrator-approved
+  shared-user bindings. MariaDB ownership locking prevents concurrent main servers
+  from owning the same database.
+
+**Upgrade requirements:** back up the database, complete local data directory and
+private configuration before upgrading. Apply schema migrations and update both
+main and companion servers on their separate machines. Upgrades from 0.12.x pause
+printing until an administrator completes inventory migration. Legacy asset import
+requires the original files; retain the archived copy for coordinated rollback.
+Refresh an already-open companion page once if it predates pre5's update detector.
+MariaDB users should skip pre3; its migration fixes are included here.
+
+**From pre5:** no additional schema migration is required. This release adds the
+template examples, text limits, code elements and account-button spacing fix.
+Install the updated main-server Python dependencies, including `python-barcode`
+and `zxing-cpp`; the installer/updater handles this. Older versions cannot read
+templates saved with the new fields or code element types.
+
+**Verification and known limits:** the operator reports 40 manual checks passed,
+3 partial and 41 untested, with G7 companion recovery now passed. Remaining checks
+are not implied to pass by publication. Physical printer/scanner acceptance and
+comprehensive audit coverage remain incomplete; automatic Docker updates still
+require SQLite. Native updates support MariaDB. Fixed-label compatibility does
+not add another physical printer driver.
+
+See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0/docs/DEPLOYMENT_CHECKLIST.md)
+and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0/docs/V0_13_0_ACCEPTANCE.md).
+
 ## [0.13.0-pre5] - 2026-11-09
 
 ### Added
@@ -853,6 +936,9 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.13.0]: https://github.com/tarobits/label-server/compare/v0.13.0-pre5...v0.13.0
+[0.13.0-pre5]: https://github.com/tarobits/label-server/compare/v0.13.0-pre4...v0.13.0-pre5
+[0.13.0-pre4]: https://github.com/tarobits/label-server/compare/v0.13.0-pre3...v0.13.0-pre4
 [0.13.0-pre3]: https://github.com/tarobits/label-server/compare/v0.13.0-pre2...v0.13.0-pre3
 [0.13.0-pre2]: https://github.com/tarobits/label-server/compare/v0.13.0-pre1...v0.13.0-pre2
 [0.13.0-pre1]: https://github.com/tarobits/label-server/compare/v0.12.2...v0.13.0-pre1
