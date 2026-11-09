@@ -1,6 +1,34 @@
 # Changelog
 
+## [0.13.0-pre4] - 2026-11-09
+
+### Fixed
+
+- MariaDB upgrades no longer fail when the database's default collation differs
+  from the existing batch tables.
+- Retrying the failed review migration preserves the existing evidence-policy
+  setting instead of failing on a duplicate column.
+
+**Migration requirements:** MariaDB users should skip pre3 and upgrade directly
+to pre4. If the updater restored pre2 after a failed upgrade, retry using pre4.
+Back up the database, local data directory and private configuration first; the
+pre3 asset-import and rollback requirements still apply. This release corrects
+the existing migration and adds no new schema revision for installations already
+successfully running pre3.
+
+Verified on MariaDB 11.8.6: all 18 integration tests passed, including upgrades
+with differing database defaults and retries after partial migration. All 24
+SQLite migration/review tests passed.
+
+See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre4/docs/DEPLOYMENT_CHECKLIST.md)
+for rollout, migration and recovery checks.
+
 ## [0.13.0-pre3] - 2026-11-09
+
+> **MariaDB users: do not install this upgrade. Use
+> [0.13.0-pre4](https://github.com/tarobits/label-server/releases/tag/v0.13.0-pre4)
+> instead.** Pre3 can fail during the review-table migration when database
+> collations differ. Pre4 fixes the migration and retry handling.
 
 ### Added
 

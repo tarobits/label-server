@@ -1,7 +1,7 @@
-# Deployment checklist: 0.12.2 and 0.13.0-pre3
+# Deployment checklist: 0.12.2 and 0.13.0-pre4
 
 Use **0.12.2** for the isolated automatic text-field sizing fix. Use
-**0.13.0-pre3** for staged evaluation of the larger upgrade. The prerelease includes
+**0.13.0-pre4** for staged evaluation of the larger upgrade. The prerelease includes
 the patch, changes the database schema, and requires administrator inventory
 migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
@@ -33,7 +33,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the prerelease:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre3
+  sudo python3 scripts/update.py --mode native --check --tag v0.13.0-pre4
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -60,21 +60,21 @@ public issues. Main servers and companions must run on separate machines.
   to fit a fixed height. Check width, padding, character spacing and line spacing.
   Check a single-line label and a queued preview for regression.
 
-## Prerelease main server: 0.13.0-pre3
+## Prerelease main server: 0.13.0-pre4
 
 **Reported result — 2026-11-09:** the pre2-to-pre3 MariaDB upgrade failed in
 migration `151516c70dc3` when creating the `batch_reviews` foreign key to `batches`
 (error 1005 / errno 150). The updater reported successful rollback to pre2 and a
 healthy service. This attempt did not validate the pre3 deployment checks below.
 
-**Fix verified in source — 2026-11-09 (not in the published pre3 tag):** reproduced
+**Fix included in pre4 — 2026-11-09:** reproduced
 the failure on MariaDB 11.8.6 with database defaults different from the baseline
 tables. The review migration now explicitly matches the baseline's InnoDB engine
 and `utf8mb4_nopad_bin` collation, and preserves an existing evidence-policy column
 when retrying the failed migration. All 18 MariaDB integration tests and 24 SQLite
 migration/review tests passed, including upgrades with different database defaults
-and a partially applied migration. Deployment validation is still pending. Use a
-release containing this fix before retrying; the original pre3 tag remains affected.
+and a partially applied migration. Deployment validation is still pending. MariaDB
+users must skip pre3 and use pre4, including when retrying after rollback to pre2.
 
 - [ ] Read [the plan and known gaps](V0_13_0_PLAN.md),
   [access control](ACCESS_CONTROL.md), and [deployment guide](DEPLOYMENT.md).
@@ -82,7 +82,7 @@ release containing this fix before retrying; the original pre3 tag remains affec
 - [ ] Upgrade the native main server using the exact prerelease tag:
 
   ```sh
-  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre3 --prebuilt-frontend
+  sudo python3 scripts/update.py --mode native --tag v0.13.0-pre4 --prebuilt-frontend
   ```
 
   Review and confirm the plan. Reserve `--yes` for reviewed automation. The updater
@@ -169,7 +169,7 @@ builds require Python 3.12+ and Node 22.12+. Physical Pi/USB acceptance is still
   its one-time API key into a protected `.env.companion` on the station. Verify
   outbound HTTPS to the main server across the intended networks. Inbound public
   access to the companion is not required.
-- [ ] Install from a checkout of `v0.13.0-pre3`:
+- [ ] Install from a checkout of `v0.13.0-pre4`:
 
   ```sh
   sudo python3 scripts/install.py --role companion \
