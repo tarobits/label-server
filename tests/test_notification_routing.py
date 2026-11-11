@@ -425,7 +425,7 @@ def test_endpoint_change_settles_canceled_parent_and_allows_next_tape_reminder(c
     with factory.begin() as session:
         endpoint(session, "main-topic", destination_ids=["main"])
         # Admin mutations recheck queued job ownership using real account data.
-        session.add(
+        session.merge(
             User(
                 id=LOCAL_OWNER_ID,
                 username="owner",

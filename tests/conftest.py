@@ -46,6 +46,14 @@ def create_test_app(settings=None, backends=None, start_worker=True, **kwargs):
     from app.access import LocalOwnerPolicy
 
     app.state.access_policy = LocalOwnerPolicy()
+    from app.identity import LOCAL_OWNER_ID
+    from app.models import User
+
+    with app.state.factory.begin() as session:
+        if session.get(User, LOCAL_OWNER_ID) is None:
+            session.add(
+                User(id=LOCAL_OWNER_ID, username="local-test-owner", password_hash="disabled")
+            )
     app.include_router(router)
     return app
 
@@ -98,7 +106,15 @@ def grant_cartridge(client, cartridge_id, user_id="alice", *permissions):
 
     with client.app.state.factory.begin() as session:
         for permission in permissions or ("view", "use"):
-            session.add(ResourceGrant(principal_kind="user", principal_id=user_id, scope_kind="cartridge", scope_id=cartridge_id, permission=f"cartridge.{permission}"))
+            session.add(
+                ResourceGrant(
+                    principal_kind="user",
+                    principal_id=user_id,
+                    scope_kind="cartridge",
+                    scope_id=cartridge_id,
+                    permission=f"cartridge.{permission}",
+                )
+            )
 
 
 def install(client: TestClient, profile_id: str, remaining: float = 8000) -> dict[str, Any]:
@@ -119,9 +135,15 @@ def install(client: TestClient, profile_id: str, remaining: float = 8000) -> dic
 
     with client.app.state.factory.begin() as session:
         for permission in ("cartridge.view", "cartridge.use"):
-            session.add(ResourceGrant(principal_kind="role", principal_id="member",
-                                      scope_kind="cartridge", scope_id=cartridge["id"],
-                                      permission=permission))
+            session.add(
+                ResourceGrant(
+                    principal_kind="role",
+                    principal_id="member",
+                    scope_kind="cartridge",
+                    scope_id=cartridge["id"],
+                    permission=permission,
+                )
+            )
     response = client.put("/api/printer/active-tape", json={"cartridge_id": cartridge["id"]})
     assert response.status_code == 200, response.text
     return cartridge

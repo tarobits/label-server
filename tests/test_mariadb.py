@@ -74,6 +74,37 @@ def upgrade(url):
     command.upgrade(config, "head")
 
 
+def test_relationship_orphans_stage_before_mariadb_enforcement(maria_engine):
+    from migrations.relationships_v1 import VERSION, finalize, violations
+
+    config = Config("alembic.ini")
+    config.attributes["database_url"] = maria_engine.url.render_as_string(hide_password=False)
+    command.upgrade(config, "19191a0b41a7")
+    with maria_engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO companion_pins (user_id, pin_hash) VALUES ('missing', 'invalid')")
+        )
+    command.upgrade(config, "head")
+    with maria_engine.connect() as connection:
+        assert violations(connection)[0]["table"] == "companion_pins"
+        assert (
+            connection.scalar(
+                text("SELECT completed_at FROM release_migrations WHERE version=:v"), {"v": VERSION}
+            )
+            is None
+        )
+    with maria_engine.begin() as connection:
+        # Simulate the administrator's explicit credential revocation.
+        connection.execute(text("DELETE FROM companion_pins WHERE user_id='missing'"))
+    with database_owner(maria_engine, enforce=True), maria_engine.connect() as connection:
+        finalize(connection)
+        assert not violations(connection)
+        assert connection.scalar(
+            text("SELECT completed_at FROM release_migrations WHERE version=:v"), {"v": VERSION}
+        )
+    command.check(config)
+
+
 @pytest.mark.parametrize("maria_engine", ["utf8mb4_general_ci", "latin1_swedish_ci"], indirect=True)
 @pytest.mark.parametrize("partial", [False, True])
 def test_pre3_upgrade_with_different_database_collation(maria_engine, partial):
@@ -82,6 +113,11 @@ def test_pre3_upgrade_with_different_database_collation(maria_engine, partial):
     command.upgrade(config, "141415b69cb2")
     factory = session_factory(maria_engine)
     with factory.begin() as session:
+        session.execute(
+            text(
+                "INSERT INTO printers (id, name, driver, config) VALUES ('main', 'Test printer', 'mock', '{}')"
+            )
+        )
         session.add(TapeProfile(id="profile", name="Tape", width_mm=24))
         session.flush()
         session.add(
@@ -219,6 +255,7 @@ def sqlite_source(tmp_path):
         session.add(
             Batch(
                 id="batch",
+                printer_id="device",
                 cartridge_id="cartridge",
                 state=State.PRINTED,
                 estimated_mm=100,

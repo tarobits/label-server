@@ -37,6 +37,7 @@ export interface User {
 }
 export interface Session {
   migration_required?: boolean
+  relationship_migration_required?: boolean
   setup_required: boolean
   registration_code_required: boolean
   user: User | null

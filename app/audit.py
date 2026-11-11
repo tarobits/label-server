@@ -36,6 +36,21 @@ COMMON_FIELDS: dict[str, FieldType] = {
     "victim_names": "identifiers",
 }
 ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
+    "migration.resource_created": {
+        "resource_kind": "text",
+        "resource_id": "text",
+        "name": "text",
+        "relationship": "text",
+        "reason": "text",
+    },
+    "migration.relationship_repaired": {
+        "relationship": "text",
+        "record": "text",
+        "previous": "text",
+        "replacement": "text",
+        "revoked": "boolean",
+        "reason": "text",
+    },
     "printer.automatic_mode_changed": {"old_disabled": "boolean", "new_disabled": "boolean"},
     "billing.changed": {"account_id": "text", "event_id": "text", "change": "text"},
     "settings.review_evidence_changed": {"previous": "text", "current": "text"},

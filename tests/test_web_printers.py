@@ -6,14 +6,20 @@ from sqlalchemy import MetaData, Table
 
 from app.access import LocalOwnerPolicy
 from app.db import make_engine
+from app.identity import LOCAL_OWNER_ID
 from app.main import create_app as production_app
-from app.models import PrinterDevice
+from app.models import PrinterDevice, User
 
 
 def create_app(*args, **kwargs):
     app = production_app(*args, **kwargs)
     # These tests exercise production driver configuration; auth has its own suite.
     app.state.access_policy = LocalOwnerPolicy()
+    with app.state.factory.begin() as session:
+        if session.get(User, LOCAL_OWNER_ID) is None:
+            session.add(
+                User(id=LOCAL_OWNER_ID, username="local-test-owner", password_hash="disabled")
+            )
     return app
 
 

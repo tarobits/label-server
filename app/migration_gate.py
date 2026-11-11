@@ -7,8 +7,10 @@ from app.models import ReleaseMigration
 
 
 def migration_pending(session: Session) -> bool:
+    from app.relationship_migration import pending
+
     migration = session.get(ReleaseMigration, "0.13.0")
-    return migration is not None and migration.completed_at is None
+    return bool(migration is not None and migration.completed_at is None) or pending(session)
 
 
 def require_migration_complete(session: Session) -> None:

@@ -111,6 +111,35 @@ def create_app(
                     "Another server owns this database; run exactly one process"
                 ) from error
             ownership.enter_context(database_owner(engine, enforce=True))
+            from app.relationship_migration import pending as relationships_pending
+            from migrations.relationships_v1 import VERSION as RELATIONSHIP_VERSION
+            from migrations.relationships_v1 import finalize
+
+            with factory() as session:
+                from app.models import ReleaseMigration
+
+                migration = session.get(ReleaseMigration, RELATIONSHIP_VERSION)
+                ready = bool(
+                    migration and migration.completed_at is None and migration.draft.get("ready")
+                )
+            if ready:
+                try:
+                    with engine.connect() as connection:
+                        finalize(connection)
+                    # Do not reuse connections with a pre-rebuild SQLite schema cache.
+                    engine.dispose()
+                except Exception:
+                    logger.exception(
+                        "Relationship constraints could not be applied; keeping migration mode"
+                    )
+            with factory() as session:
+                app.state.relationship_maintenance = relationships_pending(session)
+            if app.state.relationship_maintenance:
+                initialize_auth(factory, settings.state_directory)
+                # No asset purge, recovery, notification delivery, printer polling,
+                # or dispatch may observe an administrator's partially repaired graph.
+                yield
+                return
             with factory.begin() as session:
                 import time
 
@@ -167,6 +196,10 @@ def create_app(
             lock_file.close()
 
     app = FastAPI(title="Taro's Label Room", version=__version__, lifespan=lifespan)
+    app.state.relationship_maintenance = False
+    from app.relationship_migration import router as relationship_router
+
+    app.include_router(relationship_router)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> Response:
@@ -259,6 +292,21 @@ def create_app(
                 content={"detail": "Update validation in progress"},
                 headers={"Cache-Control": "no-store", "Retry-After": "1"},
             )
+        if app.state.relationship_maintenance and request.url.path.startswith("/api/"):
+            allowed = request.url.path in {
+                "/api/health",
+                "/api/version",
+                "/api/auth/session",
+                "/api/auth/login",
+                "/api/auth/logout",
+                "/api/auth/setup",
+            } or request.url.path.startswith("/api/migration/relationships")
+            if not allowed:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "An administrator must complete the relationship migration"},
+                    headers={"Cache-Control": "no-store"},
+                )
         try:
             response = await call_next(request)
         except Exception:

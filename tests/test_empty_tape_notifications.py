@@ -18,7 +18,7 @@ def empty_alert(client, *, administrator=True):
     cartridge = install(client, tape["id"], remaining=0)
     if administrator:
         with client.app.state.factory.begin() as session:
-            session.add(
+            session.merge(
                 User(
                     id=LOCAL_OWNER_ID,
                     username="admin",
@@ -114,7 +114,7 @@ def test_empty_alert_waits_for_initial_administrator_setup(client):
     assert not sender.sent
     with client.app.state.factory.begin() as session:
         assert not session.get(Notification, identifier).cancelled
-        session.add(
+        session.merge(
             User(
                 id=LOCAL_OWNER_ID,
                 username="admin",

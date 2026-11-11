@@ -75,6 +75,12 @@ def stopped_source(path: Path) -> Generator[sqlite3.Connection, None, None]:
             revisions = source.execute("SELECT version_num FROM alembic_version").fetchall()
             if revisions != [(head_revision(),)]:
                 raise MigrationError("Upgrade the SQLite database to this release before migrating")
+            if source.execute(
+                "SELECT 1 FROM release_migrations WHERE version='relationships-v1' AND completed_at IS NULL"
+            ).fetchone():
+                raise MigrationError(
+                    "Complete the administrator relationship migration and maintenance restart before copying the database"
+                )
             if not source.execute(
                 "SELECT 1 FROM asset_imports WHERE id='legacy-files-v1'"
             ).fetchone():

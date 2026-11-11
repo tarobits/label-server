@@ -12,6 +12,7 @@ from app.models import (
     AccessChangeConfirmation,
     AuthSession,
     Cartridge,
+    Companion,
     DeletedContent,
     LabelTemplate,
     Location,
@@ -115,6 +116,8 @@ def delete_account(
 ) -> None:
     if is_deleted(session, "users", user.id):
         raise HTTPException(404, "Account has been deleted")
+    if session.scalar(select(Companion.id).where(Companion.bound_user_id == user.id).limit(1)):
+        raise HTTPException(409, "Rebind or unbind this account's companions before deleting it")
     release_inventory(session, user.id, actor_id)
     memberships = []
     for group in session.scalars(select(UserGroup)):
@@ -227,6 +230,12 @@ def purge_expired(session: Session, fonts: AssetStore, images: AssetStore, now: 
             )
             session.execute(delete(LabelTemplate).where(LabelTemplate.id == item.identifier))
         elif item.kind == "users":
+            # Older deletions may already be scheduled. Keep their binding intact
+            # and let unrelated retention work proceed until an admin resolves it.
+            if session.scalar(
+                select(Companion.id).where(Companion.bound_user_id == item.identifier).limit(1)
+            ):
+                continue
             release_inventory(session, item.identifier, "system")
             session.execute(
                 update(NotificationEndpoint)

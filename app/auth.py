@@ -278,12 +278,14 @@ def check_csrf(request: Request, session: AuthSession) -> None:
 
 def session_record(session: Session, user: User, record: AuthSession) -> dict[str, Any]:
     from app.migration_gate import migration_pending
+    from app.relationship_migration import pending as relationships_pending
 
     actor = actor_for_user(session, user)
     settings = session.get(AuthSettings, 1)
     return {
         "setup_required": False,
         "migration_required": migration_pending(session),
+        "relationship_migration_required": relationships_pending(session),
         "registration_code_required": settings.registration_code_required if settings else True,
         "user": {
             "id": user.id,

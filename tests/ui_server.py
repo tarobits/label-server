@@ -107,11 +107,17 @@ if __name__ == "__main__":
         def seed_inbox(session: DB):
             from app.notifications import enqueue
 
-            enqueue(session, "Labels ready", "Your labels are ready to collect.", "/#/activity", recipient_id=LOCAL_OWNER_ID)
+            enqueue(
+                session,
+                "Labels ready",
+                "Your labels are ready to collect.",
+                "/#/activity",
+                recipient_id=LOCAL_OWNER_ID,
+            )
             return {"ok": True}
 
         with application.state.factory.begin() as session:
-            session.add(
+            session.merge(
                 User(
                     id=LOCAL_OWNER_ID,
                     username="owner",

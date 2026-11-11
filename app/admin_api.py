@@ -25,6 +25,7 @@ from app.models import (
     AuthSettings,
     Cartridge,
     DeletedContent,
+    LabelTemplate,
     Location,
     PrinterDevice,
     PrinterGroup,
@@ -498,6 +499,10 @@ def apply_change(
     if change.resource == "groups":
         if change.method == "DELETE":
             group = get(session, UserGroup, change.identifier)
+            if session.scalar(
+                select(LabelTemplate.id).where(LabelTemplate.group_id == group.id).limit(1)
+            ):
+                raise HTTPException(409, "Reassign this group's templates before deleting it")
             for code in session.scalars(select(RegistrationCode)):
                 code.group_ids = [
                     identifier for identifier in code.group_ids if identifier != group.id

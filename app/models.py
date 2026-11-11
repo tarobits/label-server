@@ -58,7 +58,7 @@ class Location(Base):
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     name: Mapped[str]
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
-    owner_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
 
 
 class ReleaseMigration(Base):
@@ -261,7 +261,7 @@ class Cartridge(Base):
     consumption_uncertain: Mapped[bool] = mapped_column(default=False)
     price_minor: Mapped[int | None]
     currency: Mapped[str] = mapped_column(String(3), default="EUR", server_default="EUR")
-    owner_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
     notes: Mapped[str] = mapped_column(default="", server_default="")
 
@@ -273,7 +273,7 @@ class PrinterDevice(Base):
     driver: Mapped[str]
     config: Mapped[dict[str, Any]] = mapped_column(JSON)
     no_automatic_printing: Mapped[bool] = mapped_column(default=False, server_default="0")
-    owner_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
 
 
@@ -290,7 +290,7 @@ class Companion(Base):
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     name: Mapped[str]
     location_id: Mapped[str] = mapped_column(ForeignKey("locations.id"))
-    bound_user_id: Mapped[str | None] = mapped_column(String(128))
+    bound_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     key_hash: Mapped[str | None] = mapped_column(String(128), unique=True)
     revision: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[float] = mapped_column(default=time.time)
@@ -300,7 +300,9 @@ class Companion(Base):
 
 class CompanionPin(Base):
     __tablename__ = "companion_pins"
-    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     pin_hash: Mapped[str]
 
 
@@ -308,7 +310,7 @@ class CompanionSession(Base):
     __tablename__ = "companion_sessions"
     token_hash: Mapped[str] = mapped_column(String(128), primary_key=True)
     companion_id: Mapped[str] = mapped_column(ForeignKey("companions.id"), index=True)
-    user_id: Mapped[str]
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     revision: Mapped[int]
     pin_fingerprint: Mapped[str | None]
     expires_at: Mapped[float]
@@ -343,21 +345,26 @@ class PrinterState(Base):
     __tablename__ = "printer_state"
     id: Mapped[int] = mapped_column(primary_key=True)
     printer_id: Mapped[str] = mapped_column(
-        String(128), unique=True, default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+        ForeignKey("printers.id"),
+        unique=True,
+        default=DEFAULT_PRINTER_ID,
+        server_default=DEFAULT_PRINTER_ID,
     )
     active_cartridge_id: Mapped[str | None] = mapped_column(ForeignKey("cartridges.id"))
     media_confirmation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     media_verified_fingerprint: Mapped[str | None] = mapped_column(String(128))
     cartridge_check_enabled: Mapped[bool] = mapped_column(default=True, server_default="1")
     cartridge_check_pending: Mapped[bool] = mapped_column(default=False, server_default="0")
-    empty_alert_cartridge_id: Mapped[str | None] = mapped_column(String(128))
+    empty_alert_cartridge_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cartridges.id", ondelete="SET NULL")
+    )
     blocker: Mapped[str | None]
     automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")
 
 
 class LabelTemplate(Base):
     __tablename__ = "label_templates"
-    group_id: Mapped[str | None] = mapped_column(String(128))
+    group_id: Mapped[str | None] = mapped_column(ForeignKey("user_groups.id"))
     scope: Mapped[str] = mapped_column(String(128), default="personal", server_default="personal")
     owner_id: Mapped[str] = mapped_column(
         String(128), default=LOCAL_OWNER_ID, server_default=LOCAL_OWNER_ID
@@ -422,7 +429,7 @@ class Batch(Base):
     print_plan: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     consumption_source: Mapped[str | None] = mapped_column(String(128))
     printer_id: Mapped[str] = mapped_column(
-        String(128), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+        ForeignKey("printers.id"), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     cartridge_id: Mapped[str] = mapped_column(ForeignKey("cartridges.id"))
@@ -472,7 +479,7 @@ class FlushRequest(Base):
         JSON, default=dict, server_default="{}"
     )
     printer_id: Mapped[str] = mapped_column(
-        String(128), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
+        ForeignKey("printers.id"), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )
     destination_id: Mapped[str] = mapped_column(
         String(128), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
@@ -487,7 +494,7 @@ class FlushRequest(Base):
 class PriceQuote(Base):
     __tablename__ = "price_quotes"
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
-    user_id: Mapped[str]
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     geometry_key: Mapped[str]
     quotes: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     expires_at: Mapped[float]
@@ -546,7 +553,9 @@ class NotificationRead(Base):
     notification_id: Mapped[str] = mapped_column(
         ForeignKey("notifications.id", ondelete="CASCADE"), primary_key=True
     )
-    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     read_at: Mapped[float] = mapped_column(default=time.time)
 
 
@@ -599,7 +608,7 @@ class NotificationDelivery(Base):
 
 class PrintRun(Base):
     __tablename__ = "print_runs"
-    assigned_printer_id: Mapped[str | None] = mapped_column(String(128))
+    assigned_printer_id: Mapped[str | None] = mapped_column(ForeignKey("printers.id"))
     destination_id: Mapped[str] = mapped_column(
         String(128), default=DEFAULT_PRINTER_ID, server_default=DEFAULT_PRINTER_ID
     )

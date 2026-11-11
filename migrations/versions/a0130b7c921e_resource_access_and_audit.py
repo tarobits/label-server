@@ -25,9 +25,7 @@ def upgrade() -> None:
     for table in ("printers", "cartridges"):
         op.add_column(table, sa.Column("owner_id", sa.String(), nullable=True))
         # SQLite supports adding a nullable FK without recreating referenced tables.
-        op.execute(
-            f"ALTER TABLE {table} ADD COLUMN location_id VARCHAR REFERENCES locations (id)"
-        )
+        op.execute(f"ALTER TABLE {table} ADD COLUMN location_id VARCHAR REFERENCES locations (id)")
         op.create_index(f"ix_{table}_owner_id", table, ["owner_id"])
         op.create_index(f"ix_{table}_location_id", table, ["location_id"])
     op.add_column("cartridges", sa.Column("notes", sa.String(), nullable=False, server_default=""))
@@ -65,10 +63,27 @@ def downgrade() -> None:
     op.drop_table("audit_events")
     op.drop_table("resource_grants")
     op.drop_column("cartridges", "notes")
-    for table in ("cartridges", "printers"):
-        op.drop_index(f"ix_{table}_location_id", table)
-        op.drop_index(f"ix_{table}_owner_id", table)
-        # Native DROP COLUMN avoids rebuilding tables referenced by saved batches.
-        op.execute(f"ALTER TABLE {table} DROP COLUMN location_id")
-        op.drop_column(table, "owner_id")
-    op.drop_table("locations")
+    # Later batch migrations move inline REFERENCES to table constraints, so
+    # native DROP COLUMN is no longer sufficient. Preserve incoming references
+    # by rebuilding only under an explicit, isolated SQLite transaction.
+    with op.get_context().autocommit_block():
+        connection = op.get_bind()
+        connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        try:
+            for table in ("cartridges", "printers"):
+                with op.batch_alter_table(
+                    table, naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s"}
+                ) as batch:
+                    batch.drop_index(f"ix_{table}_location_id")
+                    batch.drop_index(f"ix_{table}_owner_id")
+                    batch.drop_constraint(f"fk_{table}_location_id", type_="foreignkey")
+                    batch.drop_column("location_id")
+                    batch.drop_column("owner_id")
+            op.drop_table("locations")
+            connection.exec_driver_sql("COMMIT")
+        except BaseException:
+            connection.exec_driver_sql("ROLLBACK")
+            raise
+        finally:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")

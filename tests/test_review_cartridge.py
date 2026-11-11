@@ -6,7 +6,7 @@ from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_print_audit import grant
 
-from app.models import Batch, Cartridge, PrinterState, State, TapeAllocation
+from app.models import Batch, Cartridge, PrinterDevice, PrinterState, State, TapeAllocation
 
 accounts = account_fixture
 
@@ -118,6 +118,8 @@ def test_review_preserves_other_unresolved_attempts(client, other_on):
     batch, body = interrupted(client, tape)
     other = original if other_on == "original" else corrected
     with client.app.state.factory.begin() as session:
+        session.add(PrinterDevice(id="elsewhere", name="Other printer", driver="mock", config={}))
+        session.flush()
         session.add(
             Batch(
                 id="other-attempt",

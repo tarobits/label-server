@@ -21,6 +21,21 @@ def test_upgrade_preserves_history_from_each_applied_migration_shape(tmp_path, p
     engine = create_engine(url)
     plan = {"estimated_mm": 49, "leader_mm": 24.5}
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO printers (id, name, driver, config) VALUES ('main', 'Saved printer', 'mock', '{}')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO tape_profiles (id, name, width_mm, foreground, background, auto_print_threshold, waiting_notification_enabled, waiting_notification_interval_seconds, reminder_silenced, reminder_episode, reminder_active) VALUES ('white-24', 'Saved tape', 24, '#000000', '#ffffff', 10, 0, 86400, 0, 0, 0)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO cartridges (id, profile_id, name, nominal_length_mm, remaining_mm, consumption_uncertain) VALUES ('saved-cartridge', 'white-24', 'Saved cartridge', 8000, 7900, 0)"
+            )
+        )
         if previous == "merged_a91":
             connection.exec_driver_sql("ALTER TABLE batches ADD COLUMN consumption_source VARCHAR")
         columns = {column["name"] for column in inspect(connection).get_columns("batches")}

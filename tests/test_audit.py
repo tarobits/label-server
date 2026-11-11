@@ -294,9 +294,9 @@ def test_revocation_and_owner_transfer_affect_next_projection_without_changing_e
 ):
     session = foundation_session
     user = User(id="reader", username="reader", password_hash="unused", role_ids=[])
-    session.add_all(
-        [user, PrinterDevice(id="p", name="Printer", driver="mock", config={}, owner_id=user.id)]
-    )
+    session.add(user)
+    session.flush()
+    session.add(PrinterDevice(id="p", name="Printer", driver="mock", config={}, owner_id=user.id))
     session.flush()
     write_swap(session)
     assert audit_page(session, resolve_resource_access(session, user))["total"] == 1

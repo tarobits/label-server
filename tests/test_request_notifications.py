@@ -26,7 +26,7 @@ class Sender:
 
 def prepare(client):
     with client.app.state.factory.begin() as session:
-        session.add(
+        session.merge(
             User(
                 id=LOCAL_OWNER_ID,
                 username="administrator",

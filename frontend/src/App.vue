@@ -20,6 +20,7 @@ import AppUpdateNotice from './components/AppUpdateNotice.vue'
 import { serverUnavailable } from './serverConnection'
 import SignIn from './views/SignIn.vue'
 import AccountRecovery from './views/AccountRecovery.vue'
+import RelationshipMigration from './views/RelationshipMigration.vue'
 import { useAuthStore } from './auth'
 import { useWorkspaceStore } from './workspace'
 import { useLiveRefresh } from './live'
@@ -49,7 +50,7 @@ let previousHeight = 0
 let resize: Animation | undefined
 let navigationSequence = 0
 const removeGuard = router.beforeResolve(async (to, from) => {
-  if (!auth.user) return
+  if (!auth.user || auth.session?.relationship_migration_required) return
   const ticket = ++navigationSequence
   if (to.path === from.path && !navigationPending.value) return
   navigationPending.value = true
@@ -255,8 +256,7 @@ const allowed = computed(() => {
         permissions.includes('cartridge.view'),
       )
     )
-  if (route.path === '/activity' || route.path.startsWith('/batches/'))
-    return true
+  if (route.path === '/activity' || route.path.startsWith('/batches/')) return true
   if (route.path === '/templates/new') return auth.canCreateTemplates
   if (route.path.endsWith('/edit')) return true
   if (route.path === '/new')
@@ -267,17 +267,18 @@ function skipToContent() {
   document.getElementById('main-content')?.focus()
 }
 useLiveRefresh(async () => {
-  if (auth.user && !serverUnavailable.value) await w.refresh()
+  if (auth.user && !serverUnavailable.value && !auth.session?.relationship_migration_required)
+    await w.refresh()
 })
 watch(serverUnavailable, async (unavailable, previouslyUnavailable) => {
   if (unavailable || !previouslyUnavailable) return
   await auth.refresh(true)
-  if (auth.user) await w.refresh(true)
+  if (auth.user && !auth.session?.relationship_migration_required) await w.refresh(true)
 })
 watch(
   () => [auth.user?.id, route.path],
   ([id]) => {
-    if (id) void w.setRoute(route.path)
+    if (id && !auth.session?.relationship_migration_required) void w.setRoute(route.path)
   },
   { immediate: true },
 )
@@ -296,6 +297,22 @@ onMounted(auth.refresh)
     :key="route.path"
   />
   <SignIn v-else-if="!auth.user" />
+  <main
+    v-else-if="auth.session?.relationship_migration_required"
+    id="main-content"
+    class="maintenance-shell"
+    tabindex="-1"
+  >
+    <header class="row wrap spread">
+      <BrandLogo /><button class="secondary" @click="auth.logout()">Sign out</button>
+    </header>
+    <RelationshipMigration v-if="auth.user.is_admin" />
+    <section v-else class="panel">
+      <h1>Maintenance in progress</h1>
+      <p>An administrator is repairing database relationships. Printing is paused.</p>
+    </section>
+    <footer class="page-footer"><VersionStatus /><SourceLink /></footer>
+  </main>
   <template v-else>
     <ChangelogNotice v-if="loaded" :key="auth.user.id" />
     <CartridgeCheckPrompt v-if="loaded" :key="auth.user.id" />
@@ -482,6 +499,13 @@ onMounted(auth.refresh)
 </template>
 
 <style scoped>
+.maintenance-shell {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: clamp(16px, 4vw, 40px);
+  display: grid;
+  gap: 24px;
+}
 .printer-picker {
   padding: 12px 20px;
 }

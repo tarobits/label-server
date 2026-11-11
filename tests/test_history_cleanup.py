@@ -227,6 +227,14 @@ def test_similar_but_distinct_attempts_remain(client, monkeypatch, change):
         elif change == "error":
             last.error = "Another failure"
         elif change == "printer":
+            from app.models import PrinterDevice
+
+            session.add(
+                PrinterDevice(
+                    id="another-printer", name="Another printer", driver="mock", config={}
+                )
+            )
+            session.flush()
             last.printer_id = "another-printer"
         elif change == "plan":
             last.print_plan = {"changed": True}
