@@ -6,6 +6,7 @@ import { randomUUID } from '../uuid'
 import VariableInput from './VariableInput.vue'
 import ExpandableContent from './ExpandableContent.vue'
 import MotionSurface from './MotionSurface.vue'
+import PropertySection from './PropertySection.vue'
 
 const props = defineProps<{
   document: TemplateDocument
@@ -74,98 +75,119 @@ function sample(field: TemplateField) {
     class="panel preview-inputs"
     aria-label="Preview inputs"
   >
-    <div class="section-heading">
-      <h2>Preview inputs</h2>
-      <div class="row wrap">
-        <button
-          type="button"
-          class="secondary"
-          :disabled="disabled || examples.length >= 50"
-          @click="add()"
-        >
-          Add example
-        </button>
-        <button
-          type="button"
-          class="secondary"
-          :disabled="disabled || !selected || examples.length >= 50"
-          @click="add(true)"
-        >
-          Duplicate
-        </button>
-        <button type="button" class="danger-text" :disabled="disabled || !selected" @click="remove">
-          Delete example
-        </button>
-      </div>
-    </div>
-    <div class="row wrap preview-picker">
-      <label class="grow"
-        >Example<select
-          :value="selected?.id ?? ''"
-          @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">Sample values</option>
-          <option v-for="example in examples" :key="example.id" :value="example.id">
-            {{ example.name }}
-          </option>
-        </select></label
-      >
-      <div class="row" role="group" aria-label="Browse preview examples">
-        <button
-          type="button"
-          class="secondary"
-          aria-label="Previous example"
-          :disabled="!examples.length"
-          @click="select(-1)"
-        >
-          <ChevronLeftIcon />
-        </button>
-        <span class="count" role="status">{{
-          selected ? `${index + 1} / ${examples.length}` : 'Samples'
-        }}</span>
-        <button
-          type="button"
-          class="secondary"
-          aria-label="Next example"
-          :disabled="!examples.length"
-          @click="select(1)"
-        >
-          <ChevronRightIcon />
-        </button>
-      </div>
-    </div>
-    <ExpandableContent :open="!!selected" @closed="displayed = undefined">
-      <MotionSurface :identity="selected?.id ?? ''" :order="index">
-        <div v-if="displayed" class="example-fields">
-          <label
-            >Example name<input
-              v-model="displayed.name"
-              maxlength="100"
-              required
-              :disabled="disabled"
-              @change="emit('change')"
-          /></label>
-          <VariableInput
-            v-for="field in document.fields"
-            :key="`${displayed.id}:${field.name}:${field.type}`"
-            :field="field"
-            :model-value="
-              Object.hasOwn(displayed.data, field.name) ? displayed.data[field.name] : sample(field)
-            "
-            :label="field.label"
-            :disabled="disabled"
-            nullable
-            multiline
-            @update:model-value="value(field.name, $event)"
-            @change="emit('change')"
-          />
+    <PropertySection title="Preview inputs" initially-open>
+      <div class="section-heading preview-actions">
+        <div class="row wrap">
+          <button
+            type="button"
+            class="secondary"
+            :disabled="disabled || examples.length >= 50"
+            @click="add()"
+          >
+            Add example
+          </button>
+          <button
+            type="button"
+            class="secondary"
+            :disabled="disabled || !selected || examples.length >= 50"
+            @click="add(true)"
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            class="danger-text"
+            :disabled="disabled || !selected"
+            @click="remove"
+          >
+            Delete example
+          </button>
         </div>
-      </MotionSurface>
-    </ExpandableContent>
+      </div>
+      <div class="row wrap preview-picker">
+        <label class="grow"
+          >Example<select
+            :value="selected?.id ?? ''"
+            @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">Sample values</option>
+            <option v-for="example in examples" :key="example.id" :value="example.id">
+              {{ example.name }}
+            </option>
+          </select></label
+        >
+        <div class="row" role="group" aria-label="Browse preview examples">
+          <button
+            type="button"
+            class="secondary"
+            aria-label="Previous example"
+            :disabled="!examples.length"
+            @click="select(-1)"
+          >
+            <ChevronLeftIcon />
+          </button>
+          <span class="count" role="status">{{
+            selected ? `${index + 1} / ${examples.length}` : 'Samples'
+          }}</span>
+          <button
+            type="button"
+            class="secondary"
+            aria-label="Next example"
+            :disabled="!examples.length"
+            @click="select(1)"
+          >
+            <ChevronRightIcon />
+          </button>
+        </div>
+      </div>
+      <ExpandableContent :open="!!selected" @closed="displayed = undefined">
+        <MotionSurface :identity="selected?.id ?? ''" :order="index">
+          <div v-if="displayed" class="example-fields">
+            <label
+              >Example name<input
+                v-model="displayed.name"
+                maxlength="100"
+                required
+                :disabled="disabled"
+                @change="emit('change')"
+            /></label>
+            <VariableInput
+              v-for="field in document.fields"
+              :key="`${displayed.id}:${field.name}:${field.type}`"
+              :field="field"
+              :model-value="
+                Object.hasOwn(displayed.data, field.name)
+                  ? displayed.data[field.name]
+                  : sample(field)
+              "
+              :label="field.label"
+              :disabled="disabled"
+              nullable
+              multiline
+              @update:model-value="value(field.name, $event)"
+              @change="emit('change')"
+            />
+          </div>
+        </MotionSurface>
+      </ExpandableContent>
+    </PropertySection>
   </section>
 </template>
 
 <style scoped>
+.preview-inputs :deep(.property-section) {
+  border-top: 0;
+}
+.preview-inputs :deep(.property-section h3 button) {
+  padding-top: 0;
+  font-size: 17px;
+}
+.preview-inputs :deep(.property-section-content) {
+  padding-bottom: 0;
+}
+.preview-actions {
+  justify-content: flex-end;
+}
 .preview-picker {
   align-items: flex-end;
 }

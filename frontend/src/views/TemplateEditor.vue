@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SettingHelp from '../components/SettingHelp.vue'
+import { editorHelp } from '../editorHelp'
 import { confirmAction } from '../confirmation'
 import { mediaProperties, mediaLabel, compatibleProfile } from '../media'
 import EditorRuler from '../components/EditorRuler.vue'
@@ -26,6 +28,8 @@ import {
   MinusIcon,
   ViewColumnsIcon,
   Squares2X2Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
@@ -121,6 +125,18 @@ const previewExampleId = ref('')
 const previewExample = computed(() =>
   document.value.preview_examples?.find((example) => example.id === previewExampleId.value),
 )
+function browseCanvasExample(offset: number) {
+  const examples = document.value.preview_examples ?? []
+  if (!examples.length) return
+  const index = examples.findIndex((example) => example.id === previewExampleId.value)
+  const next =
+    index < 0
+      ? offset < 0
+        ? examples.length - 1
+        : 0
+      : (index + offset + examples.length) % examples.length
+  previewExampleId.value = examples[next]!.id
+}
 const previewData = computed(() =>
   Object.fromEntries(
     document.value.fields
@@ -1009,18 +1025,27 @@ onUnmounted(() => {
   <section v-if="ready && w.profiles.length" class="panel editor-toolbar">
     <div class="editor-settings-fields">
       <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
-      <label class="resolution-choice"
-        >Print resolution<select v-model="document.print_resolution" @change="record">
+      <div class="setting-field resolution-choice">
+        <SettingHelp
+          :help="editorHelp.resolution"
+          for="setting-resolution"
+          label="Print resolution"
+        /><select id="setting-resolution" v-model="document.print_resolution" @change="record">
           <option value="printer">
             Printer default ({{ defaultResolution[1] }} × {{ defaultResolution[0] }} dpi)
           </option>
           <option v-for="(dpi, mode) in resolutionModes" :key="mode" :value="mode">
             {{ mode === 'high' ? 'High' : 'Normal' }} · {{ dpi[1] }} × {{ dpi[0] }} dpi
           </option>
-        </select></label
-      >
-      <label
-        >Tape profile<select v-model="sampleProfile" :disabled="!editable" required>
+        </select>
+      </div>
+      <div class="setting-field">
+        <SettingHelp :help="editorHelp.profile" for="setting-profile" label="Tape profile" /><select
+          id="setting-profile"
+          v-model="sampleProfile"
+          :disabled="!editable"
+          required
+        >
           <option v-if="!selectedProfile" :value="sampleProfile" disabled>
             {{
               document.preview_tape
@@ -1031,10 +1056,15 @@ onUnmounted(() => {
           <option v-for="p in w.profiles" :key="p.id" :value="p.id">
             {{ p.name }} · {{ mediaLabel(p) }}
           </option>
-        </select></label
-      >
-      <label
-        >Label length (mm)<input
+        </select>
+      </div>
+      <div class="setting-field">
+        <SettingHelp
+          :help="editorHelp.length"
+          for="setting-length"
+          label="Label length (mm)"
+        /><input
+          id="setting-length"
           :value="document.auto_length || boundLength ? canvasLength : document.length_mm"
           @input="setManualLength"
           :disabled="
@@ -1047,18 +1077,28 @@ onUnmounted(() => {
           min="10"
           max="300"
           @change="record"
-      /></label>
+        />
+      </div>
     </div>
     <div class="template-sharing field-row">
-      <label v-if="w.destinations.length > 1"
-        >Design destination<select v-model="w.selectedPrinter">
+      <div v-if="w.destinations.length > 1" class="setting-field">
+        <SettingHelp
+          :help="editorHelp.destination"
+          for="setting-destination"
+          label="Design destination"
+        /><select id="setting-destination" v-model="w.selectedPrinter">
           <option v-for="printer in w.destinations" :key="printer.id" :value="printer.id">
             {{ printer.name }}
           </option>
-        </select></label
-      >
-      <label
-        >Template visibility<select
+        </select>
+      </div>
+      <div class="setting-field">
+        <SettingHelp
+          :help="editorHelp.visibility"
+          for="setting-visibility"
+          label="Template visibility"
+        /><select
+          id="setting-visibility"
           v-model="scope"
           :disabled="!editable || !canChangeSharing"
           @change="record"
@@ -1078,8 +1118,8 @@ onUnmounted(() => {
           >
             Global
           </option>
-        </select></label
-      >
+        </select>
+      </div>
       <label v-if="scope === 'group'"
         >User group<select
           v-model="groupId"
@@ -1107,21 +1147,25 @@ onUnmounted(() => {
     </p>
     <div class="editor-settings-footer">
       <div class="editor-settings-toggles">
-        <label class="checkbox"
-          ><input
-            v-model="document.auto_length"
-            :disabled="document.media?.media_family === 'fixed_label'"
-            type="checkbox"
-            @change="changeAutomaticLength"
-          /><span>Automatic label length</span></label
-        >
-        <label class="checkbox"
-          ><input
-            :checked="document.out_of_bounds === 'clip'"
-            type="checkbox"
-            @change="setClipping"
-          /><span>Ignore out-of-bounds objects</span></label
-        >
+        <div class="setting-toggle">
+          <label class="checkbox"
+            ><input
+              v-model="document.auto_length"
+              :disabled="document.media?.media_family === 'fixed_label'"
+              type="checkbox"
+              @change="changeAutomaticLength"
+            /><span>Automatic label length</span></label
+          ><SettingHelp :help="editorHelp.autoLength" />
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox"
+            ><input
+              :checked="document.out_of_bounds === 'clip'"
+              type="checkbox"
+              @change="setClipping"
+            /><span>Ignore out-of-bounds objects</span></label
+          ><SettingHelp :help="editorHelp.clipping" />
+        </div>
       </div>
       <div class="editor-settings-actions">
         <button v-if="id" type="button" :disabled="w.busy" @click="showRevisionHistory">
@@ -1189,13 +1233,20 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="editor-options">
-        <label class="checkbox"
-          ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
-        >
-        <label class="checkbox"><input v-model="snap" type="checkbox" />Snap 0.5 mm</label>
-        <label class="checkbox"
-          ><input v-model="showBounds" type="checkbox" />Object boundaries</label
-        >
+        <div class="setting-toggle">
+          <label class="checkbox"
+            ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
+          ><SettingHelp :help="editorHelp.pixels" />
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox"><input v-model="snap" type="checkbox" />Snap 0.5 mm</label
+          ><SettingHelp :help="editorHelp.snap" />
+        </div>
+        <div class="setting-toggle">
+          <label class="checkbox"
+            ><input v-model="showBounds" type="checkbox" />Object boundaries</label
+          ><SettingHelp :help="editorHelp.bounds" />
+        </div>
         <label class="editor-zoom"
           >Zoom
           <input
@@ -1209,145 +1260,177 @@ onUnmounted(() => {
           <output>{{ zoom }}%</output>
         </label>
       </div>
-      <div class="editor-canvas-scroll">
-        <div class="editor-board">
-          <div class="ruler-corner">mm</div>
-          <EditorRuler
-            :selection-key="selectedId"
-            :length="canvasLength"
-            :scale="scale"
-            :position="pointer?.x ?? null"
-            :selection="
-              selectedBounds
-                ? { start: selectedBounds.x, end: selectedBounds.x + selectedBounds.width }
-                : null
-            "
-          />
-          <EditorRuler
-            :selection-key="selectedId"
-            vertical
-            :length="document.width_mm"
-            :scale="scale"
-            :position="pointer?.y ?? null"
-            :selection="
-              selectedBounds
-                ? { start: selectedBounds.y, end: selectedBounds.y + selectedBounds.height }
-                : null
-            "
-          />
-          <svg
-            ref="canvas"
-            class="editor-canvas"
-            tabindex="0"
-            role="img"
-            aria-label="Label design canvas"
-            :width="canvasLength * scale"
-            :height="document.width_mm * scale"
-            :viewBox="`0 0 ${canvasLength} ${document.width_mm}`"
-            @pointermove="move"
-            @pointerup="finish"
-            @pointercancel="finish"
-            @lostpointercapture="finish"
-            @pointerleave="pointer = null"
-            @keydown="key"
-          >
-            <defs>
-              <pattern id="editor-grid" width="1" height="1" patternUnits="userSpaceOnUse">
-                <path d="M1 0H0V1" fill="none" stroke="#818cf8" stroke-width="0.03" />
-              </pattern>
-            </defs>
-            <rect
-              width="100%"
-              height="100%"
-              fill="white"
-              @pointerdown="!drag && $event.isPrimary && $event.button === 0 && (selectedId = '')"
+      <p
+        v-if="document.fields.length || document.preview_examples?.length"
+        class="canvas-example-name"
+        role="status"
+        aria-label="Canvas example"
+      >
+        {{ previewExample?.name ?? 'Sample values' }}
+      </p>
+      <div
+        class="canvas-example-navigation"
+        :class="{ 'has-examples': document.preview_examples?.length }"
+      >
+        <button
+          v-if="document.preview_examples?.length"
+          type="button"
+          class="secondary canvas-example-arrow"
+          aria-label="Previous canvas example"
+          @click="browseCanvasExample(-1)"
+        >
+          <ChevronLeftIcon aria-hidden="true" />
+        </button>
+        <div class="editor-canvas-scroll">
+          <div class="editor-board">
+            <div class="ruler-corner">mm</div>
+            <EditorRuler
+              :selection-key="selectedId"
+              :length="canvasLength"
+              :scale="scale"
+              :position="pointer?.x ?? null"
+              :selection="
+                selectedBounds
+                  ? { start: selectedBounds.x, end: selectedBounds.x + selectedBounds.width }
+                  : null
+              "
             />
-            <image
-              v-if="preview"
-              :href="showPrintPixels ? preview.png : preview.design_png"
-              width="100%"
-              height="100%"
-              preserveAspectRatio="none"
-              style="pointer-events: none"
-              :style="{ imageRendering: showPrintPixels ? 'pixelated' : 'auto' }"
+            <EditorRuler
+              :selection-key="selectedId"
+              vertical
+              :length="document.width_mm"
+              :scale="scale"
+              :position="pointer?.y ?? null"
+              :selection="
+                selectedBounds
+                  ? { start: selectedBounds.y, end: selectedBounds.y + selectedBounds.height }
+                  : null
+              "
             />
-            <rect
-              width="100%"
-              height="100%"
-              fill="url(#editor-grid)"
-              style="pointer-events: none"
-            />
-            <rect
-              class="printable-border"
-              :x="margin"
-              :y="verticalMargin"
-              :width="canvasLength - margin * 2"
-              :height="printableBand.height"
-              fill="none"
-              :stroke="printableBorder"
-              stroke-width="1.25"
-              stroke-dasharray="5 5"
-              vector-effect="non-scaling-stroke"
-              style="pointer-events: none"
-            />
-            <g
-              v-for="element in canvasElements"
-              :key="element.id"
-              :transform="`rotate(${element.rotation},${element.x + element.width / 2},${element.y + element.height / 2})`"
+            <svg
+              ref="canvas"
+              class="editor-canvas"
+              tabindex="0"
+              role="img"
+              aria-label="Label design canvas"
+              :width="canvasLength * scale"
+              :height="document.width_mm * scale"
+              :viewBox="`0 0 ${canvasLength} ${document.width_mm}`"
+              @pointermove="move"
+              @pointerup="finish"
+              @pointercancel="finish"
+              @lostpointercapture="finish"
+              @pointerleave="pointer = null"
+              @keydown="key"
             >
-              <line
-                v-if="element.kind === 'line'"
-                :x1="element.x"
-                :x2="element.x + element.width"
-                :y1="element.y + element.height / 2"
-                :y2="element.y + element.height / 2"
-                stroke="transparent"
-                :stroke-width="Math.max(element.stroke, 12 / scale)"
-                @pointerdown.stop="start($event, element, 'move')"
+              <defs>
+                <pattern id="editor-grid" width="1" height="1" patternUnits="userSpaceOnUse">
+                  <path d="M1 0H0V1" fill="none" stroke="#818cf8" stroke-width="0.03" />
+                </pattern>
+              </defs>
+              <rect
+                width="100%"
+                height="100%"
+                fill="white"
+                @pointerdown="!drag && $event.isPrimary && $event.button === 0 && (selectedId = '')"
+              />
+              <image
+                v-if="preview"
+                :href="showPrintPixels ? preview.png : preview.design_png"
+                width="100%"
+                height="100%"
+                preserveAspectRatio="none"
+                style="pointer-events: none"
+                :style="{ imageRendering: showPrintPixels ? 'pixelated' : 'auto' }"
               />
               <rect
-                :x="element.x"
-                :y="
-                  element.y + (element.kind === 'line' ? (element.height - element.stroke) / 2 : 0)
-                "
-                :width="element.width"
-                :height="element.kind === 'line' ? element.stroke : element.height"
-                :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
-                class="object-boundary"
-                :class="{ selected: selectedId === element.id }"
-                :stroke="
-                  selectedId === element.id ? '#6366f1' : showBounds ? '#64748b' : 'transparent'
-                "
-                :stroke-width="selectedId === element.id ? 1.5 : 0.75"
-                :stroke-dasharray="selectedId === element.id ? undefined : '4 3'"
+                width="100%"
+                height="100%"
+                fill="url(#editor-grid)"
+                style="pointer-events: none"
+              />
+              <rect
+                class="printable-border"
+                :x="margin"
+                :y="verticalMargin"
+                :width="canvasLength - margin * 2"
+                :height="printableBand.height"
+                fill="none"
+                :stroke="printableBorder"
+                stroke-width="1.25"
+                stroke-dasharray="5 5"
                 vector-effect="non-scaling-stroke"
-                @pointerdown.stop="start($event, element, 'move')"
+                style="pointer-events: none"
               />
-              <circle
-                v-if="selectedId === element.id"
-                :cx="element.x + element.width"
-                :cy="element.y + (element.kind === 'line' ? element.height / 2 : element.height)"
-                r="0.6"
-                fill="#6366f1"
-                :style="{
-                  cursor:
-                    element.kind === 'line'
-                      ? element.rotation % 180
-                        ? 'ns-resize'
-                        : 'ew-resize'
-                      : element.rotation % 180
-                        ? 'nesw-resize'
-                        : 'nwse-resize',
-                }"
-                @pointerdown.stop="start($event, element, 'size')"
-              />
-            </g>
-            <g v-if="pointer" class="canvas-cursor-guides" pointer-events="none">
-              <line :x1="pointer.x" :x2="pointer.x" y1="0" :y2="document.width_mm" />
-              <line x1="0" :x2="canvasLength" :y1="pointer.y" :y2="pointer.y" />
-            </g>
-          </svg>
+              <g
+                v-for="element in canvasElements"
+                :key="element.id"
+                :transform="`rotate(${element.rotation},${element.x + element.width / 2},${element.y + element.height / 2})`"
+              >
+                <line
+                  v-if="element.kind === 'line'"
+                  :x1="element.x"
+                  :x2="element.x + element.width"
+                  :y1="element.y + element.height / 2"
+                  :y2="element.y + element.height / 2"
+                  stroke="transparent"
+                  :stroke-width="Math.max(element.stroke, 12 / scale)"
+                  @pointerdown.stop="start($event, element, 'move')"
+                />
+                <rect
+                  :x="element.x"
+                  :y="
+                    element.y +
+                    (element.kind === 'line' ? (element.height - element.stroke) / 2 : 0)
+                  "
+                  :width="element.width"
+                  :height="element.kind === 'line' ? element.stroke : element.height"
+                  :fill="selectedId === element.id ? '#6366f11a' : 'transparent'"
+                  class="object-boundary"
+                  :class="{ selected: selectedId === element.id }"
+                  :stroke="
+                    selectedId === element.id ? '#6366f1' : showBounds ? '#64748b' : 'transparent'
+                  "
+                  :stroke-width="selectedId === element.id ? 1.5 : 0.75"
+                  :stroke-dasharray="selectedId === element.id ? undefined : '4 3'"
+                  vector-effect="non-scaling-stroke"
+                  @pointerdown.stop="start($event, element, 'move')"
+                />
+                <circle
+                  v-if="selectedId === element.id"
+                  :cx="element.x + element.width"
+                  :cy="element.y + (element.kind === 'line' ? element.height / 2 : element.height)"
+                  r="0.6"
+                  fill="#6366f1"
+                  :style="{
+                    cursor:
+                      element.kind === 'line'
+                        ? element.rotation % 180
+                          ? 'ns-resize'
+                          : 'ew-resize'
+                        : element.rotation % 180
+                          ? 'nesw-resize'
+                          : 'nwse-resize',
+                  }"
+                  @pointerdown.stop="start($event, element, 'size')"
+                />
+              </g>
+              <g v-if="pointer" class="canvas-cursor-guides" pointer-events="none">
+                <line :x1="pointer.x" :x2="pointer.x" y1="0" :y2="document.width_mm" />
+                <line x1="0" :x2="canvasLength" :y1="pointer.y" :y2="pointer.y" />
+              </g>
+            </svg>
+          </div>
         </div>
+        <button
+          v-if="document.preview_examples?.length"
+          type="button"
+          class="secondary canvas-example-arrow"
+          aria-label="Next canvas example"
+          @click="browseCanvasExample(1)"
+        >
+          <ChevronRightIcon aria-hidden="true" />
+        </button>
       </div>
       <p v-if="pointer" class="help cursor-position">
         Cursor: {{ pointer.x.toFixed(2) }} × {{ pointer.y.toFixed(2) }} mm
@@ -1452,18 +1535,24 @@ onUnmounted(() => {
             ></label
           >
           <template v-if="selected.kind === 'barcode'">
-            <label
-              >Barcode format<select v-model="selected.barcode_format" @change="record">
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.barcode"
+                for="setting-barcode"
+                label="Barcode format"
+              /><select id="setting-barcode" v-model="selected.barcode_format" @change="record">
                 <option value="code128">Code 128</option>
                 <option value="ean13">EAN-13</option>
                 <option value="ean8">EAN-8</option>
                 <option value="code39">Code 39</option>
-              </select></label
-            >
-            <label class="checkbox"
-              ><input v-model="selected.barcode_caption" type="checkbox" @change="record" />Show
-              caption</label
-            >
+              </select>
+            </div>
+            <div class="setting-toggle">
+              <label class="checkbox"
+                ><input v-model="selected.barcode_caption" type="checkbox" @change="record" />Show
+                caption</label
+              ><SettingHelp :help="editorHelp.caption" />
+            </div>
             <ExpandableContent :open="!!selected.barcode_caption">
               <label
                 >Caption size (mm)<input
@@ -1552,17 +1641,24 @@ onUnmounted(() => {
                       {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
                     </option>
                   </select></label
-                ><label
-                  >Font size (mm)<input
+                >
+                <div class="setting-field">
+                  <SettingHelp
+                    :help="editorHelp.fontSize"
+                    for="setting-fontSize"
+                    label="Font size (mm)"
+                  /><input
+                    id="setting-fontSize"
                     v-model.number="selected.font_size"
                     type="number"
                     min="1"
                     max="24"
                     step="0.1"
                     @change="record"
-                /></label>
+                  />
+                </div>
               </div>
-              <p class="help">Text shrinks to fit; this is its maximum size.</p>
+
               <div class="row">
                 <label class="checkbox"
                   ><input
@@ -1571,12 +1667,14 @@ onUnmounted(() => {
                     type="checkbox"
                     @change="record"
                   />Bold</label
-                ><label class="checkbox"
-                  ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap
-                  text</label
                 >
-              </div></template
-            >
+                <div class="setting-toggle">
+                  <label class="checkbox"
+                    ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap
+                    text</label
+                  ><SettingHelp :help="editorHelp.wrap" />
+                </div></div
+            ></template>
             <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
               For bold text, select an uploaded bold face.
             </p>
@@ -1604,8 +1702,13 @@ onUnmounted(() => {
             <fieldset class="text-padding">
               <legend>Text spacing (mm)</legend>
               <div class="field-row">
-                <label
-                  >Horizontal<input
+                <div class="setting-field">
+                  <SettingHelp
+                    :help="editorHelp.characterSpacing"
+                    for="setting-characterSpacing"
+                    label="Horizontal"
+                  /><input
+                    id="setting-characterSpacing"
                     aria-label="Horizontal character spacing (mm)"
                     :value="selected.character_spacing ?? 0"
                     type="number"
@@ -1613,9 +1716,15 @@ onUnmounted(() => {
                     max="20"
                     step="0.1"
                     @input="setTextSpacing('character_spacing', $event)"
-                /></label>
-                <label
-                  >Vertical<input
+                  />
+                </div>
+                <div class="setting-field">
+                  <SettingHelp
+                    :help="editorHelp.lineSpacing"
+                    for="setting-lineSpacing"
+                    label="Vertical"
+                  /><input
+                    id="setting-lineSpacing"
                     aria-label="Vertical line spacing (mm)"
                     :value="selected.line_spacing ?? 0"
                     type="number"
@@ -1623,12 +1732,17 @@ onUnmounted(() => {
                     max="20"
                     step="0.1"
                     @input="setTextSpacing('line_spacing', $event)"
-                /></label>
+                  />
+                </div>
               </div>
             </fieldset>
             <p class="help">Zero uses normal spacing; gaps shrink with text.</p>
             <fieldset class="text-padding">
-              <legend>Text padding (mm)</legend>
+              <legend>
+                <span class="setting-toggle"
+                  >Text padding (mm)<SettingHelp :help="editorHelp.padding"
+                /></span>
+              </legend>
               <div
                 class="field-row"
                 v-for="pair in [paddingSides.slice(0, 2), paddingSides.slice(2)]"
@@ -1653,15 +1767,22 @@ onUnmounted(() => {
             title="Image adjustments"
             initially-open
           >
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                :checked="selected.preserve_aspect ?? true"
-                @change="setPreserveAspect"
-              />Keep image proportions</label
-            >
-            <label
-              >Image scale<input
+            <div class="setting-toggle">
+              <label class="checkbox"
+                ><input
+                  type="checkbox"
+                  :checked="selected.preserve_aspect ?? true"
+                  @change="setPreserveAspect"
+                />Keep image proportions</label
+              ><SettingHelp :help="editorHelp.imageProportions" />
+            </div>
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.imageScale"
+                for="setting-imageScale"
+                label="Image scale"
+              /><input
+                id="setting-imageScale"
                 type="number"
                 min="0.1"
                 max="1"
@@ -1669,7 +1790,8 @@ onUnmounted(() => {
                 :value="selected.image_scale ?? 1"
                 @input="setImageScale"
                 @change="record"
-            /></label>
+              />
+            </div>
             <input
               type="range"
               aria-label="Image scale slider"
@@ -1680,43 +1802,61 @@ onUnmounted(() => {
               @input="setImageScale"
               @change="record"
             />
-            <label
-              >Brightness<input
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.brightness"
+                for="setting-brightness"
+                label="Brightness"
+              /><input
+                id="setting-brightness"
                 type="number"
                 min="0"
                 max="3"
                 step="0.1"
                 v-model.number="selected.brightness"
                 @change="record"
-            /></label>
-            <label
-              >Contrast<input
+              />
+            </div>
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.contrast"
+                for="setting-contrast"
+                label="Contrast"
+              /><input
+                id="setting-contrast"
                 type="number"
                 min="0"
                 max="3"
                 step="0.1"
                 v-model.number="selected.contrast"
                 @change="record"
-            /></label>
-            <label
-              >Image conversion<select v-model="selected.image_mode" @change="record">
+              />
+            </div>
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.conversion"
+                for="setting-conversion"
+                label="Image conversion"
+              /><select id="setting-conversion" v-model="selected.image_mode" @change="record">
                 <option value="threshold">Black and white (threshold)</option>
                 <option value="dither">Dithered shading</option>
-              </select></label
-            >
-            <label v-if="selected.image_mode !== 'dither'"
-              >Threshold<input
+              </select>
+            </div>
+            <div v-if="selected.image_mode !== 'dither'" class="setting-field">
+              <SettingHelp
+                :help="editorHelp.threshold"
+                for="setting-threshold"
+                label="Threshold"
+              /><input
+                id="setting-threshold"
                 type="number"
                 min="1"
                 max="255"
                 step="1"
                 v-model.number="selected.image_threshold"
                 @change="record"
-            /></label>
-            <p class="help">
-              Brightness and contrast: 1 keeps the original. Dithering creates shading with ink
-              dots.
-            </p>
+              />
+            </div>
           </PropertySection>
           <PropertySection
             v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
@@ -1814,13 +1954,15 @@ onUnmounted(() => {
               </select></label
             >
             <template v-if="selected.kind === 'image'">
-              <label class="checkbox"
-                ><input
-                  type="checkbox"
-                  :checked="boxAspectLocked(selected)"
-                  @change="setBoxAspectLock"
-                />Lock box proportions</label
-              >
+              <div class="setting-toggle">
+                <label class="checkbox"
+                  ><input
+                    type="checkbox"
+                    :checked="boxAspectLocked(selected)"
+                    @change="setBoxAspectLock"
+                  />Lock box proportions</label
+                ><SettingHelp :help="editorHelp.boxProportions" />
+              </div>
               <ExpandableContent :open="imageBoxMismatch"
                 ><div class="image-fit-action">
                   <button
@@ -1840,34 +1982,43 @@ onUnmounted(() => {
               >
             </template>
             <template v-if="selected.kind === 'text'">
-              <label class="checkbox"
-                ><input
-                  v-model="selected.auto_width"
-                  type="checkbox"
-                  @change="changeAutomaticWidth"
-                />{{
-                  selected.rotation % 180
-                    ? 'Fit text box height to content'
-                    : 'Fit text box width to content'
-                }}</label
-              >
-              <p class="help" v-if="selected.auto_width">Fits each value without wrapping.</p>
+              <div class="setting-toggle">
+                <label class="checkbox"
+                  ><input
+                    v-model="selected.auto_width"
+                    type="checkbox"
+                    @change="changeAutomaticWidth"
+                  />{{
+                    selected.rotation % 180
+                      ? 'Fit text box height to content'
+                      : 'Fit text box width to content'
+                  }}</label
+                ><SettingHelp :help="editorHelp.autoWidth" />
+              </div>
             </template>
             <template v-if="selected.kind === 'qr'">
-              <label class="checkbox">
-                <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
-                Scale up to bounding box
-              </label>
+              <div class="setting-toggle">
+                <label class="checkbox">
+                  <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
+                  Scale up to bounding box </label
+                ><SettingHelp :help="editorHelp.qrFill" />
+              </div>
               <template v-if="selected.qr_fill_box">
-                <label
-                  >QR margin (mm)<input
+                <div class="setting-field">
+                  <SettingHelp
+                    :help="editorHelp.qrMargin"
+                    for="setting-qrMargin"
+                    label="QR margin (mm)"
+                  /><input
+                    id="setting-qrMargin"
                     type="number"
                     min="0"
                     step="0.1"
                     :value="selected.qr_margin_mm ?? ''"
                     placeholder="Auto (4 modules)"
                     @change="setQrMargin"
-                /></label>
+                  />
+                </div>
                 <p class="help">
                   Inset on each side: 0 fills the box; blank adds a four-module border. Leave clear
                   space around the code for scanning.
@@ -1876,9 +2027,13 @@ onUnmounted(() => {
             </template>
           </PropertySection>
           <PropertySection title="Distance holder">
-            <label
-              >Follow element
-              <select
+            <div class="setting-field">
+              <SettingHelp
+                :help="editorHelp.follow"
+                for="setting-follow"
+                label="Follow element"
+              /><select
+                id="setting-follow"
                 :value="selected.distance_holder?.element_id ?? ''"
                 @change="setDistanceTarget"
               >
@@ -1893,7 +2048,7 @@ onUnmounted(() => {
                   }}
                 </option>
               </select>
-            </label>
+            </div>
             <template v-if="selected.distance_holder">
               <label
                 >Placement<select v-model="selected.distance_holder.axis" @change="record">
@@ -1901,15 +2056,17 @@ onUnmounted(() => {
                   <option value="vertical">Below element</option>
                 </select></label
               >
-              <label
-                >Gap (mm)<input
+              <div class="setting-field">
+                <SettingHelp :help="editorHelp.gap" for="setting-gap" label="Gap (mm)" /><input
+                  id="setting-gap"
                   v-model.number="selected.distance_holder.gap_mm"
                   type="number"
                   min="0"
                   max="300"
                   step="0.5"
                   @change="record"
-              /></label>
+                />
+              </div>
             </template>
             <p class="help">
               Gap between element bounds, including rotation and padding. Deleting the anchor
@@ -1946,7 +2103,10 @@ onUnmounted(() => {
   />
   <section v-if="ready && w.profiles.length" class="panel variable-fields">
     <div class="section-heading">
-      <h2>Variable fields</h2>
+      <div class="setting-toggle">
+        <h2>Variable fields</h2>
+        <SettingHelp :help="editorHelp.variables" />
+      </div>
       <button @click="addField">Add variable</button>
     </div>
     <p v-if="document.fields.length" class="help">
@@ -2016,24 +2176,36 @@ onUnmounted(() => {
       </ExpandableContent>
       <ExpandableContent :open="!field.type || field.type === 'text'" class="variable-limits">
         <div class="field-row">
-          <label
-            >Minimum length<input
+          <div class="setting-field">
+            <SettingHelp
+              :help="editorHelp.minimumLength"
+              :for="`setting-minimumLength-${index}`"
+              label="Minimum length"
+            /><input
+              :id="`setting-minimumLength-${index}`"
               type="number"
               min="0"
               max="2000"
               step="1"
               :value="field.min_length ?? ''"
               @change="changeLimit(field, 'min_length', $event)"
-          /></label>
-          <label
-            >Maximum length<input
+            />
+          </div>
+          <div class="setting-field">
+            <SettingHelp
+              :help="editorHelp.maximumLength"
+              :for="`setting-maximumLength-${index}`"
+              label="Maximum length"
+            /><input
+              :id="`setting-maximumLength-${index}`"
               type="number"
               min="0"
               max="2000"
               step="1"
               :value="field.max_length ?? ''"
               @change="changeLimit(field, 'max_length', $event)"
-          /></label>
+            />
+          </div>
         </div>
       </ExpandableContent>
     </div>
@@ -2049,6 +2221,50 @@ onUnmounted(() => {
   />
 </template>
 <style scoped>
+.canvas-example-name {
+  text-align: right;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
+}
+.canvas-example-navigation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.canvas-example-navigation.has-examples {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+.canvas-example-arrow {
+  width: 44px;
+  min-height: 44px;
+  padding: 10px;
+}
+.canvas-example-arrow svg {
+  width: 20px;
+  height: 20px;
+}
+.setting-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.setting-toggle > label {
+  flex: initial;
+}
+.variable-row > .setting-field {
+  flex: 1;
+  min-width: 120px;
+}
+
 .image-fit-action {
   padding-block: 4px 8px;
 }
