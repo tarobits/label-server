@@ -482,6 +482,7 @@ class BrotherPTP710BT:
                 confirmed,
                 status.diagnostics,
                 self._needs_verification(status),
+                error_requires_investigation=not self._confirmable(status),
             )
         except Exception as error:
             self._invalidate_media()

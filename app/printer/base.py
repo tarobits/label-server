@@ -62,6 +62,9 @@ class PrinterStatus:
     media_confirmed: bool = False
     diagnostics: dict[str, str] | None = None
     media_changed: bool = False
+    # Adapters may distinguish an actionable media check from a hardware fault.
+    # Unknown/older reports remain faults; this never clears an existing block.
+    error_requires_investigation: bool = True
 
 
 @dataclass(frozen=True)

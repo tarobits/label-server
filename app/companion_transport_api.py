@@ -101,6 +101,7 @@ class DeviceStatus(Input):
     connected: bool
     tape_width_mm: float | None = Field(default=None, gt=0, le=1000)
     error: str | None = Field(default=None, max_length=500)
+    error_requires_investigation: bool = True
     media: MediaStatus | None = None
     media_confirmed: bool = False
     media_changed: bool = False
@@ -228,7 +229,8 @@ def heartbeat(
         time.time(),
     )
     if (
-        body.error or body.local_blocked and body.clearance_seen >= link.clearance
+        body.error and body.error_requires_investigation
+        or body.local_blocked and body.clearance_seen >= link.clearance
     ) and not link.blocked:
         link.blocked = True
         record_action(session, "companion.printer_blocked", "printer", identifier)

@@ -55,6 +55,7 @@ class RemotePrinterBackend:
                 data["media"] = DetectedMedia(**data["media"])
             if link.blocked:
                 data["error"] = "Companion printer requires investigation"
+                data["error_requires_investigation"] = True
             return PrinterStatus(**data)
 
     def print_batch(self, labels: Sequence[RenderedLabel]) -> PrintResult:

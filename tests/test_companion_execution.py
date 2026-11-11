@@ -206,6 +206,13 @@ def test_idle_disconnect_recovers_but_hardware_error_requires_human_clearance(ac
         path, headers=headers, json={"connected": True, "error": "Hardware failure"}
     ).json()["blocked"]
     assert admin.put(path, headers=headers, json={"connected": True}).json()["blocked"]
+    # A media notice must not clear a previously latched hardware fault.
+    media_notice = {
+        "connected": True,
+        "error": "Confirm the installed cartridge",
+        "error_requires_investigation": False,
+    }
+    assert admin.put(path, headers=headers, json=media_notice).json()["blocked"]
     response = admin.post(f"/api/companions/printers/{identifier}/clear")
     assert response.status_code == 200
     clearance = response.json()["clearance"]
@@ -213,12 +220,12 @@ def test_idle_disconnect_recovers_but_hardware_error_requires_human_clearance(ac
     assert not admin.put(
         path,
         headers=headers,
-        json={"connected": True, "local_blocked": True, "clearance_seen": clearance - 1},
+        json={**media_notice, "local_blocked": True, "clearance_seen": clearance - 1},
     ).json()["blocked"]
     assert admin.put(
         path,
         headers=headers,
-        json={"connected": True, "local_blocked": True, "clearance_seen": clearance},
+        json={**media_notice, "local_blocked": True, "clearance_seen": clearance},
     ).json()["blocked"]
 
 
