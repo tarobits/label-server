@@ -26,6 +26,7 @@ from app.models import AuthSession, AuthSettings, PrinterDevice, PrinterGroup, R
 COOKIE_NAME = "label_session"
 SESSION_SECONDS = 7 * 24 * 3600
 PERMISSIONS = {
+    "billing.create": "Create group billing accounts",
     "templates.create_personal": "Create personal templates",
     "templates.create_global": "Create global templates",
     "templates.edit_global": "Edit other users’ global templates",

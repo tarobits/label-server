@@ -78,7 +78,14 @@ class MaximumPrice(Input):
     micros: int = Field(ge=0, le=10**15, strict=True)
 
 
+class BillingSelection(Input):
+    account_id: str = Field(min_length=1, max_length=128)
+    mode: Literal["wait", "risk", "direct"] = "wait"
+    note: str = Field(default="", max_length=500)
+
+
 class PriceConsentInput(CompletionNotificationInput):
+    billing: BillingSelection | None = None
     quote_id: str | None = Field(default=None, max_length=100)
     maximum_price: MaximumPrice | None = None
 

@@ -156,6 +156,7 @@ def build_job(
         profile_id=profile.id,
         template_id=body.template,
         template_snapshot={
+            **({"billing": body.billing.model_dump()} if body.billing else {}),
             "name": template.name,
             "process_name": body.process_name or template.name,
             "profile_name": profile.name,
@@ -181,7 +182,7 @@ def build_job(
 def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> str:
     # Keep retries of pre-multi-printer requests valid after upgrading.
     values = dict(values)
-    for key in ("quote_id", "maximum_price"):
+    for key in ("quote_id", "maximum_price", "billing"):
         if values.get(key) is None:
             values.pop(key, None)
     if values.get("image_mapping") == {}:
@@ -202,7 +203,7 @@ def input_fingerprint(values: dict[str, Any], namespace: str | None = None) -> s
         values.pop("process_name", None)
     if isinstance(values.get("input"), dict):
         values["input"] = dict(values["input"])
-        for key in ("quote_id", "maximum_price"):
+        for key in ("quote_id", "maximum_price", "billing"):
             if values["input"].get(key) is None:
                 values["input"].pop(key, None)
         if values["input"].get("notify_on_completion", True) is True:
@@ -257,6 +258,9 @@ def save_submission(
     }
     session.add(job)
     session.flush()
+    from app.billing import register_job
+
+    register_job(session, job, actor)
     key = request.headers.get("Idempotency-Key")
     if key is not None:
         session.add(

@@ -53,6 +53,9 @@ def clone_job(session: Session, offer: RetryOffer) -> PrintJob:
     assert original is not None and batch is not None
     snapshot = copy.deepcopy(original.template_snapshot)
     snapshot.pop("pricing", None)
+    # A retry is a new spending decision. Paid retries remain personal unless
+    # subsequently transferred; free retries never create a new group charge.
+    snapshot.pop("billing", None)
     snapshot.pop("print_plan", None)
     retry = {
         "offer_id": offer.id,

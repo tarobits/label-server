@@ -74,6 +74,18 @@ def endpoint_message(
 ) -> Notification | None:
     if not endpoint.enabled or endpoint.deleted_at is not None:
         return None
+    if notice.context.get("billing_request_id"):
+        from app.auth import actor_for_user
+        from app.billing_notifications import visible
+
+        user = session.get(User, notice.recipient_id)
+        if (
+            endpoint.owner_id != notice.recipient_id
+            or not user
+            or user.disabled
+            or not visible(session, actor_for_user(session, user), notice)
+        ):
+            return None
     if notice.kind == "job_printed" and (
         not endpoint.owner_id or endpoint.owner_id != notice.recipient_id
     ):

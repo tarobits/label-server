@@ -21,9 +21,18 @@ class ReadInput(Input):
     read: bool = True
 
 
-def visible(request: Request) -> Select[Notification, float]:
+def visible(request: Request, session: Session) -> Select[Notification, float]:
     actor = access_context(request).actor
     recipients = [actor.id, "administrators"] if actor.is_admin else [actor.id]
+    from app.billing_notifications import visible as billing_visible
+
+    hidden = [
+        notice.id
+        for notice in session.scalars(
+            select(Notification).where(Notification.recipient_id.in_(recipients))
+        )
+        if notice.context.get("billing_request_id") and not billing_visible(session, actor, notice)
+    ]
     return (
         select(Notification, NotificationRead.read_at)
         .outerjoin(
@@ -33,7 +42,7 @@ def visible(request: Request) -> Select[Notification, float]:
                 NotificationRead.user_id == actor.id,
             ),
         )
-        .where(Notification.recipient_id.in_(recipients))
+        .where(Notification.recipient_id.in_(recipients), Notification.id.not_in(hidden))
     )
 
 
@@ -45,7 +54,7 @@ def inbox(
     limit: int = Query(default=20, ge=1, le=100),
     unread_only: bool = False,
 ) -> dict[str, Any]:
-    query = visible(request)
+    query = visible(request, session)
     unread = (
         session.scalar(
             select(func.count()).select_from(
@@ -100,7 +109,7 @@ def opened(request: Request, session: DB) -> None:
 @router.put("/read", status_code=204)
 def mark_all(body: ReadInput, request: Request, session: DB) -> None:
     actor = access_context(request).actor
-    for notice, stamp in session.execute(visible(request)):
+    for notice, stamp in session.execute(visible(request, session)):
         if body.read and stamp is None:
             session.add(NotificationRead(notification_id=notice.id, user_id=actor.id))
         elif not body.read and stamp is not None:
@@ -116,7 +125,7 @@ def mark_all(body: ReadInput, request: Request, session: DB) -> None:
 @router.put("/{identifier}/read", status_code=204)
 def mark_one(identifier: str, body: ReadInput, request: Request, session: DB) -> None:
     actor = access_context(request).actor
-    entry = session.execute(visible(request).where(Notification.id == identifier)).first()
+    entry = session.execute(visible(request, session).where(Notification.id == identifier)).first()
     if entry is None:
         raise HTTPException(404, "Notification not found")
     row = session.get(NotificationRead, (identifier, actor.id))

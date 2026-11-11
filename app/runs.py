@@ -23,7 +23,7 @@ from app.preparation import rendering
 from app.print_audit import delegated_attribution, direct_attribution
 from app.printer.base import LabelGeometry, RenderedLabel
 from app.render import RenderSpec, render_document, render_job
-from app.schemas import Input, JobInput, MaximumPrice, ProcessName
+from app.schemas import BillingSelection, Input, JobInput, MaximumPrice, ProcessName
 from app.submissions import build_job, input_fingerprint, rendering_spec
 from app.template_logic import csv_values, logic_fields
 from app.template_schema import TemplateDocument
@@ -44,6 +44,7 @@ class RunRow(Input):
 
 
 class RunInput(CsvInput):
+    billing: BillingSelection | None = None
     process_name: ProcessName | None = None
     destination_id: str | None = None
     request_key: str = Field(min_length=1, max_length=80)
@@ -242,6 +243,7 @@ def prepare_run(
                 job = build_job(
                     JobInput(
                         process_name=body.process_name,
+                        billing=body.billing,
                         template=template.id,
                         destination_id=body.destination_id,
                         tape_profile=profile.id,
@@ -448,6 +450,14 @@ def submit_run(
             )
             session.add(job)
             session.flush()
+            from app.auth import actor_for_user
+            from app.billing import register_job
+
+            if job.template_snapshot.get("billing"):
+                owner = session.get(User, job.owner_id)
+                if owner is None:
+                    raise HTTPException(409, "The original requester is unavailable")
+                register_job(session, job, actor_for_user(session, owner))
             session.add_all([LabelCopy(job_id=job.id, ordinal=i) for i in range(job.copies)])
         run.submitted_at = stamp
         session.flush()

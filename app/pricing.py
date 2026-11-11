@@ -68,6 +68,12 @@ def accept_quote(
     quote_id: str | None,
     maximum: dict[str, Any] | None = None,
 ) -> None:
+    from app.billing import validate_selection
+
+    selection = job.template_snapshot.get("billing")
+    validate_selection(session, access_context(request).actor, selection)
+    if selection and not quote_id:
+        raise HTTPException(422, "Group funding requires a current price quote")
     if not quote_id:
         if maximum is not None:
             raise HTTPException(422, "Refresh the price quote before setting a maximum")
@@ -83,6 +89,8 @@ def accept_quote(
             409, "Price quote expired or label quantities changed; refresh the preview"
         )
     quotes = {row["currency"]: int(Decimal(row["maximum"]) * 1000000) for row in quote.quotes}
+    if selection and not quotes:
+        raise HTTPException(422, "Group funding requires a priced cartridge")
     if maximum is not None and maximum["currency"] not in quotes:
         raise HTTPException(422, "Choose a currency with an available price quote")
     job.template_snapshot = {
@@ -109,11 +117,24 @@ def remaining_allowance(
     cap = int(maximum["micros"]) if maximum and maximum["currency"] == currency else None
     if maximum and maximum["currency"] != currency:
         return -1
-    if override:
+    if override or job.template_snapshot.get("billing"):
         quote = pricing.get("quotes", {}).get(currency)
         if quote is None:
             return -1
         cap = min(cap, int(quote)) if cap is not None else int(quote)
+    if job.template_snapshot.get("billing"):
+        from app.billing import job_request
+
+        funding = job_request(session, job) if job.id else None
+        if funding and funding.status not in {"personal", "withdrawn"}:
+            approved = funding.details.get("pricing", {})
+            ceiling = approved.get("quotes", {}).get(currency)
+            approved_maximum = approved.get("maximum")
+            if ceiling is None or approved_maximum and approved_maximum["currency"] != currency:
+                return -1
+            if approved_maximum:
+                ceiling = min(int(ceiling), int(approved_maximum["micros"]))
+            cap = min(cap, int(ceiling)) if cap is not None else int(ceiling)
     if cap is None:
         return None
     rows = session.scalars(select(UnitCharge).where(UnitCharge.job_id == job.id))

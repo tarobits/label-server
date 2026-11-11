@@ -1225,6 +1225,7 @@ def create_image_job(
             JobInput(
                 template="image",
                 process_name=body.process_name,
+                billing=body.billing,
                 tape_profile=profile.id,
                 copies=body.copies,
                 notify_on_completion=body.notify_on_completion,

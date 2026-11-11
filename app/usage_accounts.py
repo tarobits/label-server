@@ -153,8 +153,10 @@ def account_report(
 
 def pairwise_report(session: Session, viewer_id: str | None = None) -> list[dict[str, Any]]:
     """Positive amounts are owed by requester to owner; currencies never mix."""
+    from app.billing import offsets
     from app.usage import money
 
+    transferred = offsets(session)
     totals: dict[tuple[str, str, str], int] = {}
     unallocated: dict[tuple[str, str, str], int] = {}
     names = account_names(session)
@@ -167,7 +169,11 @@ def pairwise_report(session: Session, viewer_id: str | None = None) -> list[dict
             continue
         names.setdefault(row.recipient_id, row.recipient_name or row.recipient_id)
         key = (row.user_id, row.recipient_id, row.currency)
-        totals[key] = totals.get(key, 0) + int(row.charged_micros)
+        totals[key] = (
+            totals.get(key, 0)
+            + int(row.charged_micros)
+            - transferred.get((row.batch_id, row.user_id), 0)
+        )
     for adjustment in session.scalars(select(UsageAdjustment)):
         if adjustment.recipient_id is None or adjustment.user_id == adjustment.recipient_id:
             continue

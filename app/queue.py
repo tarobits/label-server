@@ -96,9 +96,11 @@ def compatible_copies(
                 job.template_snapshot.get("document", {}).get("media", {})
             )
             require_matching_media(media, profile)
+            from app.billing import job_eligible as billing_eligible
+
             compatible[job.id] = (
                 media.label_length_mm is None or media.label_length_mm == job.length_mm
-            )
+            ) and billing_eligible(session, job)
         except ValueError:
             compatible[job.id] = False
     return [copy for copy in copies if compatible[copy.job_id]]
@@ -281,6 +283,10 @@ class QueueWorker:
                             job = required(session, PrintJob, copy.job_id)
                             if reason := content_hold_reason(session, job):
                                 raise PrintNotStarted(reason)
+                            from app.billing import job_eligible as billing_eligible
+
+                            if not billing_eligible(session, job):
+                                raise PrintNotStarted("Group funding approval is required")
                             if self.enforce_job_access:
                                 from app.cartridge_access import can_use_cartridge
                                 from app.job_access import job_eligible

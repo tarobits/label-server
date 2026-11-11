@@ -52,6 +52,27 @@ def assign_unowned(session: Session, cartridge: Cartridge, actor_id: str, actor_
             continue
         row.recipient_id, row.recipient_name = recipient, name
         row.recipient_assigned_at = assigned_at or time.time()
+        from app.billing_models import BillingCharge
+
+        for charge in session.scalars(
+            select(BillingCharge).where(
+                BillingCharge.batch_id == row.batch_id,
+                BillingCharge.requester_id == row.user_id,
+                BillingCharge.recipient_id.is_(None),
+            )
+        ):
+            charge.recipient_id, charge.recipient_name = recipient, name
+            from app.access import Actor
+            from app.billing import audit as billing_audit
+
+            billing_audit(
+                session,
+                Actor(id=actor_id, username=actor_name),
+                charge.account_id,
+                "creditor.assigned",
+                charge_id=charge.id,
+                recipient_id=recipient,
+            )
         if (
             row.cost_micros is not None
             and row.charged_micros is not None
@@ -88,6 +109,9 @@ def assign_unowned(session: Session, cartridge: Cartridge, actor_id: str, actor_
 def cartridge_balances(
     session: Session, viewer_id: str | None = None, *, include_schedule: bool = False
 ) -> list[dict[str, Any]]:
+    from app.billing import offsets
+
+    transferred = offsets(session)
     totals: dict[tuple[str, str | None, str, str], dict[str, Any]] = {}
     for allocation, stamp, name in session.execute(
         select(TapeAllocation, Batch.created_at, Cartridge.name)
@@ -121,8 +145,11 @@ def cartridge_balances(
                 "_payments": 0,
             },
         )
-        entry["micros"] += int(allocation.charged_micros)
-        entry["_charges"].append((stamp, int(allocation.charged_micros)))
+        personal = int(allocation.charged_micros) - transferred.get(
+            (allocation.batch_id, allocation.user_id), 0
+        )
+        entry["micros"] += personal
+        entry["_charges"].append((stamp, personal))
     for adjustment in session.scalars(select(UsageAdjustment)):
         if viewer_id is not None and viewer_id not in (adjustment.user_id, adjustment.recipient_id):
             continue

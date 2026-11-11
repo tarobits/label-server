@@ -270,6 +270,11 @@ def settle_usage(session: Session, batch: Batch, consumed_mm: float) -> None:
             )
 
 
+    from app.billing import settle_batch
+
+    settle_batch(session, batch)
+
+
 def usage_report(
     session: Session, user_id: str | None, cartridge_id: str | None = None
 ) -> dict[str, Any]:

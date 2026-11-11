@@ -5,7 +5,12 @@ from alembic import context
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
-from app import job_access_models, queue_routing_models, request_models  # noqa: F401
+from app import (  # noqa: F401
+    billing_models,
+    job_access_models,
+    queue_routing_models,
+    request_models,
+)
 from app.config import Settings
 from app.database_lock import database_owner
 from app.db import make_engine

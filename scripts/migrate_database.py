@@ -100,7 +100,12 @@ def stopped_source(path: Path) -> Generator[sqlite3.Connection, None, None]:
 
 
 def schema_tables(source: sqlite3.Connection) -> dict[str, list[str]]:
-    from app import job_access_models, queue_routing_models, request_models  # noqa: F401
+    from app import (  # noqa: F401
+        billing_models,
+        job_access_models,
+        queue_routing_models,
+        request_models,
+    )
     from app.models import Base
 
     actual = {

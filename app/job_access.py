@@ -87,9 +87,10 @@ def access_hold_reason(session: Session, job: PrintJob) -> str | None:
 
 
 def job_eligible(session: Session, job: PrintJob) -> bool:
+    from app.billing import job_eligible as billing_eligible
     from app.retry_funding import retry_eligible
 
-    if not retry_eligible(session, job):
+    if not billing_eligible(session, job) or not retry_eligible(session, job):
         return False
     if content_hold_reason(session, job):
         return False

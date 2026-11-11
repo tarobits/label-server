@@ -150,6 +150,7 @@ def create_request(
             )
             job_input = JobInput(
                 process_name=source.process_name,
+                billing=source.billing,
                 template="image",
                 tape_profile=profile.id,
                 copies=source.copies,
@@ -363,6 +364,9 @@ def approve_request(
         )
         session.add(job)
         session.flush()
+        from app.billing import register_job
+
+        register_job(session, job, actor)
         session.add_all(LabelCopy(job_id=job.id, ordinal=i) for i in range(job.copies))
         jobs.append(job.id)
     if value.run_id:

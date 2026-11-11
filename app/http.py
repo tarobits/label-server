@@ -41,12 +41,17 @@ def db(request: Request) -> Iterator[Session]:
     with nullcontext() if readonly else request.app.state.fleet.lock:
         try:
             with request.app.state.factory() as session:
-                from app.access import authorize_current_request
+                from app.access import access_context, authorize_current_request
 
                 authorize_current_request(request)
+                actor = access_context(request).actor if not readonly else None
                 session.info["request"] = request
                 yield session
                 if not readonly:
+                    from app.billing import cancel_empty_requests
+
+                    assert actor is not None
+                    cancel_empty_requests(session, actor)
                     complete_empty_flushes(session)
                     schedule_reminders(session, time.time())
                 session.commit()
@@ -159,6 +164,8 @@ def job_information(
 
 
 def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
+    from app.billing import job_eligible as billing_eligible
+    from app.billing import job_request
     from app.print_audit import job_attribution
 
     copies = list(
@@ -202,6 +209,7 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
             and State.QUEUED in states
             and not states.intersection({State.PRINTING, State.NEEDS_REVIEW}),
             "can_print": not held
+            and billing_eligible(session, job)
             and (
                 context.can_printer(job.destination_id, "start_any")
                 or owns
@@ -214,6 +222,16 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
         "attribution": job_attribution(session, job),
         **permissions,
         "access_hold": record(hold) if hold is not None else None,
+        "billing_held": bool(job.template_snapshot.get("billing"))
+        and not billing_eligible(session, job),
+        "billing_request": {
+            "id": funding.id,
+            "account_id": funding.account_id,
+            "status": funding.status,
+            "mode": funding.mode,
+        }
+        if (funding := job_request(session, job))
+        else None,
         "assigned_printer_id": run.assigned_printer_id if run else None,
         "status": status,
         "labels": [record(item) for item in copies],

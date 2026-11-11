@@ -36,6 +36,7 @@ COMMON_FIELDS: dict[str, FieldType] = {
     "victim_names": "identifiers",
 }
 ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
+    "billing.changed": {"account_id": "text", "event_id": "text", "change": "text"},
     "settings.review_evidence_changed": {"previous": "text", "current": "text"},
     **{
         action: {

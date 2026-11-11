@@ -36,4 +36,4 @@ jobs:
       - name: Test schema, migration, recovery and main-server operations
         env:
           LABEL_TEST_MARIADB_URL: mariadb+pymysql://root@127.0.0.1:${{ job.services.database.ports[3306] }}/labels_test
-        run: .venv/bin/python -m pytest tests/test_mariadb.py -q --show-capture=no --tb=short
+        run: .venv/bin/python -m pytest tests/test_mariadb.py tests/test_group_billing_mariadb.py -q --show-capture=no --tb=short

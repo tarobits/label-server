@@ -33,7 +33,12 @@ def encode(value: Any) -> bytes:
 
 
 def backup(connection: Connection, path: Path) -> None:
-    from app import job_access_models, queue_routing_models, request_models  # noqa: F401
+    from app import (  # noqa: F401
+        billing_models,
+        job_access_models,
+        queue_routing_models,
+        request_models,
+    )
     from app.models import Base
 
     tables = inspect(connection).get_table_names()

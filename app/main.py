@@ -199,6 +199,7 @@ def create_app(
     from app.auth_api import router as auth_router
     from app.avatar_api import router as avatar_router
     from app.batch_reviews import router as batch_reviews_router
+    from app.billing_api import router as billing_router
     from app.cartridge_quote_api import router as cartridge_quote_router
     from app.companion_api import router as companion_router
     from app.companion_transport_api import router as companion_transport_router
@@ -224,6 +225,7 @@ def create_app(
     app.include_router(resource_router)
     app.include_router(migration_router)
     app.include_router(accounting_router)
+    app.include_router(billing_router)
     app.include_router(retry_router)
     app.include_router(batch_reviews_router)
     app.include_router(cartridge_quote_router)
