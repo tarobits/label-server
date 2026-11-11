@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app import __version__
 from app.deployment import require_role
 from app.printer.base import ControlledPrinterBackend, StopMode
 from companion.agent import Agent
@@ -31,6 +32,9 @@ COOKIE = "label_station"
 UPDATE_VALIDATION_PROTOCOL = 1
 PROXY_PATH = re.compile(
     r"(?:printers|tape-profiles|cartridges|cartridge-quotes|status|printer/(?:active-tape|automatic-printing)|queue/(?:groups|print)|printers/[A-Za-z0-9_-]+(?:/(?:stop|cartridge-check))?|jobs/[A-Za-z0-9_-]+(?:/preview)?|companion/printers/[A-Za-z0-9_-]+/clear)"
+)
+PACKING_PATH = re.compile(
+    r"batches/(?:page|[A-Za-z0-9_-]+(?:/items/[A-Za-z0-9_-]+/preview)?)"
 )
 
 
@@ -75,6 +79,9 @@ def create_app(
     settings: Settings, agent: Agent | None = None, *, start_agent: bool = True
 ) -> FastAPI:
     require_role("companion")
+    from app.logging_config import configure_logging
+
+    configure_logging(settings.log_level)
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     journal = agent.journal if agent else Journal(settings.data_dir / "journal.db")
     agent = agent or Agent(settings, journal)
@@ -244,6 +251,7 @@ def create_app(
         ]
         return {
             "name": agent.users.get("name", "Companion"),
+            "version": __version__,
             "frontend_build": build,
             "online": agent.online,
             "locked": token is None,
@@ -427,7 +435,10 @@ def create_app(
 
     @app.api_route("/api/proxy/{path:path}", methods=["GET", "POST", "PUT"])
     async def proxy(path: str, request: Request) -> Response:
-        if not PROXY_PATH.fullmatch(path):
+        if not (
+            PROXY_PATH.fullmatch(path)
+            or request.method == "GET" and PACKING_PATH.fullmatch(path)
+        ):
             raise HTTPException(403, "This operation is not available through the station")
         if request.method != "GET":
             csrf(request)
@@ -457,6 +468,7 @@ def create_app(
             result.content,
             status_code=result.status_code,
             media_type=result.headers.get("content-type", "application/json"),
+            headers={"Cache-Control": "private, no-store"},
         )
 
     if (assets / "assets").exists():

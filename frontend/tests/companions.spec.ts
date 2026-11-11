@@ -245,7 +245,10 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
     await page.getByRole('button', { name: 'Controls', exact: true }).click()
     const queue = page.getByRole('region', { name: 'Printer queue', exact: true })
     await expect(
-      queue.getByRole('checkbox', { name: 'Packing labels 2 copies · owner', exact: true }),
+      queue.getByRole('checkbox', {
+        name: `Packing labels 2 copies · owner ${profile.name}`,
+        exact: true,
+      }),
     ).toBeVisible()
     await expect(page.locator('.station-printer.expanded')).toHaveCount(1)
     await page.getByRole('button', { name: 'Close controls', exact: true }).click()

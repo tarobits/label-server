@@ -1,15 +1,17 @@
 import { test, expect } from '@playwright/test'
 import { resolve } from 'node:path'
 
-for (const width of [390, 800]) {
+for (const width of [390, 800, 1024]) {
   test(`station recovers and selects user cards at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 800 })
+    const height = width === 1024 ? 600 : 800
+    await page.setViewportSize({ width, height })
     let localOnline = false,
       mainOnline = false,
       reads = 0,
       writes = 0
     const state = {
       name: 'Packing station',
+      version: '0.14.0',
       locked: true,
       user: null,
       users: [
@@ -61,7 +63,7 @@ for (const width of [390, 800]) {
     const box = (await unlock.boundingBox())!
     expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2)
     const footer = (await page.locator('.station-footer').boundingBox())!
-    expect(footer.y + footer.height).toBeCloseTo(800, 0)
+    expect(footer.y + footer.height).toBeCloseTo(height, 0)
     await expect(page.getByRole('link', { name: 'Source', exact: true })).toBeVisible()
     await unlock.click()
     const dialog = page.getByRole('dialog', { name: 'Unlock station' })
@@ -75,6 +77,19 @@ for (const width of [390, 800]) {
     })
     await dialog.getByRole('button', { name: 'Alice', exact: true }).click()
     await expect(pin).toBeFocused()
+    if (width === 1024) {
+      expect(
+        await dialog.evaluate((element) => element.scrollHeight - element.clientHeight),
+      ).toBeLessThanOrEqual(1)
+      const submitBox = (await dialog
+        .getByRole('button', { name: 'Unlock', exact: true })
+        .boundingBox())!
+      expect(submitBox.y + submitBox.height).toBeLessThan(height - 16)
+      await page.screenshot({
+        path: 'test-results/station-pin-1024x600.png',
+        animations: 'disabled',
+      })
+    }
     await pin.fill('1234')
     await dialog.getByRole('button', { name: 'Unlock', exact: true }).click()
     await expect(dialog.getByRole('alert')).toHaveText('Incorrect PIN')

@@ -41,6 +41,8 @@ are visible before unlock only for accounts eligible to use that companion.
 The bottom indicator distinguishes the main server being offline from the browser
 losing contact with the companion. The page retries automatically and recovers
 without a browser refresh. Print and other control requests are never replayed.
+The connection bar also shows the companion's running version, source and license
+links, and project credit. Connection status stays centered.
 
 After a companion frontend update, the page reloads automatically once the local
 service is ready, the station is locked, no dialog is open, and no control request
@@ -54,6 +56,20 @@ size, last batch result, and confirmed labels printed in the last 24 hours. Shar
 group queues are counted separately. Batch results update after confirmation;
 the display does not estimate per-label progress. During an outage, cached
 summaries are marked as last known server data.
+
+Queue entries show their tape profile; CSV runs stay grouped with expandable
+rows. **Print current tape queue** starts the eligible queue for the installed
+cartridge's profile and selected destination, including entries beyond the
+current page. Existing print permissions, funding holds and price checks apply.
+Operators with **View everyone’s print activity** permission can open **Pack labels** on a
+printer to browse completed batches, preview labels and sort them by requester.
+Locking the station closes packing and hides its private content.
+
+Set `LABEL_COMPANION_LOG_LEVEL` to `DEBUG`, `INFO` (default), `WARNING`, `ERROR`
+or `CRITICAL`. Successful HTTP requests (2xx) are logged only at `DEBUG`; 4xx
+responses are warnings and 5xx responses are errors. Redirects and other 3xx
+responses appear at `INFO`. Request query strings are omitted from access logs.
+The main server uses its own `LABEL_LOG_LEVEL` setting.
 
 Operational details are visible while locked by default. Set
 `LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS=false` in `.env.companion` and restart
@@ -325,11 +341,20 @@ main server's go-ahead. An authorized running batch may finish during an outage.
 Results are stored locally and retried without repeating hardware execution.
 Ordinary controls and new work need a main-server connection.
 
-An idle disconnect reconnects without human clearance. Printer errors, interrupted
+An idle disconnect reconnects without human clearance. Hardware faults, interrupted
 execution, or a process crash during a batch block the affected printer. Review
 uncertain output on the main server, investigate the device, then use **Clear
 block**. Other printers can continue independently. A ready hardware status alone
 does not clear an investigation block.
+
+A cartridge-confirmation notice alone does not create an investigation block.
+Confirm the cartridge on either interface and allow the next companion status
+updates to apply it. Actual hardware faults and uncertain execution still need
+explicit clearance, even if a cartridge is subsequently confirmed. Older versions
+may have latched an investigation block for a confirmation notice; after inspecting
+the printer, use **Clear block** once. The stored flag cannot distinguish that old
+false alarm from a genuine fault. Update the main server before the companion so
+it accepts the status distinction; both sides need the fix.
 
 Run one companion process per data directory. Main and companion servers belong
 on different machines. Never delete the companion journal to recover printing: it prevents duplicate attempts. Stop or

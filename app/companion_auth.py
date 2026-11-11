@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import actor_for_user, token_hash
 from app.models import (
+    Batch,
     Companion,
     CompanionPin,
     CompanionPrinter,
@@ -147,6 +148,14 @@ def station_context(request: Request, session: Session) -> "AccessContext":
         )
     if method == "GET" and path == "/api/queue/groups":
         allowed = request.query_params.get("destination_id") in destinations
+    if method == "GET" and path == "/api/batches/page":
+        allowed = request.query_params.get("printer_id") in printers
+    if method == "GET" and path in (
+        "/api/batches/{identifier}",
+        "/api/batches/{identifier}/items/{copy_id}/preview",
+    ):
+        batch = session.get(Batch, request.path_params.get("identifier"))
+        allowed = batch is not None and batch.printer_id in printers
     if method == "GET" and path in ("/api/jobs/{identifier}", "/api/jobs/{identifier}/preview"):
         job = session.get(PrintJob, request.path_params.get("identifier"))
         allowed = job is not None and bool(

@@ -30,6 +30,7 @@ for (const width of [1024, 390]) {
         return route.fulfill({
           json: {
             name: 'Packing station',
+            version: '0.14.0',
             locked: true,
             online,
             user: null,
@@ -86,6 +87,13 @@ for (const width of [1024, 390]) {
     })
     await page.goto('http://localhost:12345/')
     await expect(page.getByText('Active batch', { exact: true })).toBeVisible()
+    await expect(page.locator('.station-version')).toHaveText('v0.14.0')
+    await expect(page.locator('.station-credit')).toHaveText('Made with ♥ by tarobits.')
+    const connection = (await page.locator('.station-connection').boundingBox())!
+    expect(connection.x + connection.width / 2).toBeCloseTo(width / 2, 0)
+    const source = (await page.locator('.station-source').boundingBox())!
+    const meta = (await page.locator('.station-meta').boundingBox())!
+    expect(source.x + source.width).toBeLessThan(meta.x)
     await expect(page.getByText('On hold', { exact: true })).toBeVisible()
     await expect(page.getByText('6 labels completed', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Controls', exact: true })).toHaveCount(0)
@@ -105,6 +113,9 @@ for (const width of [1024, 390]) {
       expect(second.x - first.x - first.width).toBeGreaterThanOrEqual(16)
       const footer = (await page.locator('.station-connection').boundingBox())!
       expect(Math.max(first.y + first.height, second.y + second.height)).toBeLessThan(footer.y)
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
+        600,
+      )
     }
     await page.screenshot({
       path: `test-results/station-dashboard-${width}.png`,
@@ -113,6 +124,8 @@ for (const width of [1024, 390]) {
     })
     online = false
     await expect(page.getByText('Last known server data', { exact: true })).toHaveCount(2)
+    const offlineConnection = (await page.locator('.station-connection').boundingBox())!
+    expect(offlineConnection.x + offlineConnection.width / 2).toBeCloseTo(width / 2, 0)
     await expect(page.getByRole('button', { name: 'Unlock', exact: true })).toBeDisabled()
     details = false
     online = true

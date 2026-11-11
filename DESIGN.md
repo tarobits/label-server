@@ -185,11 +185,12 @@ reintroduce a fixed row count that cannot accommodate notes, warnings or forms.
 Deletion explanations belong after the action group, clear of every button.
 
 The companion is tuned for a 1024 × 600 touchscreen as well as smaller screens.
-Its shell has a 1280px maximum width and 24px 24px 80px padding; the bottom space
+Its shell has a 1280px maximum width and 16px 20px 64px padding; the bottom space
 reserves room for connection status. Printer cards use two columns, becoming
 one on narrow screens. The lock state/countdown stays in the header. Unlock
-actions are centered, at least 160px wide and 48px high. User selection uses
-individual avatar/name tiles before showing PIN controls.
+actions are centered, at least 160px wide and 44px high. User selection uses
+compact horizontal avatar/name tiles before showing PIN controls. The keypad
+and unlock action fit together on the 1024 × 600 screen.
 
 ## Elevation & Depth
 
@@ -284,8 +285,11 @@ persistent operational information. This describes the current unpublished fix.
 
 The shared `SourceLink` component exposes source access and an AGPL license download.
 Keep it available on sign-in/recovery screens and in both application footers.
-On the companion, source links sit beside the connection indicator and wrap within
-the reserved footer space. Keep interactive links outside the live status region.
+On the companion, source links sit on the left, connection status stays centered,
+and version and credit sit on the right. Equal outer grid columns keep status
+centered regardless of the side content. Below 800px, status has its own centered
+row above the links and credit. Reserve enough shell padding for the footer and
+keep interactive links outside the live status region.
 
 ## Do's and Don'ts
 

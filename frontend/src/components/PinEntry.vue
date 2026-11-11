@@ -4,6 +4,7 @@ const props = defineProps<{
   keypad?: boolean
   shuffle?: 'none' | 'once' | 'each_keypress'
   disabled?: boolean
+  compact?: boolean
 }>()
 const pin = defineModel<string>({ required: true })
 const input = ref<HTMLInputElement>()
@@ -40,7 +41,7 @@ function press(key: string) {
 </script>
 
 <template>
-  <div class="form-stack pin-entry">
+  <div class="form-stack pin-entry" :class="{ compact }">
     <label
       >PIN<input
         ref="input"
@@ -98,5 +99,18 @@ function press(key: string) {
 .pin-digit {
   font-size: 1.4rem;
   font-variant-numeric: tabular-nums;
+}
+.pin-entry.compact {
+  gap: 12px;
+}
+.compact .pin-keypad {
+  gap: 8px;
+}
+.compact .pin-keypad button {
+  min-height: 44px;
+  padding: 8px 4px;
+}
+.compact .pin-digit {
+  font-size: 1.2rem;
 }
 </style>

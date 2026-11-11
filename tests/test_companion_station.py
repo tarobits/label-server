@@ -104,6 +104,67 @@ def test_confirmed_cartridge_is_not_rearmed_by_delayed_companion_status(accounts
         assert printer_state(session, identifier).cartridge_check_pending
 
 
+def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(accounts, tmp_path):
+    from conftest import profile
+    from test_cartridge_confirmation import DetectedTapeTransport, cartridge
+
+    from app.destinations import printer_state
+    from app.models import Cartridge
+    from app.printer.brother import BrotherPTP710BT
+
+    admin, _, _ = accounts
+    settings, agent = local_station(admin, tmp_path)
+    identifier = agent.identifiers["usb-one"]
+    tape = profile(admin)
+    cart = cartridge(admin, tape)
+    transport = DetectedTapeTransport(media=1)
+    agent.executors["usb-one"].backend = BrotherPTP710BT(transport)
+    worker = admin.app.state.fleet.workers[identifier]
+    with admin.app.state.factory.begin() as session:
+        session.get_one(Cartridge, cart["id"]).location_id = "workshop"
+        printer_state(session, identifier).active_cartridge_id = cart["id"]
+    worker.tick()
+    agent.sync()
+
+    # A completed cover event asks for cartridge verification, not fault clearance.
+    transport.pending.append(transport.packet(5, notification=2))
+    agent.sync()
+    assert "confirm the installed cartridge" in agent.statuses["usb-one"]["error"]
+    assert not agent.server_blocked["usb-one"]
+    worker.tick()
+    with admin.app.state.factory() as session:
+        assert printer_state(session, identifier).cartridge_check_pending
+
+    endpoint = f"/api/printer/active-tape?printer_id={identifier}"
+    body = {"cartridge_id": cart["id"]}
+    challenge = admin.put(endpoint, json=body)
+    assert challenge.status_code == 409, challenge.text
+    confirmed = admin.put(
+        endpoint,
+        json={**body, "media_confirmation": challenge.json()["detail"]["confirmation"]},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    worker.tick()
+    # One heartbeat delivers the selection; the next reports its applied status.
+    agent.sync()
+    agent.sync()
+    worker.tick()
+    agent.sync()
+    with TestClient(create_app(settings, agent, start_agent=False)) as client:
+        printer = client.get("/api/station").json()["printers"][0]
+        assert not printer["blocked"]
+        assert printer["status"]["error"] is None
+        assert not printer["dashboard"]["cartridge_check_pending"]
+
+        # Real hardware faults still latch, even if subsequent status is healthy.
+        transport.errors = (2, 0)
+        agent.sync()
+        assert agent.server_blocked["usb-one"]
+        transport.errors = (0, 0)
+        agent.sync()
+        assert agent.server_blocked["usb-one"]
+
+
 def test_frontend_build_identity_handles_missing_and_invalid_shell(tmp_path):
     path = tmp_path / "companion.html"
     assert frontend_build(path) is None
@@ -213,6 +274,7 @@ def test_locked_station_exposes_dashboard_but_no_controls_or_secrets(accounts, t
         assert response.status_code == 200, response.text
         state = response.json()
         assert state["locked"] and state["user"] is None and len(state["printers"]) == 1
+        assert state["version"] == __version__
         assert state["lock_remaining_seconds"] is None
         assert settings.api_key.get_secret_value() not in response.text
         assert "246810" not in response.text and "session_token" not in response.text
@@ -340,6 +402,84 @@ def test_agent_sync_carries_one_remote_attempt_through_to_settlement(accounts, t
     assert admin.get(f"/api/jobs/{job['id']}").json()["status"] == "printed"
     assert isinstance(agent.executors["usb-one"].backend, MockPrinterBackend)
     assert len(agent.executors["usb-one"].backend.batches) == 1
+
+
+def test_station_packing_requires_activity_access_and_stays_within_station(accounts, tmp_path):
+    from conftest import profile
+    from sqlalchemy import delete
+    from test_cartridge_confirmation import cartridge
+
+    from app.models import Batch, BatchItem, State
+
+    admin, _, _ = accounts
+    settings, agent = local_station(admin, tmp_path, user="alice")
+    identifier = agent.identifiers["usb-one"]
+    tape = profile(admin)
+    cart = cartridge(admin, tape)
+    response = admin.post(
+        "/api/jobs",
+        json={
+            "destination_id": identifier,
+            "tape_profile": tape["id"],
+            "data": {"text": "Pack me"},
+        },
+    )
+    assert response.status_code == 201, response.text
+    copy_id = response.json()["labels"][0]["id"]
+    with admin.app.state.factory.begin() as session:
+        for batch_id, printer_id in (("local-packing", identifier), ("other-packing", "main")):
+            session.add(
+                Batch(
+                    id=batch_id,
+                    printer_id=printer_id,
+                    cartridge_id=cart["id"],
+                    state=State.PRINTED,
+                    estimated_mm=30,
+                )
+            )
+        session.flush()
+        session.add(
+            BatchItem(batch_id="local-packing", copy_id=copy_id, position=0, outcome=State.PRINTED)
+        )
+    listing = f"/api/proxy/batches/page?printer_id={identifier}"
+    detail = "/api/proxy/batches/local-packing"
+    preview = f"{detail}/items/{copy_id}/preview"
+    with TestClient(create_app(settings, agent, start_agent=False)) as local:
+        assert local.get(listing).status_code == 401
+        unlock(local)
+        assert local.get(detail).status_code in (403, 404)
+        assert local.get(preview).status_code in (403, 404)
+        with admin.app.state.factory.begin() as session:
+            session.add(
+                ResourceGrant(
+                    principal_kind="user",
+                    principal_id="alice",
+                    scope_kind="printer",
+                    scope_id=identifier,
+                    permission="printer.view_activity",
+                )
+            )
+        assert [item["id"] for item in local.get(listing).json()["items"]] == ["local-packing"]
+        assert local.get(detail).json()["items"][0]["text"] == "Pack me"
+        assert local.get(preview).headers["content-type"] == "image/png"
+        assert local.get("/api/proxy/batches/page?printer_id=main").status_code == 403
+        assert local.get("/api/proxy/batches/other-packing").status_code == 403
+        assert (
+            local.get(f"/api/proxy/batches/other-packing/items/{copy_id}/preview").status_code
+            == 403
+        )
+        assert local.post(detail, json={}).status_code == 403
+        assert local.post(f"{detail}/review", json={}).status_code == 403
+        with admin.app.state.factory.begin() as session:
+            session.execute(
+                delete(ResourceGrant).where(
+                    ResourceGrant.principal_id == "alice",
+                    ResourceGrant.permission == "printer.view_activity",
+                )
+            )
+        assert local.get(preview).status_code in (403, 404)
+        local.post("/api/station/lock")
+        assert local.get(preview).status_code == 401
 
 
 def test_offline_locked_stop_policy_and_durable_audit_replay(accounts, tmp_path):

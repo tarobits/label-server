@@ -110,7 +110,7 @@ const lastResult = computed(() => {
 <style scoped>
 .printer-telemetry {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 .printer-counts {
   display: grid;
@@ -130,7 +130,7 @@ const lastResult = computed(() => {
 }
 .printer-counts dd {
   margin: 0;
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   line-height: 1.2;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -143,7 +143,7 @@ const lastResult = computed(() => {
 }
 .printer-stock {
   border-top: 1px solid var(--line);
-  padding-top: 16px;
+  padding-top: 12px;
 }
 .stock-heading {
   display: flex;
@@ -177,7 +177,7 @@ const lastResult = computed(() => {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 8px;
   font-size: 0.875rem;
   color: var(--muted);
 }

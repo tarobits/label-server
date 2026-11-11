@@ -17,6 +17,9 @@ import PinEntry from './components/PinEntry.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import SourceLink from './components/SourceLink.vue'
 import StationTelemetry, { type StationDashboard } from './components/StationTelemetry.vue'
+import CompanionPacking from './components/CompanionPacking.vue'
+import MotionSurface from './components/MotionSurface.vue'
+import AnimatedDetails from './components/AnimatedDetails.vue'
 import {
   PrinterIcon,
   LockClosedIcon,
@@ -48,7 +51,14 @@ interface Operator {
   printer_permissions: Record<string, string[]>
   groups: Record<string, { name: string; printer_ids: string[] }>
 }
+interface QueueGroup {
+  id: string
+  run_id: string | null
+  name: string | null
+  jobs: Job[]
+}
 interface Station {
+  version?: string
   frontend_build?: string | null
   name: string
   online: boolean
@@ -119,8 +129,10 @@ const cartridges = ref<Cartridge[]>([]),
   profiles = ref<Profile[]>([]),
   allLocations = ref(false)
 const cartridgeId = ref(''),
-  jobs = ref<Job[]>([]),
+  queueGroups = ref<QueueGroup[]>([]),
   copyIds = ref<string[]>([])
+const jobs = computed(() => queueGroups.value.flatMap((group) => group.jobs))
+const packingPrinter = ref<LocalPrinter | null>(null)
 const queuePage = ref(0),
   hasNextPage = ref(false)
 const config = ref<Printer['config'] & { name: string; driver: string }>()
@@ -139,6 +151,33 @@ let timer: ReturnType<typeof setTimeout> | undefined,
   catalogUser = ''
 const active = computed(() => station.value?.printers.find((p) => p.local_id === selected.value))
 const status = computed(() => (active.value?.id ? statuses.value[active.value.id] : undefined))
+const installedProfile = computed(() => {
+  const cartridge = cartridges.value.find((item) => item.id === status.value?.active_cartridge_id)
+  return profiles.value.find((item) => item.id === cartridge?.profile_id)
+})
+const profileName = (id: string) =>
+  profiles.value.find((profile) => profile.id === id)?.name ?? 'Unavailable tape profile'
+const jobProfileName = (job: Job) => job.profile_name || profileName(job.profile_id)
+const groupCopies = (group: QueueGroup) => group.jobs.flatMap(queuedCopies)
+const selectableCopies = (group: QueueGroup) =>
+  group.jobs.filter((job) => job.can_print).flatMap(queuedCopies)
+function toggleGroup(group: QueueGroup, checked: boolean) {
+  const ids = new Set(selectableCopies(group))
+  copyIds.value = checked
+    ? [...new Set([...copyIds.value, ...ids])]
+    : copyIds.value.filter((id) => !ids.has(id))
+}
+async function closePacking() {
+  const id = packingPrinter.value?.local_id
+  packingPrinter.value = null
+  await nextTick()
+  document.getElementById(`pack-${id}`)?.focus()
+}
+async function openPacking(printer: LocalPrinter) {
+  packingPrinter.value = printer
+  await nextTick()
+  document.querySelector<HTMLElement>('.station-packing h2')?.focus()
+}
 const operational = computed(
   () =>
     stationReachable.value &&
@@ -195,7 +234,8 @@ const queuedCopies = (job: Job) =>
 function clearPrivate(clearPin = true) {
   generation++
   catalogUser = ''
-  jobs.value = []
+  queueGroups.value = []
+  packingPrinter.value = null
   copyIds.value = []
   statuses.value = {}
   devices.value = []
@@ -265,9 +305,11 @@ async function refresh() {
     if (changed) clearPrivate()
     if (active.value && !can(active.value.id, 'view')) {
       selected.value = ''
-      jobs.value = []
+      queueGroups.value = []
       copyIds.value = []
     }
+    if (packingPrinter.value && !can(packingPrinter.value.id, 'view_activity'))
+      packingPrinter.value = null
     const owner = JSON.stringify(state.user),
       requestGeneration = generation
     if (catalogUser !== owner) {
@@ -303,13 +345,13 @@ async function loadQueue(ticket = generation) {
   if (!destination.value || !operational.value) return
   const page = queuePage.value,
     target = destination.value
-  const groups = await api<{ jobs: Job[] }[]>(
+  const groups = await api<QueueGroup[]>(
     `/proxy/queue/groups?destination_id=${encodeURIComponent(target)}&copy_state=queued&limit=26&offset=${page * 25}`,
   )
   if (disposed || ticket !== generation || page !== queuePage.value || target !== destination.value)
     return
   hasNextPage.value = groups.length > 25
-  jobs.value = groups.slice(0, 25).flatMap((group) => group.jobs)
+  queueGroups.value = groups.slice(0, 25)
   const available = new Set(jobs.value.filter((job) => job.can_print).flatMap(queuedCopies))
   copyIds.value = copyIds.value.filter((id) => available.has(id))
 }
@@ -338,7 +380,7 @@ function openControls(printer: LocalPrinter) {
   cartridgeId.value = printer.id ? (statuses.value[printer.id]?.active_cartridge_id ?? '') : ''
   allLocations.value = false
   queuePage.value = 0
-  jobs.value = []
+  queueGroups.value = []
   copyIds.value = []
   if (selected.value) void loadQueue().catch((issue) => (error.value = errorMessage(issue)))
 }
@@ -382,6 +424,16 @@ async function start() {
         requestPrinting(
           `/proxy/queue/print?printer_id=${encodeURIComponent(active.value!.id!)}&destination_id=${encodeURIComponent(destination.value)}`,
           { copy_ids: copyIds.value },
+        ),
+      'Print request queued.',
+    )
+}
+async function printProfileQueue() {
+  if (active.value?.id && installedProfile.value)
+    await perform(
+      () =>
+        requestPrinting(
+          `/proxy/queue/print?printer_id=${encodeURIComponent(active.value!.id!)}&destination_id=${encodeURIComponent(destination.value)}`,
         ),
       'Print request queued.',
     )
@@ -624,281 +676,376 @@ function changePage(delta: number) {
     <Transition name="notice"
       ><p v-if="success" class="alert success" role="status">{{ success }}</p></Transition
     >
-    <section class="station-fleet" aria-label="Connected printers">
-      <div class="fleet-toolbar">
-        <h2>Printers</h2>
-        <button
-          v-if="!station?.locked && station?.user?.permissions.includes('printers.manage')"
-          class="secondary"
-          :disabled="busy || !operational"
-          @click="addPrinter"
+    <MotionSurface :identity="packingPrinter?.local_id ?? 'printers'">
+      <CompanionPacking
+        v-if="packingPrinter?.id && operational && can(packingPrinter.id, 'view_activity')"
+        :key="`${station?.user?.id}:${packingPrinter.id}`"
+        :printer-id="packingPrinter.id"
+        :printer-name="packingPrinter.name"
+        @close="closePacking"
+      />
+      <section v-else class="station-fleet" aria-label="Connected printers">
+        <div class="fleet-toolbar">
+          <h2>Printers</h2>
+          <button
+            v-if="!station?.locked && station?.user?.permissions.includes('printers.manage')"
+            class="secondary"
+            :disabled="busy || !operational"
+            @click="addPrinter"
+          >
+            Add printer
+          </button>
+        </div>
+        <p v-if="station && !station.printers.length" class="panel muted">
+          No local printers configured.
+        </p>
+        <TransitionGroup
+          tag="div"
+          class="printer-grid"
+          name="collection"
+          @before-leave="freezeLeavingItem"
         >
-          Add printer
-        </button>
-      </div>
-      <p v-if="station && !station.printers.length" class="panel muted">
-        No local printers configured.
-      </p>
-      <TransitionGroup
-        tag="div"
-        class="printer-grid"
-        name="collection"
-        @before-leave="freezeLeavingItem"
-      >
-        <article
-          v-for="printer in station?.printers"
-          :key="printer.local_id"
-          class="station-printer"
-          :class="{ expanded: expandedPrinter === printer.local_id }"
-          :aria-label="printer.name"
-        >
-          <div class="printer-card-heading">
-            <div class="printer-identity">
-              <PrinterIcon class="printer-icon" aria-hidden="true" />
-              <div>
-                <h2>{{ printer.name }}</h2>
-                <p class="muted">
-                  {{
-                    printer.status.tape_width_mm
-                      ? `${printer.status.tape_width_mm} mm tape`
-                      : 'Tape not detected'
-                  }}
-                </p>
+          <article
+            v-for="printer in station?.printers"
+            :key="printer.local_id"
+            class="station-printer"
+            :class="{ expanded: expandedPrinter === printer.local_id }"
+            :aria-label="printer.name"
+          >
+            <div class="printer-card-heading">
+              <div class="printer-identity">
+                <PrinterIcon class="printer-icon" aria-hidden="true" />
+                <div>
+                  <h2>{{ printer.name }}</h2>
+                  <p class="muted">
+                    {{
+                      printer.status.tape_width_mm
+                        ? `${printer.status.tape_width_mm} mm tape`
+                        : 'Tape not detected'
+                    }}
+                  </p>
+                </div>
+              </div>
+              <span class="printer-state" :class="printerState(printer).tone"
+                ><component :is="printerState(printer).icon" aria-hidden="true" />{{
+                  printerState(printer).label
+                }}</span
+              >
+            </div>
+            <p v-if="printer.status.error" class="printer-problem">{{ printer.status.error }}</p>
+            <StationTelemetry
+              v-if="printer.dashboard?.queued_labels != null"
+              :details="printer.dashboard"
+              :stale="
+                !station?.online ||
+                !stationReachable ||
+                serverUnavailable ||
+                (printer.snapshot_age_seconds ?? 0) > 20
+              "
+              :printing="printer.printing"
+            />
+            <div class="printer-actions">
+              <div class="row wrap">
+                <button
+                  v-if="!station?.locked && can(printer.id, 'view')"
+                  class="secondary"
+                  :disabled="!operational || busy"
+                  :aria-expanded="selected === printer.local_id"
+                  @click="openControls(printer)"
+                >
+                  {{ selected === printer.local_id ? 'Close controls' : 'Controls' }}
+                </button>
+                <button
+                  v-if="!station?.locked && can(printer.id, 'view_activity')"
+                  :id="`pack-${printer.local_id}`"
+                  class="secondary"
+                  :disabled="!operational || busy"
+                  @click="openPacking(printer)"
+                >
+                  Pack labels
+                </button>
+                <button
+                  v-if="allowStop(printer, 'after_current')"
+                  class="secondary"
+                  :disabled="busy"
+                  @click="stop(printer, 'after_current')"
+                >
+                  Stop after label</button
+                ><button
+                  v-if="allowStop(printer, 'emergency')"
+                  class="danger"
+                  :disabled="busy"
+                  @click="stop(printer, 'emergency')"
+                >
+                  Emergency stop
+                </button>
               </div>
             </div>
-            <span class="printer-state" :class="printerState(printer).tone"
-              ><component :is="printerState(printer).icon" aria-hidden="true" />{{
-                printerState(printer).label
-              }}</span
+            <ExpandableContent
+              :open="selected === printer.local_id && !station?.locked"
+              @closed="expandedPrinter === printer.local_id && (expandedPrinter = '')"
             >
-          </div>
-          <p v-if="printer.status.error" class="printer-problem">{{ printer.status.error }}</p>
-          <StationTelemetry
-            v-if="printer.dashboard?.queued_labels != null"
-            :details="printer.dashboard"
-            :stale="
-              !station?.online ||
-              !stationReachable ||
-              serverUnavailable ||
-              (printer.snapshot_age_seconds ?? 0) > 20
-            "
-            :printing="printer.printing"
-          />
-          <div class="printer-actions">
-            <div class="row wrap">
-              <button
-                v-if="!station?.locked && can(printer.id, 'view')"
-                class="secondary"
-                :disabled="!operational || busy"
-                :aria-expanded="selected === printer.local_id"
-                @click="openControls(printer)"
-              >
-                {{ selected === printer.local_id ? 'Close controls' : 'Controls' }}</button
-              ><button
-                v-if="allowStop(printer, 'after_current')"
-                class="secondary"
-                :disabled="busy"
-                @click="stop(printer, 'after_current')"
-              >
-                Stop after label</button
-              ><button
-                v-if="allowStop(printer, 'emergency')"
-                class="danger"
-                :disabled="busy"
-                @click="stop(printer, 'emergency')"
-              >
-                Emergency stop
-              </button>
-            </div>
-          </div>
-          <ExpandableContent
-            :open="selected === printer.local_id && !station?.locked"
-            @closed="expandedPrinter === printer.local_id && (expandedPrinter = '')"
-          >
-            <Transition name="notice">
-              <div class="station-controls" v-if="selected === printer.local_id">
-                <p v-if="status?.needs_review.length" class="alert warning">
-                  Review the interrupted batch on the main server before continuing.
-                </p>
-                <p
-                  v-else-if="status?.media_warning || status?.cartridge_check_pending"
-                  class="alert warning"
-                >
-                  {{ status.media_warning ?? 'Confirm the installed cartridge.' }}
-                </p>
-                <div class="row wrap">
-                  <button
-                    v-if="can(printer.id, 'hold_resume')"
-                    class="secondary"
-                    :disabled="!operational || busy"
-                    @click="hold"
+              <Transition name="notice">
+                <div class="station-controls" v-if="selected === printer.local_id">
+                  <p v-if="status?.needs_review.length" class="alert warning">
+                    Review the interrupted batch on the main server before continuing.
+                  </p>
+                  <p
+                    v-else-if="status?.media_warning || status?.cartridge_check_pending"
+                    class="alert warning"
                   >
-                    {{
-                      status?.automatic_printing_held ? 'Resume printer' : 'Hold printer'
-                    }}</button
-                  ><button
-                    v-if="can(printer.id, 'configure')"
-                    class="secondary"
-                    :disabled="!operational || busy"
-                    @click="editConfig"
-                  >
-                    Configure printer</button
-                  ><button
-                    v-if="station?.user?.permissions.includes('printers.manage')"
-                    class="secondary"
-                    :disabled="
-                      !operational || busy || !!status?.printing || !!status?.needs_review.length
-                    "
-                    @click="setPrinterEnabled(printer, false)"
-                  >
-                    Remove printer</button
-                  ><button
-                    v-if="printer.blocked && can(printer.id, 'review')"
-                    class="secondary"
-                    :disabled="!operational || busy || !!status?.needs_review.length"
-                    @click="clearBlock"
-                  >
-                    Clear block
-                  </button>
-                </div>
-                <div v-if="can(printer.id, 'swap_cartridges')" class="station-cartridge">
-                  <label
-                    >Cartridge<select
-                      v-model="cartridgeId"
-                      :disabled="!operational || busy || !!status?.printing"
-                    >
-                      <option value="">Choose cartridge</option>
-                      <option
-                        v-for="cartridge in choices"
-                        :key="cartridge.id"
-                        :value="cartridge.id"
-                        :disabled="
-                          !compatibleProfile(
-                            profiles.find((profile) => profile.id === cartridge.profile_id),
-                            devices.find((device) => device.id === printer.id)?.capabilities,
-                          )
-                        "
-                      >
-                        {{ cartridge.name }} ·
-                        {{
-                          mediaLabel(
-                            profiles.find((profile) => profile.id === cartridge.profile_id),
-                          )
-                        }}
-                      </option>
-                    </select></label
-                  ><label class="checkbox"
-                    ><input v-model="allLocations" type="checkbox" />All accessible locations</label
-                  >
+                    {{ status.media_warning ?? 'Confirm the installed cartridge.' }}
+                  </p>
                   <div class="row wrap">
                     <button
-                      class="primary"
-                      :disabled="!operational || busy || !cartridgeId || !!status?.printing"
-                      @click="swap"
-                    >
-                      Install cartridge</button
-                    ><button
-                      v-if="station?.user?.permissions.includes('inventory.manage')"
+                      v-if="can(printer.id, 'hold_resume')"
                       class="secondary"
-                      :disabled="!operational || busy || !!status?.printing"
-                      @click="openAdding"
+                      :disabled="!operational || busy"
+                      @click="hold"
                     >
-                      Add cartridge
+                      {{
+                        status?.automatic_printing_held ? 'Resume printer' : 'Hold printer'
+                      }}</button
+                    ><button
+                      v-if="can(printer.id, 'configure')"
+                      class="secondary"
+                      :disabled="!operational || busy"
+                      @click="editConfig"
+                    >
+                      Configure printer</button
+                    ><button
+                      v-if="station?.user?.permissions.includes('printers.manage')"
+                      class="secondary"
+                      :disabled="
+                        !operational || busy || !!status?.printing || !!status?.needs_review.length
+                      "
+                      @click="setPrinterEnabled(printer, false)"
+                    >
+                      Remove printer</button
+                    ><button
+                      v-if="printer.blocked && can(printer.id, 'review')"
+                      class="secondary"
+                      :disabled="!operational || busy || !!status?.needs_review.length"
+                      @click="clearBlock"
+                    >
+                      Clear block
                     </button>
                   </div>
-                </div>
-                <section class="station-queue" aria-label="Printer queue">
-                  <div class="row wrap spread">
-                    <h3>Queue</h3>
-                    <label v-if="destinations.length > 1"
-                      >Destination<select v-model="destination" @change="changeDestination">
-                        <option v-for="choice in destinations" :key="choice.id" :value="choice.id">
-                          {{ choice.name }}
+                  <div v-if="can(printer.id, 'swap_cartridges')" class="station-cartridge">
+                    <label
+                      >Cartridge<select
+                        v-model="cartridgeId"
+                        :disabled="!operational || busy || !!status?.printing"
+                      >
+                        <option value="">Choose cartridge</option>
+                        <option
+                          v-for="cartridge in choices"
+                          :key="cartridge.id"
+                          :value="cartridge.id"
+                          :disabled="
+                            !compatibleProfile(
+                              profiles.find((profile) => profile.id === cartridge.profile_id),
+                              devices.find((device) => device.id === printer.id)?.capabilities,
+                            )
+                          "
+                        >
+                          {{ cartridge.name }} ·
+                          {{
+                            mediaLabel(
+                              profiles.find((profile) => profile.id === cartridge.profile_id),
+                            )
+                          }}
                         </option>
                       </select></label
+                    ><label class="checkbox"
+                      ><input v-model="allLocations" type="checkbox" />All accessible
+                      locations</label
                     >
+                    <div class="row wrap">
+                      <button
+                        class="primary"
+                        :disabled="!operational || busy || !cartridgeId || !!status?.printing"
+                        @click="swap"
+                      >
+                        Install cartridge</button
+                      ><button
+                        v-if="station?.user?.permissions.includes('inventory.manage')"
+                        class="secondary"
+                        :disabled="!operational || busy || !!status?.printing"
+                        @click="openAdding"
+                      >
+                        Add cartridge
+                      </button>
+                    </div>
                   </div>
-                  <p v-if="!jobs.length" class="muted">No queued labels.</p>
-                  <div v-for="job in jobs" :key="job.id" class="station-job">
-                    <label class="checkbox"
-                      ><input
-                        type="checkbox"
-                        :checked="queuedCopies(job).every((id) => copyIds.includes(id))"
-                        :disabled="!operational || busy || !job.can_print"
-                        @change="toggleJob(job, ($event.target as HTMLInputElement).checked)"
-                      /><span
-                        >{{ job.process_name
-                        }}<small
-                          >{{ queuedCopies(job).length }} copies ·
-                          {{ job.attribution?.requested_by?.name ?? job.owner_id }}</small
-                        ></span
-                      ></label
-                    ><JobPreview
-                      :job-id="job.id"
-                      :text="job.process_name"
-                      :width-mm="job.width_mm"
-                      :length-mm="job.length_mm"
-                      :preview-url="`/api/proxy/jobs/${job.id}/preview`"
-                    />
-                  </div>
-                  <nav v-if="queuePage || hasNextPage" class="row wrap" aria-label="Queue pages">
-                    <button
-                      class="secondary"
-                      :disabled="!operational || busy || !queuePage"
-                      @click="changePage(-1)"
+                  <section class="station-queue" aria-label="Printer queue">
+                    <div class="row wrap spread">
+                      <h3>Queue</h3>
+                      <label v-if="destinations.length > 1"
+                        >Destination<select v-model="destination" @change="changeDestination">
+                          <option
+                            v-for="choice in destinations"
+                            :key="choice.id"
+                            :value="choice.id"
+                          >
+                            {{ choice.name }}
+                          </option>
+                        </select></label
+                      >
+                    </div>
+                    <p v-if="!jobs.length" class="muted">No queued labels.</p>
+                    <article
+                      v-for="group in queueGroups"
+                      :key="group.id"
+                      class="station-queue-group"
                     >
-                      Previous
-                    </button>
-                    <span>Page {{ queuePage + 1 }}</span>
-                    <button
-                      class="secondary"
-                      :disabled="!operational || busy || !hasNextPage"
-                      @click="changePage(1)"
+                      <div class="station-job">
+                        <label class="checkbox"
+                          ><input
+                            type="checkbox"
+                            :checked="
+                              !!selectableCopies(group).length &&
+                              selectableCopies(group).every((id) => copyIds.includes(id))
+                            "
+                            :indeterminate="
+                              selectableCopies(group).some((id) => copyIds.includes(id)) &&
+                              !selectableCopies(group).every((id) => copyIds.includes(id))
+                            "
+                            :disabled="!operational || busy || !selectableCopies(group).length"
+                            @change="
+                              toggleGroup(group, ($event.target as HTMLInputElement).checked)
+                            "
+                          /><span
+                            >{{ group.name ?? group.jobs[0]?.process_name }}
+                            <small
+                              >{{ group.run_id ? `${group.jobs.length} rows · ` : ''
+                              }}{{ groupCopies(group).length }} copies ·
+                              {{
+                                group.jobs[0]?.attribution?.requested_by?.name ??
+                                group.jobs[0]?.owner_id
+                              }}</small
+                            >
+                            <small>{{
+                              [...new Set(group.jobs.map(jobProfileName))].join(' · ')
+                            }}</small>
+                          </span></label
+                        >
+                        <JobPreview
+                          v-if="!group.run_id && group.jobs[0]"
+                          :job-id="group.jobs[0].id"
+                          :text="group.jobs[0].process_name"
+                          :width-mm="group.jobs[0].width_mm"
+                          :length-mm="group.jobs[0].length_mm"
+                          :preview-url="`/api/proxy/jobs/${group.jobs[0].id}/preview`"
+                        />
+                      </div>
+                      <AnimatedDetails v-if="group.run_id" class="station-run-rows">
+                        <template #summary>Labels in this run</template>
+                        <div v-for="job in group.jobs" :key="job.id" class="station-job">
+                          <label class="checkbox"
+                            ><input
+                              type="checkbox"
+                              :checked="queuedCopies(job).every((id) => copyIds.includes(id))"
+                              :disabled="!operational || busy || !job.can_print"
+                              @change="toggleJob(job, ($event.target as HTMLInputElement).checked)"
+                            />
+                            <span
+                              >{{
+                                job.source_row == null ? job.process_name : `Row ${job.source_row}`
+                              }}<small
+                                >{{ queuedCopies(job).length }} copies ·
+                                {{ jobProfileName(job) }}</small
+                              ></span
+                            >
+                          </label>
+                          <JobPreview
+                            :job-id="job.id"
+                            :text="job.process_name"
+                            :width-mm="job.width_mm"
+                            :length-mm="job.length_mm"
+                            :preview-url="`/api/proxy/jobs/${job.id}/preview`"
+                          />
+                        </div>
+                      </AnimatedDetails>
+                    </article>
+                    <nav v-if="queuePage || hasNextPage" class="row wrap" aria-label="Queue pages">
+                      <button
+                        class="secondary"
+                        :disabled="!operational || busy || !queuePage"
+                        @click="changePage(-1)"
+                      >
+                        Previous
+                      </button>
+                      <span>Page {{ queuePage + 1 }}</span>
+                      <button
+                        class="secondary"
+                        :disabled="!operational || busy || !hasNextPage"
+                        @click="changePage(1)"
+                      >
+                        Next
+                      </button>
+                    </nav>
+                    <div
+                      class="row wrap queue-print-actions"
+                      v-if="can(printer.id, 'start_any') || can(printer.id, 'start_own')"
                     >
-                      Next
-                    </button>
-                  </nav>
-                  <button
-                    v-if="can(printer.id, 'start_any') || can(printer.id, 'start_own')"
-                    class="primary"
-                    :disabled="
-                      !operational ||
-                      busy ||
-                      !copyIds.length ||
-                      printer.blocked ||
-                      !!status?.printing
-                    "
-                    @click="start"
-                  >
-                    Print selected ({{ copyIds.length }})
-                  </button>
-                </section>
-              </div>
-            </Transition>
-          </ExpandableContent>
-        </article>
-      </TransitionGroup>
-      <ExpandableContent :open="!station?.locked && !!station?.removed_printers.length">
-        <section v-if="!station?.locked" class="station-removed" aria-label="Removed printers">
-          <h3>Removed printers</h3>
-          <div
-            v-for="printer in station?.removed_printers"
-            :key="printer.local_id"
-            class="row wrap spread"
-          >
-            <span>{{ printer.name }}</span
-            ><button
-              class="secondary"
-              :disabled="!operational || busy"
-              @click="setPrinterEnabled(printer, true)"
+                      <button
+                        class="primary"
+                        :disabled="
+                          !operational ||
+                          busy ||
+                          !copyIds.length ||
+                          printer.blocked ||
+                          !!status?.printing
+                        "
+                        @click="start"
+                      >
+                        Print selected ({{ copyIds.length }})
+                      </button>
+                      <button
+                        class="secondary"
+                        :disabled="
+                          !operational ||
+                          busy ||
+                          !installedProfile ||
+                          printer.blocked ||
+                          !!status?.printing
+                        "
+                        @click="printProfileQueue"
+                      >
+                        Print current tape queue
+                      </button>
+                      <span v-if="installedProfile" class="muted">{{ installedProfile.name }}</span>
+                    </div>
+                  </section>
+                </div>
+              </Transition>
+            </ExpandableContent>
+          </article>
+        </TransitionGroup>
+        <ExpandableContent :open="!station?.locked && !!station?.removed_printers.length">
+          <section v-if="!station?.locked" class="station-removed" aria-label="Removed printers">
+            <h3>Removed printers</h3>
+            <div
+              v-for="printer in station?.removed_printers"
+              :key="printer.local_id"
+              class="row wrap spread"
             >
-              Restore printer
-            </button>
-          </div>
-        </section>
-      </ExpandableContent>
-    </section>
+              <span>{{ printer.name }}</span
+              ><button
+                class="secondary"
+                :disabled="!operational || busy"
+                @click="setPrinterEnabled(printer, true)"
+              >
+                Restore printer
+              </button>
+            </div>
+          </section>
+        </ExpandableContent>
+      </section>
+    </MotionSurface>
     <footer class="station-footer">
+      <SourceLink class="station-source" />
       <span class="station-connection" role="status" aria-live="polite">
         <span
           class="connection-dot"
@@ -907,10 +1054,23 @@ function changePage(delta: number) {
         ></span>
         {{ connectionLabel }}
       </span>
-      <SourceLink />
+      <span class="station-meta">
+        <span v-if="station?.version" class="station-version">v{{ station.version }}</span>
+        <span class="station-credit"
+          >Made with ♥ by
+          <a href="https://github.com/tarobits" target="_blank" rel="noopener noreferrer"
+            >tarobits</a
+          >.</span
+        >
+      </span>
     </footer>
   </main>
-  <AdminDialog :open="unlocking" title="Unlock station" :busy="busy" @close="closeUnlock"
+  <AdminDialog
+    class="station-unlock-dialog"
+    :open="unlocking"
+    title="Unlock station"
+    :busy="busy"
+    @close="closeUnlock"
     ><div ref="unlockPanel">
       <Transition
         name="notice"
@@ -976,6 +1136,7 @@ function changePage(delta: number) {
           </div>
           <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
           <PinEntry
+            compact
             :key="`${userId}:${pinAttempt}`"
             v-model="pin"
             :keypad="station?.pin_keypad?.enabled"
@@ -1068,7 +1229,7 @@ function changePage(delta: number) {
 .station-shell {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 24px 24px 80px;
+  padding: 16px 20px 64px;
 }
 .station-unlock {
   display: flex;
@@ -1078,7 +1239,7 @@ function changePage(delta: number) {
 .station-unlock button,
 .unlock-submit {
   min-width: 160px;
-  min-height: 48px;
+  min-height: 44px;
 }
 .unlock-submit {
   align-self: center;
@@ -1086,17 +1247,18 @@ function changePage(delta: number) {
 }
 .station-users {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
   padding: 4px;
 }
 .station-user {
   display: flex;
   justify-content: flex-start;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   gap: 12px;
-  padding: 20px 12px;
+  padding: 12px;
+  min-height: 68px;
   min-width: 0;
   border-radius: 12px;
 }
@@ -1105,7 +1267,8 @@ function changePage(delta: number) {
 }
 .station-selected-user {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 12px;
   text-align: center;
@@ -1114,14 +1277,38 @@ function changePage(delta: number) {
 .station-pin {
   max-width: 360px;
   margin-inline: auto;
+  gap: 12px;
+}
+.station-user :deep(.user-avatar),
+.station-selected-user :deep(.user-avatar) {
+  width: 40px;
+  height: 40px;
+  font-size: 1.2rem;
+}
+.station-selected-user strong {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}
+.station-selected-user button {
+  min-height: 44px;
+}
+.station-unlock-dialog :deep(.admin-dialog-heading) {
+  padding: 12px 16px;
+}
+.station-unlock-dialog :deep(.admin-dialog-body) {
+  padding: 16px;
+}
+.station-unlock-dialog :deep(.admin-dialog-heading button) {
+  min-height: 44px;
 }
 .station-footer {
   position: fixed;
   inset: auto 0 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: 'source connection meta';
   align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
   gap: 8px 20px;
   padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   background: var(--surface-dense);
@@ -1130,10 +1317,44 @@ function changePage(delta: number) {
   color: var(--muted);
   z-index: 10;
 }
+.station-source {
+  grid-area: source;
+  justify-self: start;
+}
+.station-meta {
+  grid-area: meta;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.station-version {
+  font-variant-numeric: tabular-nums;
+}
+.station-credit {
+  white-space: nowrap;
+}
+.station-credit a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
 .station-connection {
+  grid-area: connection;
+  justify-self: center;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+@media (max-width: 799px) {
+  .station-footer {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'connection connection' 'source meta';
+  }
+  .station-shell {
+    padding-bottom: 128px;
+  }
 }
 .connection-dot {
   width: 8px;
@@ -1150,7 +1371,7 @@ function changePage(delta: number) {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 20px;
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
 .station-heading:has(.station-lock) {
   grid-template-columns: 1fr auto;
@@ -1159,7 +1380,7 @@ function changePage(delta: number) {
   min-width: 0;
 }
 .station-title h1 {
-  font-size: 1.6rem;
+  font-size: 1.4rem;
   overflow-wrap: anywhere;
 }
 .station-title p {
@@ -1186,7 +1407,7 @@ function changePage(delta: number) {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .fleet-toolbar h2 {
   margin: 0;
@@ -1195,7 +1416,7 @@ function changePage(delta: number) {
 .printer-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 16px;
   align-items: start;
 }
 .printer-card-heading {
@@ -1265,7 +1486,7 @@ function changePage(delta: number) {
 }
 .printer-actions:has(button) {
   border-top: 1px solid var(--line);
-  padding-top: 16px;
+  padding-top: 12px;
 }
 .printer-actions button {
   min-height: 44px;
@@ -1301,12 +1522,12 @@ function changePage(delta: number) {
 }
 .station-printer {
   min-width: 0;
-  padding: 20px;
+  padding: 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
   display: grid;
-  gap: 20px;
+  gap: 12px;
 }
 .station-printer h2 {
   margin: 0;
@@ -1335,6 +1556,29 @@ function changePage(delta: number) {
   padding-block: 16px;
   border-bottom: 1px solid var(--line);
 }
+.station-job > label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.station-queue-group {
+  border-bottom: 1px solid var(--line);
+}
+.station-queue-group > .station-job {
+  border-bottom: 0;
+}
+.station-run-rows {
+  margin: 0 0 12px;
+}
+.station-run-rows summary {
+  padding: 12px 6px;
+  min-height: 44px;
+}
+.queue-print-actions {
+  margin-top: 16px;
+}
+.queue-print-actions button {
+  min-height: 44px;
+}
 .station-job small {
   display: block;
   color: var(--muted);
@@ -1345,7 +1589,7 @@ function changePage(delta: number) {
 }
 @media (max-width: 600px) {
   .station-shell {
-    padding: 24px 16px 80px;
+    padding: 24px 16px 128px;
   }
   .station-heading,
   .station-heading:has(.station-lock) {
