@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.14.0] - 2026-11-11
+
+### Added
+
+- Group billing accounts (Gruppenkassen) with independent user/role permissions,
+  funding requests, direct charging, outstanding-debt transfers and reimbursements
+  for previously paid prints. Members can wait for approval or print at their own
+  expense pending approval; rejecting a waiting request keeps it on hold.
+- Group request and decision notifications, account audit histories, and payment
+  reports that require confirmation by the creditor or global accounting access.
+- Funding approval dialogs with label previews and copy counts. Current approvers
+  can preview their pending requests without receiving broader printer queue access.
+- An optional bearer-authenticated companion status API for external dashboards,
+  exposing station/printer status, queued label counts and cartridge details without
+  previews, requester identities or control actions.
+- Contextual help for template settings, including the distinction between
+  automatic label length, automatic text width and text fitting.
+
+### Changed
+
+- Group accounts and Tape usage use administration-style navigation, with separate
+  accounting sections and dialogs for decisions, repayments and corrections.
+- Template canvases have previous/next example controls and show the current
+  example name. The example-input section can be collapsed.
+- Queues distinguish labels waiting for group approval from printable queued work.
+- Companion success messages disappear after five seconds.
+- Project-owned code and documentation are now licensed under AGPL-3.0-or-later,
+  with copyright and third-party notices and source/license links in both interfaces.
+
+### Fixed
+
+- Confirming a companion cartridge no longer immediately prompts again when an
+  older status report still describes the acknowledged cartridge change.
+- Clicking template cards reliably selects the clicked template, including when
+  holding the pointer down before releasing it.
+- Long queue status badges no longer overlap actions; review focus outlines,
+  cartridge actions and feedback retain clearance. Archived checkbox labels align
+  beside their controls.
+
+**Upgrade requirements:** back up the database, local data and private configuration,
+then update both main and companion servers. Main-server migration `181819fa30f6`
+adds six group-billing tables on SQLite and MariaDB. Existing prints and payments
+retain their personal attribution. The updater applies migrations; manual installs
+must run `alembic upgrade head` before starting the main server. Once group accounts
+exist, schema downgrade is refused; use a coordinated pre-upgrade backup for rollback.
+The companion status API is disabled until a separate
+`LABEL_COMPANION_STATUS_API_KEY` is configured.
+
+**Verification and known limits:** automated checks cover group accounting,
+authorization, migration and browser workflows. Manual group-funding deployment
+acceptance remains pending. The 0.13.0 record remains 40 passed, 3 partial and
+41 untested; publication does not mark remaining checks as passed. Physical
+hardware acceptance, comprehensive audit coverage and the SQLite-only automatic
+Docker updater limitation remain unchanged.
+
+See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.14.0/docs/DEPLOYMENT_CHECKLIST.md),
+[group-account checks](https://github.com/tarobits/label-server/blob/v0.14.0/docs/GROUP_ACCOUNTS.md#deployment-and-acceptance)
+and [companion status API](https://github.com/tarobits/label-server/blob/v0.14.0/docs/COMPANION.md).
+
 ## [0.13.0] - 2026-11-09
 
 ### Added

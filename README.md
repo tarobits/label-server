@@ -9,6 +9,17 @@ Supports normal 180 × 180 dpi and high 180 × 360 dpi output, multiple USB prin
 and printer groups. Shading uses monochrome dithering. Other printer models,
 Wi-Fi/Ethernet printing, and native grayscale are not implemented.
 
+## License
+
+Copyright (C) 2026 tarobits and contributors.
+
+Taro's Label Room is free software under **AGPL-3.0-or-later**. You may use,
+self-host, modify and redistribute it under those terms, including commercially.
+If you run a modified version for users over a network, offer those users its
+corresponding source, including your modifications. See [LICENSE](LICENSE) and
+[license, attribution and source-offer guidance](NOTICE.md). Third-party libraries
+and bundled fonts retain their own licenses.
+
 ## Run locally
 
 Requires Python 3.12+, Node.js 20.19+ (20.x) or 22.12+, and system libusb for USB printing on Linux
@@ -193,12 +204,22 @@ including costs already tracked before account balances were introduced. Negativ
 balances are amounts owed; positive balances are credit. Pending and unpriced tape
 does not affect the balance. Negative balances do not block printing.
 **Edit usage accounts** permits recording payments, adding credit, or subtracting
-an amount with a required reason under **Tape usage → Adjust account**. Adjustments
+an amount with a required reason under **Tape usage → Repayments & corrections**. Adjustments
 retain the operator, recipient, date and reason; corrections are new entries, and
 retrying the same adjustment does not record it twice. The edit permission does
 not grant access to other users' usage or balances. Administrators have both
 permissions; other roles must be granted each explicitly. Run `alembic upgrade head`
 with the server stopped before restarting to create the adjustment ledger.
+
+### Group accounts (Gruppenkassen)
+
+Group accounts let members allocate prints to a shared association account while
+keeping their personal login and printing permissions. Members can wait for funding
+approval, print at their own expense pending approval, or charge directly when
+permitted. Earlier unpaid debts and paid-print reimbursements can also be requested.
+Payment reports require receipt confirmation by the creditor or global accounting.
+See [group accounts](docs/GROUP_ACCOUNTS.md) for permissions, notifications,
+migration requirements and acceptance checks.
 
 ## Templates and previews
 

@@ -1,6 +1,10 @@
-# Deployment checklist: 0.13.0
+# Deployment checklist: 0.14.0
 
-Use **0.13.0** for the current release. Historical **0.12.2** checks remain below.
+Group billing in 0.14.0 has its own [migration and acceptance
+checks](GROUP_ACCOUNTS.md#deployment-and-acceptance). Its manual deployment checks
+remain pending and are separate from the historical 0.13.0 results below.
+
+Use **0.14.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
 The 0.13.0 upgrade includes the patch, changes the database schema, and requires
 administrator inventory migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
@@ -37,7 +41,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the current release:
-  sudo python3 scripts/update.py --mode native --check --tag v0.13.0
+  sudo python3 scripts/update.py --mode native --check --tag v0.14.0
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -45,6 +49,28 @@ public issues. Main servers and companions must run on separate machines.
   may require `--mode` and may not provide the new confirmation prompt. If an
   updater handoff prints a replacement command, review and run that exact command;
   do not bypass the handoff by manually replacing files in a running installation.
+
+## Upgrade from 0.13.0 to 0.14.0
+
+- [ ] Back up and rehearse the update as described above. Update both server roles
+  to `v0.14.0`; native installations can run
+  `sudo python3 scripts/update.py --mode native --tag v0.14.0 --prebuilt-frontend`.
+- [ ] Confirm the main server reaches migration `181819fa30f6` on the deployment's
+  database backend. Existing personal charges, payments and queued work must remain
+  unchanged. No companion database migration is required for group billing.
+- [ ] Complete the [group-account acceptance checks](GROUP_ACCOUNTS.md#deployment-and-acceptance),
+  including rejection holds, permission revocation, historical reimbursements and
+  creditor-confirmed payments. Do not treat automated results as physical acceptance.
+- [ ] Confirm a companion cartridge and reload both interfaces; it should remain
+  confirmed until a new cartridge-change event. Check that success messages expire.
+- [ ] If using the companion status API, configure a distinct status key and verify
+  unauthenticated requests fail and responses contain only operational information.
+- [ ] Check template selection, editor help, canvas example controls, the collapsible
+  example inputs, and desktop/mobile Tape usage and group-funding views.
+- [ ] Verify source/license links, including the corresponding source location for
+  any locally modified deployment.
+- [ ] Retain the coordinated backup for rollback. Once group accounts exist, the
+  schema downgrade is refused; do not run older server code against the new schema.
 
 ## Stable patch: 0.12.2
 
