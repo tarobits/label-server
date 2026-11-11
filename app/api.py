@@ -21,7 +21,7 @@ from app.authorization import (
     visible_jobs,
     visible_requests,
 )
-from app.cartridge_confirmation import check_cartridge, configure_media
+from app.cartridge_confirmation import check_cartridge, configure_media, lock_media_configuration
 from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.copy_counts import copy_count_blocker
 from app.cost_estimates import estimate_cost
@@ -533,10 +533,8 @@ def active_tape(
                 configure_media(worker.backend, lookup, printer_state(lookup, printer_id))
             worker.latest_status = worker.backend.get_status()
 
-        if cartridge is None and not worker.printer_lock.acquire(blocking=False):
-            raise HTTPException(409, "Printer is busy; try again when it is idle")
         if cartridge is None:
-            request.state.held_locks.append(worker.printer_lock)
+            lock_media_configuration(request, worker)
         request.state.after_commit.append(apply_selection)
     return record(state)
 
@@ -556,9 +554,7 @@ def cartridge_check(
     state = printer_state(session, identifier)
     worker = request.app.state.fleet.workers.get(identifier)
     if worker:
-        if not worker.printer_lock.acquire(blocking=False):
-            raise HTTPException(409, "Printer is busy; try again when it is idle")
-        request.state.held_locks.append(worker.printer_lock)
+        lock_media_configuration(request, worker)
     previous = state.cartridge_check_enabled
     state.cartridge_check_enabled = body.enabled
     record_action(
@@ -1612,9 +1608,7 @@ def batch_page(
         printer_id
         and not context.can_printer(printer_id, "view")
         and not context.can_printer(printer_id, "view_activity")
-    ) or (
-        cartridge_id and not context.can_cartridge(cartridge_id, "view")
-    ):
+    ) or (cartridge_id and not context.can_cartridge(cartridge_id, "view")):
         query = query.where(false())
     query = filter_batches(
         query,
@@ -1672,7 +1666,7 @@ def batch_detail(
     output_plans = {
         item["copy_id"]: item for item in (batch.print_plan or {}).get("label_output", [])
     }
-    items = []
+    items: list[dict[str, Any]] = []
     for item in session.scalars(
         select(BatchItem).where(BatchItem.batch_id == identifier).order_by(BatchItem.position)
     ):

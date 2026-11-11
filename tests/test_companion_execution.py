@@ -229,6 +229,24 @@ def test_idle_disconnect_recovers_but_hardware_error_requires_human_clearance(ac
     ).json()["blocked"]
 
 
+@pytest.mark.parametrize("state", [State.PRINTING, State.NEEDS_REVIEW])
+def test_remote_media_changes_still_require_resolving_active_batches(accounts, state):
+    admin, _, _ = accounts
+    _, _, identifier, _, work = queued_remote(admin)
+    with admin.app.state.factory.begin() as session:
+        batch = session.get_one(Batch, work["payload"]["batch_id"])
+        batch.state = state
+        cartridge_id = batch.cartridge_id
+    for endpoint, body in (
+        (f"/api/printer/active-tape?printer_id={identifier}", {"cartridge_id": cartridge_id}),
+        (f"/api/printer/active-tape?printer_id={identifier}", {"cartridge_id": None}),
+        (f"/api/printers/{identifier}/cartridge-check", {"enabled": False}),
+    ):
+        response = admin.put(endpoint, json=body)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == "Resolve the active print/review batch first"
+
+
 def test_clearance_is_durable_and_cannot_clear_a_later_failure(tmp_path):
     journal = Journal(tmp_path / "journal.db")
     with journal.transaction() as db:

@@ -104,7 +104,10 @@ def test_confirmed_cartridge_is_not_rearmed_by_delayed_companion_status(accounts
         assert printer_state(session, identifier).cartridge_check_pending
 
 
-def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(accounts, tmp_path):
+@pytest.mark.parametrize("replace_cartridge", [False, True])
+def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(
+    accounts, tmp_path, replace_cartridge
+):
     from conftest import profile
     from test_cartridge_confirmation import DetectedTapeTransport, cartridge
 
@@ -117,16 +120,25 @@ def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(accounts,
     identifier = agent.identifiers["usb-one"]
     tape = profile(admin)
     cart = cartridge(admin, tape)
+    selected = cartridge(admin, tape) if replace_cartridge else cart
     transport = DetectedTapeTransport(media=1)
     agent.executors["usb-one"].backend = BrotherPTP710BT(transport)
     worker = admin.app.state.fleet.workers[identifier]
     with admin.app.state.factory.begin() as session:
         session.get_one(Cartridge, cart["id"]).location_id = "workshop"
+        session.get_one(Cartridge, selected["id"]).location_id = "workshop"
         printer_state(session, identifier).active_cartridge_id = cart["id"]
     worker.tick()
     agent.sync()
 
-    # A completed cover event asks for cartridge verification, not fault clearance.
+    # The companion observes the whole swap, including the open cover and no tape.
+    for errors in ((0, 0x10), (1, 0x10)):
+        transport.errors = errors
+        agent.sync()
+        worker.tick()
+        assert not agent.server_blocked["usb-one"]
+        assert not agent.statuses["usb-one"]["media"]["confirmable"]
+    transport.errors = (0, 0)
     transport.pending.append(transport.packet(5, notification=2))
     agent.sync()
     assert "confirm the installed cartridge" in agent.statuses["usb-one"]["error"]
@@ -136,13 +148,16 @@ def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(accounts,
         assert printer_state(session, identifier).cartridge_check_pending
 
     endpoint = f"/api/printer/active-tape?printer_id={identifier}"
-    body = {"cartridge_id": cart["id"]}
+    body = {"cartridge_id": selected["id"]}
     challenge = admin.put(endpoint, json=body)
     assert challenge.status_code == 409, challenge.text
-    confirmed = admin.put(
-        endpoint,
-        json={**body, "media_confirmation": challenge.json()["detail"]["confirmation"]},
-    )
+    # A remote worker can hold this lock while polling/waiting for the fleet
+    # lock. It must not reject an idle printer's cartridge confirmation.
+    with worker.printer_lock:
+        confirmed = admin.put(
+            endpoint,
+            json={**body, "media_confirmation": challenge.json()["detail"]["confirmation"]},
+        )
     assert confirmed.status_code == 200, confirmed.text
     worker.tick()
     # One heartbeat delivers the selection; the next reports its applied status.
@@ -156,13 +171,32 @@ def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(accounts,
         assert printer["status"]["error"] is None
         assert not printer["dashboard"]["cartridge_check_pending"]
 
+        # The companion's own controls also work during a server worker poll.
+        unlock(client)
+        with worker.printer_lock:
+            for path, body in (
+                (f"printers/{identifier}/cartridge-check", {"enabled": False}),
+                (f"printers/{identifier}/cartridge-check", {"enabled": True}),
+                (f"printer/active-tape?printer_id={identifier}", {"cartridge_id": None}),
+                (
+                    f"printer/active-tape?printer_id={identifier}",
+                    {"cartridge_id": selected["id"], "confirm_matching_cartridge": True},
+                ),
+            ):
+                response = client.put(f"/api/proxy/{path}", json=body)
+                assert response.status_code == 200, response.text
+
         # Real hardware faults still latch, even if subsequent status is healthy.
         transport.errors = (2, 0)
         agent.sync()
         assert agent.server_blocked["usb-one"]
+        fault = "Unknown error 1 bit 0x02"
+        assert fault in client.get("/api/station").json()["printers"][0]["status"]["error"]
+        assert fault in worker.backend.get_status().error
         transport.errors = (0, 0)
         agent.sync()
         assert agent.server_blocked["usb-one"]
+        assert worker.backend.get_status().error == "Companion printer requires investigation"
 
 
 def test_frontend_build_identity_handles_missing_and_invalid_shell(tmp_path):

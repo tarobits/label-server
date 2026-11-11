@@ -92,6 +92,18 @@ TEXT_COLORS = {
 DPI = 180
 # Raster Command Reference, printed p.18: cutter position limits fed-out tape.
 MINIMUM_CUT_LENGTH_MM = 24.5
+ERROR_NAMES = (
+    {1: "No media", 4: "Cutter jam", 8: "Weak batteries", 0x40: "High-voltage adapter"},
+    {1: "Wrong media", 0x10: "Cover open", 0x20: "Overheating"},
+)
+
+
+def error_names(value: int, byte_index: int) -> list[str]:
+    return [
+        ERROR_NAMES[byte_index].get(bit, f"Unknown error {byte_index + 1} bit 0x{bit:02x}")
+        for bit in (1 << index for index in range(8))
+        if value & bit
+    ]
 
 
 def capabilities(*, high_resolution: bool = False) -> PrinterCapabilities:
@@ -127,12 +139,32 @@ class StatusPacket:
     @property
     def hardware_problem(self) -> str | None:
         if any(self.errors):
-            return f"Printer error {self.errors[0]:02x}/{self.errors[1]:02x}; check tape, cutter, cover and battery"
+            problems = [
+                name
+                for index, value in enumerate(self.errors)
+                for name in error_names(value, index)
+            ]
+            if self.kind == 4:
+                problems.append("Printer powered off")
+            return f"Printer error {self.errors[0]:02x}/{self.errors[1]:02x}: {'; '.join(problems)}"
         if self.kind == 4:
             return "Printer powered off"
         if self.kind == 2:
             return "Printer reported an error"
         return None
+
+    @property
+    def requires_investigation(self) -> bool:
+        # Removing tape and opening the cover are normal cartridge access. They
+        # still prevent printing/confirmation, but must not latch a remote fault.
+        # Preserve unknown bits and real faults even alongside a cover warning.
+        return bool(
+            self.errors[0] & ~0x01
+            or self.errors[1] & ~0x11
+            or self.kind == 4
+            or self.kind == 2
+            and not any(self.errors)
+        )
 
     @property
     def media_problem(self) -> str | None:
@@ -165,9 +197,8 @@ class StatusPacket:
         def named(value: int, names: dict[int, str]) -> str:
             return f"{names.get(value, 'Unknown')} · {code(value)}"
 
-        def flags(value: int, names: dict[int, str]) -> str:
-            active = [name for bit, name in names.items() if value & bit]
-            return f"{', '.join(active) or ('Unknown flags' if value else 'None')} · {code(value)}"
+        def flags(value: int, byte_index: int) -> str:
+            return f"{', '.join(error_names(value, byte_index)) or 'None'} · {code(value)}"
 
         return {
             "Media": self.description,
@@ -175,23 +206,8 @@ class StatusPacket:
             "Media type": named(self.media, MEDIA_NAMES),
             "Tape color": named(self.tape_color, TAPE_COLORS),
             "Text color": named(self.text_color, TEXT_COLORS),
-            "Errors 1": flags(
-                self.errors[0],
-                {
-                    1: "No media",
-                    4: "Cutter jam",
-                    8: "Weak batteries",
-                    0x40: "High-voltage adapter",
-                },
-            ),
-            "Errors 2": flags(
-                self.errors[1],
-                {
-                    1: "Wrong media",
-                    0x10: "Cover open",
-                    0x20: "Overheating",
-                },
-            ),
+            "Errors 1": flags(self.errors[0], 0),
+            "Errors 2": flags(self.errors[1], 1),
             "Status type": named(
                 self.kind,
                 {
@@ -446,6 +462,8 @@ class BrotherPTP710BT:
             if status.kind == 0:
                 return status
             if status.hardware_problem:
+                if not status.requires_investigation:
+                    return status
                 raise OSError(status.hardware_problem)
 
     def _close(self) -> None:
@@ -482,7 +500,7 @@ class BrotherPTP710BT:
                 confirmed,
                 status.diagnostics,
                 self._needs_verification(status),
-                error_requires_investigation=not self._confirmable(status),
+                error_requires_investigation=status.requires_investigation,
             )
         except Exception as error:
             self._invalidate_media()

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
@@ -12,6 +12,21 @@ from app.access import access_context
 from app.models import Cartridge, PrinterState, TapeProfile
 from app.print_audit import actor_snapshot
 from app.printer.base import ConfirmableMediaBackend, MediaSelection, PrinterBackend, PrinterStatus
+from app.printer.remote import RemotePrinterBackend
+
+if TYPE_CHECKING:
+    from app.queue import QueueWorker
+
+
+def lock_media_configuration(request: Request, worker: "QueueWorker") -> None:
+    # API mutations already hold the fleet lock and check for active/review
+    # batches. Remote configuration only changes server state; polling that
+    # state must not make an idle companion printer appear busy.
+    if isinstance(worker.backend, RemotePrinterBackend):
+        return
+    if not worker.printer_lock.acquire(blocking=False):
+        raise HTTPException(409, "Printer is busy; try again when it is idle")
+    request.state.held_locks.append(worker.printer_lock)
 
 
 def profile_signature(profile: TapeProfile) -> str:
@@ -76,9 +91,7 @@ def check_cartridge(
     worker = request.app.state.fleet.workers.get(state.printer_id)
     if not worker or not isinstance(worker.backend, ConfirmableMediaBackend):
         return None, None
-    if not worker.printer_lock.acquire(blocking=False):
-        raise HTTPException(409, "Printer is busy; try again when it is idle")
-    request.state.held_locks.append(worker.printer_lock)
+    lock_media_configuration(request, worker)
     configure_media(worker.backend, session, state)
     hardware = worker.backend.get_status()
     worker.latest_status = hardware

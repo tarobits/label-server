@@ -54,7 +54,10 @@ class RemotePrinterBackend:
             if data.get("media"):
                 data["media"] = DetectedMedia(**data["media"])
             if link.blocked:
-                data["error"] = "Companion printer requires investigation"
+                problem = data.get("error")
+                data["error"] = "Companion printer requires investigation" + (
+                    f": {problem}" if problem else ""
+                )
                 data["error_requires_investigation"] = True
             return PrinterStatus(**data)
 

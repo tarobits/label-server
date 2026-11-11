@@ -369,11 +369,16 @@ block**. Other printers can continue independently. A ready hardware status alon
 does not clear an investigation block.
 
 A cartridge-confirmation notice alone does not create an investigation block.
-Confirm the cartridge on either interface and allow the next companion status
-updates to apply it. Actual hardware faults and uncertain execution still need
-explicit clearance, even if a cartridge is subsequently confirmed. Older versions
-may have latched an investigation block for a confirmation notice; after inspecting
-the printer, use **Clear block** once. The stored flag cannot distinguish that old
+For the PT-P710BT, an open cover, removed cartridge, or wrong-media warning during
+an idle cartridge change also clears without fault clearance. These conditions
+still prevent printing and cartridge confirmation while present. Close the cover,
+confirm the cartridge on either interface, and allow the next companion status
+updates to apply it. Routine server polling does not prevent an idle companion's
+cartridge selection or confirmation. Actual hardware faults and uncertain execution
+still need explicit clearance, even if a cartridge is subsequently confirmed.
+Older versions may have latched an investigation block for cartridge access or a
+confirmation notice; after inspecting the printer, use **Clear block** once. The
+stored flag cannot distinguish that old
 false alarm from a genuine fault. Update the main server before the companion so
 it accepts the status distinction; both sides need the fix.
 

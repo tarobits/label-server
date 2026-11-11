@@ -213,6 +213,39 @@ def test_confirmation_cannot_bypass_hardware_errors(errors):
     assert not any(data.startswith(b"\x1biz") for data in transport.writes)
 
 
+@pytest.mark.parametrize("kind", [0, 2, 5])
+@pytest.mark.parametrize(
+    "errors,investigate",
+    [
+        ((0, 0x10), False),  # Cover open.
+        ((1, 0x10), False),  # Cartridge removed with cover open.
+        ((1, 0), False),
+        ((0, 1), False),  # Wrong media.
+        ((4, 0x10), True),  # Cutter jam alongside an open cover.
+        ((0, 0x30), True),  # Overheating alongside an open cover.
+        ((2, 0), True),  # Unknown error bit.
+    ],
+)
+def test_cartridge_access_status_does_not_require_investigation(kind, errors, investigate):
+    class StatusTransport(DetectedTapeTransport):
+        def write(self, data):
+            if data == b"\x1biS":
+                self.pending.append(self.packet(kind=kind))
+            else:
+                super().write(data)
+
+    transport = StatusTransport(media=1)
+    transport.errors = errors
+    backend = BrotherPTP710BT(transport)
+    status = backend.get_status()
+    assert status.error
+    assert status.error_requires_investigation is investigate
+    assert status.media is None or not status.media.confirmable
+    with pytest.raises(PrintNotStarted):
+        backend.print_batch([label()])
+    assert not any(data.startswith(b"\x1biz") for data in transport.writes)
+
+
 def test_preflight_rechecks_detection_and_disconnect_invalidates_confirmation():
     transport = DetectedTapeTransport()
     backend = BrotherPTP710BT(transport)

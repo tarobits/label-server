@@ -134,6 +134,35 @@ def test_timeout_after_page_write_is_uncertain_and_never_retried() -> None:
     assert transport.pages == 1
 
 
+@pytest.mark.parametrize(
+    "errors,description",
+    [
+        ((0, 0x10), "Cover open"),
+        (
+            (0x4D, 0x31),
+            "No media; Cutter jam; Weak batteries; High-voltage adapter; "
+            "Wrong media; Cover open; Overheating",
+        ),
+        (
+            (0x06, 0x92),
+            "Unknown error 1 bit 0x02; Cutter jam; Unknown error 2 bit 0x02; "
+            "Cover open; Unknown error 2 bit 0x80",
+        ),
+    ],
+)
+def test_status_lists_all_reported_faults(errors, description):
+    raw = bytearray(packet())
+    raw[8:10] = bytes(errors)
+    status = decode_status(bytes(raw))
+    expected = f"Printer error {errors[0]:02x}/{errors[1]:02x}: {description}"
+    assert status.hardware_problem == expected
+    diagnostics = status.diagnostics["Errors 1"] + status.diagnostics["Errors 2"]
+    for fault in description.split("; "):
+        assert fault in diagnostics
+    raw[18] = 4
+    assert decode_status(bytes(raw)).hardware_problem == expected + "; Printer powered off"
+
+
 def test_bad_status_and_idle_errors() -> None:
     with pytest.raises(ValueError):
         decode_status(b"0" * 32)
