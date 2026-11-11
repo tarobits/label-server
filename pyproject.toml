@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "label-printer-server"
 version = "0.13.0"
 description = "Persistent tape-aware label queue with Brother USB printers and groups"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE.md", "app/fonts/OFL.txt"]
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.121,<1", "uvicorn[standard]>=0.34,<1",

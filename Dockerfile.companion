@@ -4,6 +4,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 COPY CHANGELOG.md /CHANGELOG.md
+COPY LICENSE /LICENSE
 RUN npm run build:companion
 
 FROM python:3.14-slim
@@ -17,6 +18,7 @@ RUN pip install --no-cache-dir -c requirements.lock -r requirements.txt \
     && mkdir -p /srv/labels/data/companion \
     && chown -R labels:labels /srv/labels/data
 COPY app ./app
+COPY LICENSE NOTICE.md ./
 COPY companion ./companion
 COPY --from=frontend /ui/dist-companion ./frontend/dist-companion
 USER labels

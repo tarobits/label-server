@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SourceLink from '../components/SourceLink.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, ApiError, errorMessage } from '../api'
@@ -178,6 +179,7 @@ function clearField(event: Event) {
           }}</RouterLink>
         </form>
       </MotionSurface>
+      <SourceLink />
     </div>
   </main>
 </template>

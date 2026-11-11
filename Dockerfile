@@ -4,6 +4,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 COPY CHANGELOG.md /CHANGELOG.md
+COPY LICENSE /LICENSE
 RUN npm run build:main
 
 FROM python:3.14-slim
@@ -13,6 +14,7 @@ WORKDIR /srv/labels
 RUN apt-get update && apt-get install -y --no-install-recommends libusb-1.0-0 \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml requirements.lock ./
+COPY LICENSE NOTICE.md ./
 COPY app ./app
 RUN pip install --no-cache-dir -c requirements.lock . \
     && useradd --uid 10001 --create-home labels \

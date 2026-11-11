@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SourceLink from '../components/SourceLink.vue'
 import { vValidateForm } from '../formValidation'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { api, errorMessage } from '../api'
@@ -110,6 +111,7 @@ async function submit() {
           >Forgot password?</RouterLink
         >
       </form>
+      <SourceLink />
     </div>
   </main>
 </template>
