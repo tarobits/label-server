@@ -711,6 +711,12 @@ unverified. Automated tests do not establish hardware compatibility.
 
 ## Development
 
+Database integrity changes use an [administrator repair screen and maintenance
+restart](docs/RELATIONSHIP_MIGRATION.md). Review the
+[relationship inventory](docs/DATABASE_RELATIONSHIP_AUDIT.md),
+[concurrency findings](docs/CONCURRENCY_AUDIT.md), and
+[security report](docs/SECURITY_AUDIT.md) for the scope and remaining audit findings.
+
 The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite or MariaDB; the frontend uses Vue 3, Pinia,
 TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
 domain code use the generic backend contract. [PLAN.md](PLAN.md) describes the
