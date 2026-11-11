@@ -115,6 +115,23 @@ def label_record_name(session: Session, model: type[T], identifier: str) -> str 
     return names[key]
 
 
+def display_field_value(value: Any) -> str:
+    from app.template_logic import display_value
+
+    if isinstance(value, dict) and "image_asset" in value:
+        return "Uploaded image"
+    if isinstance(value, (str, bool, int, float)) or value is None:
+        return display_value(value)
+    return str(value)
+
+
+def job_summary(job: PrintJob) -> str:
+    text = display_field_value(job.payload.get("text"))
+    return (
+        text or " · ".join(filter(None, map(display_field_value, job.payload.values()))) or "Label"
+    )
+
+
 def job_information(
     session: Session, job: PrintJob, *, printer_id: str | None = None
 ) -> dict[str, Any]:
@@ -139,17 +156,8 @@ def job_information(
         if name not in defined
     )
     if snapshot.get("document", {}).get("version") == 2:
-        from app.template_logic import display_value
-
         for field in fields:
-            value = field["value"]
-            field["value"] = (
-                "Uploaded image"
-                if isinstance(value, dict) and "image_asset" in value
-                else display_value(value)
-                if isinstance(value, (str, bool, int, float)) or value is None
-                else str(value)
-            )
+            field["value"] = display_field_value(field["value"])
     return {
         "process_name": snapshot.get("process_name") or template_name,
         "template_name": template_name,

@@ -28,7 +28,16 @@ from app.cost_estimates import estimate_cost
 from app.deletion import document_notices, retain
 from app.destinations import printer_state, resolve_destination
 from app.element_geometry import element_geometry
-from app.http import db, get, idle, job_information, job_record, job_template_name, record
+from app.http import (
+    db,
+    get,
+    idle,
+    job_information,
+    job_record,
+    job_summary,
+    job_template_name,
+    record,
+)
 from app.image_jobs import image_document
 from app.logic_authoring import reconcile_program, same_program, source_diagnostic
 from app.logic_engine import OPERATIONS, LogicError, validate_program
@@ -1643,7 +1652,7 @@ def batch_detail(
                 "job_id": job.id,
                 "copy_number": label.ordinal + 1,
                 "output_plan": output_plans.get(label.id),
-                "text": job.payload.get("text") or " · ".join(job.payload.values()) or "Label",
+                "text": job_summary(job),
                 "width_mm": job.width_mm,
                 "length_mm": job.length_mm,
             }

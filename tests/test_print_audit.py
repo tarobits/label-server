@@ -52,6 +52,30 @@ def detail(admin, identifier):
     return response.json()
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"image": {"image_asset": "saved-image"}, "count": 3, "bold": False},
+            "Uploaded image · 3 · false",
+        ),
+        ({"text": {"image_asset": "saved-image"}}, "Uploaded image"),
+        ({"text": 0}, "0"),
+        ({"text": "", "unused": None}, "Label"),
+        ({"text": "Normal text", "image": {"image_asset": "saved-image"}}, "Normal text"),
+    ],
+)
+def test_batch_detail_summarizes_typed_inputs_without_joining_objects(accounts, payload, expected):
+    admin, _, _ = accounts
+    tape, worker = prepare_printer(admin)
+    printed = direct(admin, tape)
+    worker.tick()
+    batch = admin.get("/api/batches").json()[0]
+    with admin.app.state.factory.begin() as session:
+        session.get_one(PrintJob, printed["id"]).payload = payload
+    assert detail(admin, batch["id"])["items"][0]["text"] == expected
+
+
 def test_direct_print_records_same_requester_and_authorizer_with_automatic_trigger(accounts):
     admin, alice, bob = accounts
     grant(admin, "alice", "print")
