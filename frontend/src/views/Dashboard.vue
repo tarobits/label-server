@@ -135,9 +135,11 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
           >
           <span class="badge" v-if="state(device.id)?.pending_flush">Manual batch pending</span>
           <span class="muted">{{
-            state(device.id)?.automatic_printing_held
-              ? 'Automatic printing held'
-              : 'Automatic printing enabled'
+            device.no_automatic_printing
+              ? 'Manual only'
+              : state(device.id)?.automatic_printing_held
+                ? 'Automatic printing held'
+                : 'Automatic printing enabled'
           }}</span>
         </div>
         <div class="fleet-tape">
@@ -243,7 +245,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 <Icon name="printer" />Print direct queue
               </button>
               <button
-                v-if="auth.printer(device.id, 'hold_resume')"
+                v-if="!device.no_automatic_printing && auth.printer(device.id, 'hold_resume')"
                 class="secondary"
                 :disabled="w.busy || !!state(device.id)?.stop_requested"
                 @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
@@ -427,7 +429,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               <Icon name="printer" />Print group queue
             </button>
             <button
-              v-if="auth.printer(group.id, 'hold_resume')"
+              v-if="!group.no_automatic_printing && auth.printer(group.id, 'hold_resume')"
               class="secondary"
               :disabled="w.busy"
               @click="hold(group.id, !group.automatic_printing_held)"

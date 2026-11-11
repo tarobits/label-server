@@ -23,6 +23,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app import __version__
 from app.deployment import require_role
 from app.printer.base import ControlledPrinterBackend, StopMode
+from app.releases import REPOSITORY, release_version, stable_version
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 from companion.journal import Journal
@@ -33,9 +34,22 @@ UPDATE_VALIDATION_PROTOCOL = 1
 PROXY_PATH = re.compile(
     r"(?:printers|tape-profiles|cartridges|cartridge-quotes|status|printer/(?:active-tape|automatic-printing)|queue/(?:groups|print)|printers/[A-Za-z0-9_-]+(?:/(?:stop|cartridge-check))?|jobs/[A-Za-z0-9_-]+(?:/preview)?|companion/printers/[A-Za-z0-9_-]+/clear)"
 )
-PACKING_PATH = re.compile(
-    r"batches/(?:page|[A-Za-z0-9_-]+(?:/items/[A-Za-z0-9_-]+/preview)?)"
-)
+PACKING_PATH = re.compile(r"batches/(?:page|[A-Za-z0-9_-]+(?:/items/[A-Za-z0-9_-]+/preview)?)")
+
+
+def available_update(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        stable_version(value)
+        if release_version(value) <= release_version(__version__):
+            return None
+    except ValueError:
+        return None
+    return {
+        "version": value,
+        "url": f"https://github.com/{REPOSITORY}/releases/tag/{quote(value, safe='')}",
+    }
 
 
 def frontend_build(path: Path) -> str | None:
@@ -218,6 +232,9 @@ def create_app(
                 "local_id": device.local_id,
                 "id": agent.identifiers.get(device.local_id),
                 "name": agent.names.get(device.local_id, device.name),
+                "no_automatic_printing": agent.dashboards.get(device.local_id, {}).get(
+                    "no_automatic_printing"
+                ),
                 "status": agent.statuses.get(device.local_id, {"connected": False}),
                 **(
                     {
@@ -252,6 +269,9 @@ def create_app(
         return {
             "name": agent.users.get("name", "Companion"),
             "version": __version__,
+            "update": available_update(agent.users.get("latest_release"))
+            if settings.show_update_notice
+            else None,
             "frontend_build": build,
             "online": agent.online,
             "locked": token is None,
@@ -436,8 +456,7 @@ def create_app(
     @app.api_route("/api/proxy/{path:path}", methods=["GET", "POST", "PUT"])
     async def proxy(path: str, request: Request) -> Response:
         if not (
-            PROXY_PATH.fullmatch(path)
-            or request.method == "GET" and PACKING_PATH.fullmatch(path)
+            PROXY_PATH.fullmatch(path) or request.method == "GET" and PACKING_PATH.fullmatch(path)
         ):
             raise HTTPException(403, "This operation is not available through the station")
         if request.method != "GET":

@@ -272,6 +272,7 @@ class PrinterDevice(Base):
     name: Mapped[str]
     driver: Mapped[str]
     config: Mapped[dict[str, Any]] = mapped_column(JSON)
+    no_automatic_printing: Mapped[bool] = mapped_column(default=False, server_default="0")
     owner_id: Mapped[str | None] = mapped_column(String(128), index=True)
     location_id: Mapped[str | None] = mapped_column(ForeignKey("locations.id"), index=True)
 

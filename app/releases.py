@@ -1,16 +1,20 @@
 """Cached, server-side stable release checks. Credentials never enter API responses."""
 
+from __future__ import annotations
+
 import json
 import re
 import time
 from collections.abc import Callable
 from threading import Lock, Thread
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from app import __version__
-from app.config import Settings
+
+if TYPE_CHECKING:
+    from app.config import Settings
 
 REPOSITORY = "tarobits/label-server"
 

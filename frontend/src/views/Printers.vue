@@ -65,6 +65,7 @@ async function cancelFlush(id: string) {
 }
 const defaults = () => ({
   name: '',
+  no_automatic_printing: false,
   driver: 'brother-pt-p710bt',
   usb_serial: '',
   resolution: 'high',
@@ -85,6 +86,7 @@ function editPrinter(device?: Printer) {
       ? {
           ...device.config,
           name: device.name,
+          no_automatic_printing: device.no_automatic_printing ?? false,
           driver: device.driver,
           usb_serial: device.config.usb_serial ?? '',
         }
@@ -276,6 +278,10 @@ function move(index: number, offset: number) {
         >
       </PropertySection>
 
+      <label class="checkbox"
+        ><input v-model="printer.no_automatic_printing" type="checkbox" />No automatic
+        printing</label
+      >
       <p class="help">
         USB serial is optional for one printer. Multiple printers each need a distinct serial.
       </p>
@@ -302,6 +308,7 @@ function move(index: number, offset: number) {
     <section v-for="device in w.printers" :key="device.id" class="panel form-stack printer-device">
       <div class="section-heading">
         <h2>{{ device.name }}</h2>
+        <span v-if="device.no_automatic_printing" class="muted">Manual only</span>
         <span v-if="device.owner_id === null" class="badge">No owner</span>
         <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
           state(device.id)?.connected ? 'Connected' : 'Disconnected'
@@ -397,7 +404,7 @@ function move(index: number, offset: number) {
           Clear block
         </button>
         <button
-          v-if="auth.printer(device.id, 'hold_resume')"
+          v-if="!device.no_automatic_printing && auth.printer(device.id, 'hold_resume')"
           class="secondary"
           :disabled="w.busy"
           @click="hold(device.id, !state(device.id)?.automatic_printing_held)"
@@ -577,7 +584,7 @@ function move(index: number, offset: number) {
         >
           Print matching queue</button
         ><button
-          v-if="auth.printer(target.id, 'hold_resume')"
+          v-if="!target.no_automatic_printing && auth.printer(target.id, 'hold_resume')"
           class="secondary"
           :disabled="w.busy"
           @click="hold(target.id, !target.automatic_printing_held)"

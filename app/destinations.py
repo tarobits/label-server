@@ -39,6 +39,16 @@ def members(session: Session, destination_id: str) -> list[str]:
     raise HTTPException(404, "Print destination not found")
 
 
+def automatic_printing_disabled(session: Session, destination_id: str) -> bool:
+    device = session.get(PrinterDevice, destination_id)
+    if device is not None:
+        return device.no_automatic_printing
+    group = session.get(PrinterGroup, destination_id)
+    if not group or not group.printer_ids:
+        return False
+    return all(automatic_printing_disabled(session, identifier) for identifier in group.printer_ids)
+
+
 def installed_profile(session: Session, printer_id: str) -> str | None:
     state = printer_state(session, printer_id)
     cartridge = (

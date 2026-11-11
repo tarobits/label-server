@@ -406,6 +406,7 @@ def station_users(request: Request, session: DeviceDB) -> dict[str, Any]:
         "location_id": item.location_id,
         "bound_user_id": item.bound_user_id,
         "users": users,
+        "latest_release": request.app.state.releases.status()["latest_version"],
     }
 
 

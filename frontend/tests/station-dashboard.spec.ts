@@ -31,6 +31,10 @@ for (const width of [1024, 390]) {
           json: {
             name: 'Packing station',
             version: '0.14.0',
+            update: {
+              version: 'v0.15.0',
+              url: 'https://github.com/tarobits/label-server/releases/tag/v0.15.0',
+            },
             locked: true,
             online,
             user: null,
@@ -43,6 +47,7 @@ for (const width of [1024, 390]) {
                 local_id: 'left',
                 id: 'one',
                 name: 'Packing labels',
+                no_automatic_printing: false,
                 status: { connected: true, tape_width_mm: 24 },
                 blocked: false,
                 printing: true,
@@ -52,6 +57,7 @@ for (const width of [1024, 390]) {
                 local_id: 'right',
                 id: 'two',
                 name: 'Small labels',
+                no_automatic_printing: true,
                 status: { connected: true, tape_width_mm: 12 },
                 blocked: false,
                 printing: false,
@@ -88,13 +94,19 @@ for (const width of [1024, 390]) {
     await page.goto('http://localhost:12345/')
     await expect(page.getByText('Active batch', { exact: true })).toBeVisible()
     await expect(page.locator('.station-version')).toHaveText('v0.14.0')
+    await expect(
+      page.getByRole('link', { name: 'Update available: v0.15.0', exact: true }),
+    ).toBeVisible()
     await expect(page.locator('.station-credit')).toHaveText('Made with ♥ by tarobits.')
     const connection = (await page.locator('.station-connection').boundingBox())!
     expect(connection.x + connection.width / 2).toBeCloseTo(width / 2, 0)
     const source = (await page.locator('.station-source').boundingBox())!
     const meta = (await page.locator('.station-meta').boundingBox())!
     expect(source.x + source.width).toBeLessThan(meta.x)
-    await expect(page.getByText('On hold', { exact: true })).toBeVisible()
+    await expect(page.getByText('On hold', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Ready', { exact: true })).toBeVisible()
+    await expect(page.getByText('Manual only', { exact: true })).toBeVisible()
+    await expect(page.getByText('Automatic', { exact: true })).toBeVisible()
     await expect(page.getByText('6 labels completed', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Controls', exact: true })).toHaveCount(0)
     await page.locator('.station-printer').evaluateAll(async (cards) => {

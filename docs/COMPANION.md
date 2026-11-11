@@ -5,6 +5,20 @@ server renders labels and owns permissions, queues, cartridge inventory, and
 accounting. The companion connects outward over HTTPS; the main server never
 needs an inbound connection to the station.
 
+## Manual-only printers
+
+Enable **No automatic printing** in a printer's configuration on the main server
+or in the companion's configuration dialog for an existing printer. This persists
+across restarts and prevents automatic dispatch, including through printer groups.
+Only changing that configuration setting can restore automatic printing; Hold and
+Resume controls are hidden and their API endpoints reject changes while it is enabled.
+Manual print actions remain available and retain their normal permission checks.
+
+The companion shows **Manual only** or **Automatic** beside each printer's name,
+separately from its operational status. An idle, connected manual-only printer
+shows **Ready**; errors, cartridge checks and investigation blocks still take priority.
+Apply main-server migration `19191a0b41a7` before using this setting.
+
 ## Register a station
 
 1. Add its location in **Locations & access**.
@@ -43,6 +57,13 @@ losing contact with the companion. The page retries automatically and recovers
 without a browser refresh. Print and other control requests are never replayed.
 The connection bar also shows the companion's running version, source and license
 links, and project credit. Connection status stays centered.
+
+When a newer stable release is available, a small **Update available** link appears
+beside the station summary, including while locked. The companion compares its own
+version with the main server's cached GitHub release check; it does not contact
+GitHub separately. Set `LABEL_COMPANION_SHOW_UPDATE_NOTICE=false` to hide it.
+The main server's `LABEL_CHECK_FOR_UPDATES` must be enabled. Updates remain manual;
+the notice does not install software or interrupt printing.
 
 After a companion frontend update, the page reloads automatically once the local
 service is ready, the station is locked, no dialog is open, and no control request

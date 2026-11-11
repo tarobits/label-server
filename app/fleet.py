@@ -10,7 +10,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
-from app.destinations import busy, installed_profile, members, printer_state
+from app.destinations import (
+    automatic_printing_disabled,
+    busy,
+    installed_profile,
+    members,
+    printer_state,
+)
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
 from app.models import (
@@ -223,6 +229,8 @@ class PrinterFleet:
             if printing:
                 return "is currently printing. Wait for its current batch to finish"
             return "has a batch awaiting review. Review that batch before printing again"
+        if not manual and automatic_printing_disabled(session, identifier):
+            return "requires manual printing"
         if state.automatic_printing_held and not manual:
             return "has automatic printing paused"
         cartridge = (

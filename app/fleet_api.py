@@ -9,8 +9,9 @@ from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 
 from app.access import access_context
+from app.action_audit import record_action
 from app.authorization import visible_copy_count
-from app.destinations import members, printer_state
+from app.destinations import automatic_printing_disabled, members, printer_state
 from app.http import db, get, record
 from app.models import (
     Batch,
@@ -84,14 +85,17 @@ def register_printer(
     body: CreatePrinterInput, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     try:
-        request.app.state.fleet.backend_factory(body.driver, body.model_dump())
+        request.app.state.fleet.backend_factory(
+            body.driver, body.model_dump(exclude={"no_automatic_printing"})
+        )
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     validate_device(body, session)
     device = PrinterDevice(
         name=body.name,
         driver=body.driver,
-        config=body.model_dump(exclude={"name", "driver", "unowned"}),
+        config=body.model_dump(exclude={"name", "driver", "unowned", "no_automatic_printing"}),
+        no_automatic_printing=body.no_automatic_printing,
         owner_id=None if body.unowned else access_context(request).actor.id,
     )
     session.add(device)
@@ -99,6 +103,14 @@ def register_printer(
     from app.ownership import record_ownership
 
     record_ownership(session, "printer", device)
+    if device.no_automatic_printing:
+        record_action(
+            session,
+            "printer.automatic_mode_changed",
+            "printer",
+            device.id,
+            {"old_disabled": False, "new_disabled": True},
+        )
     session.add(PrinterState(printer_id=device.id))
     session.flush()
     return record(device)
@@ -118,11 +130,13 @@ def edit_printer(
     if device.config.get("retired"):
         raise HTTPException(409, "This printer registration has been retired")
     try:
-        definition, _ = request.app.state.fleet.backend_factory(body.driver, body.model_dump())
+        definition, _ = request.app.state.fleet.backend_factory(
+            body.driver, body.model_dump(exclude={"no_automatic_printing"})
+        )
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     validate_device(body, session, identifier)
-    config = body.model_dump(exclude={"name", "driver"})
+    config = body.model_dump(exclude={"name", "driver", "no_automatic_printing"})
     changed = device.driver != body.driver or device.config != config
     if changed and identifier in request.app.state.fleet.workers:
         affected = [identifier] + [
@@ -177,13 +191,28 @@ def edit_printer(
                             409,
                             "Remove this printer from its groups before changing rendering capabilities",
                         )
+    reconfigure = changed or device.name != body.name
     worker = request.app.state.fleet.workers.get(identifier)
-    if worker:
+    if worker and reconfigure:
         if not worker.printer_lock.acquire(blocking=False):
             raise HTTPException(409, "Printer is busy; try again when it is idle")
         request.state.held_locks.append(worker.printer_lock)
     device.name, device.driver, device.config = body.name, body.driver, config
-    request.state.after_commit.append(lambda: request.app.state.fleet.reconfigure(device))
+    if "no_automatic_printing" in body.model_fields_set:
+        if device.no_automatic_printing != body.no_automatic_printing:
+            record_action(
+                session,
+                "printer.automatic_mode_changed",
+                "printer",
+                identifier,
+                {
+                    "old_disabled": device.no_automatic_printing,
+                    "new_disabled": body.no_automatic_printing,
+                },
+            )
+        device.no_automatic_printing = body.no_automatic_printing
+    if reconfigure:
+        request.state.after_commit.append(lambda: request.app.state.fleet.reconfigure(device))
     session.flush()
     return record(device)
 
@@ -213,6 +242,9 @@ def destinations(
     for destination in result:
         context = access_context(request)
         identifier = str(destination["id"])
+        destination["no_automatic_printing"] = automatic_printing_disabled(session, identifier)
+        if destination["no_automatic_printing"]:
+            destination["automatic_printing_held"] = False
         configured_members = [
             member
             for member in members(session, identifier)
@@ -337,6 +369,8 @@ def edit_group(
 def hold_destination(
     identifier: str, body: AutomaticPrintingInput, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
+    if automatic_printing_disabled(session, identifier):
+        raise HTTPException(409, "Automatic printing is disabled in printer settings")
     group = session.get(PrinterGroup, identifier)
     target = group or printer_state(session, identifier)
     previous = target.automatic_printing_held

@@ -26,7 +26,7 @@ from app.cartridge_inventory import archive_blockers, deletion_blockers
 from app.copy_counts import copy_count_blocker
 from app.cost_estimates import estimate_cost
 from app.deletion import document_notices, retain
-from app.destinations import printer_state, resolve_destination
+from app.destinations import automatic_printing_disabled, printer_state, resolve_destination
 from app.element_geometry import element_geometry
 from app.http import (
     db,
@@ -616,6 +616,7 @@ def printers(
                 if access_context(request).can_printer(device.id, "configure")
                 else {},
                 "connection_kind": "companion" if link else "main",
+                "no_automatic_printing": device.no_automatic_printing,
                 "companion": {
                     "name": station.name,
                     "enabled": bool(link and link.enabled and station.key_hash),
@@ -676,6 +677,8 @@ def automatic_printing(
 ) -> dict[str, Any]:
     printer_id = resolve_destination(session, printer_id)
     access_context(request).require_printer(printer_id, "hold_resume")
+    if automatic_printing_disabled(session, printer_id):
+        raise HTTPException(409, "Automatic printing is disabled in printer settings")
     state = printer_state(session, printer_id)
     previous = state.automatic_printing_held
     state.automatic_printing_held = body.held

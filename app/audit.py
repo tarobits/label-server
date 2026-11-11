@@ -36,6 +36,7 @@ COMMON_FIELDS: dict[str, FieldType] = {
     "victim_names": "identifiers",
 }
 ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
+    "printer.automatic_mode_changed": {"old_disabled": "boolean", "new_disabled": "boolean"},
     "billing.changed": {"account_id": "text", "event_id": "text", "change": "text"},
     "settings.review_evidence_changed": {"previous": "text", "current": "text"},
     **{

@@ -151,6 +151,7 @@ class CopySelectionInput(Input):
 
 class PrinterInput(Input):
     name: str = Field(min_length=1, max_length=100)
+    no_automatic_printing: bool = False
     driver: str = Field(default="brother-pt-p710bt", min_length=1, max_length=100)
     usb_serial: str | None = Field(default=None, min_length=1, max_length=128)
     resolution: Literal["normal", "high"] = "normal"

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     )
     server_url: str
     log_level: LogLevel = "INFO"
+    show_update_notice: bool = True
     api_key: SecretStr
     status_api_key: SecretStr = SecretStr("")
     data_dir: Path = Path("data/companion")

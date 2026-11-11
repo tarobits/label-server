@@ -13,6 +13,37 @@ from companion.web import create_app
 
 
 @pytest.mark.parametrize("enabled", [True, False])
+def test_manual_only_mode_reaches_locked_station_and_survives_sync(
+    accounts, tmp_path, monkeypatch, enabled
+):
+    from app.destinations import printer_state
+    from app.models import PrinterDevice
+
+    monkeypatch.setenv("LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS", str(enabled).lower())
+    admin = accounts[0]
+    settings, agent = local_station(admin, tmp_path)
+    identifier = agent.identifiers["usb-one"]
+    with admin.app.state.factory.begin() as session:
+        session.get_one(PrinterDevice, identifier).no_automatic_printing = True
+        printer_state(session, identifier).automatic_printing_held = True
+    agent.sync()
+    agent.sync()
+    with TestClient(create_app(settings, agent, start_agent=False)) as client:
+        data = client.get("/api/station").json()["printers"][0]
+        assert data["no_automatic_printing"]
+        if enabled:
+            assert not data["dashboard"]["held"]
+        unlock(client)
+        assert (
+            client.put(
+                f"/api/proxy/printer/automatic-printing?printer_id={identifier}",
+                json={"held": False},
+            ).status_code
+            == 409
+        )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
 def test_locked_dashboard_deployment_setting(accounts, tmp_path, monkeypatch, enabled):
     monkeypatch.setenv("LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS", str(enabled).lower())
     settings, agent = local_station(accounts[0], tmp_path)

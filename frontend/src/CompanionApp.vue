@@ -34,6 +34,7 @@ import { mediaLabel, compatibleProfile } from './media'
 import { reloadUpdatedCompanion } from './companionUpdates'
 
 interface LocalPrinter {
+  no_automatic_printing?: boolean | null
   dashboard?: StationDashboard | null
   snapshot_age_seconds?: number | null
   local_id: string
@@ -60,6 +61,7 @@ interface QueueGroup {
 }
 interface Station {
   version?: string
+  update?: { version: string; url: string } | null
   frontend_build?: string | null
   name: string
   online: boolean
@@ -136,7 +138,9 @@ const jobs = computed(() => queueGroups.value.flatMap((group) => group.jobs))
 const packingPrinter = ref<LocalPrinter | null>(null)
 const queuePage = ref(0),
   hasNextPage = ref(false)
-const config = ref<Printer['config'] & { name: string; driver: string }>()
+const config = ref<
+  Printer['config'] & { name: string; driver: string; no_automatic_printing?: boolean }
+>()
 const newPrinterId = ref('')
 const adding = ref(false),
   newName = ref(''),
@@ -227,8 +231,13 @@ function printerState(printer: LocalPrinter) {
     return { label: 'Disconnected', tone: 'muted', icon: SignalSlashIcon }
   if (printer.dashboard?.cartridge_check_pending)
     return { label: 'Check cartridge', tone: 'warning', icon: ExclamationTriangleIcon }
-  if (printer.dashboard?.held) return { label: 'On hold', tone: 'warning', icon: PauseIcon }
-  return { label: 'Connected', tone: 'ready', icon: CheckCircleIcon }
+  if (!printer.no_automatic_printing && printer.dashboard?.held)
+    return { label: 'On hold', tone: 'warning', icon: PauseIcon }
+  return {
+    label: printer.no_automatic_printing ? 'Ready' : 'Connected',
+    tone: 'ready',
+    icon: CheckCircleIcon,
+  }
 }
 const queuedCopies = (job: Job) =>
   job.labels.filter((label) => label.state === 'queued').map((label) => label.id)
@@ -483,7 +492,13 @@ async function clearBlock() {
 function editConfig() {
   newPrinterId.value = ''
   const device = devices.value.find((p) => p.id === active.value?.id)
-  if (device) config.value = { ...device.config, name: device.name, driver: device.driver }
+  if (device)
+    config.value = {
+      ...device.config,
+      name: device.name,
+      driver: device.driver,
+      no_automatic_printing: device.no_automatic_printing ?? false,
+    }
 }
 function addPrinter() {
   newPrinterId.value = crypto.randomUUID()
@@ -642,6 +657,14 @@ function changePage(delta: number) {
           {{
             stationReachable && !serverUnavailable ? fleetSummary : 'Waiting for station status…'
           }}
+          <Transition name="notice">
+            <span v-if="station?.update" class="station-update" role="status">
+              ·
+              <a :href="station.update.url" target="_blank" rel="noopener noreferrer"
+                >Update available: {{ station.update.version }}</a
+              >
+            </span>
+          </Transition>
         </p>
       </div>
       <div v-if="!station || station.locked" class="station-unlock">
@@ -717,7 +740,12 @@ function changePage(delta: number) {
               <div class="printer-identity">
                 <PrinterIcon class="printer-icon" aria-hidden="true" />
                 <div>
-                  <h2>{{ printer.name }}</h2>
+                  <div class="row wrap printer-name-mode">
+                    <h2>{{ printer.name }}</h2>
+                    <span v-if="printer.no_automatic_printing != null" class="muted printer-mode">{{
+                      printer.no_automatic_printing ? 'Manual only' : 'Automatic'
+                    }}</span>
+                  </div>
                   <p class="muted">
                     {{
                       printer.status.tape_width_mm
@@ -799,7 +827,11 @@ function changePage(delta: number) {
                   </p>
                   <div class="row wrap">
                     <button
-                      v-if="can(printer.id, 'hold_resume')"
+                      v-if="
+                        !status?.no_automatic_printing &&
+                        !printer.no_automatic_printing &&
+                        can(printer.id, 'hold_resume')
+                      "
                       class="secondary"
                       :disabled="!operational || busy"
                       @click="hold"
@@ -1187,7 +1219,11 @@ function changePage(delta: number) {
           required /></label
       ><label class="checkbox"
         ><input v-model="config.cut_each" type="checkbox" />Cut each label</label
-      ><button class="primary" :disabled="busy || !operational">
+      ><label v-if="!newPrinterId" class="checkbox"
+        ><input v-model="config.no_automatic_printing" type="checkbox" />No automatic
+        printing</label
+      >
+      <button class="primary" :disabled="busy || !operational">
         {{ newPrinterId ? 'Add printer' : 'Save configuration' }}
       </button>
     </form></AdminDialog
@@ -1388,6 +1424,11 @@ function changePage(delta: number) {
 .station-title p {
   font-size: 0.875rem;
 }
+.station-update a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+}
 .station-locked {
   display: flex;
   align-items: center;
@@ -1533,6 +1574,12 @@ function changePage(delta: number) {
 }
 .station-printer h2 {
   margin: 0;
+}
+.printer-name-mode {
+  gap: 0.5rem;
+}
+.printer-mode {
+  font-size: 0.75rem;
 }
 .station-printer p {
   margin: 4px 0 0;

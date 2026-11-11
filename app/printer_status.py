@@ -55,6 +55,9 @@ def status_record(
     companion = session.get(CompanionPrinter, printer_id)
     return {
         **record(state),
+        "no_automatic_printing": device.no_automatic_printing,
+        "automatic_printing_held": state.automatic_printing_held
+        and not device.no_automatic_printing,
         "media_confirmation": None,
         "media_verified_fingerprint": None,
         "cartridge_check_pending": state.cartridge_check_enabled

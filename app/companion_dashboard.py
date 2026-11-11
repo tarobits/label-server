@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.destinations import automatic_printing_disabled
 from app.models import (
     Batch,
     BatchItem,
@@ -21,6 +22,7 @@ from app.models import (
 
 def printer_dashboard(session: Session, printer_id: str) -> dict[str, Any]:
     now = time.time()
+    manual_only = automatic_printing_disabled(session, printer_id)
     state = session.scalar(select(PrinterState).where(PrinterState.printer_id == printer_id))
     groups = [
         group.id
@@ -94,7 +96,8 @@ def printer_dashboard(session: Session, printer_id: str) -> dict[str, Any]:
         or 0
     )
     return {
-        "held": bool(state and state.automatic_printing_held),
+        "no_automatic_printing": manual_only,
+        "held": bool(state and state.automatic_printing_held and not manual_only),
         "cartridge_check_pending": bool(state and state.cartridge_check_pending),
         "queued_labels": counts.get(printer_id, 0),
         "shared_queued_labels": sum(counts.get(identifier, 0) for identifier in groups),

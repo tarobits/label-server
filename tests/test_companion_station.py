@@ -210,6 +210,31 @@ def test_station_reports_version_without_printers(accounts, tmp_path):
     assert current["server_version"] == __version__
 
 
+def test_station_notifies_about_latest_release_using_its_own_version(
+    accounts, tmp_path, monkeypatch
+):
+    from companion.web import create_app
+
+    admin, _, _ = accounts
+    admin.app.state.releases.latest = "v0.15.0"
+    monkeypatch.setattr("companion.web.__version__", "0.14.0")
+    settings, agent = local_station(admin, tmp_path)
+    with TestClient(create_app(settings, agent, start_agent=False)) as client:
+        state = client.get("/api/station").json()
+        assert state["locked"] and state["update"] == {
+            "version": "v0.15.0",
+            "url": "https://github.com/tarobits/label-server/releases/tag/v0.15.0",
+        }
+        settings.show_update_notice = False
+        assert client.get("/api/station").json()["update"] is None
+        settings.show_update_notice = True
+        for version in (None, "v0.14.0", "v0.13.0", "v0.16.0-pre1", "javascript:alert(1)"):
+            agent.users["latest_release"] = version
+            assert client.get("/api/station").json()["update"] is None
+        agent.users["latest_release"] = "v0.16.0"
+        assert client.get("/api/station").json()["update"]["version"] == "v0.16.0"
+
+
 @pytest.mark.parametrize("mode", ["none", "once", "each_keypress"])
 def test_keypad_deployment_settings_are_available_before_unlock(
     accounts, tmp_path, monkeypatch, mode

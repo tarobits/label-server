@@ -9,6 +9,7 @@ export interface PrinterConfig {
   timeout_seconds?: number
 }
 export interface Printer {
+  no_automatic_printing?: boolean
   connection_kind?: 'main' | 'companion'
   companion?: { name: string; enabled: boolean } | null
   owner_id?: string | null
@@ -78,6 +79,7 @@ export interface Cartridge {
   consumption_uncertain: boolean
 }
 export interface Destination {
+  no_automatic_printing?: boolean
   available?: boolean
   member_names?: Record<string, string>
   capabilities?: Printer['capabilities'] | null
@@ -90,6 +92,7 @@ export interface Destination {
   automatic_printing_held: boolean
 }
 export interface Status {
+  no_automatic_printing?: boolean
   companion_blocked?: boolean
   total_queued: number
   printer_id: string

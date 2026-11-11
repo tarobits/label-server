@@ -70,6 +70,90 @@ def job_state(client, job):
     return client.get(f"/api/jobs/{job['id']}").json()["status"]
 
 
+@pytest.mark.parametrize("shared", [False, True])
+def test_manual_only_printer_blocks_automatic_dispatch_but_allows_manual_print(client, shared):
+    tape = profile(client, threshold=1)
+    fit(client, "main", tape)
+    worker = client.app.state.fleet.workers["main"]
+    worker.tick()
+    printer = client.get("/api/printers").json()[0]
+    body = {**printer["config"], "name": printer["name"], "driver": printer["driver"]}
+    assert client.put("/api/printer/automatic-printing", json={"held": True}).status_code == 200
+    updated = client.put("/api/printers/main", json={**body, "no_automatic_printing": True})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["no_automatic_printing"]
+    assert client.get("/api/printers").json()[0]["no_automatic_printing"]
+    assert "no_automatic_printing" not in updated.json()["config"]
+    # Older clients must not accidentally remove the permanent setting on edit.
+    assert client.put("/api/printers/main", json=body).json()["no_automatic_printing"]
+    destination = group(client, ["main"]) if shared else "main"
+    for endpoint in (
+        "/api/printer/automatic-printing",
+        f"/api/destinations/{destination}/automatic-printing",
+    ):
+        assert client.put(endpoint, json={"held": False}).status_code == 409
+    state = client.get("/api/status").json()
+    assert state["no_automatic_printing"]
+    assert not state["automatic_printing_held"]
+    target = next(
+        item for item in client.get("/api/destinations").json() if item["id"] == destination
+    )
+    assert target["no_automatic_printing"] and not target["automatic_printing_held"]
+    work = submit(client, destination, tape)
+    for _ in range(3):
+        client.app.state.fleet.workers["main"].tick()
+    assert job_state(client, work) == "queued"
+    assert not client.get("/api/batches").json()
+    manual = client.post(f"/api/destinations/{destination}/print")
+    assert manual.status_code == 202, manual.text
+    client.app.state.fleet.workers["main"].tick()
+    assert job_state(client, work) == "printed"
+    # Only a configuration edit restores access to automatic printing controls.
+    assert (
+        client.put("/api/printers/main", json={**body, "no_automatic_printing": False}).status_code
+        == 200
+    )
+    assert client.put("/api/printer/automatic-printing", json={"held": False}).status_code == 200
+    second = submit(client, destination, tape)
+    client.app.state.fleet.workers["main"].tick()
+    assert job_state(client, second) == "printed"
+    from sqlalchemy import select
+
+    from app.models import AuditEvent
+
+    with client.app.state.factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditEvent).where(AuditEvent.action == "printer.automatic_mode_changed")
+            )
+        )
+        assert len(events) == 2
+
+
+def test_new_printer_can_be_manual_only(client):
+    response = client.post(
+        "/api/printers", json={"name": "Manual", "driver": "mock", "no_automatic_printing": True}
+    )
+    assert response.status_code == 201
+    assert response.json()["no_automatic_printing"]
+
+
+def test_mode_change_does_not_reconfigure_or_interrupt_hardware(client, monkeypatch):
+    printer = client.get("/api/printers").json()[0]
+    # Normalize the legacy test printer's configuration before testing a mode-only edit.
+    body = {**printer["config"], "name": printer["name"], "driver": printer["driver"]}
+    assert client.put("/api/printers/main", json=body).status_code == 200
+
+    def unexpected_reconfigure(_):
+        raise AssertionError("Mode-only edits must not replace the hardware backend")
+
+    monkeypatch.setattr(client.app.state.fleet, "reconfigure", unexpected_reconfigure)
+    with client.app.state.fleet.workers["main"].printer_lock:
+        response = client.put("/api/printers/main", json={**body, "no_automatic_printing": True})
+    assert response.status_code == 200, response.text
+    assert response.json()["no_automatic_printing"]
+
+
 @pytest.mark.parametrize("manual", [False, True])
 def test_no_start_failure_holds_group_without_automatic_failover(client, monkeypatch, manual):
     tape = profile(client, threshold=1)

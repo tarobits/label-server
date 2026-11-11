@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.cartridge_confirmation import configure_media
-from app.destinations import printer_state
+from app.destinations import automatic_printing_disabled, printer_state
 from app.font_assets import FontStore
 from app.image_assets import ImageStore
 from app.models import (
@@ -502,7 +502,9 @@ class QueueWorker:
                     continue
                 group = session.get(PrinterGroup, destination)
                 if not request and (
-                    state.automatic_printing_held or (group and group.automatic_printing_held)
+                    automatic_printing_disabled(session, self.printer_id)
+                    or state.automatic_printing_held
+                    or (group and group.automatic_printing_held)
                 ):
                     continue
                 eligible = compatible_copies(session, profile, destination)
