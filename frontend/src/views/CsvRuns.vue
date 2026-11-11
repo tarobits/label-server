@@ -9,6 +9,7 @@ import { useLiveRefresh } from '../live'
 import { useResourceStore } from '../stores/resources'
 import { randomUUID } from '../uuid'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
+import BillingPicker, { type BillingSelection } from '../components/BillingPicker.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import type { CostEstimate as CostEstimateData, PrintPlan } from '../types'
 import TapeUsage from '../components/TapeUsage.vue'
@@ -81,6 +82,7 @@ const csv = ref(''),
   )
 const template = computed(() => w.templates.find((t) => t.id === templateId.value))
 const processName = ref('')
+const billing = ref<BillingSelection | null>(null)
 watch(
   templateId,
   (_, previous) => {
@@ -232,6 +234,7 @@ async function prepare() {
     rowErrors.value = []
     const body = {
       process_name: processName.value.trim(),
+      billing: billing.value,
       destination_id: destinationId.value,
       name: name.value,
       template: templateId.value,
@@ -457,6 +460,7 @@ onUnmounted(() => {
         >
       </div>
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
+      <BillingPicker v-model="billing" />
       <label
         >CSV file<input type="file" accept=".csv,text/csv,text/plain" @change="fileChanged"
       /></label>

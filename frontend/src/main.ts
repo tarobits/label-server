@@ -12,6 +12,7 @@ import AuditLog from './views/AuditLog.vue'
 import DeliveryHistory from './views/DeliveryHistory.vue'
 import PrinterChangeHistory from './components/PrinterChangeHistory.vue'
 import Usage from './views/Usage.vue'
+import GroupAccounts from './views/GroupAccounts.vue'
 import Review from './views/Review.vue'
 import RetryOffer from './views/RetryOffer.vue'
 import CartridgeQuote from './views/CartridgeQuote.vue'
@@ -50,6 +51,7 @@ const router = createRouter({
     { path: '/reset-password', component: AccountRecovery, meta: { title: 'Reset password' } },
     { path: '/verify-email', component: AccountRecovery, meta: { title: 'Verify email' } },
     { path: '/usage', component: Usage, meta: { title: 'Tape usage' } },
+    { path: '/group-accounts', component: GroupAccounts, meta: { title: 'Group accounts' } },
     { path: '/account', component: AccountSettings, meta: { title: 'Account settings' } },
     {
       path: '/access-holds',

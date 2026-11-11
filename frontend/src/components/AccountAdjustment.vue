@@ -9,7 +9,7 @@ import { useAuthStore } from '../auth'
 const auth = useAuthStore()
 
 const props = defineProps<{ users: UsageUser[]; userId: string }>()
-const emit = defineEmits<{ saved: [] }>()
+const emit = defineEmits<{ saved: []; busy: [value: boolean] }>()
 const form = reactive({
   userId: props.userId,
   recipientId: auth.user?.id ?? '',
@@ -19,6 +19,7 @@ const form = reactive({
   note: '',
 })
 const busy = ref(false)
+watch(busy, (value) => emit('busy', value), { flush: 'sync' })
 const formElement = ref<HTMLFormElement | null>(null)
 const error = ref('')
 const allocationRows = ref<{ cartridge_id: string; cartridge_name: string; owed: string }[]>([])

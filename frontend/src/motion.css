@@ -123,6 +123,11 @@
 .administration-content {
   overflow-x: clip;
 }
+.administration-content {
+  /* Reserve the 3px outline + 3px offset inside the animated clipping area. */
+  padding: 6px;
+  margin: -6px;
+}
 
 /* List changes settle around the item that was added or removed. */
 .collection-move,

@@ -8,8 +8,15 @@ import type { UsageAdjustment, UsageUser } from '../types'
 import type { PairBalance } from '../resourceAccess'
 import AccountAdjustment from './AccountAdjustment.vue'
 import AnimatedDetails from './AnimatedDetails.vue'
-const props = defineProps<{ userId: string; allUsers: boolean }>()
+import AdminDialog from './AdminDialog.vue'
+const props = defineProps<{ userId: string; allUsers: boolean; section: string }>()
 const auth = useAuthStore()
+const editing = ref(false)
+const saving = ref(false)
+function openAdjustment(event: MouseEvent) {
+  ;(event.currentTarget as HTMLElement).focus()
+  editing.value = true
+}
 interface Charge {
   batch_id: string
   requester_id: string
@@ -74,6 +81,7 @@ async function refresh() {
 watch(
   () => [props.userId, props.allUsers, auth.user?.id],
   () => {
+    editing.value = false
     balances.value = []
     cartridgeBalances.value = []
     adjustments.value = []
@@ -91,146 +99,189 @@ const money = (value: string, currency: string) =>
   }).format(Number(value))
 </script>
 <template>
-  <section class="panel usage-accounts">
-    <h2>{{ allUsers ? 'Account balances' : `Balances for ${currentName}` }}</h2>
+  <div class="pair-accounts">
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Payer</th>
-            <th>Recipient</th>
-            <th>Owed</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="balance in balances"
-            :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id ?? ''}:${balance.currency}`"
-          >
-            <td>
-              <RouterLink
-                v-if="allUsers"
-                :to="{ path: '/usage', query: { user: balance.requester_id } }"
-                >{{ balance.requester_name }}</RouterLink
-              ><template v-else>{{ balance.requester_name }}</template>
-            </td>
-            <td>
-              <RouterLink
-                v-if="allUsers && balance.recipient_id"
-                :to="{ path: '/usage', query: { user: balance.recipient_id } }"
-                >{{ balance.recipient_name }}</RouterLink
-              ><template v-else>{{ balance.recipient_name }}</template>
-            </td>
-            <td class="account-balance">{{ money(balance.owed, balance.currency) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p v-if="!balances.length && !error">No debts.</p>
-    <AnimatedDetails
-      v-if="cartridgeBalances.length || unallocated.length"
-      class="cartridge-balances"
-    >
-      <template #summary>Debts by cartridge</template>
+    <section v-show="section === 'balances'" class="usage-accounts">
+      <h2>{{ allUsers ? 'Account balances' : `Balances for ${currentName}` }}</h2>
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
               <th>Payer</th>
               <th>Recipient</th>
-              <th>Cartridge</th>
               <th>Owed</th>
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="balance in cartridgeBalances"
-              :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id}:${balance.currency}`"
+              v-for="balance in balances"
+              :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id ?? ''}:${balance.currency}`"
             >
-              <td>{{ balance.requester_name }}</td>
-              <td>{{ balance.recipient_name ?? balance.cartridge_name }}</td>
-              <td>{{ balance.cartridge_name }}</td>
-              <td>{{ money(balance.owed, balance.currency) }}</td>
-            </tr>
-            <tr
-              v-for="balance in unallocated"
-              :key="`unallocated:${balance.requester_id}:${balance.recipient_id}:${balance.currency}`"
-            >
-              <td>{{ balance.requester_name }}</td>
-              <td>{{ balance.recipient_name }}</td>
               <td>
-                Unallocated {{ Number(balance.unallocated_owed) < 0 ? 'credit' : 'adjustment' }}
+                <RouterLink
+                  v-if="allUsers"
+                  :to="{
+                    path: '/usage',
+                    query: { user: balance.requester_id, section: 'balances' },
+                  }"
+                  >{{ balance.requester_name }}</RouterLink
+                ><template v-else>{{ balance.requester_name }}</template>
               </td>
-              <td>{{ money(balance.unallocated_owed!, balance.currency) }}</td>
+              <td>
+                <RouterLink
+                  v-if="allUsers && balance.recipient_id"
+                  :to="{
+                    path: '/usage',
+                    query: { user: balance.recipient_id, section: 'balances' },
+                  }"
+                  >{{ balance.recipient_name }}</RouterLink
+                ><template v-else>{{ balance.recipient_name }}</template>
+              </td>
+              <td class="account-balance">{{ money(balance.owed, balance.currency) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </AnimatedDetails>
-    <AnimatedDetails class="account-adjustment"
-      ><template #summary>Record repayment or correction</template
-      ><AccountAdjustment :users="users" :user-id="userId" @saved="refresh"
-    /></AnimatedDetails>
-  </section>
-  <section v-if="adjustments.length" class="panel">
-    <h2>Recent repayments & adjustments</h2>
-    <article
-      v-for="adjustment in adjustments"
-      :key="adjustment.id"
-      class="list-row adjustment-entry"
-    >
-      <div class="grow">
-        <strong>{{ adjustment.note }}</strong
-        ><small
-          >{{ adjustment.username }} → {{ adjustment.recipient_name }} ·
-          {{ date(adjustment.created_at) }} · {{ adjustment.actor_name }}</small
-        >
-      </div>
-      <strong>{{ money(String(adjustment.amount_minor / 100), adjustment.currency) }}</strong>
-    </article>
-  </section>
-  <section v-if="charges.length" class="panel">
-    <h2>Charges & receivables</h2>
-    <AnimatedDetails
-      v-for="charge in charges"
-      :key="`${charge.batch_id}:${charge.requester_id}`"
-      class="account-charge"
-      ><template #summary
-        >{{ charge.requester_name }} · {{ charge.cartridge_name }} ·
-        {{ date(charge.created_at) }}</template
+      <p v-if="!balances.length && !error">No debts.</p>
+    </section>
+    <section v-show="section === 'cartridges'" class="cartridge-balances">
+      <h2>Debts by cartridge</h2>
+      <p v-if="!cartridgeBalances.length && !unallocated.length && !error" class="empty">
+        No cartridge debts.
+      </p>
+      <template v-else>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Payer</th>
+                <th>Recipient</th>
+                <th>Cartridge</th>
+                <th>Owed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="balance in cartridgeBalances"
+                :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id}:${balance.currency}`"
+              >
+                <td>{{ balance.requester_name }}</td>
+                <td>{{ balance.recipient_name ?? balance.cartridge_name }}</td>
+                <td>{{ balance.cartridge_name }}</td>
+                <td>{{ money(balance.owed, balance.currency) }}</td>
+              </tr>
+              <tr
+                v-for="balance in unallocated"
+                :key="`unallocated:${balance.requester_id}:${balance.recipient_id}:${balance.currency}`"
+              >
+                <td>{{ balance.requester_name }}</td>
+                <td>{{ balance.recipient_name }}</td>
+                <td>
+                  Unallocated {{ Number(balance.unallocated_owed) < 0 ? 'credit' : 'adjustment' }}
+                </td>
+                <td>{{ money(balance.unallocated_owed!, balance.currency) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
+    <section v-show="section === 'payments'">
+      <header class="account-section-heading">
+        <h2>Repayments & corrections</h2>
+        <button class="primary" @click="openAdjustment">Record repayment or correction</button>
+      </header>
+      <p v-if="!adjustments.length && !error" class="empty">No repayments or corrections.</p>
+      <article
+        v-for="adjustment in adjustments"
+        :key="adjustment.id"
+        class="list-row adjustment-entry"
       >
-      <dl>
-        <dt>{{ charge.recipient_assigned_at ? 'Assigned recipient' : 'Recipient' }}</dt>
-        <dd>{{ charge.recipient_name ?? charge.cartridge_name }}</dd>
-        <dt>Tape used</dt>
-        <dd>{{ charge.consumed_mm === null ? 'Pending' : metres(charge.consumed_mm) }}</dd>
-        <dt>Actual cost</dt>
-        <dd>
-          {{
-            charge.actual_cost === null
-              ? 'Pending or unpriced'
-              : money(charge.actual_cost, charge.currency)
-          }}
-        </dd>
-        <dt>Charged</dt>
-        <dd>
-          {{
-            charge.own_cartridge
-              ? 'Own cartridge — no debt'
-              : charge.charged === null
+        <div class="grow">
+          <strong>{{ adjustment.note }}</strong
+          ><small
+            >{{ adjustment.username }} → {{ adjustment.recipient_name }} ·
+            {{ date(adjustment.created_at) }} · {{ adjustment.actor_name }}</small
+          >
+        </div>
+        <strong>{{ money(String(adjustment.amount_minor / 100), adjustment.currency) }}</strong>
+      </article>
+    </section>
+    <section v-show="section === 'charges'">
+      <h2>Charges & receivables</h2>
+      <p v-if="!charges.length && !error" class="empty">No charges yet.</p>
+      <AnimatedDetails
+        v-for="charge in charges"
+        :key="`${charge.batch_id}:${charge.requester_id}`"
+        class="account-charge"
+        ><template #summary
+          >{{ charge.requester_name }} · {{ charge.cartridge_name }} ·
+          {{ date(charge.created_at) }}</template
+        >
+        <dl>
+          <dt>{{ charge.recipient_assigned_at ? 'Assigned recipient' : 'Recipient' }}</dt>
+          <dd>{{ charge.recipient_name ?? charge.cartridge_name }}</dd>
+          <dt>Tape used</dt>
+          <dd>{{ charge.consumed_mm === null ? 'Pending' : metres(charge.consumed_mm) }}</dd>
+          <dt>Actual cost</dt>
+          <dd>
+            {{
+              charge.actual_cost === null
                 ? 'Pending or unpriced'
-                : money(charge.charged, charge.currency)
-          }}
-        </dd>
-      </dl>
-    </AnimatedDetails>
-  </section>
+                : money(charge.actual_cost, charge.currency)
+            }}
+          </dd>
+          <dt>Charged</dt>
+          <dd>
+            {{
+              charge.own_cartridge
+                ? 'Own cartridge — no debt'
+                : charge.charged === null
+                  ? 'Pending or unpriced'
+                  : money(charge.charged, charge.currency)
+            }}
+          </dd>
+        </dl>
+      </AnimatedDetails>
+    </section>
+    <AdminDialog
+      :open="editing"
+      title="Record repayment or correction"
+      :busy="saving"
+      @close="editing = false"
+    >
+      <AccountAdjustment
+        class="account-adjustment"
+        :users="users"
+        :user-id="userId"
+        @saved="refresh"
+        @busy="saving = $event"
+      />
+    </AdminDialog>
+  </div>
 </template>
 <style scoped>
-.account-adjustment,
-.cartridge-balances {
-  margin-top: 1rem;
+.pair-accounts {
+  min-width: 0;
+}
+.pair-accounts h2 {
+  font-size: 20px;
+  margin: 0 0 24px;
+}
+.account-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.account-section-heading h2 {
+  margin: 0;
+}
+.adjustment-entry .grow {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .account-charge {
   padding: 0.75rem 0;

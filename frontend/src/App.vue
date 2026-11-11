@@ -13,6 +13,7 @@ import CartridgeCheckPrompt from './components/CartridgeCheckPrompt.vue'
 import MotionTrack from './components/MotionTrack.vue'
 import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
+import SourceLink from './components/SourceLink.vue'
 import ChangelogNotice from './components/ChangelogNotice.vue'
 import ServerUnavailable from './components/ServerUnavailable.vue'
 import AppUpdateNotice from './components/AppUpdateNotice.vue'
@@ -178,13 +179,21 @@ const links = computed(() =>
     ['/audit', 'Audit log', 'activity'],
     ['/notification-history', 'Notification delivery', 'bell'],
     ['/usage', 'Tape usage', 'tape'],
+    ['/group-accounts', 'Group accounts', 'users'],
     ['/printers', 'Printers & groups', 'printer'],
     ['/companions', 'Companions', 'printer'],
     ['/resource-access', 'Locations & access', 'users'],
     ['/migration', 'Ownership migration', 'users'],
     ['/admin', 'Administration', 'users'],
   ].filter(([path]) => {
-    if (path === '/audit') return auth.can('audit.view_all') || auth.anyPrinter('view_audit') || Object.values(auth.user?.cartridge_permissions ?? {}).some(permissions => permissions.includes('cartridge.view_audit'))
+    if (path === '/audit')
+      return (
+        auth.can('audit.view_all') ||
+        auth.anyPrinter('view_audit') ||
+        Object.values(auth.user?.cartridge_permissions ?? {}).some((permissions) =>
+          permissions.includes('cartridge.view_audit'),
+        )
+      )
     if (path === '/migration') return auth.user?.is_admin && auth.session?.migration_required
     if (path === '/resource-access')
       return (
@@ -221,7 +230,14 @@ const links = computed(() =>
   }),
 )
 const allowed = computed(() => {
-  if (route.path === '/audit') return auth.can('audit.view_all') || auth.anyPrinter('view_audit') || Object.values(auth.user?.cartridge_permissions ?? {}).some(permissions => permissions.includes('cartridge.view_audit'))
+  if (route.path === '/audit')
+    return (
+      auth.can('audit.view_all') ||
+      auth.anyPrinter('view_audit') ||
+      Object.values(auth.user?.cartridge_permissions ?? {}).some((permissions) =>
+        permissions.includes('cartridge.view_audit'),
+      )
+    )
   if (auth.user?.is_admin) return true
   if (route.path === '/notification-history' || route.path === '/companions') return false
   if (route.path === '/admin' || route.path === '/access-holds' || route.path === '/migration')
@@ -457,7 +473,7 @@ onMounted(auth.refresh)
             </RouterView>
           </div>
           <footer class="page-footer">
-            <VersionStatus />
+            <span class="row wrap"><VersionStatus /><SourceLink /></span>
             <span
               >Made with ♥ by
               <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span

@@ -135,6 +135,8 @@ export interface Job extends LabelInformation {
   can_change_copies?: boolean
   can_print?: boolean
   can_cancel?: boolean
+  billing_held?: boolean
+  billing_request?: { id: string; account_id: string; status: string; mode: string } | null
   access_hold?: {
     reason: string
     held_at: number

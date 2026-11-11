@@ -14,6 +14,7 @@ import VariableInput from '../components/VariableInput.vue'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
 import CostEstimate from '../components/CostEstimate.vue'
+import BillingPicker, { type BillingSelection } from '../components/BillingPicker.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import TemplatePicker from '../components/TemplatePicker.vue'
 import { rememberTemplate } from '../templateBrowser'
@@ -43,6 +44,7 @@ const form = reactive({
 })
 const template = computed(() => templates.value.find((t) => t.id === form.template))
 const processName = ref('')
+const billing = ref<BillingSelection | null>(null)
 watch(
   () => form.template,
   (_, previous) => {
@@ -318,6 +320,7 @@ async function submit() {
   let fieldErrorsHandled = false
   const body = {
     process_name: processName.value.trim(),
+    billing: billing.value,
     destination_id: form.destination_id,
     template: form.template,
     tape_profile: form.tape_profile,
@@ -409,6 +412,7 @@ async function submit() {
         :compatible="templateCompatible"
       />
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
+      <BillingPicker v-model="billing" />
       <label
         >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>
           <option

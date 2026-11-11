@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { toggleAdjustment, usageSection } from './usage-navigation'
 import type { APIRequestContext } from '@playwright/test'
 
 async function create(request: APIRequestContext, resource: string, payload: unknown) {
@@ -60,10 +61,10 @@ test('balances include printing, payments and corrections with individual views 
     .poll(async () => (await (await request.get('/api/usage')).json()).accounts[0]?.balances.EUR)
     .toMatch(/^-/)
   const original = await (await request.get('/api/usage')).json()
-  await page.goto('/#/usage')
+  await page.goto('/#/usage?section=balances')
   await expect(page.locator('.usage-accounts')).toContainText('other-user')
-  const details = page.locator('.account-adjustment')
-  await details.locator('summary').click()
+  const details = page.getByRole('dialog', { name: 'Record repayment or correction', exact: true })
+  await toggleAdjustment(page)
   await details.getByRole('combobox', { name: 'User', exact: true }).selectOption(owner.id)
   await details.getByRole('combobox', { name: 'Recipient', exact: true }).selectOption(other.id)
   await details.getByLabel('Amount', { exact: true }).fill('10')
@@ -87,11 +88,11 @@ test('balances include printing, payments and corrections with individual views 
     6,
   )
   expect(after.users).toEqual(original.users)
-  await details.locator('summary').click()
+  await toggleAdjustment(page)
   await expect(details.getByLabel('Amount', { exact: true })).toBeHidden()
-  await details.locator('summary').click()
+  await toggleAdjustment(page)
   await expect(details.getByLabel('Amount', { exact: true })).toBeVisible()
-  await details.locator('summary').click()
+  await toggleAdjustment(page)
   await expect(details.getByLabel('Amount', { exact: true })).toBeHidden()
   await page.screenshot({
     path: 'test-results/usage-accounts-desktop.png',
@@ -103,7 +104,7 @@ test('balances include printing, payments and corrections with individual views 
   await expect(page.locator('.usage-accounts')).toContainText('other-user')
   await expect(page.locator('.usage-entry')).toHaveCount(0)
   await expect(page.locator('.adjustment-entry')).toHaveCount(2)
-  await details.locator('summary').click()
+  await toggleAdjustment(page)
   await expect(details.getByRole('combobox', { name: 'User', exact: true })).toHaveValue(other.id)
   await details.getByRole('combobox', { name: 'Recipient', exact: true }).selectOption(owner.id)
   await details.getByLabel('Amount', { exact: true }).fill('5')
@@ -117,9 +118,10 @@ test('balances include printing, payments and corrections with individual views 
     animations: 'disabled',
   })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await details.locator('summary').click()
+  await toggleAdjustment(page)
   await expect(details.getByLabel('Amount', { exact: true })).toBeHidden()
   await page.getByRole('combobox', { name: 'View', exact: true }).selectOption('all')
+  await usageSection(page, 'balances')
   await expect(page.getByRole('heading', { name: 'Account balances', exact: true })).toBeVisible()
   await page
     .locator('.usage-accounts')
@@ -170,7 +172,7 @@ test('usage readers and account editors get independent controls without adminis
   })
   const member = await context.newPage()
   try {
-    await member.goto('/#/usage')
+    await member.goto('/#/usage?section=balances')
     await member.getByLabel('Username or email', { exact: true }).fill('account-editor')
     await member.getByLabel('Password', { exact: true }).fill('browser-editor-password')
     await member.getByRole('button', { name: 'Sign in', exact: true }).click()
@@ -178,8 +180,11 @@ test('usage readers and account editors get independent controls without adminis
       member.getByRole('heading', { name: 'Balances for account-editor', exact: true }),
     ).toBeVisible()
     await expect(member.getByRole('combobox', { name: 'View', exact: true })).toHaveCount(0)
-    const details = member.locator('.account-adjustment')
-    await details.locator('summary').click()
+    const details = member.getByRole('dialog', {
+      name: 'Record repayment or correction',
+      exact: true,
+    })
+    await toggleAdjustment(member)
     await details.getByRole('combobox', { name: 'User', exact: true }).selectOption(reader.id)
     await details
       .getByRole('combobox', { name: 'Recipient', exact: true })
@@ -199,6 +204,7 @@ test('usage readers and account editors get independent controls without adminis
     await expect(member.getByRole('combobox', { name: 'View', exact: true })).toBeVisible()
     await expect(member.getByRole('combobox', { name: 'Recipient', exact: true })).toHaveCount(0)
     await member.getByRole('combobox', { name: 'View', exact: true }).selectOption('all')
+    await usageSection(member, 'balances')
     await expect(
       member.getByRole('heading', { name: 'Account balances', exact: true }),
     ).toBeVisible()

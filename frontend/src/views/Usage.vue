@@ -9,11 +9,34 @@ import { date, metres } from '../workspace'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import Badge from '../components/Badge.vue'
 import PairAccounts from '../components/PairAccounts.vue'
+import SectionLayout from '../components/SectionLayout.vue'
+import ExpandableContent from '../components/ExpandableContent.vue'
 import type { UsageReport, UsageUser } from '../types'
 const auth = useAuthStore()
 const resources = useResourceStore()
 const route = useRoute()
 const router = useRouter()
+const navigationGroups = [
+  { title: 'Usage', sections: [{ id: 'usage', title: 'Tape & allocations' }] },
+  {
+    title: 'Accounting',
+    sections: [
+      { id: 'balances', title: 'Account balances' },
+      { id: 'cartridges', title: 'Debts by cartridge' },
+      { id: 'charges', title: 'Charges & receivables' },
+      { id: 'payments', title: 'Repayments & corrections' },
+    ],
+  },
+]
+const section = computed(
+  () =>
+    navigationGroups
+      .flatMap((group) => group.sections)
+      .find((item) => item.id === route.query.section)?.id ?? 'usage',
+)
+function navigate(value: string) {
+  void router.replace({ query: { ...route.query, section: value } })
+}
 const canViewOthers = computed(() => auth.can('usage.view_others'))
 const canEditAccounts = computed(() => auth.can('usage.edit_accounts'))
 function filterQuery(key: string, value: string) {
@@ -104,101 +127,135 @@ function money(value: string, currency: string) {
         </option>
       </select></label
     >
-    <label>
-      Cartridge<select v-model="cartridge">
-        <option value="">All cartridges</option>
-        <option
-          v-if="cartridge && !cartridges.some((item) => item.id === cartridge)"
-          :value="cartridge"
-        >
-          Selected cartridge (no tracked usage)
-        </option>
-        <option v-for="item in cartridges" :key="item.id" :value="item.id">
-          {{ item.name }} · {{ item.profile_name }}
-        </option>
-      </select>
-    </label>
+    <ExpandableContent :open="section === 'usage'" class="usage-cartridge-filter"
+      ><label>
+        Cartridge<select v-model="cartridge">
+          <option value="">All cartridges</option>
+          <option
+            v-if="cartridge && !cartridges.some((item) => item.id === cartridge)"
+            :value="cartridge"
+          >
+            Selected cartridge (no tracked usage)
+          </option>
+          <option v-for="item in cartridges" :key="item.id" :value="item.id">
+            {{ item.name }} · {{ item.profile_name }}
+          </option>
+        </select>
+      </label></ExpandableContent
+    >
   </div>
   <Transition name="notice"
     ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
   >
-  <div v-if="!report && !error" class="panel empty" role="status">Loading tape usage…</div>
-  <template v-if="report">
-    <PairAccounts :user-id="selected === 'all' ? '' : selected" :all-users="allUsers" />
-    <section class="panel">
-      <h2>Allocated tape and cost</h2>
-      <p class="help">
-        Includes design, feed, unused tape and a proportional share of the batch leader. Prices are
-        frozen per attempt.
-      </p>
-      <div v-if="!report.users.length" class="empty compact">
-        {{ cartridge ? 'No tracked usage for this cartridge.' : 'No tracked print attempts yet.' }}
-      </div>
-      <article v-for="user in report.users" :key="user.user_id" class="list-row">
-        <div class="grow">
-          <strong>{{ user.username }}</strong>
-          <small
-            >{{ metres(user.consumed_mm) }} used<span v-if="user.pending_mm">
-              · {{ metres(user.pending_mm) }} pending review or completion</span
-            ><span v-if="user.unpriced_mm"> · {{ metres(user.unpriced_mm) }} unpriced</span></small
-          >
-        </div>
-        <div class="usage-costs">
-          <strong v-for="(cost, currency) in user.costs" :key="currency">{{
-            money(cost, currency)
-          }}</strong>
-        </div>
-      </article>
-    </section>
-    <section v-if="report.entries.length" class="panel">
-      <h2>Recent allocations</h2>
-      <AnimatedDetails
-        v-for="entry in report.entries"
-        :key="`${entry.batch_id}:${entry.user_id}`"
-        class="usage-entry"
-      >
-        <template #summary
-          >{{ entry.username }} · {{ date(entry.created_at) }} · {{ entry.cartridge_name }} ·
-          {{ metres(entry.consumed_mm ?? entry.planned_mm) }} ·
-          {{
-            entry.consumed_mm === null
-              ? 'Pending'
-              : entry.cost === null
-                ? 'Unpriced'
-                : money(entry.cost, entry.currency)
-          }}</template
-        >
-        <div class="form-stack inset">
-          <span>Cartridge: {{ entry.cartridge_name }} · {{ entry.profile_name }}</span>
-          <div class="row">
-            <Badge :state="entry.state" /><span
-              >{{
-                entry.consumed_mm === null ? 'Planned' : (entry.consumption_source ?? 'Accounted')
-              }}
-              tape: {{ metres(entry.consumed_mm ?? entry.planned_mm) }}</span
-            >
-          </div>
-          <span
-            >Cartridge price:
+  <SectionLayout label="Tape usage" :groups="navigationGroups" :active="section" @select="navigate">
+    <div v-show="section === 'usage'" class="usage-content">
+      <div v-if="!report && !error" class="empty" role="status">Loading tape usage…</div>
+      <template v-if="report">
+        <section>
+          <h2>Allocated tape and cost</h2>
+          <p class="help">
+            Includes design, feed, unused tape and a proportional share of the batch leader. Prices
+            are frozen per attempt.
+          </p>
+          <div v-if="!report.users.length" class="empty compact">
             {{
-              entry.price_minor === null
-                ? 'Not set'
-                : `${(entry.price_minor / 100).toFixed(2)} ${entry.currency}`
+              cartridge ? 'No tracked usage for this cartridge.' : 'No tracked print attempts yet.'
             }}
-            / {{ metres(entry.nominal_length_mm) }}</span
+          </div>
+          <article v-for="user in report.users" :key="user.user_id" class="list-row">
+            <div class="grow">
+              <strong>{{ user.username }}</strong>
+              <small
+                >{{ metres(user.consumed_mm) }} used<span v-if="user.pending_mm">
+                  · {{ metres(user.pending_mm) }} pending review or completion</span
+                ><span v-if="user.unpriced_mm">
+                  · {{ metres(user.unpriced_mm) }} unpriced</span
+                ></small
+              >
+            </div>
+            <div class="usage-costs">
+              <strong v-for="(cost, currency) in user.costs" :key="currency">{{
+                money(cost, currency)
+              }}</strong>
+            </div>
+          </article>
+        </section>
+        <section v-if="report.entries.length">
+          <h2>Recent allocations</h2>
+          <AnimatedDetails
+            v-for="entry in report.entries"
+            :key="`${entry.batch_id}:${entry.user_id}`"
+            class="usage-entry"
           >
-          <RouterLink v-if="auth.user?.is_admin" :to="`/batches/${entry.batch_id}`"
-            >Batch details →</RouterLink
-          >
-        </div>
-      </AnimatedDetails>
-    </section>
-  </template>
+            <template #summary
+              >{{ entry.username }} · {{ date(entry.created_at) }} · {{ entry.cartridge_name }} ·
+              {{ metres(entry.consumed_mm ?? entry.planned_mm) }} ·
+              {{
+                entry.consumed_mm === null
+                  ? 'Pending'
+                  : entry.cost === null
+                    ? 'Unpriced'
+                    : money(entry.cost, entry.currency)
+              }}</template
+            >
+            <div class="form-stack inset">
+              <span>Cartridge: {{ entry.cartridge_name }} · {{ entry.profile_name }}</span>
+              <div class="row">
+                <Badge :state="entry.state" /><span
+                  >{{
+                    entry.consumed_mm === null
+                      ? 'Planned'
+                      : (entry.consumption_source ?? 'Accounted')
+                  }}
+                  tape: {{ metres(entry.consumed_mm ?? entry.planned_mm) }}</span
+                >
+              </div>
+              <span
+                >Cartridge price:
+                {{
+                  entry.price_minor === null
+                    ? 'Not set'
+                    : `${(entry.price_minor / 100).toFixed(2)} ${entry.currency}`
+                }}
+                / {{ metres(entry.nominal_length_mm) }}</span
+              >
+              <RouterLink v-if="auth.user?.is_admin" :to="`/batches/${entry.batch_id}`"
+                >Batch details →</RouterLink
+              >
+            </div>
+          </AnimatedDetails>
+        </section>
+      </template>
+    </div>
+    <PairAccounts
+      v-show="section !== 'usage'"
+      :section="section"
+      :user-id="selected === 'all' ? '' : selected"
+      :all-users="allUsers"
+    />
+  </SectionLayout>
 </template>
 <style scoped>
 .usage-filters {
   align-items: end;
   margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+.usage-content {
+  display: grid;
+  gap: 32px;
+  min-width: 0;
+}
+.usage-content h2 {
+  font-size: 20px;
+  margin-bottom: 24px;
+}
+.usage-filters > label,
+.usage-cartridge-filter {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 360px;
 }
 .usage-filters label {
   flex: 1 1 240px;

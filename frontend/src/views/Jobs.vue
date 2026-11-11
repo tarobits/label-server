@@ -124,6 +124,7 @@ const canCancel = (job: Job) =>
   job.can_cancel ??
   (job.owner_id === auth.user?.id || auth.printer(job.destination_id, 'manage_queue'))
 const canPrintJob = (job: Job) =>
+  !job.billing_held &&
   job.access_hold?.status !== 'held' &&
   !job.labels.some((copy) => copy.state === 'printing' || copy.state === 'needs_review') &&
   (job.can_print ??
@@ -152,7 +153,19 @@ const canPrintSelection = computed(
     !!selectedDestination.value &&
     selectedJobs.value.every(canPrintJob),
 )
+function displayState(job: Job) {
+  if (job.status !== 'queued' || !job.billing_held) return job.status
+  if (job.billing_request?.status === 'pending') return 'waiting_for_group_approval'
+  if (job.billing_request?.status === 'rejected') return 'group_funding_rejected'
+  return 'group_funding_on_hold'
+}
 function routing(job: Job) {
+  if (job.billing_held) return `${w.destinationName(job.destination_id)} · Group funding on hold`
+  if (
+    job.billing_request?.mode === 'wait' &&
+    ['pending', 'rejected'].includes(job.billing_request.status)
+  )
+    return `${w.destinationName(job.destination_id)} · Waiting for funding decision`
   if (job.access_hold?.status === 'held')
     return `${w.destinationName(job.destination_id)} · Paused: ${job.access_hold.reason}`
   const destination = w.destinations.find((d) => d.id === job.destination_id)
@@ -404,8 +417,8 @@ async function cancel(job: Job) {
               <td>
                 <Badge
                   :state="
-                    new Set(group.jobs.map((job) => job.status)).size === 1
-                      ? group.jobs[0]!.status
+                    new Set(group.jobs.map(displayState)).size === 1
+                      ? displayState(group.jobs[0]!)
                       : 'mixed'
                   "
                 />
@@ -440,6 +453,17 @@ async function cancel(job: Job) {
                       <strong class="queue-label-name">{{ labelName(job) }}</strong
                       ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
                       ><small>{{ routing(job) }}</small>
+                      <RouterLink
+                        v-if="job.billing_request"
+                        :to="{
+                          path: '/group-accounts',
+                          query: {
+                            account: job.billing_request.account_id,
+                            request: job.billing_request.id,
+                          },
+                        }"
+                        >Group funding</RouterLink
+                      >
                       <CostEstimate v-if="!group.run_id" :estimate="group.cost_estimate" />
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
                         >CSV record {{ job.source_row }}</RouterLink
@@ -500,7 +524,7 @@ async function cancel(job: Job) {
                 </td>
                 <td>
                   <div class="queue-cell">
-                    <div class="queue-cell-content"><Badge :state="job.status" /></div>
+                    <div class="queue-cell-content"><Badge :state="displayState(job)" /></div>
                   </div>
                 </td>
                 <td class="queue-run-actions">
@@ -543,6 +567,14 @@ async function cancel(job: Job) {
 </template>
 
 <style scoped>
+.queue-table :deep(.status-badge) {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.queue-cell-content {
+  min-width: 0;
+}
 .queue-destination-filter {
   grid-column: 1 / -1;
 }
