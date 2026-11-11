@@ -1,10 +1,10 @@
-# Deployment checklist: 0.14.0
+# Deployment checklist: 0.15.0
 
 Group billing in 0.14.0 has its own [migration and acceptance
 checks](GROUP_ACCOUNTS.md#deployment-and-acceptance). Its manual deployment checks
 remain pending and are separate from the historical 0.13.0 results below.
 
-Use **0.14.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
+Use **0.15.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
 The 0.13.0 upgrade includes the patch, changes the database schema, and requires
 administrator inventory migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
@@ -41,7 +41,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the current release:
-  sudo python3 scripts/update.py --mode native --check --tag v0.14.0
+  sudo python3 scripts/update.py --mode native --check --tag v0.15.0
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -49,6 +49,30 @@ public issues. Main servers and companions must run on separate machines.
   may require `--mode` and may not provide the new confirmation prompt. If an
   updater handoff prints a replacement command, review and run that exact command;
   do not bypass the handoff by manually replacing files in a running installation.
+
+## Upgrade from 0.14.0 to 0.15.0
+
+- [ ] Back up and rehearse the update. Update the main server first, then companions:
+  `sudo python3 scripts/update.py --mode native --tag v0.15.0 --prebuilt-frontend`.
+  There are no new database migrations relative to 0.14.0.
+- [ ] Confirm cartridge changes no longer create an investigation block. Inspect
+  and manually clear any existing false block; verify real hardware faults still
+  block printing until investigated.
+- [ ] Check tape-profile names, CSV run expansion and row/run selection in the
+  companion queue. Print the installed tape's eligible queue, including entries
+  beyond the visible page, and verify funding/price/permission holds still apply.
+- [ ] Open completed-batch packing on the companion, sort by requester and inspect
+  previews/counts. Verify users without print-activity access cannot open it and
+  locking the station hides private packing content.
+- [ ] At 1024 × 600, check dashboard and PIN entry fit without scrolling in normal
+  operation. Check footer source/license links, centered connection status and
+  version/credit, including during a disconnection.
+- [ ] Open batch details containing image and numeric field inputs.
+- [ ] At INFO, check successful HTTP requests are omitted, 4xx responses produce
+  warnings and 5xx responses produce errors. Check DEBUG restores successful
+  requests. Configure main and companion levels independently and restart services.
+- [ ] Retain the coordinated backup and record physical deployment results. These
+  new manual checks have not yet been reported as passed.
 
 ## Upgrade from 0.13.0 to 0.14.0
 

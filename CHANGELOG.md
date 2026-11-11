@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.15.0] - 2026-11-11
+
+### Added
+
+- Companion packing view for completed batches, with label previews, copy counts
+  and requester sorting, governed by each printer's print-activity permissions.
+- A companion action to print the installed tape profile's eligible queue for the
+  selected destination, including entries beyond the currently displayed page.
+- Independent logging settings for main and companion servers through
+  `LABEL_LOG_LEVEL` and `LABEL_COMPANION_LOG_LEVEL`.
+
+### Changed
+
+- Companion queues show tape profiles and keep CSV runs grouped with expandable
+  rows and selection controls.
+- Compact companion dashboards, user cards and PIN controls fit the 1024 × 600
+  touchscreen. The connection bar keeps status centered, source/license links on
+  the left, and the running version and project credit on the right.
+- Successful HTTP requests are logged only at DEBUG. Client errors use WARNING,
+  server errors use ERROR, and access logs omit request query strings.
+
+### Fixed
+
+- Confirmable cartridge notices no longer incorrectly latch a companion printer
+  into "requires investigation". Hardware faults still require human clearance.
+- Batch details open correctly when label inputs contain images, numbers or
+  booleans instead of only text.
+
+**Upgrade requirements:** update the main server first, then all companions to
+`v0.15.0`. No new database migrations are required when upgrading from 0.14.0.
+An investigation block already recorded by the old cartridge behavior remains
+blocked: inspect the printer, confirm its cartridge and use **Clear block** once
+it is safe. The update does not automatically clear existing fault records.
+Both log-level settings default to `INFO`; use `DEBUG` to restore successful
+request logging. Earlier upgrades still require their documented migrations.
+
+**Verification and known limits:** automated checks cover companion permissions,
+queue and packing workflows, touchscreen layouts, logging and cartridge-status
+handling. Physical printer/Pi acceptance remains manual. The outstanding 0.13.0
+and group-billing acceptance checks, audit-coverage limits and SQLite-only
+automatic Docker updater limitation remain unchanged.
+
+See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.15.0/docs/DEPLOYMENT_CHECKLIST.md)
+and [companion guide](https://github.com/tarobits/label-server/blob/v0.15.0/docs/COMPANION.md).
+
 ## [0.14.0] - 2026-11-11
 
 ### Added
@@ -995,6 +1040,8 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.15.0]: https://github.com/tarobits/label-server/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/tarobits/label-server/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/tarobits/label-server/compare/v0.13.0-pre5...v0.13.0
 [0.13.0-pre5]: https://github.com/tarobits/label-server/compare/v0.13.0-pre4...v0.13.0-pre5
 [0.13.0-pre4]: https://github.com/tarobits/label-server/compare/v0.13.0-pre3...v0.13.0-pre4
