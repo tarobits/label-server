@@ -166,3 +166,17 @@ def test_owners_keep_editing_existing_templates_after_creation_access_is_revoked
         assert alice.delete(f"/api/templates/{saved['id']}").status_code == 200
     assert template(alice, "New personal").status_code == 403
     assert template(alice, "New global", "global").status_code == 403
+
+
+def test_template_owner_names_follow_existing_visibility(accounts):
+    admin, alice, _ = accounts
+    grants(admin, "templates.create_personal", "templates.create_global")
+    private = template(alice, "Alice private").json()
+    shared = template(alice, "Alice shared", "global").json()
+    admin_private = template(admin, "Administrator private").json()
+    for client in (admin, alice):
+        visible = {item["id"]: item for item in client.get("/api/templates").json()}
+        assert visible[private["id"]]["owner_username"] == "alice"
+        assert visible[shared["id"]]["owner_username"] == "alice"
+        assert client.get(f"/api/templates/{shared['id']}").json()["owner_username"] == "alice"
+    assert admin_private["id"] not in {item["id"] for item in alice.get("/api/templates").json()}

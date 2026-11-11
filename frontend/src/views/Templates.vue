@@ -19,6 +19,13 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const historyTemplate = ref<Template | null>(null)
+const showOtherPersonal = ref(false)
+watch(
+  () => auth.user?.id,
+  () => {
+    showOtherPersonal.value = false
+  },
+)
 function showHistory(template: Template, event: MouseEvent) {
   ;(event.currentTarget as HTMLElement).focus()
   historyTemplate.value = template
@@ -65,10 +72,16 @@ function selectScope(scope: Scope) {
   filters.group = ''
 }
 function clearFilters() {
+  showOtherPersonal.value = false
   Object.assign(filters, { scope: 'all', search: '', width: '', group: '' })
 }
 const activeFilters = computed(
-  () => filters.scope !== 'all' || !!filters.search || !!filters.width || !!filters.group,
+  () =>
+    filters.scope !== 'all' ||
+    !!filters.search ||
+    !!filters.width ||
+    !!filters.group ||
+    showOtherPersonal.value,
 )
 const sorted = computed(() => [...w.templates].sort(compareTemplateNames))
 const widths = computed(() =>
@@ -83,6 +96,13 @@ const groups = computed(() => {
 })
 const matching = computed(() => {
   return sorted.value.filter((template) => {
+    if (
+      auth.user?.is_admin &&
+      !showOtherPersonal.value &&
+      template.scope === 'personal' &&
+      template.owner_id !== auth.user.id
+    )
+      return false
     if (filters.width && template.document.width_mm !== Number(filters.width)) return false
     return matchesTemplateSearch(template, filters.search)
   })
@@ -204,6 +224,15 @@ async function remove(template: Template) {
       >
     </ExpandableContent>
     <div class="template-results-meta">
+      <button
+        v-if="auth.user?.is_admin"
+        type="button"
+        class="secondary"
+        :aria-pressed="showOtherPersonal"
+        @click="showOtherPersonal = !showOtherPersonal"
+      >
+        Show others’ personal templates
+      </button>
       <span role="status" aria-live="polite" aria-atomic="true"
         >{{ resultCount }} {{ resultCount === 1 ? 'template' : 'templates' }}</span
       >
@@ -240,6 +269,9 @@ async function remove(template: Template) {
             <h3>{{ template.name }}</h3>
             <span class="badge">{{ template.document.width_mm }} mm</span>
           </div>
+          <p v-if="template.owner_id && template.owner_id !== auth.user?.id" class="help">
+            {{ template.owner_username || 'Unavailable user' }}
+          </p>
           <p>
             Revision {{ template.revision }} ·
             {{ templateLength(template) }}
@@ -379,6 +411,7 @@ async function remove(template: Template) {
 }
 .template-results-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;

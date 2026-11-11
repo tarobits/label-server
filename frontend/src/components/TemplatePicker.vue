@@ -22,7 +22,14 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const auth = useAuthStore()
 const open = ref(false)
 const selected = computed(() => props.templates.find((item) => item.id === props.modelValue))
-const filters = reactive({ search: '', scope: '', width: '', media: '', compatible: false })
+const filters = reactive({
+  search: '',
+  scope: '',
+  width: '',
+  media: '',
+  compatible: false,
+  others: false,
+})
 const recent = ref<string[]>([])
 const page = ref(0)
 const pageSize = 12
@@ -34,6 +41,10 @@ const filtered = computed(() =>
   props.templates
     .filter(
       (item) =>
+        (!auth.user?.is_admin ||
+          filters.others ||
+          item.scope !== 'personal' ||
+          item.owner_id === auth.user.id) &&
         matchesTemplateSearch(item, filters.search) &&
         (!filters.scope || (item.scope ?? 'global') === filters.scope) &&
         (!filters.width || item.document.width_mm === Number(filters.width)) &&
@@ -68,6 +79,7 @@ watch(
   () => auth.user?.id,
   () => {
     recent.value = recentTemplates(auth.user?.id)
+    filters.others = false
   },
 )
 function show(event: MouseEvent) {
@@ -81,7 +93,14 @@ function choose(item: Template) {
   open.value = false
 }
 function clearFilters() {
-  Object.assign(filters, { search: '', scope: '', width: '', media: '', compatible: false })
+  Object.assign(filters, {
+    search: '',
+    scope: '',
+    width: '',
+    media: '',
+    compatible: false,
+    others: false,
+  })
 }
 const scopeName = (item: Template) =>
   item.scope === 'group'
@@ -98,6 +117,9 @@ const scopeName = (item: Template) =>
       <TemplatePreview v-if="selected" :template="selected" />
       <div class="template-choice-description">
         <strong>{{ selected?.name ?? 'Choose a template' }}</strong>
+        <span v-if="selected?.owner_id && selected.owner_id !== auth.user?.id" class="muted">{{
+          selected.owner_username || 'Unavailable user'
+        }}</span>
         <span v-if="selected" class="muted"
           >{{ selected.document.width_mm }} mm · {{ templateLength(selected) }} · revision
           {{ selected.revision }}</span
@@ -156,6 +178,15 @@ const scopeName = (item: Template) =>
           >
         </div>
         <div class="picker-options">
+          <button
+            v-if="auth.user?.is_admin"
+            type="button"
+            class="secondary"
+            :aria-pressed="filters.others"
+            @click="filters.others = !filters.others"
+          >
+            Show others’ personal templates
+          </button>
           <label class="checkbox"
             ><input v-model="filters.compatible" type="checkbox" />Compatible with
             destination</label
@@ -198,6 +229,9 @@ const scopeName = (item: Template) =>
                 >
                   {{ item.name }}
                 </button>
+                <span v-if="item.owner_id && item.owner_id !== auth.user?.id" class="muted">{{
+                  item.owner_username || 'Unavailable user'
+                }}</span>
                 <span class="muted"
                   >{{ item.document.width_mm }} mm · {{ templateLength(item) }}</span
                 >

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.access import Actor
 from app.font_assets import FontStore
-from app.models import LabelTemplate, TemplateRevision, UserGroup
+from app.models import LabelTemplate, TemplateRevision, User, UserGroup
 from app.print_audit import actor_snapshot
 from app.template_dimensions import template_dimensions
 from app.template_schema import TemplateDocument
@@ -72,6 +72,10 @@ def save_revision(
 
 
 def template_record(template: LabelTemplate, session: Session, fonts: FontStore) -> dict[str, Any]:
+    owners = session.info.setdefault("template_owner_names", {})
+    if template.owner_id not in owners:
+        owner = session.get(User, template.owner_id) if template.owner_id else None
+        owners[template.owner_id] = owner.username if owner and not owner.disabled else None
     group_name = None
     if template.scope == "group" and template.group_id:
         names = session.info.setdefault("template_group_names", {})
@@ -83,6 +87,7 @@ def template_record(template: LabelTemplate, session: Session, fonts: FontStore)
         **template_dimensions(TemplateDocument.model_validate(template.document), fonts),
         "id": template.id,
         "owner_id": template.owner_id,
+        "owner_username": owners[template.owner_id],
         "scope": template.scope,
         "group_id": template.group_id,
         "group_name": group_name,

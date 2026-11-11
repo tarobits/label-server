@@ -305,6 +305,7 @@ export interface Template extends TemplateDimensions {
   group_id?: string | null
   group_name?: string | null
   owner_id?: string | null
+  owner_username?: string | null
   can_edit?: boolean
   name: string
   document: TemplateDocument

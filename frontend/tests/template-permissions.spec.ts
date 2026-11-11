@@ -1,5 +1,7 @@
 import { test, expect } from './fixtures'
 import type { APIRequestContext } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 async function change(request: APIRequestContext, resource: string, payload: unknown) {
   const preview = await request.post('/api/admin/access-preview', {
@@ -12,6 +14,100 @@ async function change(request: APIRequestContext, resource: string, payload: unk
   })
   expect(created.ok(), await created.text()).toBeTruthy()
   return created.json()
+}
+
+for (const width of [1280, 390]) {
+  test(`other personal templates are opt-in for administrators at ${width}px`, async ({
+    page,
+    request,
+    browser,
+    baseURL,
+  }) => {
+    const role = await change(request, 'roles', {
+      name: 'Personal authors',
+      permissions: [{ kind: 'application', permission: 'templates.create_personal' }],
+    })
+    await change(request, 'users', {
+      username: 'anotherauthor',
+      password: 'author-password-123',
+      role_ids: [role.id],
+    })
+    const context = await browser.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
+      extraHTTPHeaders: {},
+    })
+    const author = await context.newPage()
+    try {
+      await author.goto('/#/templates')
+      await author.getByLabel('Username or email', { exact: true }).fill('anotherauthor')
+      await author.getByLabel('Password', { exact: true }).fill('author-password-123')
+      await author.getByRole('button', { name: 'Sign in', exact: true }).click()
+      await author.getByRole('link', { name: 'Create template', exact: true }).click()
+      await author.getByLabel('Template name', { exact: true }).fill('Workshop personal design')
+      await author.getByRole('button', { name: 'Add text', exact: true }).click()
+      await author.getByRole('button', { name: 'Save template', exact: true }).click()
+      await expect(author).toHaveURL(/templates\/[^/]+\/edit/)
+      await author.goto('/#/templates')
+      await expect(
+        author.getByRole('heading', { name: 'Workshop personal design', exact: true }),
+      ).toBeVisible()
+      const toggleName = 'Show others’ personal templates'
+      await expect(author.getByRole('button', { name: toggleName })).toHaveCount(0)
+      const document = (await (await request.get('/api/templates/text')).json()).document
+      document.out_of_bounds = 'clip'
+      const own = await request.post('/api/templates', {
+        data: { name: 'My own design', scope: 'personal', document },
+      })
+      expect(own.ok()).toBeTruthy()
+      await page.setViewportSize({ width, height: 850 })
+      await page.goto('/#/templates?scope=personal')
+      const toggle = page.getByRole('button', { name: toggleName, exact: true })
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await expect(page.getByRole('heading', { name: 'My own design', exact: true })).toBeVisible()
+      const other = page.locator('article').filter({ hasText: 'Workshop personal design' })
+      await expect(other).toHaveCount(0)
+      await toggle.click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await expect(other.getByText('anotherauthor', { exact: true })).toBeVisible()
+      await mkdir(resolve('../.impeccable/review'), { recursive: true })
+      await page.screenshot({
+        path: resolve(`../.impeccable/review/template-owners-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      )
+      await toggle.click()
+      await expect(other).toHaveCount(0)
+      await toggle.click()
+      await page.reload()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await expect(other).toHaveCount(0)
+      await page.goto('/#/new?template=text')
+      await page.getByRole('button', { name: 'Change template', exact: true }).click()
+      const picker = page.getByRole('dialog', { name: 'Choose template', exact: true })
+      await picker.getByRole('searchbox').fill('Workshop personal design')
+      await expect(picker.locator('article')).toHaveCount(0)
+      await picker.getByRole('button', { name: toggleName, exact: true }).click()
+      await expect(picker.getByText('anotherauthor', { exact: true })).toBeVisible()
+      await page.screenshot({
+        path: resolve(`../.impeccable/review/template-picker-owners-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      })
+      await picker
+        .getByRole('button', { name: 'Use Workshop personal design', exact: true })
+        .click()
+      await expect(picker).not.toBeVisible()
+      await expect(
+        page.locator('.template-choice-description').getByText('anotherauthor', { exact: true }),
+      ).toBeVisible()
+    } finally {
+      await context.close()
+    }
+  })
 }
 
 test('administrators grant global creation independently and authors start in their allowed scope', async ({
