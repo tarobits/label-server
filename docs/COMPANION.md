@@ -368,6 +368,17 @@ uncertain output on the main server, investigate the device, then use **Clear
 block**. Other printers can continue independently. A ready hardware status alone
 does not clear an investigation block.
 
+New **Companion printer blocked** audit entries record the reported fault or local
+print uncertainty that triggered the block. Blocks from execution results include
+the batch, outcome and confirmed label count. Repeated status polls do not create
+duplicate block entries. Existing entries cannot recover previously unrecorded reasons.
+
+A temporary USB connection or status-read timeout while idle, including the first
+poll after a companion restart, reports the printer as disconnected and retries
+without creating an investigation block. Cartridge verification may still be
+required after reconnecting. If an earlier version already latched a block from
+such a failure, inspect the printer and use **Clear block** once.
+
 A cartridge-confirmation notice alone does not create an investigation block.
 For the PT-P710BT, an open cover, removed cartridge, or wrong-media warning during
 an idle cartridge change also clears without fault clearance. These conditions

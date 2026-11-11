@@ -1,10 +1,10 @@
-# Deployment checklist: 0.16.0
+# Deployment checklist: 0.16.1
 
 Group billing in 0.14.0 has its own [migration and acceptance
 checks](GROUP_ACCOUNTS.md#deployment-and-acceptance). Its manual deployment checks
 remain pending and are separate from the historical 0.13.0 results below.
 
-Use **0.16.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
+Use **0.16.1** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
 The 0.13.0 upgrade includes the patch, changes the database schema, and requires
 administrator inventory migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
@@ -41,7 +41,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the current release:
-  sudo python3 scripts/update.py --mode native --check --tag v0.16.0
+  sudo python3 scripts/update.py --mode native --check --tag v0.16.1
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -49,6 +49,17 @@ public issues. Main servers and companions must run on separate machines.
   may require `--mode` and may not provide the new confirmation prompt. If an
   updater handoff prints a replacement command, review and run that exact command;
   do not bypass the handoff by manually replacing files in a running installation.
+
+## Upgrade from 0.16.0 to 0.16.1
+
+- [ ] Update the main server first, then companions, using tag `v0.16.1`.
+  This patch adds no database migration beyond 0.16.0.
+- [ ] Inspect and clear any existing false investigation block once. Restart an
+  idle companion and verify a temporary USB/status timeout recovers without a new
+  block. Cartridge confirmation may still be required after reconnecting.
+- [ ] Verify new printer-block audit entries show a reason and, for execution
+  failures, the batch, outcome and confirmed label count. Historical entries
+  remain unchanged. Hardware faults and uncertain printing still require review.
 
 ## Upgrade from 0.15.0 to 0.16.0
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.16.1] - 2026-11-12
+
+### Fixed
+
+- Temporary USB connection failures and status-read timeouts while idle no longer
+  create persistent investigation blocks on companions, including after restart.
+  Actual printer faults and uncertain print attempts still require review.
+- Printer-block audit entries now explain the reported fault or local print
+  uncertainty. Blocks caused by execution results include the batch, outcome and
+  confirmed label count, without duplicate entries from repeated polls or retries.
+
+**Upgrade notes:** Update the main server first, then companions. No new database
+migration is required when upgrading from 0.16.0. Inspect the printer and use
+**Clear block** once for any false block already recorded by an older version.
+Cartridge verification may still be required after reconnecting. Reasons cannot
+be reconstructed for historical audit entries that did not record them.
+
 ## [0.16.0] - 2026-11-11
 
 ### Added
@@ -1111,6 +1128,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.16.1]: https://github.com/tarobits/label-server/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/tarobits/label-server/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/tarobits/label-server/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/tarobits/label-server/compare/v0.13.0...v0.14.0
