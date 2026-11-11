@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.logging_config import LogLevel
 from app.printer.factory import DeviceConfiguration
 
 
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
         hide_input_in_errors=True,
     )
     server_url: str
+    log_level: LogLevel = "INFO"
     api_key: SecretStr
     status_api_key: SecretStr = SecretStr("")
     data_dir: Path = Path("data/companion")

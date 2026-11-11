@@ -699,6 +699,11 @@ is cloned automatically. Native updates require Git, Node/npm and, with a separa
 source checkout, rsync. See [automated release updates](docs/DEPLOYMENT.md#automated-release-updates)
 for prerequisites, backups and failure recovery.
 
+Set `LABEL_LOG_LEVEL` to `DEBUG`, `INFO` (default), `WARNING`, `ERROR` or `CRITICAL`
+to control main-server logging. HTTP 2xx responses appear only at `DEBUG`, 3xx at
+`INFO`, 4xx at `WARNING`, and 5xx at `ERROR`. Access logs omit request query strings.
+Companion logging is configured independently with `LABEL_COMPANION_LOG_LEVEL`.
+
 See the [verification record](docs/HARDWARE_VERIFICATION.md) for reported physical
 results, calibration procedures, and limitations. Simultaneous two-printer USB
 printing, Docker/LXC USB passthrough, and the live HomeBox bridge remain physically

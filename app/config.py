@@ -5,6 +5,8 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from app.logging_config import LogLevel
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./data/labels.db", repr=False)
     data_dir: Path | None = None
     asset_cache_idle_seconds: int = Field(default=604800, ge=60)
+    log_level: LogLevel = "INFO"
 
     @property
     def state_directory(self) -> Path:

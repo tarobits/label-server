@@ -48,6 +48,9 @@ def create_app(
 
     require_role("main")
     settings = settings or Settings()
+    from app.logging_config import configure_logging
+
+    configure_logging(settings.log_level)
     engine = make_engine(settings.database_url)
     factory = session_factory(engine)
     settings.state_directory.mkdir(parents=True, exist_ok=True)
