@@ -521,17 +521,11 @@ async function correct(id: string) {
   align-items: stretch;
 }
 .cartridge-card {
-  display: grid;
-  grid-template-rows: auto auto auto auto 1fr auto auto auto auto;
-  grid-row: span 9;
-  row-gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-width: 0;
   margin-bottom: 0;
-}
-@supports (grid-template-rows: subgrid) {
-  .cartridge-card {
-    grid-template-rows: subgrid;
-  }
 }
 .cartridge-card .section-heading {
   align-items: start;
@@ -575,7 +569,7 @@ async function correct(id: string) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
-  margin: 0;
+  margin: auto 0 0;
   padding-top: 16px;
 }
 .cartridge-card .card-actions button {

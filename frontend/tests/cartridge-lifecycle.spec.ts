@@ -124,8 +124,35 @@ test('inventory supports renaming, archiving, restoring and confirmed permanent 
     }),
   ).toBeVisible()
   await page.waitForTimeout(500)
+  const expectClearance = async () => {
+    const layout = await installedCard.evaluate((card) => {
+      const actions = card.querySelector('.card-actions')!.getBoundingClientRect()
+      const reason = card.querySelector('[id^="removal-"]')!.getBoundingClientRect()
+      return {
+        actionsBottom: actions.bottom,
+        reasonTop: reason.top,
+        bottom: card.getBoundingClientRect().bottom,
+        reasonBottom: reason.bottom,
+      }
+    })
+    expect(layout.reasonTop - layout.actionsBottom).toBeGreaterThanOrEqual(10)
+    expect(layout.bottom).toBeGreaterThan(layout.reasonBottom)
+  }
+  await expectClearance()
+  for (const title of ['Price:', 'Notes']) {
+    const disclosure = installedCard.locator('summary').filter({ hasText: title })
+    await disclosure.click()
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    await page.waitForTimeout(400)
+    await expectClearance()
+    await disclosure.click()
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    await page.waitForTimeout(400)
+    await expectClearance()
+  }
   await page.screenshot({ path: 'test-results/cartridge-used-mobile.png', fullPage: true })
   await page.setViewportSize({ width: 1440, height: 1000 })
+  await expectClearance()
   await installedCard.getByRole('button', { name: 'Archive cartridge' }).click()
   await dialog.getByRole('button', { name: 'Archive cartridge' }).click()
   await expect(installedCard).toHaveCount(0)
