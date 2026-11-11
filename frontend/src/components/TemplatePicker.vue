@@ -318,6 +318,9 @@ const scopeName = (item: Template) =>
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  transition:
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out;
 }
 .picker-card.selected {
   border-color: var(--accent-hover);
@@ -345,6 +348,14 @@ const scopeName = (item: Template) =>
 }
 .picker-select:not(:disabled):hover {
   background: transparent;
+}
+/* Transforming the title button makes it the containing block for ::after,
+   collapsing the full-card hit area between pointer down and pointer up. */
+.picker-select:not(:disabled):active {
+  transform: none;
+}
+.picker-card:has(.picker-select:active) {
+  background: var(--surface-secondary);
 }
 .picker-select::after {
   content: '';

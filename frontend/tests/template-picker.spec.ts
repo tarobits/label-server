@@ -1,6 +1,38 @@
 import { test, expect } from './fixtures'
 import type { APIRequestContext, Page } from '@playwright/test'
 
+test('pressing a template preview keeps the whole card clickable during press feedback', async ({
+  page,
+  request,
+}) => {
+  const items = await seedTemplates(request, page)
+  await page.goto('/#/new?template=text')
+  await page.getByRole('button', { name: 'Change template', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Choose template', exact: true })
+  await dialog.getByRole('searchbox').fill('Packing 01')
+  const preview = dialog.locator(`[data-template-id="${items[0].id}"] .template-preview`)
+  await preview.scrollIntoViewIfNeeded()
+  await page.evaluate(async () => {
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => {})),
+    )
+  })
+  const box = (await preview.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  // Hold longer than the press animation; the release must hit the same control.
+  await page.waitForTimeout(200)
+  await page.mouse.up()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Change template', exact: true })).toHaveJSProperty(
+    'value',
+    items[0].id,
+  )
+})
+
 async function seedTemplates(request: APIRequestContext, page: Page) {
   const items = []
   for (let index = 1; index <= 26; index++) {
