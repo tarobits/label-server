@@ -1,10 +1,10 @@
-# Deployment checklist: 0.15.0
+# Deployment checklist: 0.16.0
 
 Group billing in 0.14.0 has its own [migration and acceptance
 checks](GROUP_ACCOUNTS.md#deployment-and-acceptance). Its manual deployment checks
 remain pending and are separate from the historical 0.13.0 results below.
 
-Use **0.15.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
+Use **0.16.0** for the current release. Historical **0.12.2** and **0.13.0** checks remain below.
 The 0.13.0 upgrade includes the patch, changes the database schema, and requires
 administrator inventory migration before printing resumes when upgrading from before pre1. These are manual
 acceptance checks. Dated results below describe reported deployment tests;
@@ -41,7 +41,7 @@ public issues. Main servers and companions must run on separate machines.
   ```sh
   sudo python3 scripts/update.py --mode native --check --tag v0.12.2
   # Or, for the current release:
-  sudo python3 scripts/update.py --mode native --check --tag v0.15.0
+  sudo python3 scripts/update.py --mode native --check --tag v0.16.0
   ```
 
 - [ ] Review the selected role, tag, mode, service and backup paths. The new updater
@@ -49,6 +49,34 @@ public issues. Main servers and companions must run on separate machines.
   may require `--mode` and may not provide the new confirmation prompt. If an
   updater handoff prints a replacement command, review and run that exact command;
   do not bypass the handoff by manually replacing files in a running installation.
+
+## Upgrade from 0.15.0 to 0.16.0
+
+- [ ] Back up and rehearse on an isolated database copy. Update the main server
+  first: `sudo python3 scripts/update.py --mode native --tag v0.16.0 --prebuilt-frontend`.
+  Confirm migration `20201b1c52b8` and the relationship repair gate are complete;
+  Alembic `head` alone is insufficient when broken references were found.
+- [ ] If repairs are required, follow the [relationship migration guide](RELATIONSHIP_MIGRATION.md).
+  Verify only administrators can repair references and normal printing/background
+  work stays paused. Review assignments and replacement resource creation, then
+  select **Prepare maintenance restart** and restart using deployment controls.
+  Confirm normal operation resumes only after constraints are installed.
+- [ ] Check affected inventory, templates, print history and account attribution.
+  Verify bound accounts and template-owning permission groups cannot be deleted
+  until the required explicit reassignments are complete.
+- [ ] In the template library and picker, verify administrators initially see
+  only their own personal templates; enable **Show others’ personal templates**
+  and check owner names. Verify ordinary users retain their existing access.
+- [ ] Update companions to `v0.16.0`. On a PT-P710BT, open the cover, remove and
+  replace the cartridge, close the cover and confirm the selection. Verify no
+  persistent investigation block or false busy refusal occurs while idle.
+- [ ] Verify fault messages show all reported faults and that genuine hardware
+  faults and uncertain batches still require review. Inspect and explicitly clear
+  false blocks retained from older versions; never clear uncertain output blindly.
+- [ ] Review the [security](SECURITY_AUDIT.md) and [concurrency](CONCURRENCY_AUDIT.md)
+  findings for the deployment. Their publication does not mean they are resolved.
+- [ ] Record physical deployment results and retain the coordinated backup. These
+  manual checks have not yet been reported as passed.
 
 ## Upgrade from 0.14.0 to 0.15.0
 

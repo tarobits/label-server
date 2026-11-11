@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.16.0] - 2026-11-11
+
+### Added
+
+- Administrator migration screen for reviewing and repairing broken database
+  relationships, with explicit reassignments, audited reasons and replacement
+  resource creation. Historical financial and print records are preserved.
+- Database relationship inventory and security/concurrency review reports,
+  documenting findings and remaining work.
+
+### Changed
+
+- Administrators see their own personal templates by default in the library and
+  template picker. **Show others’ personal templates** reveals other users'
+  personal templates; templates belonging to someone else show their username.
+- Fourteen additional foreign keys enforce current ownership, printer, credential
+  and template-group relationships. Broken references require explicit repair
+  before normal service resumes.
+- Permission groups with templates must have those templates reassigned before
+  deletion. Accounts bound to companions must be rebound or explicitly unbound
+  before deletion.
+
+### Fixed
+
+- Opening a PT-P710BT cover or removing/changing its cartridge while idle no
+  longer creates a persistent companion investigation block. Actual hardware
+  faults and interrupted-print reviews remain protected.
+- Routine server polling no longer causes false **Printer is busy** refusals
+  when selecting or confirming a companion cartridge.
+- Printer error messages list every reported fault and unknown error flag,
+  retain diagnostic codes, and remain visible alongside investigation blocks.
+- SQLite schema downgrades handle inventory tables rebuilt by newer migrations
+  without losing their incoming references.
+
+**Upgrade requirements:** back up the database, retained assets and deployment
+configuration, then update the main server first and companions afterward to
+`v0.16.0`. Main-server migration `20201b1c52b8` adds relationship constraints.
+If orphaned references exist, the server enters administrator-only migration mode;
+normal APIs, printing and background processing stay paused. Review and repair
+the references, select **Prepare maintenance restart**, then restart the main
+server to validate and apply the constraints. Reaching Alembic `head` alone does
+not mean the repair gate is complete. Repairs are never silently chosen, and
+schema downgrades do not undo administrator reassignments.
+
+Previously recorded false companion blocks still require inspection and one
+explicit **Clear block** action. Both server and companion updates are needed
+for the cartridge fixes.
+
+**Known limits:** physical printer and deployment acceptance remains manual.
+Outstanding earlier acceptance checks remain unverified. The security and
+concurrency reports include unresolved availability, request-size and lifecycle
+findings; this release does not claim those findings are fixed or constitute a
+security certification. The automatic Docker updater remains SQLite-only.
+
+See the [relationship migration guide](https://github.com/tarobits/label-server/blob/v0.16.0/docs/RELATIONSHIP_MIGRATION.md),
+[deployment checklist](https://github.com/tarobits/label-server/blob/v0.16.0/docs/DEPLOYMENT_CHECKLIST.md),
+[security report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/SECURITY_AUDIT.md)
+and [concurrency report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/CONCURRENCY_AUDIT.md).
+
 ## [0.15.0] - 2026-11-11
 
 ### Added
@@ -1052,6 +1111,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.16.0]: https://github.com/tarobits/label-server/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/tarobits/label-server/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/tarobits/label-server/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/tarobits/label-server/compare/v0.13.0-pre5...v0.13.0
