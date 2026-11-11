@@ -176,7 +176,10 @@ def test_group_grants_never_authorize_member_hardware(foundation_session):
     role.permissions = [{"kind": "destination", "destination_id": "g", "level": "full"}]
     session.flush()
     rights = resolve_resource_access(session, user)
-    assert rights.resources[("printer_group", "g")] == GROUP_PERMISSIONS - {"printer.view_audit", "printer.submit_requests"}
+    assert rights.resources[("printer_group", "g")] == GROUP_PERMISSIONS - {
+        "printer.view_audit",
+        "printer.submit_requests",
+    }
     assert not rights.can("printer", "p", "printer.configure")
     assert not rights.can("printer_group", "g", "printer.swap_cartridges")
     with pytest.raises(ValueError, match="does not apply"):

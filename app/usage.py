@@ -269,7 +269,6 @@ def settle_usage(session: Session, batch: Batch, consumed_mm: float) -> None:
                 context={"batch_id": batch.id},
             )
 
-
     from app.billing import settle_batch
 
     settle_batch(session, batch)

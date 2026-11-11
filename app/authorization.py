@@ -89,7 +89,10 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
         context.require(action, Resource("destination", value.id, destination_id=value.id))
     elif isinstance(value, Cartridge):
         operation = "view"
-        if request.url.path.startswith("/api/cartridges/") and request.method not in ("GET", "HEAD"):
+        if request.url.path.startswith("/api/cartridges/") and request.method not in (
+            "GET",
+            "HEAD",
+        ):
             operation = "edit_notes" if request.url.path.endswith("/notes") else "edit_details"
         context.require_cartridge(value.id, operation)
 

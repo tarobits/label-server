@@ -470,7 +470,7 @@ def batch_payers(
     """Current financial responsibility; human print-attempt attribution stays immutable."""
     from app.models import BatchItem
 
-    result: dict[tuple, dict[str, Any]] = {}
+    result: dict[tuple[str, str], dict[str, Any]] = {}
     funded: dict[str, int] = defaultdict(int)
     for charge, name in session.execute(
         select(BillingCharge, BillingAccount.name)
@@ -534,8 +534,8 @@ def usage_balances(
     """Group obligations remain separate from personal repayment accounts."""
     from app.usage import money
 
-    totals: dict[tuple, dict[str, Any]] = {}
-    cartridges: dict[tuple, dict[str, Any]] = {}
+    totals: dict[tuple[str, str | None, str, str | None], dict[str, Any]] = {}
+    cartridges: dict[tuple[str, str | None, str, str | None], dict[str, Any]] = {}
     for account in session.scalars(select(BillingAccount).order_by(BillingAccount.name)):
         for charge in visible_outstanding(session, actor, account.id):
             if viewer_id is not None and viewer_id not in (

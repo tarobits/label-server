@@ -953,7 +953,9 @@ def test_role_migration_preserves_accounts_without_granting_new_moderation(tmp_p
                 == "none"
             )
             assert (
-                actor_for_user(session, session.get_one(User, "printer")).destination_levels["first"]
+                actor_for_user(session, session.get_one(User, "printer")).destination_levels[
+                    "first"
+                ]
                 == "print"
             )
             assert (
@@ -961,7 +963,8 @@ def test_role_migration_preserves_accounts_without_granting_new_moderation(tmp_p
                 == "request"
             )
             memberships = {
-                member["user_id"]: member for member in session.get_one(UserGroup, "sharing").members
+                member["user_id"]: member
+                for member in session.get_one(UserGroup, "sharing").members
             }
             assert not memberships["viewer"]["can_create"]
             assert not memberships["printer"]["can_edit_others"]

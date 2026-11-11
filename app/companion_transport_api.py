@@ -229,8 +229,10 @@ def heartbeat(
         time.time(),
     )
     if (
-        body.error and body.error_requires_investigation
-        or body.local_blocked and body.clearance_seen >= link.clearance
+        body.error
+        and body.error_requires_investigation
+        or body.local_blocked
+        and body.clearance_seen >= link.clearance
     ) and not link.blocked:
         link.blocked = True
         record_action(session, "companion.printer_blocked", "printer", identifier)
