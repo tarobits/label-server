@@ -25,6 +25,7 @@ from app.printer.base import ControlledPrinterBackend, StopMode
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 from companion.journal import Journal
+from companion.status_api import status_router
 
 COOKIE = "label_station"
 UPDATE_VALIDATION_PROTOCOL = 1
@@ -112,6 +113,7 @@ def create_app(
 
     app = FastAPI(title="Label Room companion", lifespan=lifespan)
     app.state.agent, app.state.station = agent, station
+    app.include_router(status_router(settings, agent))
     hostname = urlsplit(settings.public_url).hostname or "localhost"
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=[hostname, "localhost", "127.0.0.1", "[::1]"]

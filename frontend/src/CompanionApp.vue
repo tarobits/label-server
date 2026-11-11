@@ -15,6 +15,7 @@ import CartridgeConsent from './components/CartridgeConsent.vue'
 import JobPreview from './components/JobPreview.vue'
 import PinEntry from './components/PinEntry.vue'
 import UserAvatar from './components/UserAvatar.vue'
+import SourceLink from './components/SourceLink.vue'
 import StationTelemetry, { type StationDashboard } from './components/StationTelemetry.vue'
 import {
   PrinterIcon,
@@ -80,6 +81,17 @@ const error = ref(''),
   success = ref(''),
   busy = ref(false),
   unlocking = ref(false)
+watch(
+  success,
+  (message, _previous, onCleanup) => {
+    if (!message) return
+    const timeout = setTimeout(() => {
+      success.value = ''
+    }, 5000)
+    onCleanup(() => clearTimeout(timeout))
+  },
+  { flush: 'sync' },
+)
 const userId = ref(''),
   pin = ref(''),
   selected = ref(''),
@@ -886,13 +898,16 @@ function changePage(delta: number) {
         </section>
       </ExpandableContent>
     </section>
-    <footer class="station-connection" role="status" aria-live="polite">
-      <span
-        class="connection-dot"
-        :class="{ connected: stationReachable && !serverUnavailable && station?.online }"
-        aria-hidden="true"
-      ></span>
-      {{ connectionLabel }}
+    <footer class="station-footer">
+      <span class="station-connection" role="status" aria-live="polite">
+        <span
+          class="connection-dot"
+          :class="{ connected: stationReachable && !serverUnavailable && station?.online }"
+          aria-hidden="true"
+        ></span>
+        {{ connectionLabel }}
+      </span>
+      <SourceLink />
     </footer>
   </main>
   <AdminDialog :open="unlocking" title="Unlock station" :busy="busy" @close="closeUnlock"
@@ -1100,19 +1115,25 @@ function changePage(delta: number) {
   max-width: 360px;
   margin-inline: auto;
 }
-.station-connection {
+.station-footer {
   position: fixed;
   inset: auto 0 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 20px;
   padding: 12px 16px max(12px, env(safe-area-inset-bottom));
   background: var(--surface-dense);
   border-top: 1px solid var(--line);
   font-size: 0.875rem;
   color: var(--muted);
   z-index: 10;
+}
+.station-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .connection-dot {
   width: 8px;

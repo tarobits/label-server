@@ -60,8 +60,9 @@ for (const width of [390, 800]) {
     const unlock = page.getByRole('button', { name: 'Unlock', exact: true })
     const box = (await unlock.boundingBox())!
     expect(Math.abs(box.x + box.width / 2 - width / 2)).toBeLessThan(2)
-    const footer = (await indicator.boundingBox())!
+    const footer = (await page.locator('.station-footer').boundingBox())!
     expect(footer.y + footer.height).toBeCloseTo(800, 0)
+    await expect(page.getByRole('link', { name: 'Source', exact: true })).toBeVisible()
     await unlock.click()
     const dialog = page.getByRole('dialog', { name: 'Unlock station' })
     const pin = dialog.getByLabel('PIN', { exact: true })

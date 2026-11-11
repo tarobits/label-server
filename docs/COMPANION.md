@@ -87,6 +87,98 @@ It accepts a JSON array of stable local IDs, names, drivers, and configurations.
 It seeds missing registrations only; it never overwrites web edits or restores a
 printer removed through the interface.
 
+## Read-only status API for external displays
+
+Set `LABEL_COMPANION_STATUS_API_KEY` in the companion's private `.env.companion`
+and restart it. A blank value disables these endpoints. Generate a separate random
+key, for example with `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+The key must contain 32–512 ASCII characters without whitespace and must differ
+from `LABEL_COMPANION_API_KEY`, which authenticates the companion to the main server.
+
+Send `Authorization: Bearer <status-api-key>` to the **companion**, not the main
+server. A browser station session, query parameter or main-server key does not
+authorize this API. The status key grants no station controls, proxy access or
+label previews. It works while the station is locked, independently of
+`LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS`. Use HTTPS when accessing the
+companion over a network, as for its existing web interface. CORS access is not
+enabled; call this API from your operating environment's backend/native client.
+
+| Method and endpoint | Result |
+| --- | --- |
+| `GET /api/status` | Companion name and all enabled local printer registrations |
+| `GET /api/status/printers/{local_id}` | Same envelope with one printer; unknown or removed IDs return 404 |
+
+```sh
+curl --fail --silent --show-error \
+  -H "Authorization: Bearer ${COMPANION_STATUS_API_KEY}" \
+  https://station.example.com/api/status
+```
+
+Example response (illustrative values):
+
+```json
+{
+  "schema_version": 1,
+  "name": "Packing station",
+  "online": true,
+  "printers": [
+    {
+      "local_id": "desk",
+      "name": "Desk printer",
+      "status": "ready",
+      "connected": true,
+      "printing": false,
+      "blocked": false,
+      "held": false,
+      "cartridge_check_pending": false,
+      "queued_labels": 7,
+      "shared_queued_labels": 3,
+      "cartridge": {
+        "name": "White cassette",
+        "profile_name": "Black on white 12 mm",
+        "foreground": "#000000",
+        "background": "#ffffff",
+        "width_mm": 12,
+        "remaining_mm": 4990,
+        "nominal_length_mm": 8000,
+        "uncertain": false
+      },
+      "snapshot_age_seconds": 1.5,
+      "stale": false
+    }
+  ]
+}
+```
+
+`queued_labels` counts queued **copies** addressed directly to that printer.
+`shared_queued_labels` counts copies in groups containing it; those copies are not
+reserved for that printer and must not be summed across printers as unique work.
+Cartridge dimensions and length estimates are in millimetres; `uncertain` flags
+unreconciled consumption. Colors use the tape profile's foreground/background values.
+
+`status` is one of `unknown`, `disconnected`, `error`, `printing`, `held`,
+`awaiting_cartridge_confirmation`, or `ready`. Blocking takes precedence, followed
+by local printing, unknown/disconnected state, pending cartridge confirmation,
+other reported errors, and hold. The individual flags preserve simultaneous states.
+`ready` describes the last reported operational state, not permission or a promise
+that any particular queued label is eligible to print. Raw error text is omitted.
+
+`online` means the companion has recently contacted the main server. Queue and
+cartridge data are cached server summaries: `snapshot_age_seconds` gives their age,
+and `stale` is true when no summary exists, it is over 30 seconds old, or the main
+server is offline. Cached counts and cartridge details remain available during
+an outage. Before the first summary, counts, hold/confirmation flags, cartridge
+and age are null; the companion name falls back to `Companion` until synchronized.
+When stale, `connected` is null and `status` is `unknown`, except that locally known
+blocking or active printing still takes precedence. A null cartridge with a fresh
+summary means none is installed.
+
+Polling every 3–5 seconds is sufficient. Reads use cached data without opening the
+printer, contacting the main server or extending the station's unlock timeout.
+Responses use `Cache-Control: no-store`. Missing/invalid credentials return 401;
+disabled endpoints return 404; update validation temporarily returns 503. Rotate
+or revoke the key by changing or clearing the setting and restarting the companion.
+
 ## Run on Linux or a Pi
 
 The native installer supports Debian 13+ and installs one `labels.service` per

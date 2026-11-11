@@ -226,6 +226,14 @@ class QueueWorker:
                         state.active_cartridge_id
                         and state.cartridge_check_enabled
                         and self.latest_status.media_changed
+                        # Remote status can still describe the event just acknowledged
+                        # until the companion receives the updated media selection.
+                        and (
+                            not self.latest_status.media
+                            or not self.latest_status.media.verification_key
+                            or self.latest_status.media.verification_key
+                            != state.media_verified_fingerprint
+                        )
                     ):
                         state.cartridge_check_pending = True
             except Exception:

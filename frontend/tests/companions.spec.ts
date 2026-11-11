@@ -278,12 +278,27 @@ test('station dashboard locks controls, prints a selected queue and swaps cartri
     // Status polling can briefly own the printer lock even after a batch completes.
     // Retry the same explicit UI operation when the server asks us to try again.
     await expect(async () => {
+      const response = page.waitForResponse(
+        (response) =>
+          response.url().includes('/proxy/printer/active-tape') &&
+          response.request().method() === 'PUT',
+      )
       await page.getByRole('button', { name: 'Install cartridge', exact: true }).click()
-      const locationDialog = page.getByRole('dialog', { name: 'Cartridge location', exact: true })
-      await locationDialog
-        .getByRole('button', { name: 'Move location and install', exact: true })
-        .click()
-      await expect(locationDialog).not.toBeVisible()
+      const result = await response
+      if (!result.ok()) {
+        expect((await result.json()).detail.code).toBe('cartridge_location')
+        const locationDialog = page.getByRole('dialog', { name: 'Cartridge location', exact: true })
+        const installed = page.waitForResponse(
+          (response) =>
+            response.url().includes('/proxy/printer/active-tape') &&
+            response.request().method() === 'PUT',
+        )
+        await locationDialog
+          .getByRole('button', { name: 'Move location and install', exact: true })
+          .click()
+        expect((await installed).ok()).toBeTruthy()
+        await expect(locationDialog).not.toBeVisible()
+      }
       await expect(page.getByRole('status').filter({ hasText: 'Cartridge installed.' })).toHaveText(
         'Cartridge installed.',
       )

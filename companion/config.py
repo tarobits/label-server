@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     )
     server_url: str
     api_key: SecretStr
+    status_api_key: SecretStr = SecretStr("")
     data_dir: Path = Path("data/companion")
     printers: list[LocalPrinter] = Field(default_factory=list, max_length=32)
     single_user_id: str | None = None
@@ -42,6 +43,16 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def valid_deployment(self) -> "Settings":
+        status_key = self.status_api_key.get_secret_value()
+        if status_key and (
+            not 32 <= len(status_key) <= 512
+            or not status_key.isascii()
+            or any(character.isspace() for character in status_key)
+            or status_key == self.api_key.get_secret_value()
+        ):
+            raise ValueError(
+                "Status API key must be a separate 32–512 character ASCII token without whitespace"
+            )
         for value in (self.server_url, self.public_url):
             url = urlsplit(value)
             if (

@@ -45,6 +45,65 @@ def unlock(client):
     return client.get("/api/station").json()
 
 
+def test_confirmed_cartridge_is_not_rearmed_by_delayed_companion_status(accounts, tmp_path):
+    from conftest import profile
+    from test_cartridge_confirmation import cartridge
+
+    from app.destinations import printer_state
+    from app.models import Cartridge, CompanionPrinter
+
+    admin, _, _ = accounts
+    _, agent = local_station(admin, tmp_path)
+    identifier = agent.identifiers["usb-one"]
+    tape = profile(admin)
+    cart = cartridge(admin, tape)
+    worker = admin.app.state.fleet.workers[identifier]
+    with admin.app.state.factory.begin() as session:
+        session.get_one(Cartridge, cart["id"]).location_id = "workshop"
+        state = printer_state(session, identifier)
+        state.active_cartridge_id = cart["id"]
+        state.cartridge_check_pending = True
+        link = session.get_one(CompanionPrinter, identifier)
+        link.status = {
+            "connected": True,
+            "tape_width_mm": tape["width_mm"],
+            "media_changed": True,
+            "media": {
+                "width_mm": tape["width_mm"],
+                "description": "Installed tape",
+                "fingerprint": "same-tape",
+                "verification_key": "cover-event-1",
+            },
+        }
+    endpoint = f"/api/printer/active-tape?printer_id={identifier}"
+    body = {"cartridge_id": cart["id"]}
+    challenge = admin.put(endpoint, json=body)
+    assert challenge.status_code == 409, challenge.text
+    response = admin.put(
+        endpoint,
+        json={**body, "media_confirmation": challenge.json()["detail"]["confirmation"]},
+    )
+    assert response.status_code == 200, response.text
+    # Several worker polls can happen before the next companion heartbeat.
+    for _ in range(3):
+        worker.tick()
+        with admin.app.state.factory() as session:
+            state = printer_state(session, identifier)
+            assert not state.cartridge_check_pending
+            assert state.media_verified_fingerprint == "cover-event-1"
+        assert worker.backend.media_configuration()["verification_required"] is False
+    # A later physical event must still require a fresh confirmation.
+    with admin.app.state.factory.begin() as session:
+        link = session.get_one(CompanionPrinter, identifier)
+        link.status = {
+            **link.status,
+            "media": {**link.status["media"], "verification_key": "cover-event-2"},
+        }
+    worker.tick()
+    with admin.app.state.factory() as session:
+        assert printer_state(session, identifier).cartridge_check_pending
+
+
 def test_frontend_build_identity_handles_missing_and_invalid_shell(tmp_path):
     path = tmp_path / "companion.html"
     assert frontend_build(path) is None
