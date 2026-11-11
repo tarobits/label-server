@@ -10,6 +10,15 @@
   selected destination, including entries beyond the currently displayed page.
 - Independent logging settings for main and companion servers through
   `LABEL_LOG_LEVEL` and `LABEL_COMPANION_LOG_LEVEL`.
+- Persistent manual-only printer settings, with automatic controls hidden and
+  the mode identified separately from printer status on companion dashboards.
+- Group-account balances on Tape usage, payer labels in queue and Print Activity,
+  and label previews when requesting transfers of historical charges.
+- An optional companion notice when a newer stable release is available.
+- Retracing a logic connection disconnects it, with undo support.
+- Personal Print Activity and printer-change history for every user, with
+  permission-aware redaction and access restricted to their own labels unless
+  broader activity permissions are granted.
 
 ### Changed
 
@@ -27,9 +36,12 @@
   into "requires investigation". Hardware faults still require human clearance.
 - Batch details open correctly when label inputs contain images, numbers or
   booleans instead of only text.
+- Profile-picture uploads no longer block the server's event loop while waiting
+  for the printer lock, processing images or accessing the database.
 
 **Upgrade requirements:** update the main server first, then all companions to
-`v0.15.0`. No new database migrations are required when upgrading from 0.14.0.
+`v0.15.0`. Apply main-server migration `19191a0b41a7` for manual-only printers;
+existing printers retain automatic-printing support by default.
 An investigation block already recorded by the old cartridge behavior remains
 blocked: inspect the printer, confirm its cartridge and use **Clear block** once
 it is safe. The update does not automatically clear existing fault records.

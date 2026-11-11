@@ -54,7 +54,19 @@ public issues. Main servers and companions must run on separate machines.
 
 - [ ] Back up and rehearse the update. Update the main server first, then companions:
   `sudo python3 scripts/update.py --mode native --tag v0.15.0 --prebuilt-frontend`.
-  There are no new database migrations relative to 0.14.0.
+  Confirm main-server migration `19191a0b41a7` is applied. Existing printers retain
+  automatic-printing support; the new manual-only setting defaults to off.
+- [ ] Enable **No automatic printing** on a printer. Confirm it does not print
+  automatically even when its threshold is reached or a containing group resumes.
+  Check manual printing still works, Hold/Resume controls disappear, and the
+  companion shows **Manual only** with **Ready** when idle. Reboot and verify the
+  setting persists; disable it deliberately to restore automatic printing.
+- [ ] Verify group balances follow the selected user on Tape usage, including
+  permitted debts in All users. Check the payer shown in queue and Print Activity
+  updates after approved transfers, and historical charge previews show only the
+  requesting user's labels.
+- [ ] Check the companion's latest-release notice and deployment opt-out. Retrace
+  a logic connection to remove it, then verify Undo restores it.
 - [ ] Confirm cartridge changes no longer create an investigation block. Inspect
   and manually clear any existing false block; verify real hardware faults still
   block printing until investigated.
@@ -68,6 +80,11 @@ public issues. Main servers and companions must run on separate machines.
   operation. Check footer source/license links, centered connection status and
   version/credit, including during a disconnection.
 - [ ] Open batch details containing image and numeric field inputs.
+- [ ] With an ordinary user, open Print Activity and Printer changes. Verify only
+  their labels appear, including changes made by operators, the requester filter
+  is locked to their name, and inaccessible inventory details are redacted.
+- [ ] Reject an oversized profile picture, then upload a valid image. Verify
+  other users and companions remain connected throughout the upload.
 - [ ] At INFO, check successful HTTP requests are omitted, 4xx responses produce
   warnings and 5xx responses produce errors. Check DEBUG restores successful
   requests. Configure main and companion levels independently and restart services.
