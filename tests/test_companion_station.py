@@ -45,6 +45,78 @@ def unlock(client):
     return client.get("/api/station").json()
 
 
+@pytest.mark.parametrize(
+    "failure,blocked",
+    [
+        ("usb_open", False),
+        ("status_timeout", False),
+        ("raised_io", False),
+        ("invalid_status", True),
+        ("unexpected_failure", True),
+    ],
+)
+def test_idle_restart_distinguishes_connection_failures_from_faults(
+    accounts, tmp_path, failure, blocked
+):
+    from test_brother import Transport
+
+    from app.printer.brother import BrotherPTP710BT
+
+    admin, _, _ = accounts
+    settings, original = local_station(admin, tmp_path)
+    identifier = original.identifiers["usb-one"]
+
+    class StartupTransport(Transport):
+        unavailable = True
+
+        def open(self):
+            if self.unavailable and failure == "usb_open":
+                raise OSError("USB printer not found")
+            super().open()
+
+        def write(self, data):
+            if self.unavailable and failure == "status_timeout":
+                return  # No response: the subsequent status read times out.
+            if self.unavailable and failure == "invalid_status":
+                self.pending.append(bytes(32))
+                return
+            super().write(data)
+
+    transport = StartupTransport()
+    backend = BrotherPTP710BT(transport)
+
+    class RaisingBackend(BrotherPTP710BT):
+        def get_status(self):
+            if transport.unavailable:
+                if failure == "unexpected_failure":
+                    raise RuntimeError("Unexpected backend failure")
+                raise OSError("Device is reconnecting")
+            return super().get_status()
+
+    if failure in ("raised_io", "unexpected_failure"):
+        backend = RaisingBackend(transport)
+    journal = Journal(settings.data_dir / "journal.db")
+    journal.recover()
+    restarted = Agent(
+        settings,
+        journal,
+        client=admin,
+        backend_factory=lambda driver, config: (printer_factory(driver, config)[0], backend),
+    )
+    restarted.sync()
+    assert restarted.identifiers["usb-one"] == identifier
+    assert not restarted.statuses["usb-one"]["connected"]
+    assert restarted.statuses["usb-one"]["error"]
+    assert restarted.server_blocked["usb-one"] is blocked
+    assert not journal.blocked("usb-one")
+
+    transport.unavailable = False
+    restarted.sync()
+    assert restarted.statuses["usb-one"]["connected"]
+    assert not restarted.statuses["usb-one"]["error"]
+    assert restarted.server_blocked["usb-one"] is blocked
+
+
 def test_confirmed_cartridge_is_not_rearmed_by_delayed_companion_status(accounts, tmp_path):
     from conftest import profile
     from test_cartridge_confirmation import cartridge

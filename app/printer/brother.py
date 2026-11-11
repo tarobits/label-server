@@ -462,9 +462,9 @@ class BrotherPTP710BT:
             if status.kind == 0:
                 return status
             if status.hardware_problem:
-                if not status.requires_investigation:
-                    return status
-                raise OSError(status.hardware_problem)
+                # Keep reported faults distinct from transport failures. Both
+                # status polling and print preflight inspect this packet.
+                return status
 
     def _close(self) -> None:
         try:
@@ -504,7 +504,15 @@ class BrotherPTP710BT:
             )
         except Exception as error:
             self._invalidate_media()
-            return PrinterStatus(False, None, str(error))
+            return PrinterStatus(
+                False,
+                None,
+                str(error),
+                # An idle USB disconnect/timeout is recoverable. Actual printer
+                # faults arrive as status packets above; malformed status and
+                # unexpected failures still require investigation.
+                error_requires_investigation=not isinstance(error, OSError),
+            )
         finally:
             self._close()
 

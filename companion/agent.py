@@ -157,8 +157,13 @@ class Agent:
                 try:
                     try:
                         status = executor.backend.get_status()
-                    except Exception:
-                        status = PrinterStatus(False, None, "Could not read printer status")
+                    except Exception as error:
+                        status = PrinterStatus(
+                            False,
+                            None,
+                            "Could not read printer status",
+                            error_requires_investigation=not isinstance(error, OSError),
+                        )
                     self.statuses[local_id] = asdict(status)
                 finally:
                     executor.lock.release()
