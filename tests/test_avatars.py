@@ -1,5 +1,9 @@
+import asyncio
 import io
+import time
+from threading import Event, Timer
 
+import httpx
 import pytest
 from app_client import TestClient
 from PIL import Image
@@ -18,6 +22,61 @@ def picture():
     source = Image.new("RGB", (400, 200), "blue")
     source.save(output, format="PNG")
     return output.getvalue()
+
+
+@pytest.mark.parametrize("blocked_stage", ["normalize", "lock"])
+def test_avatar_upload_keeps_event_loop_responsive(accounts, monkeypatch, blocked_stage):
+    import app.avatar_api as api
+
+    admin, alice, _ = accounts
+    entered, release = Event(), Event()
+    original = api.normalize_avatar
+
+    def normalize(data):
+        entered.set()
+        if blocked_stage == "normalize":
+            release.wait(3)
+        return original(data)
+
+    monkeypatch.setattr(api, "normalize_avatar", normalize)
+    lock = admin.app.state.fleet.lock
+    if blocked_stage == "lock":
+        lock.acquire()
+
+    def unblock():
+        release.set()
+        if blocked_stage == "lock" and lock.locked():
+            lock.release()
+
+    # A bounded external escape prevents the regression itself deadlocking the test.
+    fallback = Timer(3, unblock)
+    fallback.start()
+
+    async def run():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=admin.app),
+            base_url="http://testserver",
+            cookies=alice.cookies,
+            headers={"X-CSRF-Token": alice.headers["X-CSRF-Token"]},
+        ) as client:
+            started = time.monotonic()
+            upload = asyncio.create_task(client.put("/api/auth/avatar", content=picture()))
+            try:
+                assert await asyncio.to_thread(entered.wait, 2)
+                response = await asyncio.wait_for(client.get("/api/health"), 1)
+                assert response.status_code == 200
+                assert time.monotonic() - started < 2
+            finally:
+                unblock()
+                result = await upload
+            assert result.status_code == 200, result.text
+
+    try:
+        asyncio.run(run())
+    finally:
+        unblock()
+        fallback.cancel()
+        fallback.join()
 
 
 def test_account_picture_is_sanitized_private_replaceable_and_removable(accounts):
@@ -50,6 +109,21 @@ def test_account_picture_is_sanitized_private_replaceable_and_removable(accounts
     assert alice.delete("/api/auth/avatar").status_code == 204
     assert alice.get("/api/auth/avatar/info").json()["avatar_version"] is None
     assert alice.get("/api/auth/avatar").status_code == 404
+
+
+def test_oversized_upload_can_be_retried_with_portrait_png(accounts):
+    _, alice, _ = accounts
+    assert alice.put("/api/auth/avatar", content=b"x" * 5_000_001).status_code == 413
+    assert alice.get("/api/auth/avatar/info").json()["avatar_version"] is None
+    output = io.BytesIO()
+    # Match the reported dimensions and alpha channel, without using a private photo.
+    Image.new("RGBA", (935, 1004), (20, 40, 60, 180)).save(output, format="PNG")
+    response = alice.put("/api/auth/avatar", content=output.getvalue())
+    assert response.status_code == 200, response.text
+    assert response.json()["avatar_version"]
+    decoded = Image.open(io.BytesIO(alice.get("/api/auth/avatar").content))
+    assert decoded.size == (256, 256)
+    assert alice.get("/api/health").status_code == 200
 
 
 @pytest.mark.parametrize("size", [(8193, 1), (4001, 4000)])

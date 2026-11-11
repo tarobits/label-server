@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.account_audit import record_account
 from app.auth import check_csrf, session_user
@@ -49,22 +50,29 @@ def picture(request: Request) -> Response:
 
 @router.put("")
 async def upload(request: Request) -> dict[str, str | None]:
-    with request.app.state.factory() as session:
-        account(request, session, write=True)
+    def authenticate() -> None:
+        with request.app.state.factory() as session:
+            account(request, session, write=True)
+
+    await run_in_threadpool(authenticate)
     data = bytearray()
     async for chunk in request.stream():
         if len(data) + len(chunk) > MAX_UPLOAD:
             raise HTTPException(413, "Profile pictures are limited to 5 MB")
         data.extend(chunk)
-    try:
-        normalized = normalize_avatar(bytes(data))
-    except ValueError as error:
-        raise HTTPException(422, str(error)) from error
-    with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
-        user = account(request, session, write=True)
-        save_avatar(session, user.id, normalized)
-        record_account(session, "account.picture_changed", user, configured=True)
-        return {"avatar_version": avatar_version(session, user.id)}
+
+    def persist() -> dict[str, str | None]:
+        try:
+            normalized = normalize_avatar(bytes(data))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
+            user = account(request, session, write=True)
+            save_avatar(session, user.id, normalized)
+            record_account(session, "account.picture_changed", user, configured=True)
+            return {"avatar_version": avatar_version(session, user.id)}
+
+    return await run_in_threadpool(persist)
 
 
 @router.delete("", status_code=204)
