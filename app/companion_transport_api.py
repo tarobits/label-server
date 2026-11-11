@@ -228,14 +228,28 @@ def heartbeat(
         body.model_dump(exclude={"local_blocked", "clearance_seen"}),
         time.time(),
     )
-    if (
-        body.error
-        and body.error_requires_investigation
-        or body.local_blocked
-        and body.clearance_seen >= link.clearance
-    ) and not link.blocked:
+    hardware_fault = bool(body.error and body.error_requires_investigation)
+    local_block = body.local_blocked and body.clearance_seen >= link.clearance
+    if (hardware_fault or local_block) and not link.blocked:
         link.blocked = True
-        record_action(session, "companion.printer_blocked", "printer", identifier)
+        reasons = []
+        if hardware_fault:
+            reasons.append(f"Printer reported a fault: {body.error}")
+        if local_block:
+            reasons.append(
+                "Companion reports an unresolved local print attempt requiring investigation"
+            )
+        record_action(
+            session,
+            "companion.printer_blocked",
+            "printer",
+            identifier,
+            {
+                "reason": "; ".join(reasons),
+                "connected": body.connected,
+                "local_blocked": local_block,
+            },
+        )
     backend = request.app.state.fleet.workers.get(identifier)
     selection = (
         backend.backend.media_configuration()
@@ -357,14 +371,26 @@ def result(identifier: str, body: ExecutionResult, session: DeviceDB) -> dict[st
             raise HTTPException(409, "This batch already has a different result")
         return {"ok": True}
     row.result = value
+    details: dict[str, Any] = {
+        "batch_id": row.batch_id,
+        "state": body.outcome,
+        "copy_count": body.confirmed_labels,
+    }
     if body.outcome != "printed":
+        details["reason"] = (
+            "Companion rejected the batch before printing; printer investigation is required"
+            if body.outcome == "not_started"
+            else "Companion reported interrupted printing; unconfirmed output requires review"
+        )
         link = owned_printer(session, row.printer_id)
-        link.blocked = True
+        if not link.blocked:
+            link.blocked = True
+            record_action(session, "companion.printer_blocked", "printer", row.printer_id, details)
     record_action(
         session,
         "companion.result_received",
         "printer",
         row.printer_id,
-        {"batch_id": row.batch_id, "state": body.outcome, "copy_count": body.confirmed_labels},
+        details,
     )
     return {"ok": True}

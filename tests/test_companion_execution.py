@@ -229,6 +229,110 @@ def test_idle_disconnect_recovers_but_hardware_error_requires_human_clearance(ac
     ).json()["blocked"]
 
 
+def test_block_audit_records_faults_and_local_uncertainty_without_poll_duplicates(accounts):
+    from app.models import ResourceGrant
+
+    admin, alice, _ = accounts
+    _, headers, _ = station(admin)
+    identifier = admin.post(
+        "/api/companion/printers",
+        headers=headers,
+        json={"local_id": "audit", "name": "Audit printer", "driver": "mock"},
+    ).json()["printer_id"]
+    path = f"/api/companion/printers/{identifier}/status"
+    body = {
+        "connected": True,
+        "error": "Printer error 04/10: Cutter jam; Cover open",
+        "local_blocked": True,
+    }
+    for _ in range(2):
+        response = admin.put(path, headers=headers, json=body)
+        assert response.status_code == 200, response.text
+        assert response.json()["blocked"]
+    query = {"printer": identifier, "action": "companion.printer_blocked"}
+    entries = admin.get("/api/audit", params=query).json()["items"]
+    assert len(entries) == 1
+    fields = entries[0]["fields"]
+    assert body["error"] in fields["reason"]
+    assert "unresolved local print attempt" in fields["reason"]
+    assert fields["connected"] is True and fields["local_blocked"] is True
+    assert "diagnostics" not in fields
+
+    # Seeing an event does not automatically grant access to printer details.
+    with admin.app.state.factory.begin() as session:
+        for permission, effect in (("printer.view_audit", "allow"), ("printer.view", "deny")):
+            session.add(
+                ResourceGrant(
+                    principal_kind="user",
+                    principal_id="alice",
+                    scope_kind="printer",
+                    scope_id=identifier,
+                    permission=permission,
+                    effect=effect,
+                )
+            )
+    restricted = alice.get("/api/audit", params=query)
+    assert restricted.status_code == 200, restricted.text
+    entry = restricted.json()["items"][0]
+    assert entry["restricted_details"]
+    assert "reason" not in entry["fields"]
+    assert body["error"] not in restricted.text
+
+    # An explicit clearance followed by a new local block gets its own reason.
+    clearance = admin.post(f"/api/companions/printers/{identifier}/clear").json()["clearance"]
+    body = {"connected": True, "local_blocked": True, "clearance_seen": clearance - 1}
+    assert not admin.put(path, headers=headers, json=body).json()["blocked"]
+    assert len(admin.get("/api/audit", params=query).json()["items"]) == 1
+    body["clearance_seen"] = clearance
+    assert admin.put(path, headers=headers, json=body).json()["blocked"]
+    entries = admin.get("/api/audit", params=query).json()["items"]
+    assert len(entries) == 2
+    assert "unresolved local print attempt" in entries[0]["fields"]["reason"]
+    assert "Cutter jam" not in entries[0]["fields"]["reason"]
+
+
+@pytest.mark.parametrize("outcome", ["not_started", "interrupted", "printed"])
+def test_execution_block_audit_includes_reason_and_batch_without_replay_duplicates(
+    accounts, tmp_path, outcome
+):
+    admin, _, _ = accounts
+    _, headers, identifier, _, work = queued_remote(admin)
+    journal = Journal(tmp_path / "journal.db")
+    envelope = authorize(admin, headers, work, journal)
+    result = ExecutionResult(
+        digest=work["digest"],
+        go_token=journal.row(envelope.batch_id)["go_token"],
+        outcome=outcome,
+        confirmed_labels=3 if outcome == "printed" else 1 if outcome == "interrupted" else 0,
+    )
+    for _ in range(2):
+        response = admin.post(
+            f"/api/companion/batches/{envelope.batch_id}/result",
+            headers=headers,
+            json=result.model_dump(),
+        )
+        assert response.status_code == 200, response.text
+    entries = admin.get(
+        "/api/audit",
+        params={
+            "printer": identifier,
+            "action": "companion.printer_blocked",
+        },
+    ).json()["items"]
+    assert len(entries) == (0 if outcome == "printed" else 1)
+    if entries:
+        fields = entries[0]["fields"]
+        assert fields["batch_id"] == envelope.batch_id
+        assert fields["state"] == outcome
+        assert fields["copy_count"] == result.confirmed_labels
+        assert ("before printing" if outcome == "not_started" else "unconfirmed output") in fields[
+            "reason"
+        ]
+        assert result.go_token not in str(entries)
+        assert work["digest"] not in str(entries)
+        assert "Remote batch" not in str(entries)
+
+
 @pytest.mark.parametrize("state", [State.PRINTING, State.NEEDS_REVIEW])
 def test_remote_media_changes_still_require_resolving_active_batches(accounts, state):
     admin, _, _ = accounts
