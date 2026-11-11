@@ -16,6 +16,7 @@ import JobPreview from './components/JobPreview.vue'
 import PinEntry from './components/PinEntry.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import SourceLink from './components/SourceLink.vue'
+import PaymentAttribution from './components/PaymentAttribution.vue'
 import StationTelemetry, { type StationDashboard } from './components/StationTelemetry.vue'
 import CompanionPacking from './components/CompanionPacking.vue'
 import MotionSurface from './components/MotionSurface.vue'
@@ -939,6 +940,7 @@ function changePage(delta: number) {
                           :preview-url="`/api/proxy/jobs/${group.jobs[0].id}/preview`"
                         />
                       </div>
+                      <PaymentAttribution :payers="group.jobs.flatMap((job) => job.payers ?? [])" />
                       <AnimatedDetails v-if="group.run_id" class="station-run-rows">
                         <template #summary>Labels in this run</template>
                         <div v-for="job in group.jobs" :key="job.id" class="station-job">

@@ -44,8 +44,10 @@ async function load(force = false) {
       error.value = ''
     }
   } catch (issue) {
-    if (!stopped && ticket === generation && auth.user?.id === actor)
+    if (!stopped && ticket === generation && auth.user?.id === actor) {
+      detail.value = null
       error.value = errorMessage(issue)
+    }
   } finally {
     if (ticket === generation) loading.value = false
   }
@@ -54,6 +56,16 @@ function toggle(open: boolean) {
   opened.value = open
   if (opened.value && !detail.value && !loading.value) void load()
 }
+watch(
+  () => JSON.stringify(auth.user),
+  () => {
+    generation++
+    detail.value = null
+    loading.value = false
+    error.value = ''
+    if (opened.value) void load(true)
+  },
+)
 watch(
   () => props.state,
   () => {
@@ -74,7 +86,11 @@ onUnmounted(() => {
     </p>
     <p v-else-if="loading && !detail" class="help" role="status">Loading labels…</p>
     <template v-if="detail">
-      <TapeUsage :plan="detail.print_plan" caption="Saved estimate for this attempt" />
+      <TapeUsage
+        v-if="!detail.redacted"
+        :plan="detail.print_plan"
+        caption="Saved estimate for this attempt"
+      />
       <PrintPlanNotice :plan="detail.print_plan" />
       <RetryControls :batch="detail" />
     </template>

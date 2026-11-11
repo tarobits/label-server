@@ -44,7 +44,7 @@ def accounts(tmp_path: Path) -> Iterator[tuple[TestClient, TestClient, TestClien
     command.upgrade(config, "head")
     seed_test_printer(url)
     app = create_app(
-        Settings(database_url=url),
+        Settings(database_url=url, check_for_updates=False),
         {"main": MockPrinterBackend()},
         start_worker=False,
         backend_factory=printer_factory,

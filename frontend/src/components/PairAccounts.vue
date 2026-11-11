@@ -31,8 +31,13 @@ interface Charge {
   consumed_mm: number | null
   own_cartridge: boolean
 }
-const balances = ref<(PairBalance & { unallocated_owed?: string })[]>([]),
-  cartridgeBalances = ref<(PairBalance & { cartridge_id: string; cartridge_name: string })[]>([]),
+type GroupBalance = PairBalance & { group_account_id?: string }
+const groupBalances = ref<GroupBalance[]>([]),
+  groupCartridges = ref<(GroupBalance & { cartridge_id: string; cartridge_name: string })[]>([])
+const displayedBalances = computed(() => [...balances.value, ...groupBalances.value])
+const displayedCartridges = computed(() => [...cartridgeBalances.value, ...groupCartridges.value])
+const balances = ref<(GroupBalance & { unallocated_owed?: string })[]>([]),
+  cartridgeBalances = ref<(GroupBalance & { cartridge_id: string; cartridge_name: string })[]>([]),
   adjustments = ref<UsageAdjustment[]>([]),
   charges = ref<Charge[]>([]),
   users = ref<UsageUser[]>([])
@@ -55,6 +60,8 @@ async function refresh() {
     const [result, parties] = await Promise.all([
       api<{
         balances: typeof balances.value
+        group_balances: typeof groupBalances.value
+        group_cartridge_balances: typeof groupCartridges.value
         cartridge_balances: typeof cartridgeBalances.value
         adjustments: UsageAdjustment[]
         charges: Charge[]
@@ -63,6 +70,8 @@ async function refresh() {
     ])
     if (ticket !== revision) return
     balances.value = result.balances
+    groupBalances.value = result.group_balances ?? []
+    groupCartridges.value = result.group_cartridge_balances ?? []
     cartridgeBalances.value = result.cartridge_balances
     adjustments.value = result.adjustments
     charges.value = result.charges
@@ -72,6 +81,8 @@ async function refresh() {
     if (ticket === revision) {
       error.value = errorMessage(e)
       balances.value = []
+      groupBalances.value = []
+      groupCartridges.value = []
       cartridgeBalances.value = []
       charges.value = []
       adjustments.value = []
@@ -83,6 +94,8 @@ watch(
   () => {
     editing.value = false
     balances.value = []
+    groupBalances.value = []
+    groupCartridges.value = []
     cartridgeBalances.value = []
     adjustments.value = []
     charges.value = []
@@ -114,18 +127,26 @@ const money = (value: string, currency: string) =>
           </thead>
           <tbody>
             <tr
-              v-for="balance in balances"
-              :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id ?? ''}:${balance.currency}`"
+              v-for="balance in displayedBalances"
+              :key="`${balance.group_account_id ? 'group' : 'user'}:${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id ?? ''}:${balance.currency}`"
             >
               <td>
                 <RouterLink
-                  v-if="allUsers"
+                  v-if="balance.group_account_id"
+                  :to="{
+                    path: '/group-accounts',
+                    query: { account: balance.group_account_id, section: 'balances' },
+                  }"
+                  >{{ balance.requester_name }}</RouterLink
+                ><RouterLink
+                  v-else-if="allUsers"
                   :to="{
                     path: '/usage',
                     query: { user: balance.requester_id, section: 'balances' },
                   }"
                   >{{ balance.requester_name }}</RouterLink
                 ><template v-else>{{ balance.requester_name }}</template>
+                <small v-if="balance.group_account_id">Group account</small>
               </td>
               <td>
                 <RouterLink
@@ -142,11 +163,11 @@ const money = (value: string, currency: string) =>
           </tbody>
         </table>
       </div>
-      <p v-if="!balances.length && !error">No debts.</p>
+      <p v-if="!displayedBalances.length && !error">No debts.</p>
     </section>
     <section v-show="section === 'cartridges'" class="cartridge-balances">
       <h2>Debts by cartridge</h2>
-      <p v-if="!cartridgeBalances.length && !unallocated.length && !error" class="empty">
+      <p v-if="!displayedCartridges.length && !unallocated.length && !error" class="empty">
         No cartridge debts.
       </p>
       <template v-else>
@@ -162,10 +183,21 @@ const money = (value: string, currency: string) =>
             </thead>
             <tbody>
               <tr
-                v-for="balance in cartridgeBalances"
-                :key="`${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id}:${balance.currency}`"
+                v-for="balance in displayedCartridges"
+                :key="`${balance.group_account_id ? 'group' : 'user'}:${balance.requester_id}:${balance.recipient_id}:${balance.cartridge_id}:${balance.currency}`"
               >
-                <td>{{ balance.requester_name }}</td>
+                <td>
+                  <RouterLink
+                    v-if="balance.group_account_id"
+                    :to="{
+                      path: '/group-accounts',
+                      query: { account: balance.group_account_id, section: 'balances' },
+                    }"
+                    >{{ balance.requester_name }}</RouterLink
+                  >
+                  <template v-else>{{ balance.requester_name }}</template>
+                  <small v-if="balance.group_account_id">Group account</small>
+                </td>
                 <td>{{ balance.recipient_name ?? balance.cartridge_name }}</td>
                 <td>{{ balance.cartridge_name }}</td>
                 <td>{{ money(balance.owed, balance.currency) }}</td>

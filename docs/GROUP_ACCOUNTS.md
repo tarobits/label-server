@@ -53,6 +53,11 @@ Funding approval is separate from print approval. If printer access requires a
 print request, its approval creates the queued jobs and their funding requests.
 For CSV runs, each row and its copies is a separate funding request.
 
+Collapsed queue entries show the payer, including pending approval. Print Activity
+shows the current payer or payers for each batch, including later approved
+transfers and reimbursements; original requester and authorizer attribution stays
+unchanged.
+
 Group funding requires a current price quote with a priced eligible cartridge.
 Its upper estimate and any lower requester maximum cap the charged amount. Copies
 cannot be increased under an existing quote. Funding never permits a cartridge
@@ -74,10 +79,20 @@ afterwards. An earlier group approval does not authorize additional retry spendi
 
 ## Earlier prints and repayments
 
+Tape usage includes group obligations in **Account balances** and **Debts by
+cartridge**, with the group account identified as payer and linked to its balances.
+The selected-user filter includes that user's prints and money owed to them.
+**All users** includes all group debts the viewer may see; it does not bypass group
+permissions. Only confirmed repayments reduce the displayed amount owed.
+
 Use **Transfer previous print costs** to request funding for a previous settled
 batch's costs attributed to you. Group approval is sufficient to take over its
 outstanding debt. A member with both the historical-transfer and Charge directly
 permissions can transfer costs directly.
+
+The **Previous print costs** section shows previews and copy counts for your own
+labels in each batch. Previews can be enlarged and do not include other members'
+labels from a shared batch.
 
 The original charge and personal repayment records are retained. Transfers reduce
 personal debt with a separate entry; paid costs create a separate reimbursement

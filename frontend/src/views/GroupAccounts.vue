@@ -54,6 +54,15 @@ interface Details extends Account {
   requests: FundingRequest[]
 }
 interface History {
+  previews: {
+    job_id: string
+    copy_id: string
+    text: string
+    url: string
+    width_mm: number
+    length_mm: number
+    copies: number
+  }[]
   batch_id: string
   cartridge_id: string
   currency: string
@@ -665,29 +674,44 @@ async function transfer(item: History, direct = false) {
           </header>
           <p v-if="!busy && !history.length" class="empty">No eligible prints.</p>
           <div class="account-form">
-            <div v-for="item in history" :key="item.batch_id" class="row wrap">
-              <span
-                >{{ date(item.created_at) }} ·
-                {{ money(item.available_micros, item.currency) }}</span
-              ><span v-if="item.paid_micros"
-                >Paid: {{ money(item.paid_micros, item.currency) }}</span
-              ><span v-if="item.needs_payment_allocation" class="muted"
-                >Existing payments need cartridge allocation first.</span
-              ><button
-                class="secondary"
-                :disabled="busy || item.needs_payment_allocation"
-                @click="transfer(item)"
-              >
-                Request transfer</button
-              ><button
-                v-if="rights.has('direct')"
-                class="secondary"
-                :disabled="busy || item.needs_payment_allocation"
-                @click="transfer(item, true)"
-              >
-                Charge group directly
-              </button>
-            </div>
+            <article v-for="item in history" :key="item.batch_id" class="historical-charge">
+              <div class="historical-previews">
+                <div v-for="preview in item.previews" :key="preview.job_id">
+                  <strong>{{ preview.text }}</strong>
+                  <JobPreview
+                    :job-id="preview.job_id"
+                    :text="preview.text"
+                    :preview-url="preview.url"
+                    :width-mm="preview.width_mm"
+                    :length-mm="preview.length_mm"
+                  />
+                  <small>{{ preview.copies }} {{ preview.copies === 1 ? 'copy' : 'copies' }}</small>
+                </div>
+              </div>
+              <div class="row wrap">
+                <span
+                  >{{ date(item.created_at) }} ·
+                  {{ money(item.available_micros, item.currency) }}</span
+                ><span v-if="item.paid_micros"
+                  >Paid: {{ money(item.paid_micros, item.currency) }}</span
+                ><span v-if="item.needs_payment_allocation" class="muted"
+                  >Existing payments need cartridge allocation first.</span
+                ><button
+                  class="secondary"
+                  :disabled="busy || item.needs_payment_allocation"
+                  @click="transfer(item)"
+                >
+                  Request transfer</button
+                ><button
+                  v-if="rights.has('direct')"
+                  class="secondary"
+                  :disabled="busy || item.needs_payment_allocation"
+                  @click="transfer(item, true)"
+                >
+                  Charge group directly
+                </button>
+              </div>
+            </article>
           </div>
         </section>
         <section
@@ -919,6 +943,25 @@ async function transfer(item: History, direct = false) {
   display: grid;
   gap: 24px;
   min-width: 0;
+}
+.historical-charge {
+  display: grid;
+  gap: 16px;
+  padding-block: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.historical-previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+}
+.historical-previews > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.historical-previews strong {
+  display: block;
+  margin-bottom: 8px;
 }
 .account-toolbar {
   display: flex;

@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import access_context
+from app.activity_redaction import personal_printer_change
 from app.authorization import visible_destinations
 from app.http import db, job_template_name, record
 from app.job_access import job_eligible
@@ -159,17 +160,24 @@ def change_history(
 ) -> dict[str, Any]:
     stamp = time.time() if before is None else before
     query = select(QueueDestinationChange).where(QueueDestinationChange.created_at <= stamp)
-    if not access_context(request).actor.is_admin:
+    context = access_context(request)
+    if not context.actor.is_admin:
         allowed = visible_destinations(request, session, "view_activity")
         query = query.where(
             or_(
                 QueueDestinationChange.source_id.in_(allowed),
                 QueueDestinationChange.target_id.in_(allowed),
+                QueueDestinationChange.job_id.in_(
+                    select(PrintJob.id).where(PrintJob.owner_id == context.actor.id)
+                ),
             )
         )
     return {
         "items": [
             record(event)
+            if context.can_printer(event.source_id, "view_activity")
+            or context.can_printer(event.target_id, "view_activity")
+            else personal_printer_change(context, record(event))
             for event in session.scalars(
                 query.order_by(QueueDestinationChange.created_at.desc(), QueueDestinationChange.id)
                 .offset(offset)

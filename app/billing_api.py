@@ -17,8 +17,8 @@ from app.billing_models import (
     BillingGrant,
     BillingRequest,
 )
-from app.http import db, record
-from app.models import LabelCopy, PrintJob, Role, UnitCharge, User
+from app.http import db, job_summary, record
+from app.models import BatchItem, LabelCopy, PrintJob, Role, TapeAllocation, UnitCharge, User
 from app.schemas import Input
 
 router = APIRouter(prefix="/api/accounts/groups", tags=["group billing"])
@@ -167,7 +167,48 @@ def create_account(body: AccountInput, request: Request, session: DB) -> dict[st
 
 @router.get("/history")
 def history(request: Request, session: DB) -> list[dict[str, Any]]:
-    return billing.eligible_history(session, access_context(request).actor.id)
+    user_id = access_context(request).actor.id
+    return [
+        {**entry, "previews": historical_previews(session, entry["batch_id"], user_id)}
+        for entry in billing.eligible_history(session, user_id)
+    ]
+
+
+def historical_previews(session: Session, batch_id: str, user_id: str) -> list[dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for job, copy_id in session.execute(
+        select(PrintJob, BatchItem.copy_id)
+        .join(LabelCopy, LabelCopy.job_id == PrintJob.id)
+        .join(BatchItem, BatchItem.copy_id == LabelCopy.id)
+        .where(BatchItem.batch_id == batch_id, PrintJob.owner_id == user_id)
+        .order_by(BatchItem.position)
+    ):
+        if job.id not in result:
+            result[job.id] = {
+                "job_id": job.id,
+                "copy_id": copy_id,
+                "text": job_summary(job),
+                "width_mm": job.width_mm,
+                "length_mm": job.length_mm,
+                "copies": 0,
+                "url": f"/api/accounts/groups/history/{batch_id}/items/{copy_id}/preview",
+            }
+        result[job.id]["copies"] += 1
+    return list(result.values())
+
+
+@router.get("/history/{batch_id}/items/{copy_id}/preview")
+def historical_preview(batch_id: str, copy_id: str, request: Request, session: DB) -> Response:
+    from app.api import label_preview_response
+
+    user_id = access_context(request).actor.id
+    allocation = session.get(TapeAllocation, (batch_id, user_id))
+    item = session.get(BatchItem, (batch_id, copy_id))
+    label = session.get(LabelCopy, copy_id) if item else None
+    job = session.get(PrintJob, label.job_id) if label else None
+    if allocation is None or job is None or label is None or job.owner_id != user_id:
+        raise HTTPException(404, "Historical label preview is unavailable")
+    return label_preview_response(request, session, job, label)
 
 
 @router.get("/{identifier}")
@@ -177,13 +218,7 @@ def details(identifier: str, request: Request, session: DB) -> dict[str, Any]:
     if account is None:
         raise HTTPException(404, "Group account not found")
     rights = billing.permissions(session, actor, identifier)
-    charges = billing.outstanding(session, identifier)
-    if "view" not in rights:
-        charges = [
-            entry
-            for entry in charges
-            if entry["recipient_id"] == actor.id or entry["requester_id"] == actor.id
-        ]
+    charges = billing.visible_outstanding(session, actor, identifier)
     requests = [
         request_record(session, entry, request)
         for entry in session.scalars(

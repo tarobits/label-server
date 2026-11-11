@@ -193,6 +193,8 @@ const routingHint = computed(() => {
     return 'Approval is required before this label enters the queue.'
   if (destination.value?.automatic_printing_held)
     return 'Automatic printing is held. Print manually or resume to print these copies.'
+  if (destination.value?.no_automatic_printing)
+    return 'Manual-only destination. Start printing from the queue or printer controls.'
   if (
     destination.value?.kind === 'group' &&
     destination.value.printer_ids.some(
@@ -202,6 +204,8 @@ const routingHint = computed(() => {
     return 'Labels wait for a ready group member with matching tape and enough copies to reach the threshold.'
   if (!matchingPrinters.value.length)
     return 'Waiting for this tape to be installed at the destination.'
+  if (matchingPrinters.value.every((s) => s.no_automatic_printing))
+    return 'Matching printers are manual only. Start printing from the queue or printer controls.'
   if (matchingPrinters.value.every((s) => s.automatic_printing_held))
     return 'Matching printers are held. Print manually or resume to print these copies.'
   return 'Tape installed. Automatic printing starts when a matching printer is ready and the threshold is reached.'

@@ -88,6 +88,9 @@ def test_wait_rejection_holds_until_explicit_personal_choice(accounts):
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)
     job = submit_group(alice, tape, account)
+    assert job["payers"] == [
+        {"kind": "group", "id": account, "name": "Verein", "note": "Awaiting approval"}
+    ]
     funding = job["billing_request"]["id"]
     worker = admin.app.state.fleet.workers["main"]
     worker.tick()
@@ -139,12 +142,19 @@ def test_direct_permission_and_mixed_jobs_preserve_requester_costs(accounts):
 
     balance = alice.get("/api/accounts").json()["balances"][0]
     assert int(Decimal(balance["owed"]) * 1000000) == expected
+    batch = admin.get("/api/batches").json()[0]
+    assert {(payer["kind"], payer["id"]) for payer in batch["payers"]} == {
+        ("group", account),
+        ("user", "alice"),
+    }
 
 
 def test_risk_partial_payment_becomes_transfer_and_reimbursement_once(accounts):
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)
     job = submit_group(alice, tape, account, "risk")
+    assert job["payers"][0]["kind"] == "user"
+    assert job["payers"][0]["note"] == "Awaiting group approval: Verein"
     admin.app.state.fleet.workers["main"].tick()
     assert (
         admin.post(
@@ -172,6 +182,10 @@ def test_risk_partial_payment_becomes_transfer_and_reimbursement_once(accounts):
             session.scalar(select(TapeAllocation)).charged_micros
         )
     assert alice.get("/api/accounts").json()["balances"][0]["owed"] == "0.000000"
+    report = alice.get("/api/accounts").json()["group_cartridge_balances"]
+    assert {row["recipient_id"] for row in report} == {"alice", "administrator"}
+    batch = admin.get("/api/batches").json()[0]
+    assert batch["payers"] == [{"kind": "group", "id": account, "name": "Verein"}]
 
 
 def test_member_owned_cartridge_creates_group_obligation(accounts):
@@ -185,6 +199,9 @@ def test_member_owned_cartridge_creates_group_obligation(accounts):
         charge = session.scalar(select(BillingCharge))
         assert charge.kind == "supply" and charge.recipient_id == "alice"
         assert int(charge.amount_micros) > 0
+    rows = alice.get("/api/accounts").json()["group_cartridge_balances"]
+    assert len(rows) == 1 and rows[0]["recipient_id"] == "alice"
+    assert rows[0]["group_account_id"] == account
 
 
 def test_payment_report_requires_creditor_confirmation_and_is_idempotent(accounts):
@@ -208,9 +225,42 @@ def test_payment_report_requires_creditor_confirmation_and_is_idempotent(account
     assert decision(alice, payment, True).status_code == 403
     assert decision(bob, payment, True).status_code == 403
     assert admin.get(f"{ROOT}/{account}").json()["charges"][0]["outstanding_micros"] > 0
+    before = admin.get("/api/accounts").json()["group_balances"][0]["owed"]
+    assert float(before) > 0
     assert decision(admin, payment, True).status_code == 200
     assert decision(admin, payment, True).status_code == 200
     assert admin.get(f"{ROOT}/{account}").json()["charges"][0]["outstanding_micros"] == 0
+    assert admin.get("/api/accounts").json()["group_balances"][0]["owed"] == "0.000000"
+
+
+def test_tape_usage_group_balances_follow_user_filter_and_account_access(accounts):
+    from decimal import Decimal
+
+    from test_usage_accounts import permissions
+
+    admin, alice, bob = accounts
+    tape, cartridge, account = setup(accounts)
+    job = submit_group(alice, tape, account)
+    assert alice.get("/api/accounts").json()["group_balances"] == []
+    assert decision(bob, job["billing_request"]["id"], True).status_code == 200
+    admin.app.state.fleet.workers["main"].tick()
+    charge = admin.get(f"{ROOT}/{account}").json()["charges"][0]
+    for client in (admin, alice):
+        report = client.get("/api/accounts").json()
+        row = report["group_cartridge_balances"][0]
+        assert row["group_account_id"] == account and row["requester_name"] == "Verein"
+        assert row["recipient_id"] == "administrator" and row["cartridge_id"] == cartridge["id"]
+        assert Decimal(row["owed"]) * 1000000 == charge["outstanding_micros"]
+        assert report["cartridge_balances"][0]["owed"] == "0.000000"
+    assert admin.get("/api/accounts?user_id=bob").json()["group_balances"] == []
+    assert admin.get("/api/accounts?user_id=alice").json()["group_balances"]
+    permissions(admin, "bob", "usage.view_others")
+    assert bob.get("/api/accounts?all_users=true").json()["group_balances"] == []
+    grant(admin, account, "bob", "view")
+    assert bob.get("/api/accounts?all_users=true").json()["group_balances"]
+    assert bob.get("/api/accounts").json()["group_balances"] == []
+    grant(admin, account, "bob", "view", "deny")
+    assert bob.get("/api/accounts?all_users=true").json()["group_balances"] == []
 
 
 def test_notifications_recheck_access_and_never_route_to_shared_channels(accounts):
@@ -257,6 +307,17 @@ def test_historical_transfer_requires_approval_and_cannot_claim_twice(accounts):
     )
     admin.app.state.fleet.workers["main"].tick()
     history = alice.get(f"{ROOT}/history").json()[0]
+    batch_id = history["batch_id"]
+    assert admin.get(f"/api/batches/{batch_id}").json()["payers"] == [
+        {"kind": "user", "id": "alice", "name": "alice"}
+    ]
+    assert history["previews"] and history["previews"][0]["copies"] > 0
+    url = history["previews"][0]["url"]
+    image = alice.get(url)
+    assert image.status_code == 200 and image.content.startswith(b"\x89PNG")
+    assert image.headers["cache-control"] == "private, no-store"
+    assert bob.get(url).status_code == 404
+    assert admin.get(url).status_code == 404
     body = {"request_id": str(uuid4()), "batch_id": history["batch_id"]}
     response = alice.post(f"{ROOT}/{account}/transfers", json=body)
     assert response.status_code == 201, response.text
@@ -268,9 +329,33 @@ def test_historical_transfer_requires_approval_and_cannot_claim_twice(accounts):
         == 409
     )
     assert decision(bob, response.json()["id"], True).status_code == 200
+    assert admin.get(f"/api/batches/{batch_id}").json()["payers"] == [
+        {"kind": "group", "id": account, "name": "Verein"}
+    ]
     assert (
         alice.post(
             f"{ROOT}/{account}/transfers", json={**body, "request_id": str(uuid4())}
         ).status_code
         == 409
     )
+
+
+def test_historical_previews_exclude_other_requesters_in_the_same_batch(accounts):
+    admin, alice, bob = accounts
+    tape, _, _ = setup(accounts)
+    set_permissions(admin, "bob", "view", "submit_directly")
+    for client in (alice, bob):
+        assert (
+            client.post(
+                "/api/jobs", json=submission(tape, preview(client, tape)["cost_estimate"])
+            ).status_code
+            == 201
+        )
+    admin.app.state.fleet.workers["main"].tick()
+    a = alice.get(f"{ROOT}/history").json()[0]
+    b = bob.get(f"{ROOT}/history").json()[0]
+    assert a["batch_id"] == b["batch_id"]
+    assert len(a["previews"]) == len(b["previews"]) == 1
+    assert a["previews"][0]["job_id"] != b["previews"][0]["job_id"]
+    assert alice.get(b["previews"][0]["url"]).status_code == 404
+    assert bob.get(a["previews"][0]["url"]).status_code == 404

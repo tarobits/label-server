@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.access import Action, Resource, access_context
@@ -1556,23 +1556,25 @@ def batch_process_names(session: Session, batch: Batch) -> list[str]:
 
 
 def visible_batches(request: Request, session: Session) -> Select[Batch]:
+    from app.print_activity import visible_items
+
     query = select(Batch)
     if not access_context(request).actor.is_admin:
         query = query.where(
-            Batch.printer_id.in_(visible_destinations(request, session, "view_activity"))
+            or_(
+                Batch.printer_id.in_(visible_destinations(request, session, "view_activity")),
+                Batch.id.in_(visible_items(request, session).with_only_columns(BatchItem.batch_id)),
+            )
         )
     return query
 
 
-def batch_history_records(session: Session, query: Select[Batch]) -> list[dict[str, Any]]:
-    return [
-        {
-            **record(batch),
-            **batch_audit(session, batch),
-            "process_names": batch_process_names(session, batch),
-        }
-        for batch in session.scalars(query)
-    ]
+def batch_history_records(
+    request: Request, session: Session, query: Select[Batch]
+) -> list[dict[str, Any]]:
+    from app.print_activity import activity_record
+
+    return [activity_record(request, session, batch) for batch in session.scalars(query)]
 
 
 @router.get("/batches")
@@ -1580,6 +1582,7 @@ def batches(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> list[dict[str, Any]]:
     return batch_history_records(
+        request,
         session,
         visible_batches(request, session).order_by(Batch.created_at.desc(), Batch.id).limit(100),
     )
@@ -1599,12 +1602,30 @@ def batch_page(
 ) -> dict[str, Any]:
     stamp = time.time() if before is None else before
     query = visible_batches(request, session).where(Batch.created_at <= stamp)
-    from app.print_activity import filter_batches
+    from app.print_activity import filter_batches, visible_items
 
-    query = filter_batches(query, printer_id, cartridge_id, requester_id, authorizer_id)
+    context = access_context(request)
+    if (
+        printer_id
+        and not context.can_printer(printer_id, "view")
+        and not context.can_printer(printer_id, "view_activity")
+    ) or (
+        cartridge_id and not context.can_cartridge(cartridge_id, "view")
+    ):
+        query = query.where(false())
+    query = filter_batches(
+        query,
+        printer_id,
+        cartridge_id,
+        requester_id,
+        authorizer_id,
+        visible_items(request, session),
+    )
     return {
         "items": batch_history_records(
-            session, query.order_by(Batch.created_at.desc(), Batch.id).offset(offset).limit(limit)
+            request,
+            session,
+            query.order_by(Batch.created_at.desc(), Batch.id).offset(offset).limit(limit),
         ),
         "total": session.scalar(select(func.count()).select_from(query.subquery())),
         "before": stamp,
@@ -1615,21 +1636,34 @@ def batch_page(
 def batch_filters(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    from app.print_activity import filter_options
+    from app.print_activity import filter_options, visible_items
 
-    result = filter_options(session, visible_batches(request, session))
-    # History grants allow attempt metadata, not otherwise-private inventory names.
-    for cartridge in result["cartridges"]:
-        if not access_context(request).can_cartridge(cartridge["id"], "view"):
-            cartridge["name"] = "Cartridge"
+    result = filter_options(
+        session, visible_batches(request, session), visible_items(request, session)
+    )
+    context = access_context(request)
+    result["cartridges"] = [
+        item for item in result["cartridges"] if context.can_cartridge(item["id"], "view")
+    ]
+    result["printers"] = [
+        item
+        for item in result["printers"]
+        if context.can_printer(item["id"], "view")
+        or context.can_printer(item["id"], "view_activity")
+    ]
     return result
 
 
 @router.get("/batches/{identifier}")
 def batch_detail(
-    identifier: str, session: Session = Depends(db, scope="function")
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    batch = get(session, Batch, identifier)
+    from app.activity_redaction import personal_attribution
+    from app.print_activity import activity_record, full_activity, readable_batch
+
+    batch = readable_batch(request, session, identifier)
+    full = full_activity(request, batch, review=True)
+    context = access_context(request)
     from app.batch_reviews import evidence_policy, review_records
 
     output_plans = {
@@ -1644,25 +1678,35 @@ def batch_detail(
         # jobs routed through groups the reviewer cannot otherwise access.
         job = session.get(PrintJob, label.job_id)
         assert job is not None
+        if not full and job.owner_id != context.actor.id:
+            continue
+        information = job_information(session, job, printer_id=batch.printer_id)
+        if not full:
+            if not context.can_printer(batch.printer_id, "view"):
+                information["printer_name"] = "Restricted printer"
+            if not context.can_printer(job.destination_id, "view"):
+                information["destination_name"] = "Restricted destination"
         items.append(
             {
                 **record(item),
-                **job_information(session, job, printer_id=batch.printer_id),
-                "attribution": item.attribution or unknown_attribution(),
+                **information,
+                "position": item.position if full else len(items),
+                "attribution": (item.attribution or unknown_attribution())
+                if full
+                else personal_attribution(context, item.attribution or unknown_attribution()),
                 "job_id": job.id,
                 "copy_number": label.ordinal + 1,
-                "output_plan": output_plans.get(label.id),
+                "output_plan": output_plans.get(label.id) if full else None,
                 "text": job_summary(job),
                 "width_mm": job.width_mm,
                 "length_mm": job.length_mm,
             }
         )
     return {
-        **record(batch),
-        **batch_audit(session, batch),
+        **activity_record(request, session, batch, review=True),
         "items": items,
         "evidence_policy": evidence_policy(session),
-        "reviews": review_records(session, batch.id),
+        "reviews": review_records(session, batch.id) if full else [],
     }
 
 
@@ -1727,12 +1771,19 @@ def batch_item_preview(
     request: Request,
     session: Session = Depends(db, scope="function"),
 ) -> Response:
-    get(session, Batch, identifier)
+    from app.print_activity import full_activity, readable_batch
+
+    batch = readable_batch(request, session, identifier)
     if session.get(BatchItem, (identifier, copy_id)) is None:
         raise HTTPException(404, "Batch item not found")
     label = get(session, LabelCopy, copy_id)
     item = session.get(PrintJob, label.job_id)
     assert item is not None
+    if (
+        not full_activity(request, batch, review=True)
+        and item.owner_id != access_context(request).actor.id
+    ):
+        raise HTTPException(404, "Batch item not found")
     return label_preview_response(request, session, item, label)
 
 

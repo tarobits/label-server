@@ -5,6 +5,19 @@ control template, font and image sharing. These rules are implemented.
 
 ## Personal sessions
 
+Every signed-in user can open **Print Activity** for their own labels, even after
+printer access is revoked. Printer **View activity** permission additionally
+allows reading other users' labels on that printer. Personal views filter mixed
+batches on the server: other users' items, previews, process names, attribution,
+copy counts and payer details are excluded. Filters and pagination use the same
+visibility rules. Restricted printer and cartridge identities, physical batch
+plans/totals, batch errors, starter details and review evidence are hidden.
+Personal activity does not grant review, retry authorization or other controls.
+Printer changes follows the same scope: users see moves affecting their own labels,
+including moves made by an operator. Broader printer activity permissions retain
+access to other users' changes. Restricted printer identities are redacted in
+both the change history and the change snapshots attached to personal print activity.
+
 Every signed-in user can list and revoke their own login sessions in Account
 settings. These endpoints are owner-only, including for administrators:
 `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`, and

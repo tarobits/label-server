@@ -173,7 +173,7 @@ def job_information(
 
 def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
     from app.billing import job_eligible as billing_eligible
-    from app.billing import job_request
+    from app.billing import job_payers, job_request
     from app.print_audit import job_attribution
 
     copies = list(
@@ -228,6 +228,7 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
         **record(job),
         **job_information(session, job, printer_id=run.assigned_printer_id if run else None),
         "attribution": job_attribution(session, job),
+        "payers": job_payers(session, job),
         **permissions,
         "access_hold": record(hold) if hold is not None else None,
         "billing_held": bool(job.template_snapshot.get("billing"))

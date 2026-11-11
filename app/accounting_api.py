@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app import billing
 from app.access import access_context
 from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.cartridge_debts import cartridge_balances, repayment_allocations
@@ -44,7 +45,10 @@ def accounts(
         adjustments = adjustments.where(
             or_(UsageAdjustment.user_id == viewer, UsageAdjustment.recipient_id == viewer)
         )
+    group_balances, group_cartridges = billing.usage_balances(session, context.actor, viewer)
     return {
+        "group_balances": group_balances,
+        "group_cartridge_balances": group_cartridges,
         "balances": pairwise_report(session, viewer)
         + [
             {**row, "recipient_name": row["cartridge_name"]}

@@ -17,6 +17,7 @@ import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import ChangeQueuePrinter from '../components/ChangeQueuePrinter.vue'
 import ChangeCopies from '../components/ChangeCopies.vue'
+import PaymentAttribution from '../components/PaymentAttribution.vue'
 interface QueueGroup {
   cost_estimate?: CostEstimateData | null
   print_plan?: PrintPlan | null
@@ -170,6 +171,8 @@ function routing(job: Job) {
     return `${w.destinationName(job.destination_id)} · Paused: ${job.access_hold.reason}`
   const destination = w.destinations.find((d) => d.id === job.destination_id)
   if (!destination) return job.destination_id
+  if (destination.no_automatic_printing && job.status === 'queued')
+    return `${destination.name} · Manual only`
   if (job.assigned_printer_id)
     return `${destination.name} → ${destination.member_names?.[job.assigned_printer_id] ?? w.destinationName(job.assigned_printer_id)}`
   if (destination.kind === 'printer' || job.status !== 'queued') return destination.name
@@ -186,6 +189,7 @@ function routing(job: Job) {
       state?.connected &&
       !state.printer_error &&
       !state.automatic_printing_held &&
+      !state.no_automatic_printing &&
       !state.printing &&
       !state.needs_review.length &&
       (state.effective_width_mm ?? state.detected_width_mm) === job.width_mm &&
@@ -390,6 +394,7 @@ async function cancel(job: Job) {
               <td>
                 <strong>{{ group.name }}</strong
                 ><small>{{ group.jobs.length }} matching labels</small>
+                <PaymentAttribution :payers="group.jobs.flatMap((job) => job.payers ?? [])" />
                 <CostEstimate :estimate="group.cost_estimate" />
                 <AnimatedDetails class="queue-label-details">
                   <template #summary>Details</template>
@@ -453,6 +458,7 @@ async function cancel(job: Job) {
                       <strong class="queue-label-name">{{ labelName(job) }}</strong
                       ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
                       ><small>{{ routing(job) }}</small>
+                      <PaymentAttribution :payers="job.payers" />
                       <RouterLink
                         v-if="job.billing_request"
                         :to="{

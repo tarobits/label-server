@@ -90,7 +90,7 @@ export function useHistoryPage<T>(
   watch([page, anchor, () => JSON.stringify(filters())], () => {
     void load(false, true)
   })
-  watch([() => auth.user?.id, enabled], () => {
+  watch([() => JSON.stringify(auth.user), enabled], () => {
     sequence++
     items.value = []
     total.value = 0

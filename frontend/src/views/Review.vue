@@ -91,28 +91,28 @@ async function load(force = false) {
       error.value = ''
     }
   } catch (e) {
-    if (!stopped && ticket === generation && auth.user?.id === actor) error.value = errorMessage(e)
+    if (!stopped && ticket === generation && auth.user?.id === actor) {
+      batch.value = null
+      error.value = errorMessage(e)
+    }
   }
 }
 useLiveRefresh(async () => {
   if (!batch.value || batch.value.state === 'printing' || batch.value.state === 'needs_review')
     await load()
 }, 5000)
-watch(
-  () => route.params.id,
-  () => {
-    generation++
-    photo.value = null
-    evidenceUrl.value = ''
-    batch.value = null
-    decisions.value = {}
-    selected.value = []
-    bulkDecision.value = ''
-    consumed.value = null
-    cartridgeId.value = ''
-    void load()
-  },
-)
+watch([() => route.params.id, () => JSON.stringify(auth.user)], () => {
+  generation++
+  photo.value = null
+  evidenceUrl.value = ''
+  batch.value = null
+  decisions.value = {}
+  selected.value = []
+  bulkDecision.value = ''
+  consumed.value = null
+  cartridgeId.value = ''
+  void load()
+})
 onUnmounted(() => {
   stopped = true
   generation++
@@ -146,17 +146,23 @@ async function resolve() {
   <section v-if="batch" class="panel">
     <div class="section-heading">
       <div>
-        <h2>{{ w.cartridgeName(batch.cartridge_id) }}</h2>
+        <h2>
+          {{ batch.cartridge_id ? w.cartridgeName(batch.cartridge_id) : 'Restricted cartridge' }}
+        </h2>
         <p>
-          {{ w.destinationName(batch.printer_id) }} · {{ date(batch.created_at) }} · Estimated
-          {{ metres(batch.estimated_mm) }}
+          {{ batch.printer_id ? w.destinationName(batch.printer_id) : 'Restricted printer' }} ·
+          {{ date(batch.created_at)
+          }}<template v-if="batch.estimated_mm != null">
+            · Estimated {{ metres(batch.estimated_mm) }}</template
+          >
         </p>
       </div>
       <Badge :state="batch.state" />
     </div>
-    <BatchTrigger :trigger="batch.trigger" />
+    <p v-if="batch.redacted" class="muted">Your labels</p>
+    <BatchTrigger v-else :trigger="batch.trigger" />
     <PrintPlanNotice :plan="batch.print_plan" />
-    <AnimatedDetails class="batch-tape-details">
+    <AnimatedDetails v-if="!batch.redacted" class="batch-tape-details">
       <template #summary>Tape details</template>
       <TapeUsage :plan="batch.print_plan" caption="Saved estimate for this attempt" />
     </AnimatedDetails>

@@ -438,6 +438,137 @@ def outstanding(session: Session, account_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def job_payers(session: Session, job: PrintJob) -> list[dict[str, Any]]:
+    person = (job.attribution or {}).get("requested_by") or {}
+    payer = {"kind": "user", "id": job.owner_id, "name": person.get("name") or "Unknown user"}
+    funding = job_request(session, job)
+    if funding is None:
+        return [payer]
+    account = session.get(BillingAccount, funding.account_id)
+    group = {
+        "kind": "group",
+        "id": funding.account_id,
+        "name": account.name if account else "Unknown group account",
+    }
+    if funding.status == "approved":
+        return [group]
+    if funding.mode == "wait" and funding.status != "cancelled":
+        return [
+            {
+                **group,
+                "note": "Awaiting approval" if funding.status == "pending" else "Funding rejected",
+            }
+        ]
+    if funding.status == "pending":
+        payer["note"] = f"Awaiting group approval: {group['name']}"
+    return [payer]
+
+
+def batch_payers(
+    session: Session, batch: Batch, owner_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Current financial responsibility; human print-attempt attribution stays immutable."""
+    from app.models import BatchItem
+
+    result: dict[tuple, dict[str, Any]] = {}
+    funded: dict[str, int] = defaultdict(int)
+    for charge, name in session.execute(
+        select(BillingCharge, BillingAccount.name)
+        .join(BillingAccount, BillingAccount.id == BillingCharge.account_id)
+        .where(BillingCharge.batch_id == batch.id)
+    ):
+        if owner_id is not None and charge.requester_id != owner_id:
+            continue
+        if int(charge.amount_micros) <= 0:
+            continue
+        funded[charge.requester_id] += int(charge.amount_micros)
+        result["group", charge.account_id] = {
+            "kind": "group",
+            "id": charge.account_id,
+            "name": name,
+        }
+    allocations = list(
+        session.scalars(select(TapeAllocation).where(TapeAllocation.batch_id == batch.id))
+    )
+    for allocation in allocations:
+        if owner_id is not None and allocation.user_id != owner_id:
+            continue
+        if allocation.charged_micros is None:
+            continue
+        if (
+            not funded[allocation.user_id]
+            or int(allocation.charged_micros) > funded[allocation.user_id]
+        ):
+            result["user", allocation.user_id] = {
+                "kind": "user",
+                "id": allocation.user_id,
+                "name": allocation.username,
+            }
+    if not allocations or any(item.charged_micros is None for item in allocations):
+        for job in session.scalars(
+            select(PrintJob)
+            .join(LabelCopy, LabelCopy.job_id == PrintJob.id)
+            .join(BatchItem, BatchItem.copy_id == LabelCopy.id)
+            .where(BatchItem.batch_id == batch.id)
+            .distinct()
+        ):
+            if owner_id is not None and job.owner_id != owner_id:
+                continue
+            for payer in job_payers(session, job):
+                result[payer["kind"], payer["id"]] = payer
+    return list(result.values())
+
+
+def visible_outstanding(session: Session, actor: Actor, account_id: str) -> list[dict[str, Any]]:
+    charges = outstanding(session, account_id)
+    if "view" in permissions(session, actor, account_id):
+        return charges
+    return [
+        charge for charge in charges if actor.id in (charge["requester_id"], charge["recipient_id"])
+    ]
+
+
+def usage_balances(
+    session: Session, actor: Actor, viewer_id: str | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Group obligations remain separate from personal repayment accounts."""
+    from app.usage import money
+
+    totals: dict[tuple, dict[str, Any]] = {}
+    cartridges: dict[tuple, dict[str, Any]] = {}
+    for account in session.scalars(select(BillingAccount).order_by(BillingAccount.name)):
+        for charge in visible_outstanding(session, actor, account.id):
+            if viewer_id is not None and viewer_id not in (
+                charge["requester_id"],
+                charge["recipient_id"],
+            ):
+                continue
+            entry = {
+                "group_account_id": account.id,
+                "requester_id": account.id,
+                "requester_name": account.name,
+                "recipient_id": charge["recipient_id"],
+                "recipient_name": charge["recipient_name"] or charge["cartridge_name"],
+                "cartridge_id": charge["cartridge_id"],
+                "cartridge_name": charge["cartridge_name"],
+                "currency": charge["currency"],
+                "micros": 0,
+            }
+            key = (account.id, charge["recipient_id"], charge["currency"])
+            # Unassigned creditors remain identifiable by their cartridge.
+            summary_key = (*key, None if charge["recipient_id"] else charge["cartridge_id"])
+            for target, identity in (
+                (totals, summary_key),
+                (cartridges, (*key, charge["cartridge_id"])),
+            ):
+                row = target.setdefault(identity, dict(entry))
+                row["micros"] += charge["outstanding_micros"]
+    return (
+        [{**row, "owed": money(row["micros"])} for row in totals.values()],
+        [{**row, "owed": money(row["micros"])} for row in cartridges.values()],
+    )
+
+
 def decide_request(
     session: Session, actor: Actor, request: BillingRequest, approve: bool, reason: str
 ) -> None:

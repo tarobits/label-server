@@ -97,7 +97,10 @@ def test_direct_print_records_same_requester_and_authorizer_with_automatic_trigg
     assert batch["attribution_summary"] == [{"attribution": job["attribution"], "copies": 2}]
     attempt = detail(admin, batch["id"])
     assert [item["attribution"] for item in attempt["items"]] == [job["attribution"]] * 2
-    assert alice.get("/api/batches").json() == []
+    personal = alice.get("/api/batches").json()
+    assert len(personal) == 1 and personal[0]["redacted"]
+    assert personal[0]["trigger"] is None
+    assert personal[0]["attribution_summary"] == [{"attribution": job["attribution"], "copies": 2}]
     assert bob.get(f"/api/batches/{batch['id']}").status_code == 403
     assert bob.get(f"/api/jobs/{job['id']}").status_code == 403
 

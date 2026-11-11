@@ -127,7 +127,14 @@ export interface LabelInformation {
   printer_name: string | null
   fields: { name: string; label: string; value: string }[]
 }
+export interface Payer {
+  kind: 'user' | 'group'
+  id: string
+  name: string
+  note?: string
+}
 export interface Job extends LabelInformation {
+  payers?: Payer[]
   notify_on_completion: boolean
   attribution: PrintAttribution
   owner_id: string
@@ -202,10 +209,12 @@ export interface BatchTrigger {
   }
 }
 export interface Batch {
+  redacted?: boolean
+  payers?: Payer[]
   consumption_source?: 'estimated' | 'measured' | 'reported' | null
   print_plan?: PrintPlan | null
   process_names?: string[]
-  trigger: BatchTrigger
+  trigger: BatchTrigger | null
   attribution_summary: { attribution: PrintAttribution; copies: number }[]
   printer_id: string
   id: string
@@ -214,7 +223,7 @@ export interface Batch {
   created_at: number
   finished_at: number | null
   error: string | null
-  estimated_mm: number
+  estimated_mm: number | null
   consumed_mm: number | null
   shortage_warning: boolean
 }

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.access import Actor
 from app.job_access_models import JobAccessHold
-from app.models import Batch, BatchItem, PrintJob, User
+from app.models import Batch, BatchItem, LabelCopy, PrintJob, User
 
 
 def actor_snapshot(actor: Actor) -> dict[str, str] | None:
@@ -80,15 +80,20 @@ def job_attribution(session: Session, job: PrintJob) -> dict[str, Any]:
     return result
 
 
-def batch_audit(session: Session, batch: Batch) -> dict[str, Any]:
-    """History depends exclusively on saved attempts, never current identity data."""
+def batch_audit(session: Session, batch: Batch, owner_id: str | None = None) -> dict[str, Any]:
+    """Human attribution uses saved attempts; payer details follow the current ledger."""
+    from app.billing import batch_payers
+
     summary: dict[str, dict[str, Any]] = {}
     snapshot: dict[str, Any] | None
-    for snapshot in session.scalars(
-        select(BatchItem.attribution)
-        .where(BatchItem.batch_id == batch.id)
-        .order_by(BatchItem.position)
-    ):
+    query = select(BatchItem.attribution).where(BatchItem.batch_id == batch.id)
+    if owner_id is not None:
+        query = (
+            query.join(LabelCopy, LabelCopy.id == BatchItem.copy_id)
+            .join(PrintJob)
+            .where(PrintJob.owner_id == owner_id)
+        )
+    for snapshot in session.scalars(query.order_by(BatchItem.position)):
         attribution: dict[str, Any] = copy.deepcopy(snapshot) if snapshot else unknown_attribution()
         key = json.dumps(attribution, sort_keys=True)
         if key not in summary:
@@ -104,4 +109,5 @@ def batch_audit(session: Session, batch: Batch) -> dict[str, Any]:
             "flush_request_id": None,
         },
         "attribution_summary": list(summary.values()),
+        "payers": batch_payers(session, batch, owner_id),
     }

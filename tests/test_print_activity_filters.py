@@ -25,7 +25,9 @@ def test_activity_filters_counts_and_choices_use_authorized_frozen_attempts(acco
     choices = admin.get("/api/batches/filters").json()
     assert {row["id"] for row in choices["requesters"]} == {"alice", "bob"}
     assert {row["id"] for row in choices["authorizers"]} == {"administrator"}
-    assert alice.get("/api/batches/filters").json()["requesters"] == []
+    assert alice.get("/api/batches/filters").json()["requesters"] == [{"id": "alice", "name": "alice"}]
     assert alice.get("/api/batches/page?requester_id=bob").json()["total"] == 0
     set_permissions(admin, "alice", "view_activity")
     assert alice.get("/api/batches/page?requester_id=bob").json()["total"] == 1
+    assert alice.get("/api/batches/page?printer_id=main").json()["total"] == 2
+    assert [row["id"] for row in alice.get("/api/batches/filters").json()["printers"]] == ["main"]

@@ -92,7 +92,8 @@ def test_change_records_actor_source_target_reason_and_keeps_requester(accounts)
     assert event["reason"] == "Printer offline"
     assert set(event["copy_ids"]) == {c["id"] for c in job["labels"]}
     assert saved["attribution"]["destination_changes"] == [event]
-    assert history(alice)["total"] == 0
+    assert history(alice)["total"] == 1
+    assert history(alice)["items"][0]["target"] == {"id": "", "name": "Restricted printer"}
     assert history(bob)["total"] == 1
     assert change(bob, target, job).status_code == 409  # No duplicate audit or application.
     with admin.app.state.factory() as session:
@@ -140,6 +141,51 @@ def test_revoked_authorizer_pauses_substituted_work(accounts, revocation):
         assert not job_eligible(session, session.get(PrintJob, job["id"]))
         reconcile_access_holds(session)
     assert admin.get(f"/api/jobs/{job['id']}").json()["access_hold"]["status"] == "held"
+
+
+def test_personal_change_history_filters_before_pagination_and_redacts_inventory(accounts):
+    admin, alice, bob, target, tape, own = setup(accounts)
+    other = direct(bob, tape, text="Other user's label")
+    assert change(admin, target, own, other).status_code == 200
+    assert change(admin, "main", own, other).status_code == 200
+    grant(admin, "alice", {})
+    grant(admin, "bob", {})
+    first = alice.get("/api/printer-changes/page?limit=1").json()
+    second = alice.get(
+        "/api/printer-changes/page",
+        params={"limit": 1, "offset": 1, "before": first["before"]},
+    ).json()
+    assert first["total"] == second["total"] == 2
+    assert first["items"][0]["id"] != second["items"][0]["id"]
+    for event in first["items"] + second["items"]:
+        assert event["job_id"] == own["id"]
+        assert set(event["copy_ids"]) == {item["id"] for item in own["labels"]}
+        assert event["source_id"] == event["target_id"] == ""
+        assert event["source"] == event["target"] == {"id": "", "name": "Restricted printer"}
+    assert alice.get("/api/printer-changes/page?offset=2").json()["items"] == []
+    assert {event["job_id"] for event in history(bob)["items"]} == {other["id"]}
+    assert history(admin)["total"] == 4
+    grant(admin, "alice", {"main": "moderator"})
+    assert history(alice)["total"] == 4
+    # Deleting a job cannot make its retained event visible to unrelated users.
+    with admin.app.state.factory.begin() as session:
+        session.add(
+            QueueDestinationChange(
+                job_id="deleted-job",
+                job_name="Private deleted job",
+                run_id=None,
+                copy_ids=["deleted-copy"],
+                actor={"id": "alice", "name": "alice"},
+                source_id="main",
+                target_id=target,
+                source={"id": "main", "name": "Mock printer"},
+                target={"id": target, "name": "Packing"},
+                reason="Private reason",
+            )
+        )
+    grant(admin, "alice", {})
+    assert history(alice)["total"] == 2
+    assert history(admin)["total"] == 5
 
 
 @pytest.mark.parametrize("state", [State.PRINTING, State.NEEDS_REVIEW, State.CANCELLED])

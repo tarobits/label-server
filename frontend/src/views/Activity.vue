@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import { useLiveRefresh } from '../live'
@@ -7,6 +7,7 @@ import { useWorkspaceStore, date, metres } from '../workspace'
 import Badge from '../components/Badge.vue'
 import { useAuthStore } from '../auth'
 import PrintAttribution from '../components/PrintAttribution.vue'
+import PaymentAttribution from '../components/PaymentAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
 import ActivityLabels from '../components/ActivityLabels.vue'
 import ActivityCleanup from '../components/ActivityCleanup.vue'
@@ -16,6 +17,7 @@ import { useHistoryPage } from '../history'
 import type { Batch } from '../types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
+const personalOnly = computed(() => !auth.anyPrinter('view_activity'))
 const route = useRoute(),
   router = useRouter()
 const filterFields = [
@@ -25,8 +27,18 @@ const filterFields = [
   { key: 'authorizer_id', title: 'Authorizer', options: 'authorizers' },
 ]
 const choices = ref<Record<string, { id: string; name: string }[]>>({})
+let filterGeneration = 0
+watch(
+  () => JSON.stringify(auth.user),
+  () => {
+    filterGeneration++
+    choices.value = {}
+  },
+)
 useLiveRefresh(async () => {
-  choices.value = await api('/batches/filters')
+  const ticket = ++filterGeneration
+  const result = await api<Record<string, { id: string; name: string }[]>>('/batches/filters')
+  if (ticket === filterGeneration) choices.value = result
 }, 10000)
 const batches = reactive(
   useHistoryPage<Batch>(
@@ -36,12 +48,19 @@ const batches = reactive(
       Object.fromEntries(
         filterFields.map((field) => [
           field.key,
-          typeof route.query[field.key] === 'string' ? (route.query[field.key] as string) : '',
+          // Personal activity is already scoped by job ownership on the server,
+          // including old attempts without a requester attribution snapshot.
+          field.key === 'requester_id' && personalOnly.value
+            ? ''
+            : typeof route.query[field.key] === 'string'
+              ? (route.query[field.key] as string)
+              : '',
         ]),
       ),
   ),
 )
 function setFilter(key: string, event: Event) {
+  if (key === 'requester_id' && personalOnly.value) return
   void router.push({
     query: {
       ...route.query,
@@ -70,15 +89,28 @@ async function purged(count: number) {
     <div class="field-row activity-filters">
       <label v-for="field in filterFields" :key="field.key"
         >{{ field.title
-        }}<select :value="route.query[field.key] ?? ''" @change="setFilter(field.key, $event)">
-          <option value="">All</option>
-          <option
-            v-for="option in choices[field.options] ?? []"
-            :key="option.id"
-            :value="option.id"
-          >
-            {{ option.name }}
+        }}<select
+          :value="
+            field.key === 'requester_id' && personalOnly
+              ? auth.user?.id
+              : (route.query[field.key] ?? '')
+          "
+          :disabled="field.key === 'requester_id' && personalOnly"
+          @change="setFilter(field.key, $event)"
+        >
+          <option v-if="field.key === 'requester_id' && personalOnly" :value="auth.user?.id">
+            {{ auth.user?.username }}
           </option>
+          <template v-else>
+            <option value="">All</option>
+            <option
+              v-for="option in choices[field.options] ?? []"
+              :key="option.id"
+              :value="option.id"
+            >
+              {{ option.name }}
+            </option>
+          </template>
         </select></label
       >
     </div>
@@ -123,24 +155,31 @@ async function purged(count: number) {
                 +{{ batch.process_names!.length - 1 }}</span
               ></strong
             ><small
-              >{{ w.cartridgeName(batch.cartridge_id) }} ·
-              {{ w.destinationName(batch.printer_id) }} · {{ date(batch.created_at) }} ·
-              {{
-                batch.consumed_mm === null || batch.consumption_source === 'estimated'
-                  ? 'Estimated'
-                  : batch.consumption_source === 'reported'
-                    ? 'Reported'
-                    : batch.consumption_source === 'measured'
-                      ? 'Measured'
-                      : 'Accounted'
+              >{{
+                batch.cartridge_id ? w.cartridgeName(batch.cartridge_id) : 'Restricted cartridge'
               }}
-              {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</small
+              ·
+              {{ batch.printer_id ? w.destinationName(batch.printer_id) : 'Restricted printer' }} ·
+              {{ date(batch.created_at)
+              }}<template v-if="batch.estimated_mm != null">
+                ·
+                {{
+                  batch.consumed_mm === null || batch.consumption_source === 'estimated'
+                    ? 'Estimated'
+                    : batch.consumption_source === 'reported'
+                      ? 'Reported'
+                      : batch.consumption_source === 'measured'
+                        ? 'Measured'
+                        : 'Accounted'
+                }}
+                {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</template
+              ></small
             ><small v-if="batch.shortage_warning" class="danger-text"
               >Batch estimate exceeded remaining tape.</small
             >
           </div>
           <Badge :state="batch.state" /><RouterLink :to="`/batches/${batch.id}`">{{
-            batch.state === 'needs_review' ? 'Review batch →' : 'Details →'
+            batch.state === 'needs_review' && !batch.redacted ? 'Review batch →' : 'Details →'
           }}</RouterLink>
           <RouterLink
             v-if="!['printing', 'needs_review'].includes(batch.state)"
@@ -148,7 +187,9 @@ async function purged(count: number) {
             >Pack labels →</RouterLink
           >
         </div>
-        <BatchTrigger :trigger="batch.trigger" />
+        <p v-if="batch.redacted" class="muted">Your labels</p>
+        <BatchTrigger v-else :trigger="batch.trigger" />
+        <PaymentAttribution :payers="batch.payers" />
         <div class="batch-attributions">
           <section
             v-for="(entry, index) in batch.attribution_summary ?? []"

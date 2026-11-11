@@ -225,7 +225,7 @@ const links = computed(() =>
           permissions.includes('cartridge.view'),
         )
       )
-    if (path === '/activity') return w.printers.some((p) => auth.printer(p.id, 'view_activity'))
+    if (path === '/activity') return true
     return true
   }),
 )
@@ -256,11 +256,7 @@ const allowed = computed(() => {
       )
     )
   if (route.path === '/activity' || route.path.startsWith('/batches/'))
-    return w.printers.some(
-      (p) =>
-        auth.printer(p.id, 'view_activity') ||
-        (route.path.startsWith('/batches/') && auth.printer(p.id, 'review')),
-    )
+    return true
   if (route.path === '/templates/new') return auth.canCreateTemplates
   if (route.path.endsWith('/edit')) return true
   if (route.path === '/new')
