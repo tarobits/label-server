@@ -508,7 +508,7 @@ function addPropertyInput() {
   palette.value = false
 }
 function disconnect(node: LogicNode, index: number) {
-  if (graphLocked.value) return
+  if (graphLocked.value) return false
   const candidate = clone(node)
   const source = state.value.nodes.find((current) => current.id === node.inputs[index])
   candidate.inputs[index] = null
@@ -524,8 +524,10 @@ function disconnect(node: LogicNode, index: number) {
     }
     Object.assign(node, candidate)
     changed()
+    return true
   } catch (failure) {
     announcement.value = errorMessage(failure)
+    return false
   }
 }
 function removeSelected() {
@@ -646,6 +648,13 @@ function choose(id: string, port: number) {
   const source = state.value.nodes.find((node) => node.id === (port === -1 ? id : first.id))!
   const destination = state.value.nodes.find((node) => node.id === (port === -1 ? first.id : id))!
   const index = port === -1 ? first.port : port
+  if (destination.inputs[index] === source.id) {
+    if (disconnect(destination, index)) {
+      active.value = null
+      announcement.value = `Disconnected ${label(source)} from ${label(destination)}, ${socketLabel(destination, index)}.`
+    }
+    return
+  }
   try {
     canConnect(source, destination, index, state.value.nodes, catalog.value!, upgraded())
     destination.inputs[index] = source.id

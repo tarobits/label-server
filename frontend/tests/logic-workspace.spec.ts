@@ -139,6 +139,47 @@ test('node canvas builds conditional heights with intermediates and preserves la
   await workspace.getByRole('button', { name: 'Template logic', exact: true }).click()
   await expect(workspace.getByLabel('Logic node canvas', { exact: true })).toBeHidden()
 })
+test('retracing a connection disconnects only that wire and supports undo and drag', async ({
+  page,
+  request,
+}) => {
+  const original = await template(request)
+  await page.goto(`/#/templates/${original.id}/edit`)
+  const workspace = page.locator('.logic-workspace')
+  await workspace.getByRole('button', { name: 'Template logic', exact: true }).click()
+  await add(workspace, 'Filled')
+  await connect(workspace, 'Subtitle', 'Filled Value')
+  await output(workspace, 'text1', 'content')
+  await connect(workspace, 'Subtitle', 'text1.content Value')
+  const wires = workspace.locator('.logic-wires path')
+  await expect(wires).toHaveCount(2)
+  await connect(workspace, 'Subtitle', 'text1.content Value')
+  await expect(wires).toHaveCount(1)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(wires).toHaveCount(2)
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(wires).toHaveCount(1)
+  await connect(workspace, 'Subtitle', 'text1.content Value', true)
+  const input = workspace.getByRole('button', {
+    name: 'text1.content Value input (text)',
+    exact: true,
+  })
+  const source = workspace.getByRole('button', { name: 'Subtitle output (text)', exact: true })
+  await input.focus()
+  await input.press('Enter')
+  await source.focus()
+  await source.press('Space')
+  await expect(wires).toHaveCount(1)
+  await connect(workspace, 'Subtitle', 'text1.content Value')
+  await source.dragTo(input)
+  await settled(workspace)
+  await expect(wires).toHaveCount(1)
+  await save(page, 2)
+  await page.reload()
+  await workspace.getByRole('button', { name: 'Template logic', exact: true }).click()
+  await expect(wires).toHaveCount(1)
+})
+
 test('socket cancellation, incompatible types, cycles, dragging and length modes', async ({
   page,
   request,
