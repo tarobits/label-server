@@ -242,11 +242,16 @@ def test_missing_asset_has_actionable_error(tmp_path, monkeypatch):
     monkeypatch.setattr(
         update, "release_request", lambda *args: {"tag_name": "v2.0.0", "assets": []}
     )
-    with pytest.raises(update.UpdateError, match="omit --prebuilt-frontend"):
+    with pytest.raises(update.UpdateError, match="use --build-frontend"):
         update.download_frontend("example/repo", "v2.0.0", tmp_path, None)
 
 
 def test_prebuilt_flag_native_only():
+    assert update.options(["--mode", "native"]).prebuilt_frontend
+    assert not update.options(["--mode", "native", "--build-frontend"]).prebuilt_frontend
+    assert not update.options(["--mode", "docker"]).prebuilt_frontend
+    with pytest.raises(SystemExit):
+        update.options(["--mode", "native", "--build-frontend", "--prebuilt-frontend"])
     assert update.options(["--mode", "native", "--prebuilt-frontend"]).prebuilt_frontend
     with pytest.raises(SystemExit):
         update.options(["--mode", "docker", "--prebuilt-frontend"])
@@ -315,8 +320,8 @@ def test_handoff_new_source_checkout_is_clean_and_installation_is_untouched(
     assert git(checkout, "rev-parse", "HEAD") == newest
     assert not git(checkout, "status", "--porcelain")
     assert (data / "labels.db").read_bytes() == b"original database"
-    saved = next(args.backup_dir.glob("updater-*.py"))
-    monkeypatch.setattr(update, "__file__", str(saved))
+    assert list(args.backup_dir.glob("updater-*.py"))
+    assert old_script.read_text().strip() == (checkout / "scripts/update.py").read_text().strip()
     assert not update.handoff_updater(args, newest, "v2.0.0")
 
 
@@ -355,6 +360,7 @@ def test_changed_updater_exits_before_download_and_can_resume(
     git(root, "switch", "main")
     with monkeypatch.context() as patch:
         preflight_only((root, data, previous, newest), patch)
+        patch.setattr(update, "__file__", str(root / "scripts/update.py"))
         patch.setattr(
             update, "download_frontend", lambda *args: pytest.fail("Download must follow handoff")
         )
@@ -372,22 +378,78 @@ def test_changed_updater_exits_before_download_and_can_resume(
     invocation = shlex.split(output.strip().splitlines()[-1])
     if mode == "native":
         assert invocation.pop(0) == "sudo"
-    saved = Path(invocation[1])
-    assert saved.parent == args.backup_dir
-    assert saved.read_text().strip() == revised.strip()
+    assert Path(invocation[0]) == root / "update.sh"
+    saved = next(args.backup_dir.glob("updater-*.py"))
+    assert saved.read_text() == Path(update.__file__).read_text()
     assert saved.stat().st_mode & 0o777 == 0o600
-    resumed = update.options(invocation[2:])
+    assert (root / "scripts/update.py").read_text().strip() == revised.strip()
+    resumed = update.options(invocation[1:])
     assert resumed.tag == "v2.0.0" and resumed.prebuilt_frontend == (mode == "native")
     assert resumed.checkout == root and resumed.install_dir == root
     assert git(root, "rev-parse", "HEAD") == previous
-    assert not git(root, "status", "--porcelain")
+    assert git(root, "status", "--porcelain") == "M scripts/update.py"
     assert (data / "labels.db").read_bytes() == b"original database"
     assert not list(args.backup_dir.glob("*/update.json"))
-    # Simulate the next invocation executing the saved release updater.
-    monkeypatch.setattr(update, "__file__", str(saved))
+    # Simulate the wrapper executing its replaced updater on the next invocation.
+    monkeypatch.setattr(update, "__file__", str(root / "scripts/update.py"))
     test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         (root, data, previous, newest), monkeypatch, mode, None, prebuilt=(mode == "native")
     )
+
+
+@pytest.mark.parametrize("failure", ["invalid", "backup", "replace"])
+def test_updater_refresh_failure_preserves_old_script_and_can_retry(tmp_path, monkeypatch, failure):
+    root = tmp_path / "checkout"
+    target = root / "scripts/update.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("# old updater\n")
+    target.chmod(0o755)
+    backup = tmp_path / "backups"
+    backup.mkdir()
+    args = update.options(
+        ["--mode", "native", "--checkout", str(root), "--backup-dir", str(backup)]
+    )
+    monkeypatch.setattr(update, "__file__", str(target))
+    monkeypatch.setattr(update, "command", lambda *a, **kw: "# new updater")
+    with monkeypatch.context() as patch:
+        if failure == "invalid":
+            patch.setattr(update, "command", lambda *a, **kw: "def invalid(")
+        elif failure == "backup":
+            patch.setattr(
+                update.tempfile, "mkstemp", lambda **kw: (_ for _ in ()).throw(OSError("disk full"))
+            )
+        else:
+            patch.setattr(
+                update.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("replace failed"))
+            )
+        with pytest.raises((update.UpdateError, OSError)):
+            update.handoff_updater(args, "a" * 40, "v2.0.0")
+    assert target.read_text() == "# old updater\n"
+    assert not list(target.parent.glob(".update-*"))
+    assert update.handoff_updater(args, "a" * 40, "v2.0.0")
+    assert target.read_text() == "# new updater\n"
+    assert target.stat().st_mode & 0o777 == 0o755
+    assert all(p.read_text() == "# old updater\n" for p in backup.glob("updater-*.py"))
+    assert not update.handoff_updater(args, "a" * 40, "v2.0.0")
+
+
+@pytest.mark.parametrize("other_change", [False, True])
+def test_refreshed_updater_cannot_hide_unreleased_or_unrelated_changes(
+    deployment, monkeypatch, other_change
+):
+    root, data, previous, newest = deployment
+    preflight_only(deployment, monkeypatch)
+    target = root / "scripts/update.py"
+    target.write_text(target.read_text() + "\n# Not in the release\n")
+    monkeypatch.setattr(update, "__file__", str(target))
+    if other_change:
+        (root / "version.txt").write_text("user change")
+    args = update.options(["--mode", "native", "--checkout", str(root)])
+    with pytest.raises(update.UpdateError, match="local changes|does not match"):
+        update.update(args)
+    assert git(root, "rev-parse", "HEAD") == previous
+    assert (data / "labels.db").read_bytes() == b"original database"
+    assert target.read_text().endswith("# Not in the release\n")
 
 
 @pytest.fixture(autouse=True)
@@ -405,7 +467,7 @@ def git(root, *args):
 @pytest.fixture
 def deployment(tmp_path, monkeypatch):
     monkeypatch.setattr(update.sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr("builtins.input", lambda _: "yes")
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Updater must not prompt"))
     root = tmp_path / "labels"
     root.mkdir()
     git(root, "init", "--initial-branch=main")
@@ -514,6 +576,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
         for directory in {root, install}:
             with (directory / ".env").open("a") as file:
                 file.write(setting)
+    original_environment = (install / ".env").read_text()
 
     def release(repository, credential=None):
         assert credential == token
@@ -573,7 +636,7 @@ def test_updates_exact_tag_preserves_main_and_backups_and_rolls_back_on_failure(
                 require_value(archive.extractfile("data/assets/images/art.image")).read()
                 == b"original image"
             )
-        assert (backup.parent / "environment.env").read_text() == (root / ".env").read_text()
+        assert (backup.parent / "environment.env").read_text() == original_environment
         with tarfile.open(backup.parent / "source.tar.gz") as archive:
             assert require_value(archive.extractfile("version.txt")).read() == b"old"
         assert git(root, "rev-parse", "HEAD") == newest

@@ -27,7 +27,7 @@ from dotenv import dotenv_values
 from sqlalchemy import Connection, Engine, inspect, text
 from sqlalchemy.engine import make_url
 
-from app.binary_json import check_packet_size, encode_binary
+from app.assets.binary_json import check_packet_size, encode_binary
 from app.database_lock import database_owner, lock_name
 from app.db import make_engine
 
@@ -106,13 +106,13 @@ def stopped_source(path: Path) -> Generator[sqlite3.Connection, None, None]:
 
 
 def schema_tables(source: sqlite3.Connection) -> dict[str, list[str]]:
-    from app import (  # noqa: F401
-        billing_models,
-        job_access_models,
-        queue_routing_models,
-        request_models,
-    )
+    from app.accounts import billing_models  # noqa: F401
     from app.models import Base
+    from app.printing import (
+        job_access_models,  # noqa: F401
+        queue_routing_models,  # noqa: F401
+        request_models,  # noqa: F401
+    )
 
     actual = {
         row[0]

@@ -78,7 +78,43 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Resolve the GitHub version and show the plan without changing anything",
     )
-    args = parser.parse_args(argv)
+    invocation = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(invocation)
+    if not invocation and sys.stdin.isatty():
+        print("Installation setup — press Enter to accept the displayed default.")
+        print("1. Service and installation directory")
+        args.role = update.prompt_value("Server role", "main", ("main", "companion"))
+        args.install_dir = Path(update.prompt_value("Installation directory", "/opt/labels"))
+        print("2. Configuration")
+        if args.role == "companion":
+            args.companion_config = Path(
+                update.prompt_value("Private companion configuration file")
+            )
+        else:
+            database = update.prompt_value("Database", "sqlite", ("sqlite", "mariadb"))
+            if database == "mariadb":
+                args.database_url_file = Path(update.prompt_value("Private database URL file"))
+            args.host = update.prompt_value("Bind address", "127.0.0.1")
+            while True:
+                port = update.prompt_value("Port", "8000")
+                if port.isdecimal() and 1024 <= int(port) <= 65535:
+                    args.port = int(port)
+                    break
+                print("Enter a port between 1024 and 65535.")
+            args.public_url = update.prompt_value("Public URL", f"http://localhost:{args.port}")
+        print("3. Release")
+        release = update.prompt_value("Release selection", "stable", ("stable", "specific"))
+        if release == "specific":
+            args.ref = update.prompt_value("Release tag or branch")
+        print("4. Installation options")
+        args.skip_packages = (
+            update.prompt_value("System dependencies", "install", ("install", "existing"))
+            == "existing"
+        )
+        args.no_start = (
+            update.prompt_value("Start the service after installation", "yes", ("yes", "no"))
+            == "no"
+        )
     args.companion_overrides = {
         name: getattr(args, name)
         for name in ("host", "port", "public_url")

@@ -114,13 +114,13 @@ def test_unattended_operation_requires_explicit_yes(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["native", "docker"])
-def test_declined_update_does_not_fetch_backup_or_change_installation(
+def test_update_check_does_not_fetch_backup_prompt_or_change_installation(
     deployment, monkeypatch, mode
 ):
     preflight_only(deployment, monkeypatch)
     root, _, previous, _ = deployment
-    monkeypatch.setattr("builtins.input", lambda _: "")
-    args = update.options(["--mode", mode, "--checkout", str(root)])
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Updater must not prompt"))
+    args = update.options(["--mode", mode, "--checkout", str(root), "--check"])
     update.update(args)
     assert git(root, "rev-parse", "HEAD") == previous
     assert not (root / ".git/FETCH_HEAD").exists()

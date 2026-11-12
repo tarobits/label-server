@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.asset_import import archive_legacy_assets, import_assets  # noqa: E402
+from app.assets.asset_import import archive_legacy_assets, import_assets  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.database_lock import database_owner  # noqa: E402
 from app.db import make_engine, session_factory  # noqa: E402

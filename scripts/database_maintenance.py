@@ -17,7 +17,7 @@ from typing import Any, Iterator
 
 from sqlalchemy import Connection, inspect
 
-from app.binary_json import check_packet_size, decode_binary, encode_binary
+from app.assets.binary_json import check_packet_size, decode_binary, encode_binary
 from app.config import Settings
 from app.database_lock import database_owner
 from app.db import make_engine
@@ -33,13 +33,13 @@ def encode(value: Any) -> bytes:
 
 
 def backup(connection: Connection, path: Path) -> None:
-    from app import (  # noqa: F401
-        billing_models,
-        job_access_models,
-        queue_routing_models,
-        request_models,
-    )
+    from app.accounts import billing_models  # noqa: F401
     from app.models import Base
+    from app.printing import (
+        job_access_models,  # noqa: F401
+        queue_routing_models,  # noqa: F401
+        request_models,  # noqa: F401
+    )
 
     tables = inspect(connection).get_table_names()
     if set(tables) != set(Base.metadata.tables) | {"alembic_version"}:

@@ -108,7 +108,7 @@ def download_frontend(
     if len(matches) != 1:
         raise UpdateError(
             "Selected release has no unique prebuilt frontend. Wait for its release workflow "
-            "to finish, or omit --prebuilt-frontend to build locally."
+            "to finish, or use --build-frontend to build locally."
         )
     asset = matches[0]
     asset_id, size, digest = asset.get("id"), asset.get("size"), asset.get("digest")
@@ -237,15 +237,33 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
         compile(source, "release-updater", "exec")
     except SyntaxError as error:
         raise UpdateError("Selected release updater is not compatible with this Python") from error
+    target = Path(__file__).resolve()
     descriptor, filename = tempfile.mkstemp(
         prefix=f"updater-{commit[:12]}-", suffix=".py", dir=args.backup_dir
     )
     with os.fdopen(descriptor, "w") as output:
-        output.write(source + "\n")
+        output.write(target.read_text())
+        output.flush()
+        os.fsync(output.fileno())
+    # Publish atomically only after the old updater has been backed up. A failed
+    # write leaves the wrapper's existing target usable.
+    descriptor, replacement = tempfile.mkstemp(prefix=".update-", dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(source + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        shutil.copymode(target, replacement)
+        os.replace(replacement, target)
+    finally:
+        Path(replacement).unlink(missing_ok=True)
     invocation = [
         *(["sudo"] if args.mode == "native" else []),
-        sys.executable,
-        filename,
+        str(
+            target.parent.parent / "update.sh"
+            if target.parent.name == "scripts"
+            else args.checkout / "update.sh"
+        ),
         *args.invocation,
         "--checkout",
         str(args.checkout),
@@ -259,8 +277,9 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
         args.mode,
     ]
     print(
-        "The selected release contains a different updater. No shutdown or installation "
-        "has been performed. Relaunch the release's updater with:\n\n" + shlex.join(invocation),
+        f"Updater replaced; previous updater saved to {filename}. "
+        "The service has not been stopped. Rerun update.sh to continue:\n\n"
+        + shlex.join(invocation),
         flush=True,
     )
     return True
@@ -268,6 +287,104 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
 
 class UpdateError(Exception):
     pass
+
+
+def environment_entries(text: str) -> Generator[tuple[str, str], None, None]:
+    """Read assignments with their preceding comments without evaluating values.
+
+    Quoted multiline values stay together, so a line inside a secret cannot be
+    mistaken for another setting. Commented examples remain commented.
+    """
+    lines = iter(text.splitlines(keepends=True))
+    pending: list[str] = []
+    for line in lines:
+        pending.append(line)
+        match = re.match(r"^\s*(#\s*)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)", line)
+        if not match:
+            continue
+        value = match[3].lstrip()
+        if not match[1] and value.startswith(("'", '"')):
+            quote = value[0]
+            remainder = value[1:]
+            escaped = False
+            while True:
+                closed = False
+                for char in remainder:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == quote:
+                        closed = True
+                        break
+                if closed:
+                    break
+                continuation = next(lines, None)
+                if continuation is None:
+                    raise UpdateError(
+                        "Unterminated quoted environment value; configuration unchanged"
+                    )
+                pending.append(continuation)
+                remainder = continuation
+        yield match[2], "".join(pending)
+        pending = []
+
+
+def sync_environment_files(args: argparse.Namespace) -> None:
+    """Append missing example settings after rollback backups, before startup."""
+    if args.no_env_update:
+        return
+    for name in (".env", ".env.companion"):
+        target = args.install_dir / name
+        example = args.checkout / f"{name}.example"
+        if target.is_symlink():
+            raise UpdateError(f"Cannot update symlinked {name}; use --no-env-update")
+        if not target.is_file() or not example.is_file():
+            continue
+        original = target.read_bytes()
+        metadata = target.stat()
+        text = original.decode("utf-8")
+        keys = {key for key, _ in environment_entries(text)}
+        additions = []
+        for key, block in environment_entries(example.read_text()):
+            if key not in keys:
+                additions.append(block)
+                keys.add(key)
+        if not additions:
+            continue
+        content = text + ("\n" if text and not text.endswith("\n") else "")
+        content += "\n" + "".join(additions)
+        descriptor, temporary = tempfile.mkstemp(prefix=f"{name}.update-", dir=target.parent)
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                output.write(content.encode("utf-8"))
+                current = os.fstat(output.fileno())
+                if (current.st_uid, current.st_gid) != (metadata.st_uid, metadata.st_gid):
+                    os.fchown(output.fileno(), metadata.st_uid, metadata.st_gid)
+                os.fchmod(output.fileno(), stat.S_IMODE(metadata.st_mode))
+                output.flush()
+                os.fsync(output.fileno())
+            latest = target.stat()
+            identity = (
+                "st_ino",
+                "st_dev",
+                "st_mtime_ns",
+                "st_ctime_ns",
+                "st_size",
+                "st_mode",
+                "st_uid",
+                "st_gid",
+            )
+            if (
+                target.is_symlink()
+                or target.read_bytes() != original
+                or any(getattr(latest, field) != getattr(metadata, field) for field in identity)
+            ):
+                raise UpdateError(f"{name} changed during update; refusing to overwrite it")
+            os.replace(temporary, target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        print(f"Updated {name}: added {len(additions)} missing settings.", flush=True)
 
 
 def confirm_operation(question: str, *, yes: bool) -> bool:
@@ -284,6 +401,20 @@ def confirm_operation(question: str, *, yes: bool) -> bool:
     if not accepted:
         print("Cancelled. No installation or update was performed.")
     return accepted
+
+
+def prompt_value(question: str, default: str = "", choices: tuple[str, ...] = ()) -> str:
+    """Prompt for a missing choice; cancellation must never imply consent."""
+    suffix = f" ({'/'.join(choices)})" if choices else ""
+    suffix += f" [{default}]" if default else ""
+    while True:
+        try:
+            value = input(question + suffix + ": ").strip() or default
+        except (EOFError, KeyboardInterrupt):
+            raise UpdateError("Cancelled; no deployment changes made") from None
+        if value and (not choices or value in choices):
+            return value
+        print("Choose " + ", ".join(choices) if choices else "A value is required.")
 
 
 def command(
@@ -582,7 +713,7 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         "-y",
         "--yes",
         action="store_true",
-        help="Confirm the displayed update plan without prompting",
+        help="Accepted for compatibility; updates already run without prompting",
     )
     parser.add_argument(
         "--channel",
@@ -592,9 +723,20 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--tag", help="Published release tag to install; overrides --channel")
     parser.add_argument(
+        "--no-env-update",
+        action="store_true",
+        help="Do not compare existing environment files with release examples or add settings",
+    )
+    frontend = parser.add_mutually_exclusive_group()
+    frontend.add_argument(
         "--prebuilt-frontend",
         action="store_true",
-        help="Native only: download and verify the release frontend instead of running npm",
+        help=argparse.SUPPRESS,
+    )
+    frontend.add_argument(
+        "--build-frontend",
+        action="store_true",
+        help="Build the native frontend locally instead of downloading release assets",
     )
     parser.add_argument(
         "--checkout",
@@ -659,6 +801,7 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--install-dir is for native deployments; Compose runs from --checkout")
     if args.mode == "docker" and args.prebuilt_frontend:
         parser.error("--prebuilt-frontend is for native deployments only")
+    args.prebuilt_frontend = args.mode == "native" and not args.build_frontend
     return args
 
 
@@ -1299,15 +1442,25 @@ def update(args: argparse.Namespace) -> None:
             "--checkout must be a Git checkout or a new directory. For a copied native installation, use --checkout /opt/labels-source --install-dir /opt/labels"
         )
     repository = args.repository or DEFAULT_REPOSITORY
+    changes = ""
     if existing:
         remote = command(["git", "remote", "get-url", "origin"], checkout, capture=True)
         actual = github_repository(remote)
         if args.repository and repository.lower() != actual.lower():
             raise UpdateError("--repository does not match origin")
         repository = actual
-        if command(
+        changes = command(
             ["git", "status", "--porcelain", "--untracked-files=all"], checkout, capture=True
-        ):
+        )
+        # The preceding invocation may have replaced only the updater. Accept
+        # that exception only when it is the exact script currently executing;
+        # verify it against the fetched release again before doing any work.
+        refreshed_updater = (
+            changes == "M scripts/update.py"
+            and (checkout / "scripts/update.py").read_bytes() == Path(__file__).read_bytes()
+            and not command(["git", "diff", "--cached", "--name-only"], checkout, capture=True)
+        )
+        if changes and not refreshed_updater:
             raise UpdateError("Checkout has local changes; commit or move them before updating")
         if command(["git", "rev-parse", "--show-toplevel"], checkout, capture=True) != str(
             checkout
@@ -1363,8 +1516,6 @@ def update(args: argparse.Namespace) -> None:
     print(
         f"Target: {args.service if args.mode == 'native' else 'Compose project ' + str(args.project_name)}"
     )
-    if not confirm_operation(f"Update {args.role} server to {tag}?", yes=args.yes):
-        return
     args.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = args.install_dir.parent / f".{args.install_dir.name}.update.lock"
     with update_lock(lock_path), ExitStack() as runtime_locks, ExitStack() as database_locks:
@@ -1394,6 +1545,13 @@ def update(args: argparse.Namespace) -> None:
         commit = command(
             ["git", "rev-parse", "--verify", "FETCH_HEAD^{commit}"], checkout, capture=True
         )
+        if (
+            existing
+            and changes
+            and command(["git", "show", f"{commit}:scripts/update.py"], checkout, capture=True)
+            != (checkout / "scripts/update.py").read_text().strip()
+        ):
+            raise UpdateError("Locally changed updater does not match the selected release")
         # Refuse a release that tries to overwrite deployment state or use submodules.
         files = command(
             ["git", "ls-tree", "-r", "--name-only", commit], checkout, capture=True
@@ -1610,7 +1768,12 @@ def update(args: argparse.Namespace) -> None:
                     docker_backup(args, docker, backup)
             record("backed_up")
             changed = True  # Even a failed Git switch may have touched application files.
+            if existing and changes:
+                # The refreshed script is verified above and included in the source
+                # backup. Restore only this path so Git can switch releases normally.
+                command(["git", "restore", "--worktree", "--", "scripts/update.py"], checkout)
             command(["git", "switch", "--force-create", "release", commit], checkout)
+            sync_environment_files(args)
             if args.mode == "native":
                 if args.install_dir != checkout:
                     excludes = [
