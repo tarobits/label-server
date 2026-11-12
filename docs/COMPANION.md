@@ -223,7 +223,7 @@ machine. Register the companion and prepare its private `.env.companion` as abov
 then run from a checkout of a release that includes companion support:
 
 ```sh
-sudo python3 scripts/install.py --role companion \
+sudo ./install.sh --role companion \
   --companion-config "$PWD/.env.companion"
 ```
 
@@ -346,14 +346,14 @@ Native installations use the same updater as the main server:
 
 ```sh
 cd /opt/labels
-sudo python3 scripts/update.py --mode native --check
-sudo python3 scripts/update.py --mode native
+sudo ./update.sh --mode native --check
+sudo ./update.sh --mode native
 ```
 
 `--mode` is optional: the updater detects the matching systemd service or Compose
 containers, including stopped installations. Explicit `--mode native` or
-`--mode docker` overrides detection. Updates ask for confirmation; `--yes` skips
-the prompt for automation, while `--check` remains read-only and never prompts.
+`--mode docker` overrides detection. Updates run without prompts using the default
+options; `--check` remains read-only.
 
 The updater detects `.label-server-role`, with `.env.companion` as a fallback for
 older companion installations, and verifies the systemd entry point. Conflicting
@@ -367,13 +367,13 @@ paused, including communication with the main server and local controls, until
 the health check succeeds. Failed updates restore the previous code and state
 before resuming; an uncertain activation leaves the service stopped for recovery.
 
-To avoid building the frontend on a Pi, use its verified release archive:
+Native updates use the verified release archive by default:
 
 ```sh
-sudo python3 scripts/update.py --mode native --prebuilt-frontend
+sudo ./update.sh --mode native
 ```
 
-The release workflow publishes `label-companion-frontend.zip` separately from
+Use `--build-frontend` to build locally instead. The release workflow publishes `label-companion-frontend.zip` separately from
 `label-server-frontend.zip`. The updater verifies the asset digest, source commit,
 and server role before stopping the service. The archive must exist on the chosen
 release; there is no silent fallback. `--channel beta` and `--tag` work for both roles.

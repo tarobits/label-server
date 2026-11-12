@@ -38,10 +38,16 @@ state under `data/`. It installs the bundled Brother USB rule and supplementary
 ```sh
 git clone https://github.com/tarobits/label-server.git
 cd label-server
-python3 scripts/install.py --check
-sudo python3 scripts/install.py
+./install.sh --check
+sudo ./install.sh
 sudo systemctl status labels.service
 ```
+
+Running `install.sh` without options in a terminal opens a step-by-step wizard
+for the role, destination, configuration, release and service startup. Companion
+setup asks for a private configuration file instead of displaying credentials.
+Supplying any command-line options skips the wizard; use `--yes` as well for
+unattended installation. Both root shell launchers forward all options unchanged.
 
 The default version is GitHub's latest published stable release. No release or
 missing repository access stops installation. To install a particular release
@@ -53,7 +59,7 @@ The default bind address is `127.0.0.1:8000`, for local access or a reverse prox
 For HTTPS behind a reverse proxy, set the externally reachable URL:
 
 ```sh
-sudo python3 scripts/install.py --public-url https://labels.example.com
+sudo ./install.sh --public-url https://labels.example.com
 ```
 
 For direct LAN access, `--host 0.0.0.0` exposes the service on all interfaces.
@@ -73,7 +79,7 @@ For a private repository, clone using your usual GitHub authentication and pass
 an absolute path to a protected token file with repository read access:
 
 ```sh
-sudo python3 scripts/install.py --github-token-file /secure/path/github-token
+sudo ./install.sh --github-token-file /secure/path/github-token
 ```
 
 The installer uses a temporary Git credential helper, stores a private copy in
@@ -204,6 +210,14 @@ reconnect behavior, and physical output on your host before relying on it.
 
 ## Settings and exposure
 
+### Logging
+
+Set `LABEL_LOG_LEVEL` to `DEBUG`, `INFO` (default), `WARNING`, `ERROR` or
+`CRITICAL`. Successful HTTP requests appear only at `DEBUG`; redirects at
+`INFO`, client errors at `WARNING`, and server errors at `ERROR`. Access logs
+omit request query strings. Companion logging uses `LABEL_COMPANION_LOG_LEVEL`.
+
+
 Under **Printers & groups → Configure**, the page timeout bounds each completion
 wait (default 120 seconds). **Cut each label** requests individual labels; disabling
 it requests a strip with final feed. Feed and leader estimates can be adjusted in
@@ -247,7 +261,7 @@ links. Administrators configure ntfy or email endpoints and their event/destinat
 filters in **Administration**. Personal subscriptions use verified account email
 addresses and recheck the subscriber's current permissions at delivery time.
 Configure ntfy topic read permissions separately. See
-[notification behavior](../README.md#notifications-and-integrations) and
+[notification behavior](NOTIFICATIONS.md) and
 [access boundaries](ACCESS_CONTROL.md#notifications).
 
 The anonymous `/api/health` healthcheck proves the server responds, not that the
@@ -382,15 +396,16 @@ cannot identify a deployment; it does not silently default to another mode.
 
 Before fetching source, creating backups or stopping the application, the updater
 displays the selected release, detected/overridden mode, role, paths and plan, then
-asks for confirmation. Only `y` or `yes` continues. Unattended updates require
-`--yes` (or `-y`); piped input is not treated as interactive confirmation.
+continues without prompts. With no options it uses the latest stable release and
+downloads the prebuilt frontend for native installations. `--yes` (or `-y`) is
+still accepted for compatibility but is no longer required.
 `--check` performs read-only discovery and release lookup without prompting.
 
 ```sh
-python3 scripts/update.py --check
-sudo python3 scripts/update.py
-# Explicit override and unattended confirmation:
-sudo python3 scripts/update.py --mode native --yes
+./update.sh --check
+sudo ./update.sh
+# Explicit runtime override:
+sudo ./update.sh --mode native
 ```
 
 The checkout must have a GitHub `origin` and no tracked or untracked local changes.
@@ -405,15 +420,15 @@ Preview the selected release and plan without cloning, fetching, changing files,
 backing up, or managing the service:
 
 ```sh
-python3 scripts/update.py --mode native --check
-python3 scripts/update.py --mode docker --check
+./update.sh --mode native --check
+./update.sh --mode docker --check
 ```
 
 To preview the beta channel or a particular release (example tag):
 
 ```sh
-python3 scripts/update.py --mode native --channel beta --check
-python3 scripts/update.py --mode native --tag v0.12.0-rc.1 --check
+./update.sh --mode native --channel beta --check
+./update.sh --mode native --tag v0.12.0-rc.1 --check
 ```
 
 Remove `--check` to perform the selected update; native updates require `sudo`.
@@ -423,18 +438,18 @@ For a native Git installation at `/opt/labels`, run:
 
 ```sh
 cd /opt/labels
-sudo python3 scripts/update.py --mode native
+sudo ./update.sh --mode native
 ```
 
-On small devices, use the release's prebuilt frontend to skip Node/npm and the
-local TypeScript/Vite build:
+Native updates download the release's prebuilt frontend by default, avoiding
+Node/npm on the host. To build locally instead:
 
 ```sh
-sudo python3 scripts/update.py --mode native --channel beta --prebuilt-frontend
+sudo ./update.sh --mode native --build-frontend
 ```
 
-The flag works with stable releases and `--tag` too. Local building remains the
-default; Docker builds do not accept this flag. The selected release must have
+This applies to stable releases, beta releases and `--tag`. Docker continues to
+build through Compose. For prebuilt downloads, the selected release must have
 `label-server-frontend.zip` (main) or `label-companion-frontend.zip` (companion) attached. The updater downloads it before stopping the
 service, checks its size and GitHub-provided SHA-256 digest, validates the archive,
 and requires its recorded source commit to match the fetched release. Missing or
@@ -444,27 +459,24 @@ or verifying the asset. Public release downloads require no GitHub token; privat
 repositories use the existing updater credential settings.
 
 If the selected release contains a different `scripts/update.py`, the updater
-saves that script in the backup directory, prints an exact relaunch command, and
-exits before shutdown, frontend downloads, dependency installation, or migrations.
-Run the printed command to continue with the release's updater. It preserves your
-options and pins the selected tag and resolved runtime mode. The relaunched updater
-asks for confirmation again unless `--yes` was explicitly supplied. Installed application files remain untouched
-during the handoff; the saved script is outside the checkout so the checkout stays
-clean. This behavior starts with the new updater: older installed scripts must
-be refreshed once before they can use these options or perform the handoff.
+backs up the old updater and atomically replaces the updater being run.
+It exits before shutdown, frontend downloads, dependency installation,
+or migrations. Rerun `update.sh` with the same options to continue. The printed
+`update.sh` command also pins the selected tag and resolved runtime mode.
+Other local changes still block updates; the refreshed updater must match the
+selected release.
 
-To load a newer updater from `main` without changing tracked installation files,
-run this from the existing Git checkout after the feature has been published:
+The updater never prompts for missing choices. Use `--channel beta` or `--tag`
+to select another release, and `--build-frontend` to build locally. If deployment
+detection is inconclusive, supply `--mode native` or `--mode docker` explicitly.
 
-```sh
-git fetch origin main &&
-updater_copy=$(mktemp /tmp/label-server-update.XXXXXX.py) &&
-git show origin/main:scripts/update.py > "$updater_copy" &&
-sudo python3 "$updater_copy" --mode native --checkout "$PWD" \
-  --channel beta --prebuilt-frontend
-```
-
-After the update completes, remove that temporary copy with `rm -- "$updater_copy"`.
+During an update, missing settings and their explanatory comments are appended
+from the selected release's `.env.example` and `.env.companion.example` to existing
+configuration files. Existing values, including blank and commented settings,
+are preserved; optional examples stay commented out. Files for unused roles are
+not created. Configuration changes are included in rollback. Use
+`--no-env-update` to skip comparison and changes, including for symlinked
+configuration files managed externally.
 
 For an installation copied without Git metadata, place the updater on the host
 and give it a separate, initially absent source checkout:
@@ -477,12 +489,12 @@ sudo python3 /path/to/scripts/update.py --mode native \
 It clones `tarobits/label-server` automatically in that case. `--repository OWNER/REPO`
 selects another repository for a new checkout and must match `origin` for an
 existing one. Separate source and installation directories must not be nested.
-Subsequent runs can use `/opt/labels-source/scripts/update.py` after the first
+Subsequent runs can use `/opt/labels-source/update.sh` after the first
 update. No Git metadata is required in the copied installation.
 
-Native prerequisites are the existing virtual environment, Git, Node 22.12+/npm,
+Native prerequisites are the existing virtual environment, Git,
 systemd/runuser, and rsync for separate source/install directories. Run as root.
-Node/npm are unnecessary with `--prebuilt-frontend`.
+Node 22.12+/npm are required only with `--build-frontend`.
 `--service` defaults to `labels.service`; its WorkingDirectory must match the
 installation. The supported layout uses `.env`, `.venv`, `frontend/dist`, and a
 dedicated local data directory, with SQLite or MariaDB for the main server. Assets outside the installation are
@@ -497,7 +509,7 @@ in Docker, but need a manually coordinated database and local-assets backup and
 restore procedure; the Docker updater refuses that configuration.
 
 ```sh
-python3 scripts/update.py --mode docker \
+./update.sh --mode docker \
   --compose-file docker-compose.yml --compose-file docker-compose.usb.yml
 ```
 
@@ -738,7 +750,7 @@ For a native installation, generate the key once as the service user:
 
 ```sh
 cd /opt/labels
-sudo -u labels .venv/bin/python -m app.push_delivery --generate-key data/vapid-private.pem
+sudo -u labels .venv/bin/python -m app.notifications.push_delivery --generate-key data/vapid-private.pem
 ```
 
 Set these in the deployment's `.env`, using your own administrator contact address:
@@ -758,7 +770,7 @@ or invalid key leaves push unavailable without affecting printing or email.
 For Docker Compose, generate the key inside the persistent data volume:
 
 ```sh
-docker compose exec labels python -m app.push_delivery --generate-key /srv/labels/data/vapid-private.pem
+docker compose exec labels python -m app.notifications.push_delivery --generate-key /srv/labels/data/vapid-private.pem
 ```
 
 Set `LABEL_VAPID_SUBJECT` and `LABEL_PUBLIC_URL` in the host `.env`; leave
@@ -812,3 +824,26 @@ APIs are present and Android notifications are allowed. For example,
 [Cromite documents that Web Push is disabled](https://github.com/uazo/cromite/blob/master/docs/FAQ.md#why-do-push-notifications-not-work-on-this-website).
 Check the installing browser's capabilities and site permissions. The application
 cannot override a browser restriction; ntfy or email delivery are alternatives.
+
+## Asset storage and older installations
+
+Uploaded images, fonts, their ownership/sharing metadata, profile pictures and
+review evidence live in the database, for both SQLite and MariaDB. Database
+backups therefore include these assets. Rendering files and generated thumbnails
+under `data/cache/assets` are disposable: the server recreates them on demand.
+Each cache access refreshes its last-access timestamp. Files idle for seven days
+are removed automatically; set `LABEL_ASSET_CACHE_IDLE_SECONDS` (minimum 60) to
+change the interval. Cleanup runs periodically and skips active rendering.
+Bundled application fonts remain part of the installation.
+
+After upgrading the schema, the first main-server startup imports and verifies
+legacy `data/assets` files before printing begins. IDs, sharing, hidden assets and
+retained deleted assets remain unchanged. Missing or conflicting files stop the
+import; fix the source files and retry. The import is transactional and recorded
+in the database, so old files cannot later resurrect deleted assets. After the
+import commits, the original `assets` directory is moved into a timestamped
+`data/backups/assets-…` folder. The old `data/assets` path disappears; failed
+imports leave it untouched, and interrupted archive moves are retried on startup.
+The archive is retained for rollback and is separate from the expiring cache.
+Keep private configuration, authentication keys and companion journals backed up
+separately.

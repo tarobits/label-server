@@ -28,7 +28,7 @@ Account permissions are independent:
 
 A user rule takes precedence over role rules; equally specific role denies win.
 Group-account grants do not grant printer access. Approval permission includes
-previews of the specific pending print-funding requests described below. Requesters
+previews of the associated funding requests and charges described below. Requesters
 can still read their own requests, and creditors can see obligations owed to them,
 without receiving access to other members' transactions.
 
@@ -90,9 +90,23 @@ batch's costs attributed to you. Group approval is sufficient to take over its
 outstanding debt. A member with both the historical-transfer and Charge directly
 permissions can transfer costs directly.
 
-The **Previous print costs** section shows previews and copy counts for your own
-labels in each batch. Previews can be enlarged and do not include other members'
-labels from a shared batch.
+The **Transfer previous print costs** button opens a dialog showing your own
+labels in each batch. Select individual label entries; each selection includes
+all copies of that label in that batch. The cost includes its recorded share of
+leader and strip padding. The selected labels and amounts are frozen in the
+request, and overlapping pending transfers or already funded labels cannot be
+claimed again. Separate labels from the same batch can be transferred separately.
+Older batches without recorded per-label costs cannot use selective transfers.
+
+Previews can be enlarged. **View prints** on a charge and the request-details
+dialog show only the associated labels, their copy counts and outcomes. Historical
+transfers show the selected labels too. **View batch** opens Print Activity when
+the viewer already has access to that batch; group funding permissions do not
+grant access to unrelated labels in the same physical batch.
+
+The charge's type identifies **Print funding** or **Historical transfer**. Its
+separate accounting detail identifies cartridge cost, use of one's own cartridge,
+or reimbursement; these details do not describe when funding was requested.
 
 The original charge and personal repayment records are retained. Transfers reduce
 personal debt with a separate entry; paid costs create a separate reimbursement
@@ -101,6 +115,10 @@ Every entry retains its cartridge and currency. Previously funded costs cannot b
 claimed again, and competing pending requests for the same costs are blocked.
 
 Historical payments explicitly allocated to cartridges are matched oldest-first.
+Within a batch, the already-paid amount covers the selected labels first, up to
+their combined cost. That portion becomes a reimbursement; any unpaid remainder
+becomes transferred debt. Remaining personal costs and payments stay available
+for subsequent transfers without duplicating earlier claims.
 Unallocated personal account credits/corrections must be reconciled with cartridge
 allocations by accounting before those historical costs can be transferred. The
 system does not guess which print an ambiguous payment covered.
@@ -127,14 +145,16 @@ financial messages.
 Notifications link to the account request. Access is checked again when reading
 or delivering an actionable notice. Resolved and withdrawn requests no longer
 leave actionable approval alerts. Notifications do not include label previews or
-field values. Print-funding decisions open in a modal with the saved label preview
-and copy count. Requesters and administrators can view that preview; current
-approvers can view it while the request is pending, even without printer queue
-access. This exception grants no access to other jobs, and is rechecked on every
-preview fetch. Balance-viewing permission alone does not expose previews.
+field values. Funding decisions open in a modal with saved label previews and copy
+counts. Requesters and administrators can view them, as can current approvers:
+**Approve print funding** for print requests and **Approve historical transfers
+and reimbursements** for historical transfers. This applies to pending and resolved
+requests and their charges, even without printer queue access. Access is rechecked
+on every details and preview fetch; revoking approval permission removes that
+access. Balance-viewing permission alone does not expose previews.
 
 The group funding page uses separate sections for requests, balances and charges,
-payments, previous print costs, history, settings, permissions and audit events.
+payments, history, settings, permissions and audit events.
 Only permitted sections are shown. Queued labels awaiting funding display
 “Waiting for group approval”; rejected or otherwise held funding has its own status.
 
@@ -152,13 +172,14 @@ rollback. Database migration, backup and restore scripts include the new tables.
 
 - [ ] Create an account and verify user/role allow/deny precedence.
 - [ ] Verify that balance-viewing permission alone cannot view label previews or grant printing access.
-- [ ] Review a print-funding request in its modal without queue access; verify the preview stops being accessible after approval authority is revoked or the request is resolved.
+- [ ] Review pending and resolved funding in its modal without queue access; verify previews stop being accessible after approval authority is revoked.
 - [ ] Submit wait, risk and direct prints, including CSV rows and image API jobs.
 - [ ] Reject a wait request; verify it stays held until personal payment or cancellation.
 - [ ] Attempt self-approval; verify rejection even for administrators.
 - [ ] Mix personal and group jobs from one requester in a physical batch.
 - [ ] Print using the requester's own cartridge, then verify the group owes that member.
 - [ ] Transfer unpaid, partially paid and fully paid historical costs; verify original records.
+- [ ] Select some labels from a shared batch; verify their exact costs, all copies, and leader shares transfer, and unrelated labels stay private and unfunded.
 - [ ] Try duplicate transfers and payment confirmations; verify no double funding or settlement.
 - [ ] Report a payment as a member; verify only creditor/accounting confirmation reduces debt.
 - [ ] Check oldest-debt defaults and explicit cartridge selection across currencies.

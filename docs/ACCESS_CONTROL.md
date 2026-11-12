@@ -434,7 +434,7 @@ recheck authorization after rendering outside the mutation lock.
 
 Automated checks cover role combinations, scoped access, template ownership,
 physical-printer review, confirmed access changes, revoked-access holds,
-delegated drafts, and retry-safe approvals. See [README.md](../README.md#development)
+delegated drafts, and retry-safe approvals. See [development guide](DEVELOPMENT.md)
 for check commands.
 
 ## Changing a queued printer

@@ -11,7 +11,7 @@ from test_auth import auth_client as auth_fixture
 from test_auth import invite, login, register_member, setup_admin
 
 from app import __version__
-from app.models import User
+from app.models import AuditEvent, User
 
 auth_client = auth_fixture
 NEXT_VERSION = f"{__version__.split('.')[0]}.{int(__version__.split('.')[1]) + 1}.0"
@@ -63,7 +63,7 @@ def test_skipped_versions_are_claimed_once_across_sessions_and_accounts(
     with client.app.state.factory.begin() as session:
         user = session.scalar(select(User).where(User.username == "admin"))
         user.last_seen_version = "0.1.0"
-    monkeypatch.setattr("app.auth_api.__version__", NEXT_VERSION)
+    monkeypatch.setattr("app.authn.auth_api.__version__", NEXT_VERSION)
     # Reuse the running application's database without restarting its lifespan.
     with closing(TestClient(client.app)) as other:
         login(other)
@@ -76,20 +76,38 @@ def test_skipped_versions_are_claimed_once_across_sessions_and_accounts(
     assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
 
 
+def test_automatic_release_checks_do_not_write_audit_events(auth_client, tmp_path, monkeypatch):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    with client.app.state.factory() as session:
+        before = set(session.scalars(select(AuditEvent.id)))
+
+    assert client.post("/api/auth/changelog").json()["previous_version"] is None
+    assert client.post("/api/auth/changelog").json()["previous_version"] == __version__
+    monkeypatch.setattr("app.authn.auth_api.__version__", NEXT_VERSION)
+    assert client.post("/api/auth/changelog").json()["previous_version"] == __version__
+    assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
+
+    with client.app.state.factory() as session:
+        assert set(session.scalars(select(AuditEvent.id))) == before
+        user = session.scalar(select(User).where(User.username == "admin"))
+        assert user.last_seen_version == NEXT_VERSION
+
+
 def test_simultaneous_tabs_claim_history_once_and_downgrades_do_not_rewind(
     auth_client, tmp_path, monkeypatch
 ):
     client = auth_client
     setup_admin(client, tmp_path)
     client.post("/api/auth/changelog")
-    monkeypatch.setattr("app.auth_api.__version__", NEXT_VERSION)
+    monkeypatch.setattr("app.authn.auth_api.__version__", NEXT_VERSION)
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: client.post("/api/auth/changelog").json(), range(8)))
     assert [result["previous_version"] for result in results].count(__version__) == 1
     assert [result["previous_version"] for result in results].count(NEXT_VERSION) == 7
-    monkeypatch.setattr("app.auth_api.__version__", "0.2.0")
+    monkeypatch.setattr("app.authn.auth_api.__version__", "0.2.0")
     assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
-    monkeypatch.setattr("app.auth_api.__version__", NEXT_VERSION)
+    monkeypatch.setattr("app.authn.auth_api.__version__", NEXT_VERSION)
     assert client.post("/api/auth/changelog").json()["previous_version"] == NEXT_VERSION
 
 
@@ -98,9 +116,9 @@ def test_prerelease_visits_advance_to_stable_without_rewinding(auth_client, tmp_
     setup_admin(client, tmp_path)
     previous = None
     for version in ["0.11.0", "0.12.0-pre1", "0.12.0-pre2", "0.12.0"]:
-        monkeypatch.setattr("app.auth_api.__version__", version)
+        monkeypatch.setattr("app.authn.auth_api.__version__", version)
         assert client.post("/api/auth/changelog").json()["previous_version"] == previous
         previous = version
-    monkeypatch.setattr("app.auth_api.__version__", "0.12.0-pre1")
+    monkeypatch.setattr("app.authn.auth_api.__version__", "0.12.0-pre1")
     assert client.post("/api/auth/changelog").json()["previous_version"] == "0.12.0"
     assert client.post("/api/auth/changelog").json()["previous_version"] == "0.12.0"

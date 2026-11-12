@@ -101,7 +101,7 @@ Implementation references:
 
 - [Shared styles](frontend/src/style.css): palette, typography, controls and layout.
 - [Motion styles](frontend/src/motion.css) and
-  [preferences](frontend/src/preferences.ts): transitions and reduced motion.
+  [preferences](frontend/src/shared/preferences.ts): transitions and reduced motion.
 - [Application shell](frontend/src/App.vue) and
   [companion interface](frontend/src/CompanionApp.vue): navigation and station layout.
 - [Components](frontend/src/components): reusable interaction patterns.
