@@ -2,12 +2,13 @@
   "name": "label-printer-ui",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "npm run build:main",
     "test:e2e": "playwright test",
+    "test:i18n": "node --test tests/i18n.test.mjs",
     "format": "prettier --write src tests *.ts *.json index.html",
     "format:check": "prettier --check src tests *.ts *.json index.html",
     "build:main": "vue-tsc --noEmit -p tsconfig.main.json && vite build",
@@ -26,6 +27,7 @@
     "@lezer/highlight": "^1.2.5",
     "pinia": "^4.0.3",
     "vue": "^3.5.0",
+    "vue-i18n": "^11.4.19",
     "vue-router": "^4.5.0"
   },
   "overrides": {

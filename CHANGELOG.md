@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.19.0] - 2026-11-13
+
+### Added
+
+- English and German interfaces for the main server and companion, with account
+  language preferences, browser defaults and translated user-facing messages.
+- Archived templates can be viewed and restored by users allowed to manage them.
+- Payers can report payments for confirmation by the recipient or an accounting
+  editor before balances change.
+- Historical group transfers can include selected label entries with all their
+  copies. Eligible requesters and approvers can view print previews and batch details.
+- Administrators can immediately purge retained deleted accounts and content.
+- Root-level installation and update launchers, with a step-by-step installer wizard.
+
+### Changed
+
+- Native updates download the prebuilt frontend by default; use `--build-frontend`
+  for a local build. Updates run without prompts; use `--check` to preview the plan.
+- The updater backs up and replaces itself when needed, then asks users to rerun
+  `update.sh`. Missing environment settings and comments are added without replacing
+  existing values; `--no-env-update` skips configuration updates.
+- Previous print costs open in a separate dialog. Accounting corrections are
+  restricted to accounting editors, with unavailable controls hidden from other users.
+- The README now focuses on features, licensing, installation and upgrades, with
+  task-focused user guides for detailed instructions.
+
+### Fixed
+
+- Group charge descriptions distinguish historical transfers from newly funded prints,
+  and label summaries no longer include raw image and boolean input values.
+- Notification delivery records show account names.
+- Cancelled rendering requests retain their capacity slot until processing and
+  cleanup finish, preventing excess simultaneous work.
+
+### Removed
+
+- Automatic changelog-view checks no longer create audit log entries.
+
+### Security
+
+- Companion idle expiry durably revokes the remote session, including when the
+  main server is temporarily unreachable.
+
 ## [0.18.0] - 2026-11-12
 
 ### Added
@@ -14,11 +57,8 @@
 - Disconnected printers and printers without a detected tape width no longer show
   a false tape-width mismatch warning.
 
-**Upgrade notes:** Update the main server and frontend bundles together and refresh
-open pages. No new database migration is required when upgrading from 0.17.2.
-Templates and saved work using explicit font weights or variable-font assets
-require 0.18.0 or later; older releases cannot render them correctly. Back up the
-database, retained assets and configuration before upgrading.
+**Compatibility:** Templates and saved work using explicit font weights or variable-font
+assets require 0.18.0 or later.
 
 ## [0.17.2] - 2026-11-12
 
@@ -30,10 +70,6 @@ database, retained assets and configuration before upgrading.
 - The in-app changelog now formats bold text, inline code and links, with clearer
   spacing between paragraphs and lists.
 
-**Upgrade notes:** Install the updated frontend bundles and refresh open pages.
-No new database migration is required when upgrading from 0.17.1. Request limits
-remain unchanged.
-
 ## [0.17.1] - 2026-11-12
 
 ### Fixed
@@ -42,11 +78,6 @@ remain unchanged.
   temporary server-busy responses instead of leaving galleries full of failed
   previews. Pending requests stop when leaving the view; persistent errors retain
   manual retry controls.
-
-**Upgrade notes:** Install the updated frontend bundles with this release and
-refresh open pages. No new database migration is required when upgrading from
-0.17.0. The expensive-request limit remains unchanged; this fix does not require
-increasing it. Previously documented security limitations remain unresolved.
 
 ## [0.17.0] - 2026-11-12
 
@@ -60,21 +91,17 @@ increasing it. Previously documented security limitations remain unresolved.
 
 ### Changed
 
-- The main-server database pool now permits 25 total connections per process,
-  retaining five idle connections and allowing 20 temporary overflow connections.
+- The main server supports up to 25 database connections per process.
 - Completed implementation plans and historical audit reports are replaced by
   maintained security, architecture and migration guides and a shorter deployment
   checklist.
 
 ### Fixed
 
-- Database authorization and transaction scheduling no longer block the event
-  loop or strand requests waiting for a worker while holding the shared lock.
-  Password and PIN verification also releases shared mutation capacity while
-  preserving fresh authorization checks before changes take effect.
-- Concurrent saved-label previews release their database connection before
-  rendering, preventing exhaustion caused by nested asset lookups. Preview
-  publication and retention cleanup now coordinate across cache instances.
+- Concurrent requests and password/PIN checks no longer stall the server while
+  waiting for database access. Permission changes are rechecked before saving.
+- Concurrent saved-label previews no longer exhaust database connections or
+  conflict with preview cleanup.
 - Delayed companion responses cannot overwrite newer lock/unlock actions.
   Superseded sessions are revoked durably after reconnect or restart, and journal
   polling avoids unnecessary write contention.
@@ -96,37 +123,17 @@ increasing it. Previously documented security limitations remain unresolved.
   reassignment of associated images and fonts as well as templates.
 - Updated certifi and OpenTelemetry API dependencies to address reported advisories.
 
-**Upgrade requirements:** back up the database, retained assets and configuration,
-then update the main server before companions. Migration `34df80b7a621` adds tape
-profile availability; existing profiles remain available. Follow any pending
-relationship-repair workflow when upgrading from earlier releases. Restore a
-coordinated backup for rollback rather than running older code against an
-incompatible schema.
-
-Default request budgets are 16 MiB for ordinary requests, 64 MiB for CSV/run and
-migration requests, and 16 KiB for authentication requests other than avatars.
-Existing 5 MB image/font upload limits remain. Two expensive HTTP requests are
-admitted simultaneously by default; clients must handle 503 with `Retry-After`
+**Compatibility:** Clients must handle temporary HTTP 503 responses with `Retry-After`
 and reuse idempotency keys when retrying supported submissions. Configure
-`LABEL_COMPANION_FRAME_ANCESTORS` explicitly if external companion embedding is
-needed; unset, blank or empty values allow same-origin framing only.
+`LABEL_COMPANION_FRAME_ANCESTORS` to permit external companion embedding; the default
+allows same-origin framing only.
 
-**Known limits:** native parsers still share application resources, and database
-ownership cannot guarantee exactly-once physical printing. Production load,
-hardware recovery and embedding browser behavior require deployment validation.
-The low-severity deepmerge build-tool advisory remains documented and monitored;
-it does not process runtime label uploads. See the
-[security guide](https://github.com/tarobits/label-server/blob/v0.17.0/docs/SECURITY.md)
-and [deployment checklist](https://github.com/tarobits/label-server/blob/v0.17.0/docs/DEPLOYMENT_CHECKLIST.md).
-
-Adversarial testing also identified two unresolved limits: companion idle
-auto-lock does not revoke its remote operator session, and isolated HTTP
-middleware can release processing capacity before a cancelled synchronous worker
-exits. Reusing the former session requires its token and the companion installation
-API key; the equivalent cancellation test through the full application passes.
-The regression tests retain both failing assertions. Existing browser checks also
-have three known selector/expectation failures; this release does not claim a
-fully passing test suite.
+**Known limitations in this release:** Companion idle auto-lock does not revoke its
+remote operator session; reuse requires both the session token and companion
+installation API key. Isolated HTTP middleware can release capacity before a cancelled
+synchronous worker exits, although the equivalent full-application test passes. The
+low-severity deepmerge build-tool advisory remains unresolved. See the [release security
+guide](https://github.com/tarobits/label-server/blob/v0.17.0/docs/SECURITY.md).
 
 ## [0.16.1] - 2026-11-12
 
@@ -139,11 +146,9 @@ fully passing test suite.
   uncertainty. Blocks caused by execution results include the batch, outcome and
   confirmed label count, without duplicate entries from repeated polls or retries.
 
-**Upgrade notes:** Update the main server first, then companions. No new database
-migration is required when upgrading from 0.16.0. Inspect the printer and use
-**Clear block** once for any false block already recorded by an older version.
-Cartridge verification may still be required after reconnecting. Reasons cannot
-be reconstructed for historical audit entries that did not record them.
+**Manual repair:** Inspect the printer and use **Clear block** once for any false
+investigation block recorded by an older version. Historical audit entries cannot
+recover reasons that were never recorded.
 
 ## [0.16.0] - 2026-11-11
 
@@ -179,30 +184,21 @@ be reconstructed for historical audit entries that did not record them.
 - SQLite schema downgrades handle inventory tables rebuilt by newer migrations
   without losing their incoming references.
 
-**Upgrade requirements:** back up the database, retained assets and deployment
-configuration, then update the main server first and companions afterward to
-`v0.16.0`. Main-server migration `20201b1c52b8` adds relationship constraints.
-If orphaned references exist, the server enters administrator-only migration mode;
-normal APIs, printing and background processing stay paused. Review and repair
-the references, select **Prepare maintenance restart**, then restart the main
-server to validate and apply the constraints. Reaching Alembic `head` alone does
-not mean the repair gate is complete. Repairs are never silently chosen, and
-schema downgrades do not undo administrator reassignments.
+**Migration requirements:** If broken references exist, normal service pauses in
+administrator-only migration mode. Repair the references, select **Prepare maintenance
+restart**, then restart the main server to apply the constraints. Reaching Alembic
+`head` alone does not complete this repair. Schema downgrades do not undo administrator
+reassignments. See the [relationship migration
+guide](https://github.com/tarobits/label-server/blob/v0.16.0/docs/RELATIONSHIP_MIGRATION.md).
 
-Previously recorded false companion blocks still require inspection and one
-explicit **Clear block** action. Both server and companion updates are needed
-for the cartridge fixes.
+**Manual repair:** Previously recorded false companion blocks require inspection and one
+**Clear block** action.
 
-**Known limits:** physical printer and deployment acceptance remains manual.
-Outstanding earlier acceptance checks remain unverified. The security and
-concurrency reports include unresolved availability, request-size and lifecycle
-findings; this release does not claim those findings are fixed or constitute a
-security certification. The automatic Docker updater remains SQLite-only.
-
-See the [relationship migration guide](https://github.com/tarobits/label-server/blob/v0.16.0/docs/RELATIONSHIP_MIGRATION.md),
-[deployment checklist](https://github.com/tarobits/label-server/blob/v0.16.0/docs/DEPLOYMENT_CHECKLIST.md),
-[security report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/SECURITY_AUDIT.md)
-and [concurrency report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/CONCURRENCY_AUDIT.md).
+**Known limitations in this release:** The security and concurrency reviews identify
+unresolved availability, request-size and lifecycle issues. See the [security
+report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/SECURITY_AUDIT.md)
+and [concurrency
+report](https://github.com/tarobits/label-server/blob/v0.16.0/docs/CONCURRENCY_AUDIT.md).
 
 ## [0.15.0] - 2026-11-11
 
@@ -243,23 +239,11 @@ and [concurrency report](https://github.com/tarobits/label-server/blob/v0.16.0/d
 - Profile-picture uploads no longer block the server's event loop while waiting
   for the printer lock, processing images or accessing the database.
 
-**Upgrade requirements:** update the main server first, then all companions to
-`v0.15.0`. Apply main-server migration `19191a0b41a7` for manual-only printers;
-existing printers retain automatic-printing support by default.
-An investigation block already recorded by the old cartridge behavior remains
-blocked: inspect the printer, confirm its cartridge and use **Clear block** once
-it is safe. The update does not automatically clear existing fault records.
-Both log-level settings default to `INFO`; use `DEBUG` to restore successful
-request logging. Earlier upgrades still require their documented migrations.
+**Manual repair:** Previously recorded investigation blocks remain blocked. Inspect the
+printer, confirm its cartridge and use **Clear block** once it is safe.
 
-**Verification and known limits:** automated checks cover companion permissions,
-queue and packing workflows, touchscreen layouts, logging and cartridge-status
-handling. Physical printer/Pi acceptance remains manual. The outstanding 0.13.0
-and group-billing acceptance checks, audit-coverage limits and SQLite-only
-automatic Docker updater limitation remain unchanged.
-
-See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.15.0/docs/DEPLOYMENT_CHECKLIST.md)
-and [companion guide](https://github.com/tarobits/label-server/blob/v0.15.0/docs/COMPANION.md).
+**Logging change:** Successful requests now require `DEBUG`; both log-level settings
+default to `INFO`.
 
 ## [0.14.0] - 2026-11-11
 
@@ -300,25 +284,8 @@ and [companion guide](https://github.com/tarobits/label-server/blob/v0.15.0/docs
   cartridge actions and feedback retain clearance. Archived checkbox labels align
   beside their controls.
 
-**Upgrade requirements:** back up the database, local data and private configuration,
-then update both main and companion servers. Main-server migration `181819fa30f6`
-adds six group-billing tables on SQLite and MariaDB. Existing prints and payments
-retain their personal attribution. The updater applies migrations; manual installs
-must run `alembic upgrade head` before starting the main server. Once group accounts
-exist, schema downgrade is refused; use a coordinated pre-upgrade backup for rollback.
-The companion status API is disabled until a separate
-`LABEL_COMPANION_STATUS_API_KEY` is configured.
-
-**Verification and known limits:** automated checks cover group accounting,
-authorization, migration and browser workflows. Manual group-funding deployment
-acceptance remains pending. The 0.13.0 record remains 40 passed, 3 partial and
-41 untested; publication does not mark remaining checks as passed. Physical
-hardware acceptance, comprehensive audit coverage and the SQLite-only automatic
-Docker updater limitation remain unchanged.
-
-See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.14.0/docs/DEPLOYMENT_CHECKLIST.md),
-[group-account checks](https://github.com/tarobits/label-server/blob/v0.14.0/docs/GROUP_ACCOUNTS.md#deployment-and-acceptance)
-and [companion status API](https://github.com/tarobits/label-server/blob/v0.14.0/docs/COMPANION.md).
+**Rollback restriction:** Schema downgrade is refused once group accounts exist.
+Rollback requires a coordinated backup from before group accounts were introduced.
 
 ## [0.13.0] - 2026-11-09
 
@@ -379,29 +346,14 @@ and [companion status API](https://github.com/tarobits/label-server/blob/v0.14.0
   shared-user bindings. MariaDB ownership locking prevents concurrent main servers
   from owning the same database.
 
-**Upgrade requirements:** back up the database, complete local data directory and
-private configuration before upgrading. Apply schema migrations and update both
-main and companion servers on their separate machines. Upgrades from 0.12.x pause
-printing until an administrator completes inventory migration. Legacy asset import
-requires the original files; retain the archived copy for coordinated rollback.
-Refresh an already-open companion page once if it predates pre5's update detector.
-MariaDB users should skip pre3; its migration fixes are included here.
+**Migration requirements:** Upgrades from 0.12.x pause printing until an administrator
+completes inventory migration. Legacy asset import requires the original files; retain
+the resulting archive for coordinated rollback. See the [deployment
+checklist](https://github.com/tarobits/label-server/blob/v0.13.0/docs/DEPLOYMENT_CHECKLIST.md).
 
-**From pre5:** no additional schema migration is required. This release adds the
-template examples, text limits, code elements and account-button spacing fix.
-Install the updated main-server Python dependencies, including `python-barcode`
-and `zxing-cpp`; the installer/updater handles this. Older versions cannot read
-templates saved with the new fields or code element types.
-
-**Verification and known limits:** the operator reports 40 manual checks passed,
-3 partial and 41 untested, with G7 companion recovery now passed. Remaining checks
-are not implied to pass by publication. Physical printer/scanner acceptance and
-comprehensive audit coverage remain incomplete; automatic Docker updates still
-require SQLite. Native updates support MariaDB. Fixed-label compatibility does
-not add another physical printer driver.
-
-See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0/docs/DEPLOYMENT_CHECKLIST.md)
-and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0/docs/V0_13_0_ACCEPTANCE.md).
+**Compatibility:** Older versions cannot read templates saved with the new example
+fields, text limits or code element types. Automatic Docker updates remain SQLite-only;
+native updates support MariaDB.
 
 ## [0.13.0-pre5] - 2026-11-09
 
@@ -422,22 +374,9 @@ and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0/d
   is locked, dialogs are closed and control requests have finished. Reload waits
   for the new page to be available and prevents loops caused by stale cached pages.
 
-**Migration requirements:** back up the database, local data and private
-configuration before upgrading. Apply migration `171718e92fe5` on the main server
-to retain companion versions. Update both main and companion servers. An already
-open companion page needs one manual refresh to adopt automatic update detection;
-later frontend updates can reload safely without a keyboard. Earlier asset-import
-and coordinated rollback requirements still apply. Includes the pre4 MariaDB fix;
-MariaDB users should continue to skip pre3.
-
-**Acceptance status:** the recorded manual results are 39 passed, 3 partial,
-1 failed and 41 untested. G7 (the page remaining disconnected/loading after an
-update) remains open for deployment retesting; the original tested versions were
-not confirmed. Comprehensive audit coverage and physical/outage acceptance remain
-release gates. This is a prerelease, not stable 0.13.0 sign-off.
-
-See the [deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre5/docs/DEPLOYMENT_CHECKLIST.md)
-and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0-pre5/docs/V0_13_0_ACCEPTANCE.md).
+**Manual action:** An already-open companion page needs one refresh to adopt automatic
+update detection. Subsequent updates can reload safely while locked. The asset-import
+and rollback requirements from pre3 still apply; MariaDB users must skip pre3.
 
 ## [0.13.0-pre4] - 2026-11-09
 
@@ -448,19 +387,9 @@ and [acceptance results](https://github.com/tarobits/label-server/blob/v0.13.0-p
 - Retrying the failed review migration preserves the existing evidence-policy
   setting instead of failing on a duplicate column.
 
-**Migration requirements:** MariaDB users should skip pre3 and upgrade directly
-to pre4. If the updater restored pre2 after a failed upgrade, retry using pre4.
-Back up the database, local data directory and private configuration first; the
-pre3 asset-import and rollback requirements still apply. This release corrects
-the existing migration and adds no new schema revision for installations already
-successfully running pre3.
-
-Verified on MariaDB 11.8.6: all 18 integration tests passed, including upgrades
-with differing database defaults and retries after partial migration. All 24
-SQLite migration/review tests passed.
-
-See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre4/docs/DEPLOYMENT_CHECKLIST.md)
-for rollout, migration and recovery checks.
+**Migration recovery:** MariaDB users must skip pre3 and use pre4 or later. If a failed
+update restored pre2, retry with pre4. The asset-import and rollback requirements from
+pre3 still apply.
 
 ## [0.13.0-pre3] - 2026-11-09
 
@@ -503,27 +432,15 @@ for rollout, migration and recovery checks.
 - Companions reconnect automatically when the main server becomes available,
   including when the companion starts first, without refreshing the kiosk browser.
 
-**Migration requirements:** back up the database, complete local data directory
-and private configuration before upgrading. Pre3 adds schema migrations for review
-evidence and database assets. Keep the old assets directory available for the first
-main-server startup; successful import moves it to `data/backups/assets-…` (under
-`LABEL_DATA_DIR` when customized). Failed imports leave the original files intact.
-Keep the resulting archive for rollback. Before SQLite-to-MariaDB conversion,
-complete the asset import by starting this release once or running
-`scripts/migrate_assets.py` while the service is stopped. Database assets and review
-evidence require a coordinated backup restore for rollback once populated.
-Update both main and companion servers and refresh installed PWAs.
+**Migration requirements:** Keep the original asset files available for the first
+main-server startup. Verified import moves them into `data/backups/assets-…` under
+`LABEL_DATA_DIR`; failed imports leave them intact. Retain the archive for rollback.
+Before SQLite-to-MariaDB conversion, complete asset import by starting this release once
+or running `scripts/migrate_assets.py` with the service stopped. Once database assets or
+review evidence are populated, rollback requires a coordinated backup restore.
 
-Review evidence defaults to **Optional**. Locked companion operational details
-remain enabled by default; set
-`LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS=false` to hide them.
-
-**Known limits:** physical printer/Pi and real network-outage acceptance remain
-manual. Comprehensive audit coverage still needs review, and automatic Docker
-updates still require SQLite; native updates support MariaDB.
-
-See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre3/docs/DEPLOYMENT_CHECKLIST.md)
-for rollout, migration and recovery checks.
+**Deployment limits:** Automatic Docker updates remain SQLite-only; native updates
+support MariaDB.
 
 ## [0.13.0-pre2] - 2026-11-08
 
@@ -560,21 +477,13 @@ for rollout, migration and recovery checks.
 - Automatic text width now includes logic-bound content and typography before
   positioning dependent objects, including text placed between images by logic.
 
-**Migration requirements:** back up the database, local assets and private
-configuration before upgrading. Pre2 adds schema migrations for location ownership,
-permission denials and media properties. Existing locations remain unowned, existing
-resource grants remain allows, and existing tape profiles default to continuous TZe.
-Review effective permissions after upgrading. Remove explicit deny rules and non-TZe
-profiles before attempting a schema downgrade; use a coordinated backup restore for
-rollback. Upgrading from before pre1 still requires the administrator inventory
-migration before printing resumes. Update both main and companion servers.
+**Migration requirements:** Complete administrator inventory migration if upgrading from
+before pre1. Existing locations remain unowned, grants remain allows, and tape profiles
+default to continuous TZe. Review effective permissions after upgrading.
 
-**Known limits:** fixed-label compatibility does not add a new physical printer
-driver. Physical printer/Pi and network-outage acceptance remain manual. The pre1
-limitations concerning audit coverage and automatic Docker updates still apply.
-
-See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre2/docs/DEPLOYMENT_CHECKLIST.md)
-for rollout and acceptance checks.
+**Rollback restriction:** Explicit deny rules and non-TZe profiles must be removed
+before schema downgrade; otherwise restore a coordinated backup. Fixed-label
+compatibility does not add a physical printer driver.
 
 ## [0.13.0-pre1] - 2026-11-08
 
@@ -604,8 +513,6 @@ for rollout and acceptance checks.
 - The updater detects native or Docker installations, with an explicit mode
   override. Installation and updates show a plan and require confirmation;
   unattended use requires `--yes`.
-- Project-wide Pylance/Pyright checking now includes scripts, migrations, companion
-  code and tests, with deprecation diagnostics enabled.
 
 ### Security
 
@@ -615,18 +522,12 @@ for rollout and acceptance checks.
 - MariaDB ownership locking prevents multiple main servers from owning the same
   database and stops database operations after ownership is lost.
 
-**Prerelease migration requirements:** back up the complete database, local assets
-and private configuration before upgrading. Apply the schema migrations and finish
-administrator inventory migration before printing resumes. Run main and companion
-servers on separate machines. Preserve the companion's local journal during updates.
+**Migration requirements:** Complete administrator inventory migration before printing
+resumes. Run main and companion servers on separate machines and preserve each
+companion's local journal.
 
-**Known limits:** hardware/Pi and real network-outage acceptance remain manual;
-comprehensive audit coverage still needs review. Automatic Docker updates require
-SQLite; native updates support MariaDB. This prerelease is for staged evaluation,
-not a declaration that the entire 0.13.0 acceptance plan is complete.
-
-See [the deployment checklist](https://github.com/tarobits/label-server/blob/v0.13.0-pre1/docs/DEPLOYMENT_CHECKLIST.md)
-for rollout, validation and recovery steps. Includes the 0.12.2 text-sizing fix.
+**Deployment limits:** Automatic Docker updates require SQLite; native updates support
+MariaDB.
 
 ## [0.12.2] - 2026-11-08
 
@@ -636,17 +537,12 @@ for rollout, validation and recovery steps. Includes the 0.12.2 text-sizing fix.
   keeping labels compact when text shrinks to fit the field height. Character
   spacing, line spacing, padding, and queued preview geometry stay consistent.
 
-No new database migrations are required when upgrading from 0.12.1.
-
 ## [0.12.1] - 2026-11-07
 
 ### Fixed
 
 - Show backup progress during updates, including the current stage, elapsed time,
   and archive size, so slow backups no longer appear stuck after stopping the service.
-
-No new database migrations are required when upgrading from 0.12.0. If the updater
-asks you to relaunch after downloading the new script, run the command it provides.
 
 ## [0.12.0] - 2026-11-07
 
@@ -716,31 +612,15 @@ asks you to relaunch after downloading the new script, run the command it provid
 - Updated frontend build dependencies to address reported glob and minimatch
   vulnerabilities.
 
-Apply database migrations before starting this version, including when upgrading
-from 0.12.0-pre7. API clients approving print requests must send the reviewed
-`expected_revision`. Existing sessions and queued label snapshots are preserved.
+**Compatibility:** API clients approving print requests must send the reviewed
+`expected_revision`. Saving typed fields or logic upgrades templates to version 2, which
+older servers cannot read; version 1 templates remain supported. Review prerelease logic
+that assigns automatic dimensions or uses unrotated axes, and use `stroke` for line
+thickness.
 
-Version 1 templates remain supported. Saving typed fields or logic upgrades a
-template to version 2, which older servers cannot read. Review logic written for
-earlier prereleases that assigns automatic dimensions or uses unrotated axes;
-use `stroke` for line thickness. Back up the database before upgrading.
-
-Push notifications require VAPID configuration and a supported browser. Offline
-fallback requires a previous successful visit and does not support offline editing
-or replaying print submissions. Approximate session location requires explicitly
-trusted Cloudflare visitor headers; see the deployment guide.
-
-Wait for the release frontend build to finish before using `--prebuilt-frontend`.
-Automatic rollback cannot recover from power loss or a forcibly terminated updater;
-uncertain activation leaves the service stopped to avoid replaying print work.
-
-Physical checks have confirmed subtitle branches, saved layouts, rotated objects,
-property sizing, number inputs, cartridge handling, Activity requeueing, Android
-notifications, and native updater rollback. Tablet interactions, boolean/image
-inputs, the latest iPhone node dragging fix, and Docker rollback still need physical
-verification.
-
-The known low-severity deepmerge build-tool advisory remains reported by npm audit.
+**Known limitations:** Automatic rollback cannot recover from power loss or a forcibly
+terminated updater; uncertain activation leaves the service stopped. The low-severity
+deepmerge build-tool advisory remains unresolved.
 
 ## [0.12.0-pre7] - 2026-11-06
 
@@ -762,14 +642,9 @@ The known low-severity deepmerge build-tool advisory remains reported by npm aud
 - Keep rotated objects aligned during positioning, resizing, dragging, and
   snapping. Automatic text sizing protects the correct dimension after rotation.
 
-No new database migration is required when upgrading from 0.12.0-pre6.
-Review existing logic that positions or resizes rotated objects using the old
-unrotated axes. Use `stroke` to change line thickness; assignments to a line's
-cross-axis dimension are rejected. Existing queued prints retain their saved
-rendering geometry.
-
-Wait for the release frontend build to finish before using `--prebuilt-frontend`.
-Physical phone/tablet and printer verification of these changes is still pending.
+**Compatibility:** Review logic that positions or resizes rotated objects using
+unrotated axes. Use `stroke` for line thickness; assignments to a line's cross-axis
+dimension are rejected. Queued prints retain their saved geometry.
 
 ## [0.12.0-pre6] - 2026-11-06
 
@@ -800,15 +675,9 @@ Physical phone/tablet and printer verification of these changes is still pending
 - Avoid app-update prompts for the same frontend build and preserve deferred
   updates when the waiting service worker is replaced.
 
-No new database migration is required when upgrading from 0.12.0-pre5.
-Templates using property inputs require this version or newer. Existing logic
-that assigns automatic text width or uses intermediate text tokens with automatic
-width must be adjusted to the new sizing order; see the template logic guide.
-Wait for the release frontend build to finish before using `--prebuilt-frontend`.
-
-Physical verification of the new property inputs and the iPhone PWA fixes is
-still pending. Both subtitle branches and saved-layout preservation from pre3
-have been verified on a printer.
+**Compatibility:** Templates using property inputs require this version or newer. Adjust
+existing logic that assigns automatic text width or uses intermediate text tokens with
+automatic width to the new sizing order.
 
 ## [0.12.0-pre5] - 2026-11-05
 
@@ -829,12 +698,11 @@ have been verified on a printer.
 - Updated frontend build dependencies to address the reported glob and minimatch
   vulnerabilities.
 
-No new database migration is required when upgrading from 0.12.0-pre4.
-Refresh older updater scripts once to use the new flag and updater handoff;
-see the deployment guide. Wait for the release frontend build to finish before
-using `--prebuilt-frontend`.
+**Manual action:** Refresh older updater scripts to use `--prebuilt-frontend` and
+updater handoff; see the [deployment
+guide](https://github.com/tarobits/label-server/blob/v0.12.0-pre5/docs/DEPLOYMENT.md).
 
-The low-severity deepmerge build-tool advisory remains unresolved upstream.
+**Known limitation:** The low-severity deepmerge build-tool advisory remains unresolved.
 
 ## [0.12.0-pre4] - 2026-11-04
 
@@ -852,8 +720,6 @@ The low-severity deepmerge build-tool advisory remains unresolved upstream.
   connections through intermediate variables.
 - Node search matches displayed names such as "Not equal".
 
-No new database migration is required when upgrading from 0.12.0-pre3.
-
 ## [0.12.0-pre3] - 2026-11-04
 
 ### Added
@@ -869,15 +735,8 @@ No new database migration is required when upgrading from 0.12.0-pre3.
   positions; invalid drafts keep the last valid preview and block saving.
 - Searchable built-in reference with contextual help and copyable examples.
 
-Existing version 1 templates remain supported. Typed fields or saved logic edits
-upgrade a template to version 2, which older servers cannot read. Back up the
-database before upgrading if rollback may be needed. No new database migration is
-required when upgrading from 0.12.0-pre2.
-
-Physical verification update (2026-11-06): both conditional subtitle branches and
-saved-label layout preservation after template edits were successfully printed.
-Phone editing also passed, with occasional accidental text selection reported.
-Tablet editing and the remaining print scenarios still need physical verification.
+**Compatibility:** Typed fields or saved logic edits upgrade templates to version 2,
+which older servers cannot read. Existing version 1 templates remain supported.
 
 ## [0.12.0-pre2] - 2026-11-04
 
@@ -891,8 +750,6 @@ Tablet editing and the remaining print scenarios still need physical verificatio
 ### Fixed
 
 - The sidebar now shows the number of pending print requests visible to you.
-
-Apply database migrations before starting this version.
 
 ## [0.12.0-pre1] - 2026-11-04
 
@@ -917,11 +774,6 @@ Apply database migrations before starting this version.
 - Push delivery rechecks account and printer permissions, stops after sign-out or
   session revocation, and restricts subscription URLs to supported push providers.
 
-Apply database migrations before starting this version. Push notifications require
-one-time VAPID key and contact-address configuration; see the deployment guide.
-Offline use requires a previous successful visit and does not support editing or
-replaying print submissions. Verify push delivery on physical devices before relying on it.
-
 ## [0.11.0] - 2026-11-03
 
 ### Added
@@ -941,8 +793,8 @@ replaying print submissions. Verify push delivery on physical devices before rel
   Sign-in rejects ambiguous email addresses already shared by older accounts;
   those accounts can continue using their usernames.
 
-No database migration is required. Existing shared email addresses need separate
-verified addresses before they can be used for email sign-in.
+**Manual action:** Accounts sharing an email address must verify separate addresses
+before using email sign-in. Username sign-in remains available.
 
 ## [0.10.0] - 2026-11-03
 
@@ -975,11 +827,6 @@ verified addresses before they can be used for email sign-in.
 
 - Authentication validation errors omit submitted credentials and recovery tokens.
 
-Stop existing servers and run `alembic upgrade head` before restarting. Existing
-ntfy endpoints retain their settings; email delivery requires SMTP configuration.
-Non-administrators need the `queue.change_printer` permission and Moderator access
-to both destinations to change a queued job's printer.
-
 ## [0.9.0] - 2026-10-30
 
 ### Added
@@ -990,9 +837,6 @@ to both destinations to change a queued job's printer.
 - Permanent deletion of cartridges without print or queue history, with
   confirmation and visible explanations when removal is blocked.
 - Owner names in font and image libraries for administrators.
-
-Stop existing servers and run `alembic upgrade head` before restarting. Existing
-cartridges remain active after the upgrade.
 
 ## [0.8.0] - 2026-10-30
 
@@ -1014,8 +858,8 @@ cartridges remain active after the upgrade.
   poll. Labels remain queued and automatic printing is held for the affected
   destination, including printer groups, pending a manual retry or explicit resume.
 
-No database migration is required. Existing duplicate failures remain until an
-administrator previews and confirms their removal in Activity.
+**Manual cleanup:** Existing duplicate failures remain until an administrator previews
+and confirms their removal in Activity.
 
 ## [0.7.1] - 2026-10-29
 
@@ -1034,8 +878,8 @@ administrator previews and confirms their removal in Activity.
 - Installed-cartridge confirmation popups no longer interrupt manual review;
   outstanding checks remain separate from the review's accounting.
 
-Resubmit previously queued labels affected by the print-area error after updating;
-existing jobs retain their saved rasters.
+**Manual repair:** Resubmit queued labels affected by the print-area error; existing
+jobs retain their saved rasters.
 
 ## [0.7.0] - 2026-10-29
 
@@ -1057,10 +901,9 @@ existing jobs retain their saved rasters.
 - Replaced the combined asset-upload permission with independent font and image
   permissions. Group and global sharing require explicit grants for each library.
 
-Stop existing servers and run `alembic upgrade head` before restarting. Existing
-uploads remain personal; roles with `assets.write` are migrated to
-`images.create_personal` and `fonts.create_personal`. Integrations that configure
-roles must use the new permission names.
+**Permission compatibility:** Roles with `assets.write` are migrated to
+`images.create_personal` and `fonts.create_personal`. Integrations configuring roles
+must use the new permission names; existing uploads remain personal.
 
 ## [0.6.0] - 2026-10-28
 
@@ -1078,10 +921,8 @@ roles must use the new permission names.
 - Upgraded Pillow to 13.0.0 to address image-processing vulnerabilities, including
   Ghostscript argument injection and TIFF memory corruption.
 
-Stop existing servers, install the updated dependencies, and run
-`alembic upgrade head` before restarting. Account balances include already tracked,
-settled print costs; pending and unpriced tape remain separate. Administrators
-receive both account permissions; other roles must be granted them explicitly.
+**Permission change:** Administrators receive both account permissions; grant them
+explicitly to other roles that need them.
 
 ## [0.5.0] - 2026-10-28
 
@@ -1105,8 +946,8 @@ receive both account permissions; other roles must be granted them explicitly.
 - Upgrades recognize the previously applied consumption-source migration and
   preserve existing print history.
 
-Stop existing servers and run `alembic upgrade head` before restarting. Per-user
-usage tracking starts with new print attempts; older costs are not reconstructed.
+**History limitation:** Per-user usage tracking starts with new print attempts; older
+costs are not reconstructed.
 
 ## [0.4.0] - 2026-10-22
 
@@ -1252,10 +1093,11 @@ Initial release of Label Printer Server.
   backs up data, upgrades dependencies, migrates and verifies service health.
 - Version display, cached release notifications and private GitHub token support.
 
-PT-P710BT printing has been verified with one physical printer. Multiple physical
-printers and HomeBox integration remain deferred. Cancellation may finish the
-current label before stopping subsequent labels.
+**Printing limitation:** Cancellation may finish the current label before stopping
+subsequent labels.
 
+[0.19.0]: https://github.com/tarobits/label-server/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/tarobits/label-server/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/tarobits/label-server/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/tarobits/label-server/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/tarobits/label-server/compare/v0.16.1...v0.17.0
