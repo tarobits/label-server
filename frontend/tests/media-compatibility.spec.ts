@@ -1,3 +1,4 @@
+import { chooseTapeProfile } from './tape-profile-picker-helpers'
 import { test, expect } from './fixtures'
 
 for (const width of [1280, 390]) {
@@ -33,7 +34,7 @@ for (const width of [1280, 390]) {
       animations: 'disabled',
     })
     await page.goto('/#/templates/new')
-    await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(stock.id)
+    await chooseTapeProfile(page, stock.id)
     await expect(page.getByLabel('Label length (mm)', { exact: true })).toHaveValue('40')
     await expect(
       page.getByRole('checkbox', { name: 'Automatic label length', exact: true }),

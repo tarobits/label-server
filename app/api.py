@@ -83,6 +83,7 @@ from app.schemas import (
     CopySelectionInput,
     ImageJobInput,
     JobInput,
+    ProfileAvailabilityInput,
     ProfileInput,
     RemainingInput,
     ReminderInput,
@@ -156,6 +157,26 @@ def update_profile(
             )
     for key, value in body.model_dump().items():
         setattr(profile, key, value)
+    session.flush()
+    return record(profile)
+
+
+@router.put("/tape-profiles/{identifier}/availability")
+def set_profile_availability(
+    identifier: str,
+    body: ProfileAvailabilityInput,
+    session: Session = Depends(db, scope="function"),
+) -> dict[str, Any]:
+    profile = get(session, TapeProfile, identifier)
+    if profile.available != body.available:
+        profile.available = body.available
+        record_action(
+            session,
+            "profile.availability_changed",
+            "global",
+            "",
+            {"profile_id": profile.id, "available": body.available},
+        )
     session.flush()
     return record(profile)
 

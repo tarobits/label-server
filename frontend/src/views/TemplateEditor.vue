@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import SettingHelp from '../components/SettingHelp.vue'
+import TapeProfilePicker from '../components/TapeProfilePicker.vue'
 import { editorHelp } from '../editorHelp'
 import { confirmAction } from '../confirmation'
-import { mediaProperties, mediaLabel, compatibleProfile } from '../media'
+import { mediaProperties, compatibleProfile } from '../media'
 import EditorRuler from '../components/EditorRuler.vue'
 import ElementDetails from '../components/ElementDetails.vue'
 import PropertySection from '../components/PropertySection.vue'
@@ -150,7 +151,7 @@ const sampleProfile = computed({
   get: () => document.value.preview_tape?.id ?? '',
   set: (id: string) => {
     const profile = w.profiles.find((p) => p.id === id)
-    if (!profile) return
+    if (!profile || profile.available === false) return
     document.value.preview_tape = {
       id: profile.id,
       name: profile.name,
@@ -459,8 +460,12 @@ async function load() {
     }
     if (!document.value.preview_tape) {
       const profile =
-        (!id.value && (w.profiles.find((p) => p.id === route.query.profile) || w.activeProfile)) ||
-        w.profiles.find((p) => compatibleProfile(p, undefined, document.value))
+        (!id.value &&
+          (w.profiles.find((p) => p.id === route.query.profile && p.available !== false) ||
+            w.defaultProfile)) ||
+        w.profiles.find(
+          (p) => p.available !== false && compatibleProfile(p, undefined, document.value),
+        )
       if (profile) sampleProfile.value = profile.id
     }
     saved.value = snapshot()
@@ -1040,23 +1045,18 @@ onUnmounted(() => {
         </select>
       </div>
       <div class="setting-field">
-        <SettingHelp :help="editorHelp.profile" for="setting-profile" label="Tape profile" /><select
-          id="setting-profile"
+        <TapeProfilePicker
+          control-id="setting-profile"
           v-model="sampleProfile"
+          :profiles="w.profiles"
+          :saved-name="document.preview_tape?.name"
           :disabled="!editable"
-          required
+          compact
         >
-          <option v-if="!selectedProfile" :value="sampleProfile" disabled>
-            {{
-              document.preview_tape
-                ? `Saved: ${document.preview_tape.name}`
-                : 'Choose a tape profile'
-            }}
-          </option>
-          <option v-for="p in w.profiles" :key="p.id" :value="p.id">
-            {{ p.name }} · {{ mediaLabel(p) }}
-          </option>
-        </select>
+          <template #label
+            ><SettingHelp :help="editorHelp.profile" for="setting-profile" label="Tape profile"
+          /></template>
+        </TapeProfilePicker>
       </div>
       <div class="setting-field">
         <SettingHelp

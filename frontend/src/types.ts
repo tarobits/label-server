@@ -35,6 +35,7 @@ export interface Printer {
 }
 export interface Profile {
   id: string
+  available?: boolean
   name: string
   width_mm: number
   media_family?: 'tze' | 'fixed_label'

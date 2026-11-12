@@ -249,3 +249,72 @@ test('picker tolerates unavailable browser storage and failed previews', async (
     'text',
   )
 })
+
+for (const [width, height] of [
+  [1024, 600],
+  [390, 844],
+]) {
+  test(`CSV template picker preserves imports and fits ${width} × ${height}`, async ({
+    page,
+    request,
+  }) => {
+    const items = await seedTemplates(request, page)
+    await page.setViewportSize({ width, height })
+    await page.goto('/#/runs?template=text')
+    await page.getByLabel('Run name', { exact: true }).fill('Equipment import')
+    const csv = page.getByLabel('CSV content', { exact: true })
+    await csv.fill('Asset\nRack 7')
+    await page.getByRole('button', { name: 'Read CSV', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Label text', exact: true }).selectOption('Asset')
+    const trigger = page.getByRole('button', { name: 'Change template', exact: true })
+    await trigger.click()
+    const dialog = page.getByRole('dialog', { name: 'Choose template', exact: true })
+    const search = dialog.getByRole('searchbox', { name: 'Search templates', exact: true })
+    await expect(search).toBeFocused()
+    await expect(dialog.locator('article')).toHaveCount(12)
+    await page.screenshot({
+      path: `test-results/csv-template-picker-${width}.png`,
+      animations: 'disabled',
+    })
+    const bounds = (await dialog.boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(0)
+    expect(bounds.y).toBeGreaterThanOrEqual(0)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height)
+    await search.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await expect(csv).toHaveValue('Asset\nRack 7')
+    await expect(page.getByRole('combobox', { name: 'Label text', exact: true })).toHaveValue(
+      'Asset',
+    )
+    await trigger.click()
+    await search.fill('Packing 26')
+    await expect(dialog.locator('article')).toHaveCount(1)
+    await dialog.getByRole('checkbox', { name: 'Compatible with destination', exact: true }).check()
+    await expect(dialog.getByText('No matching templates.', { exact: true })).toBeVisible()
+    await search.fill('Equipment ID')
+    await dialog.getByRole('button', { name: 'Use Café equipment', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toHaveJSProperty('value', items[24].id)
+    await expect(page).toHaveURL(new RegExp(`template=${items[24].id}`))
+    await expect(page.getByLabel('Run name', { exact: true })).toHaveValue('Equipment import')
+    await expect(csv).toHaveValue('Asset\nRack 7')
+    await expect(page.getByRole('combobox', { name: 'Label text', exact: true })).toHaveCount(0)
+    await page.getByRole('combobox', { name: 'Equipment ID', exact: true }).selectOption('Asset')
+    await trigger.scrollIntoViewIfNeeded()
+    await page.screenshot({
+      path: `test-results/csv-template-picker-closed-${width}.png`,
+      animations: 'disabled',
+    })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    )
+    await page.reload()
+    await trigger.click()
+    await expect(dialog.locator('article').first()).toHaveAttribute(
+      'data-template-id',
+      items[24].id,
+    )
+  })
+}

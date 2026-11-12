@@ -36,6 +36,7 @@ COMMON_FIELDS: dict[str, FieldType] = {
     "victim_names": "identifiers",
 }
 ACTION_FIELDS: dict[str, dict[str, FieldType]] = {
+    "profile.availability_changed": {"profile_id": "text", "available": "boolean"},
     "migration.resource_created": {
         "resource_kind": "text",
         "resource_id": "text",

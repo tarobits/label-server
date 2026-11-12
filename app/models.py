@@ -235,6 +235,7 @@ class TapeProfile(Base):
     __tablename__ = "tape_profiles"
     id: Mapped[str] = mapped_column(String(128), primary_key=True, default=new_id)
     name: Mapped[str]
+    available: Mapped[bool] = mapped_column(default=True, server_default="1")
     width_mm: Mapped[float]
     media_family: Mapped[str] = mapped_column(String(32), default="tze", server_default="tze")
     label_length_mm: Mapped[float | None]

@@ -192,6 +192,8 @@ def prepare_run(
         return {"valid": True, "run": quoted_run(existing, request, session), "errors": []}
     parsed = parse_csv(body)
     profile = get(session, TapeProfile, body.tape_profile)
+    if not profile.available:
+        raise HTTPException(409, "Tape profile is unavailable; choose another profile")
     template = get(session, LabelTemplate, body.template)
     if template.archived or template.revision != body.expected_revision:
         raise HTTPException(409, "Template changed or was archived; reload before preparing")

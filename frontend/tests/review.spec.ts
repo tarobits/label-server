@@ -1,3 +1,4 @@
+import { chooseTapeProfile } from './tape-profile-picker-helpers'
 import { showEditorSettings } from './editor-settings'
 import { test, expect } from './fixtures'
 
@@ -192,7 +193,7 @@ test('narrow tape elements fit the production printable band and print', async (
   await page.request.put('/api/printer/mock', { data: { tape_width_mm: 3.5, connected: true } })
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Narrow design')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tape.id)
+  await chooseTapeProfile(page, tape.id)
   await page.getByRole('button', { name: 'Add text', exact: true }).click()
   await page.getByRole('textbox', { name: 'Content', exact: true }).fill('Narrow')
   await showEditorSettings(page, 'Position & size')

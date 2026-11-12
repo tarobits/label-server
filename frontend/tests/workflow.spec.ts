@@ -1,3 +1,4 @@
+import { chooseTapeProfile, tapeProfileControl } from './tape-profile-picker-helpers'
 import { chooseTemplate, templateControl } from './template-picker-helpers'
 import { showEditorSettings, showEditorTab } from './editor-settings'
 import { test, expect } from './fixtures'
@@ -174,7 +175,7 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   ).json()
   await page.goto('/#/templates/new')
   await page.getByLabel('Template name', { exact: true }).fill('Asset labels')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
   await page.getByRole('button', { name: 'Add variable', exact: true }).click()
   await page.getByLabel('Variable name', { exact: true }).fill('asset')
   await page.getByLabel('Field label', { exact: true }).fill('Asset name')
@@ -226,9 +227,7 @@ test('visual editor saves text and QR, reopens revisions, and queues without cha
   await expect(page.locator('svg image')).toHaveAttribute('href', smoothPreview!)
   await page.screenshot({ path: 'test-results/template-editor.png', fullPage: true })
   await page.goto(`/#/new?template=${id}`)
-  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
-    profile.id,
-  )
+  await expect(tapeProfileControl(page)).toHaveJSProperty('value', profile.id)
 
   await page.getByLabel('Asset name', { exact: true }).fill('ASSET-99')
   await expect(page.getByAltText('Rendered label preview')).toBeVisible()
@@ -318,7 +317,7 @@ test('CSV runs map columns, preview reordered rows, survive reload and submit on
   await page.goto('/#/runs')
   await page.getByLabel('Run name', { exact: true }).fill('Inventory CSV')
   await chooseTemplate(page, 'text')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
 
   await page
     .getByLabel('CSV content', { exact: true })
@@ -381,7 +380,7 @@ test('queue runs expand, select individual rows, and drafts can be deleted', asy
   const run = (await (await page.request.post('/api/runs/prepare', { data: body })).json()).run
   const submitted = await (await page.request.post(`/api/runs/${run.id}/submit`)).json()
   await page.goto('/#/queue')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
   for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
@@ -700,7 +699,7 @@ test('built-in text preview fits the configured printable tape width', async ({ 
     await route.fulfill({ json: printers })
   })
   await page.goto('/#/new?template=text')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
 
   const rendered = page.waitForRequest(
     (request) =>
@@ -1003,22 +1002,18 @@ test('distance holders follow text and selection URLs survive refresh', async ({
   await page.screenshot({ path: 'test-results/cable-distance-holders.png', fullPage: true })
   await page.goto('/#/new')
   await chooseTemplate(page, template.id)
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
   await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
   await page.reload()
   await expect(templateControl(page)).toHaveJSProperty('value', template.id)
-  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
-    profile.id,
-  )
+  await expect(tapeProfileControl(page)).toHaveJSProperty('value', profile.id)
   await page.goto('/#/runs')
   await chooseTemplate(page, template.id)
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(profile.id)
+  await chooseTapeProfile(page, profile.id)
   await expect(page).toHaveURL(new RegExp(`profile=${profile.id}`))
   await page.reload()
   await expect(templateControl(page)).toHaveJSProperty('value', template.id)
-  await expect(page.getByRole('combobox', { name: 'Tape profile', exact: true })).toHaveValue(
-    profile.id,
-  )
+  await expect(tapeProfileControl(page)).toHaveJSProperty('value', profile.id)
 })
 
 test('rotated objects drag and resize with the opposite corner fixed', async ({ page }) => {
@@ -1223,7 +1218,7 @@ test('printer groups route different tapes and preserve destination choices', as
     .getByRole('combobox', { name: 'Print destination', exact: true })
     .inputValue()
   await chooseTemplate(page, 'text')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(tapes[0].id)
+  await chooseTapeProfile(page, tapes[0].id)
   await page.reload()
   await expect(page.getByRole('combobox', { name: 'Print destination', exact: true })).toHaveValue(
     destination,

@@ -22,6 +22,10 @@ class ProfileInput(MediaProperties, Input):
     waiting_notification_interval_seconds: int = Field(default=86400, ge=60)
 
 
+class ProfileAvailabilityInput(Input):
+    available: bool = Field(strict=True)
+
+
 class CartridgePriceInput(Input):
     price_minor: int | None = Field(default=None, ge=0, le=1000000000, strict=True)
     currency: str = Field(default="EUR", pattern=r"^[A-Z]{3}$")

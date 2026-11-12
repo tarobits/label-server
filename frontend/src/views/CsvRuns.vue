@@ -11,15 +11,17 @@ import { randomUUID } from '../uuid'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import BillingPicker, { type BillingSelection } from '../components/BillingPicker.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
-import type { CostEstimate as CostEstimateData, PrintPlan } from '../types'
+import type { CostEstimate as CostEstimateData, PrintPlan, Template } from '../types'
 import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import ImageValueInput from '../components/ImageValueInput.vue'
+import TemplatePicker from '../components/TemplatePicker.vue'
+import TapeProfilePicker from '../components/TapeProfilePicker.vue'
 import type { ImageValue, VariableValue } from '../editor'
 import { displayValue } from '../variableInputs'
-import { mediaLabel, compatibleProfile } from '../media'
+import { compatibleProfile } from '../media'
 interface Row {
   source_row: number
   values: string[]
@@ -76,9 +78,7 @@ const csv = ref(''),
     typeof route.query.template === 'string' ? route.query.template : (w.templates[0]?.id ?? ''),
   ),
   profileId = ref(
-    typeof route.query.profile === 'string'
-      ? route.query.profile
-      : (w.activeProfile?.id ?? w.profiles[0]?.id ?? ''),
+    typeof route.query.profile === 'string' ? route.query.profile : (w.defaultProfile?.id ?? ''),
   )
 const template = computed(() => w.templates.find((t) => t.id === templateId.value))
 const processName = ref('')
@@ -129,6 +129,22 @@ const error = ref(''),
 const destination = computed(() =>
   w.destinations.find((d) => d.id === (run.value?.destination_id ?? destinationId.value)),
 )
+const templateCompatible = (item: Template) =>
+  w.profiles.some(
+    (profile) =>
+      profile.available !== false &&
+      w.printers.some(
+        (printer) =>
+          destination.value?.printer_ids.includes(printer.id) &&
+          compatibleProfile(
+            profile,
+            printer.capabilities ?? undefined,
+            item.id === 'text' && item.revision === 2
+              ? { ...item.document, width_mm: profile.width_mm }
+              : item.document,
+          ),
+      ),
+  )
 const selected = computed(() => rows.value.filter((r) => r.selected))
 const imageChoices = ref(new Map<string, ImageValue | null>())
 const imageCells = computed(() =>
@@ -433,32 +449,25 @@ onUnmounted(() => {
         This destination has no configured printer available. Update its printers before preparing
         labels.
       </p>
-      <div class="field-row">
-        <label>Run name<input v-model="name" maxlength="100" /></label>
-        <label
-          >Template<select v-model="templateId">
-            <option v-for="t in w.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select></label
-        >
-        <label
-          >Tape profile<select v-model="profileId">
-            <option
-              v-for="p in w.profiles"
-              :key="p.id"
-              :value="p.id"
-              :disabled="
-                !compatibleProfile(
-                  p,
-                  w.destinationPrinter(destinationId)?.capabilities,
-                  template?.id === 'text' ? undefined : template?.document,
-                )
-              "
-            >
-              {{ p.name }} · {{ mediaLabel(p) }}
-            </option>
-          </select></label
-        >
-      </div>
+      <TemplatePicker
+        v-model="templateId"
+        :templates="w.templates"
+        :compatible="templateCompatible"
+      />
+      <TapeProfilePicker
+        v-model="profileId"
+        :profiles="w.profiles"
+        :disabled="busy || w.busy"
+        :compatible="
+          (p) =>
+            compatibleProfile(
+              p,
+              w.destinationPrinter(destinationId)?.capabilities,
+              template?.id === 'text' ? undefined : template?.document,
+            )
+        "
+      />
+      <label>Run name<input v-model="name" maxlength="100" /></label>
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <BillingPicker v-model="billing" />
       <label
@@ -597,7 +606,12 @@ onUnmounted(() => {
         </p>
         <button
           class="primary"
-          :disabled="!selected.length || destination?.available === false"
+          :disabled="
+            !selected.length ||
+            destination?.available === false ||
+            !profileId ||
+            w.profiles.find((p) => p.id === profileId)?.available === false
+          "
           @click="prepare"
         >
           Validate and preview run

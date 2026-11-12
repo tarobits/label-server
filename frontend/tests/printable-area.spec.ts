@@ -1,3 +1,4 @@
+import { chooseTapeProfile } from './tape-profile-picker-helpers'
 import { test, expect } from './fixtures'
 
 test('changing 24 mm to 12 mm keeps unclipped text warnings clear and the guide contrasting', async ({
@@ -46,7 +47,7 @@ test('changing 24 mm to 12 mm keeps unclipped text warnings clear and the guide 
       response.url().endsWith('/api/preview') &&
       response.request().postDataJSON().document?.width_mm === 12,
   )
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(narrow.id)
+  await chooseTapeProfile(page, narrow.id)
   const preview = await (await response).json()
   expect(preview.warnings).toEqual([])
   await expect(guide).toHaveAttribute('stroke', '#ffffff')
@@ -67,9 +68,9 @@ test('changing 24 mm to 12 mm keeps unclipped text warnings clear and the guide 
     path: 'test-results/printable-border-dark-red-mobile.png',
     animations: 'disabled',
   })
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(wide.id)
+  await chooseTapeProfile(page, wide.id)
   await expect(guide).toHaveAttribute('stroke', '#000000')
-  await page.getByRole('combobox', { name: 'Tape profile', exact: true }).selectOption(narrow.id)
+  await chooseTapeProfile(page, narrow.id)
   const savedRevision = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/api/templates/${saved.id}`) &&

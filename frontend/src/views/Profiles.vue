@@ -83,6 +83,13 @@ async function remove(profile: Profile) {
   )
     await w.action(() => api(`/tape-profiles/${profile.id}`, 'DELETE'), 'Tape profile deleted.')
 }
+async function setAvailability(profile: Profile) {
+  const available = profile.available === false
+  await w.action(
+    () => api(`/tape-profiles/${profile.id}/availability`, 'PUT', { available }),
+    available ? 'Tape profile available.' : 'Tape profile unavailable for new labels.',
+  )
+}
 async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   const body = {
     action,
@@ -202,6 +209,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         ><span class="badge">{{ mediaLabel(profile) }}</span>
       </div>
       <h2>{{ profile.name }}</h2>
+      <ExpandableContent :open="profile.available === false">
+        <span class="badge">Unavailable</span>
+      </ExpandableContent>
       <p>
         {{ status?.queues.find((q) => q.profile_id === profile.id)?.queued_copies ?? 0 }} queued ·
         Prints at {{ profile.auto_print_threshold }} copies
@@ -250,6 +260,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         </form>
       </Transition>
       <div class="card-actions">
+        <button class="text-button" :disabled="busy" @click="setAvailability(profile)">
+          {{ profile.available === false ? 'Make available' : 'Mark unavailable' }}
+        </button>
         <button class="text-button" @click="edit(profile)">Edit profile</button
         ><button class="text-button danger-text" :disabled="busy" @click="remove(profile)">
           Delete

@@ -189,6 +189,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const activeProfile = computed(() =>
     profiles.value.find((p) => p.id === activeCartridge.value?.profile_id),
   )
+  const defaultProfile = computed(() =>
+    activeProfile.value?.available !== false && activeProfile.value
+      ? activeProfile.value
+      : profiles.value.find((profile) => profile.available !== false),
+  )
   const activeCount = computed(
     () =>
       status.value?.queues.find((q) => q.profile_id === activeProfile.value?.id)?.queued_copies ??
@@ -250,6 +255,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     status,
     printers,
     profiles,
+    defaultProfile,
     cartridges,
     batches,
     notices,

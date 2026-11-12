@@ -17,24 +17,25 @@ import CostEstimate from '../components/CostEstimate.vue'
 import BillingPicker, { type BillingSelection } from '../components/BillingPicker.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import TemplatePicker from '../components/TemplatePicker.vue'
+import TapeProfilePicker from '../components/TapeProfilePicker.vue'
 import { rememberTemplate } from '../templateBrowser'
 import type { Template } from '../types'
 import { decodeLabel } from '../labelPreview'
 import { templateLength } from '../templateDimensions'
-import { mediaLabel, compatibleProfile } from '../media'
+import { compatibleProfile } from '../media'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
 const router = useRouter(),
   route = useRoute()
-const { profiles, activeProfile, busy, templates } = storeToRefs(w)
+const { profiles, defaultProfile, busy, templates } = storeToRefs(w)
 const form = reactive({
   destination_id:
     typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter,
   tape_profile:
     typeof route.query.profile === 'string'
       ? route.query.profile
-      : (activeProfile.value?.id ?? profiles.value[0]?.id ?? ''),
+      : (defaultProfile.value?.id ?? ''),
   copies: 1,
   notify_on_completion: true,
   template:
@@ -146,18 +147,20 @@ function clearSubmissionError(event: Event) {
 const selected = computed(() => profiles.value.find((p) => p.id === form.tape_profile))
 const destination = computed(() => w.destinations.find((d) => d.id === form.destination_id))
 const templateCompatible = (item: Template) =>
-  profiles.value.some((profile) =>
-    w.printers.some(
-      (printer) =>
-        destination.value?.printer_ids.includes(printer.id) &&
-        compatibleProfile(
-          profile,
-          printer.capabilities ?? undefined,
-          item.id === 'text' && item.revision === 2
-            ? { ...item.document, width_mm: profile.width_mm }
-            : item.document,
-        ),
-    ),
+  profiles.value.some(
+    (profile) =>
+      profile.available !== false &&
+      w.printers.some(
+        (printer) =>
+          destination.value?.printer_ids.includes(printer.id) &&
+          compatibleProfile(
+            profile,
+            printer.capabilities ?? undefined,
+            item.id === 'text' && item.revision === 2
+              ? { ...item.document, width_mm: profile.width_mm }
+              : item.document,
+          ),
+      ),
   )
 const planningConfig = computed(() =>
   w.printers
@@ -417,24 +420,19 @@ async function submit() {
       />
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <BillingPicker v-model="billing" />
-      <label
-        >Tape profile<select v-model="form.tape_profile" name="tape_profile" required>
-          <option
-            v-for="profile in profiles"
-            :key="profile.id"
-            :value="profile.id"
-            :disabled="
-              !compatibleProfile(
-                profile,
-                w.destinationPrinter(form.destination_id)?.capabilities,
-                template?.id === 'text' ? undefined : template?.document,
-              )
-            "
-          >
-            {{ profile.name }} · {{ mediaLabel(profile) }}
-          </option>
-        </select></label
-      >
+      <TapeProfilePicker
+        v-model="form.tape_profile"
+        :profiles="profiles"
+        :disabled="busy"
+        :compatible="
+          (profile) =>
+            compatibleProfile(
+              profile,
+              w.destinationPrinter(form.destination_id)?.capabilities,
+              template?.id === 'text' ? undefined : template?.document,
+            )
+        "
+      />
       <VariableInput
         v-for="field in template?.document.fields"
         :key="`${form.template}:${field.name}:${field.type}`"
@@ -501,6 +499,8 @@ async function submit() {
           !!error ||
           !preview ||
           preview.printable === false ||
+          !selected ||
+          selected.available === false ||
           destination?.available === false ||
           !auth.canSubmit(form.destination_id)
         "

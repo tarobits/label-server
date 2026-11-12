@@ -105,6 +105,8 @@ def build_job(
     *,
     context: AccessContext,
 ) -> PrintJob:
+    if profile.available is False:
+        raise HTTPException(409, "Tape profile is unavailable; choose another profile")
     context.require(
         Action.READ,
         Resource(

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { chooseTemplate } from './template-picker-helpers'
 
 for (const path of ['/new', '/runs']) {
   test(`${path} follows template names until edited and resumes on revert`, async ({
@@ -23,16 +24,15 @@ for (const path of ['/new', '/runs']) {
     }
     await page.goto(`/#${path}?template=${templates[0].id}`)
     const name = page.getByRole('textbox', { name: 'Process name', exact: true })
-    const template = page.getByRole('combobox', { name: 'Template', exact: true })
     await expect(name).toHaveValue('Cable labels')
-    await template.selectOption(templates[1].id)
+    await chooseTemplate(page, templates[1].id)
     await expect(name).toHaveValue('Storage labels')
     await name.fill('Network installation')
-    await template.selectOption(templates[0].id)
+    await chooseTemplate(page, templates[0].id)
     await expect(name).toHaveValue('Network installation')
     await page.getByRole('button', { name: 'Revert to original', exact: true }).click()
     await expect(name).toHaveValue('Cable labels')
-    await template.selectOption(templates[1].id)
+    await chooseTemplate(page, templates[1].id)
     await expect(name).toHaveValue('Storage labels')
     await name.fill('Final process name')
     await page.screenshot({

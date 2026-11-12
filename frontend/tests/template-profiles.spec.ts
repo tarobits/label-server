@@ -1,3 +1,4 @@
+import { chooseTapeProfile, tapeProfileControl } from './tape-profile-picker-helpers'
 import { test, expect } from './fixtures'
 import { chooseTemplate, templateControl } from './template-picker-helpers'
 import type { Profile } from '../src/types'
@@ -10,7 +11,7 @@ for (const path of ['/new', '/runs']) {
     const active: Profile = (await (await request.get('/api/tape-profiles')).json())[0]
     const saved: Profile = await (
       await request.post('/api/tape-profiles', {
-        data: { name: 'Saved template tape', width_mm: 18 },
+        data: { name: 'Saved template tape', width_mm: 24 },
       })
     ).json()
     async function createTemplate(name: string, profile: Profile | null) {
@@ -39,7 +40,7 @@ for (const path of ['/new', '/runs']) {
     const other = await createTemplate('Other saved profile template', active)
     const legacy = await createTemplate('Legacy template', null)
     const missing = await createTemplate('Missing profile template', { ...saved, id: 'deleted' })
-    const tapeSelect = page.getByRole('combobox', { name: 'Tape profile', exact: true })
+    const tapeSelect = tapeProfileControl(page)
     const templateSelect = templateControl(page)
 
     await page.goto('/#/templates')
@@ -48,26 +49,26 @@ for (const path of ['/new', '/runs']) {
       .filter({ has: page.getByRole('heading', { name: 'Saved profile template', exact: true }) })
       .getByRole('link', { name: path === '/new' ? 'Use template' : 'Use with CSV', exact: true })
       .click()
-    await expect(tapeSelect).toHaveValue(saved.id)
-    await tapeSelect.selectOption(active.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
+    await chooseTapeProfile(page, active.id)
     await expect(page).toHaveURL(new RegExp(`profile=${active.id}`))
     await page.reload()
-    await expect(tapeSelect).toHaveValue(active.id)
+    await expect(tapeSelect).toHaveJSProperty('value', active.id)
 
     await chooseTemplate(page, other.id)
     await chooseTemplate(page, template.id)
-    await expect(tapeSelect).toHaveValue(saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
     await chooseTemplate(page, legacy.id)
-    await expect(tapeSelect).toHaveValue(saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
     await chooseTemplate(page, missing.id)
-    await expect(tapeSelect).toHaveValue(saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
 
     await page.goto(`/#${path}?template=${other.id}&profile=${saved.id}`)
     await expect(templateSelect).toHaveJSProperty('value', other.id)
-    await expect(tapeSelect).toHaveValue(saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
     await page.goto(`/#${path}?template=${template.id}`)
     await expect(templateSelect).toHaveJSProperty('value', template.id)
-    await expect(tapeSelect).toHaveValue(saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
   })
 }
 
@@ -92,16 +93,25 @@ test('template dimensions follow the tape profile through save, undo and reload'
     })
   ).json()
   await page.goto(`/#/templates/new?profile=${narrow.id}`)
-  const tape = page.getByRole('combobox', { name: 'Tape profile', exact: true })
-  await expect(tape).toHaveValue(narrow.id)
+  const tape = tapeProfileControl(page)
+  await expect(tape).toHaveJSProperty('value', narrow.id)
   await expect(page.getByRole('combobox', { name: 'Tape width (mm)', exact: true })).toHaveCount(0)
-  await expect(tape.getByRole('option', { name: 'Black on white', exact: true })).toHaveCount(0)
+  await tape.click()
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Choose tape profile', exact: true })
+      .getByRole('button', { name: 'Use Black on white', exact: true }),
+  ).toHaveCount(0)
+  await page
+    .getByRole('dialog', { name: 'Choose tape profile', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click()
   const canvas = page.locator('svg.editor-canvas')
   await expect(canvas).toHaveAttribute('viewBox', / 12$/)
-  await tape.selectOption(active.id)
+  await chooseTapeProfile(page, active.id)
   await expect(canvas).toHaveAttribute('viewBox', / 24$/)
   await page.getByRole('button', { name: 'Undo', exact: true }).click()
-  await expect(tape).toHaveValue(narrow.id)
+  await expect(tape).toHaveJSProperty('value', narrow.id)
   await expect(canvas).toHaveAttribute('viewBox', / 12$/)
   await page.getByRole('button', { name: 'Save template', exact: true }).click()
   await expect(page).toHaveURL(/templates\/[^/]+\/edit/)
@@ -110,7 +120,7 @@ test('template dimensions follow the tape profile through save, undo and reload'
   expect(saved.document.width_mm).toBe(12)
   expect(saved.document.preview_tape.id).toBe(narrow.id)
   await page.reload()
-  await expect(tape).toHaveValue(narrow.id)
+  await expect(tape).toHaveJSProperty('value', narrow.id)
   await expect(canvas).toHaveAttribute('viewBox', / 12$/)
   await expect(page.getByRole('button', { name: 'Save template', exact: true })).toBeEnabled()
   await page.screenshot({ path: 'test-results/template-profile-desktop.png', fullPage: true })

@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { chooseTemplate } from './template-picker-helpers'
 
 for (const width of [390, 1280]) {
   test(`per-item completion preference persists at ${width}px`, async ({ page, request }) => {
@@ -56,7 +57,7 @@ for (const width of [390, 1280]) {
 
 test('CSV completion preferences survive preparation and submission', async ({ page, request }) => {
   await page.goto('/#/runs')
-  await page.getByRole('combobox', { name: 'Template', exact: true }).selectOption('text')
+  await chooseTemplate(page, 'text')
   await page.getByLabel('CSV content', { exact: true }).fill('Title\nNotify\nSilent')
   await page.getByRole('button', { name: 'Read CSV', exact: true }).click()
   await page.getByRole('combobox', { name: 'Label text', exact: true }).selectOption('Title')
