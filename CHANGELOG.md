@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.17.0] - 2026-11-12
+
+### Added
+
+- Searchable template picker for CSV runs and a shared tape-profile picker in
+  the template editor, new labels and CSV runs.
+- Tape profiles can be marked unavailable without deleting them. Unavailable
+  profiles remain visible but disabled for new selections; existing queued
+  labels, saved runs and pending requests remain printable.
+
+### Changed
+
+- The main-server database pool now permits 25 total connections per process,
+  retaining five idle connections and allowing 20 temporary overflow connections.
+- Completed implementation plans and historical audit reports are replaced by
+  maintained security, architecture and migration guides and a shorter deployment
+  checklist.
+
+### Fixed
+
+- Database authorization and transaction scheduling no longer block the event
+  loop or strand requests waiting for a worker while holding the shared lock.
+  Password and PIN verification also releases shared mutation capacity while
+  preserving fresh authorization checks before changes take effect.
+- Concurrent saved-label previews release their database connection before
+  rendering, preventing exhaustion caused by nested asset lookups. Preview
+  publication and retention cleanup now coordinate across cache instances.
+- Delayed companion responses cannot overwrite newer lock/unlock actions.
+  Superseded sessions are revoked durably after reconnect or restart, and journal
+  polling avoids unnecessary write contention.
+- Companion shutdown has a shared 30-second deadline. Stuck workers cause process
+  termination while retaining unfinished attempts for review after restart.
+- Database ownership checks reject further work after ownership loss, including
+  checks before physical printing. Uncertain output still requires review.
+
+### Security
+
+- Request bodies have configurable byte limits, including chunked requests, and
+  expensive HTTP rendering/uploads have a configurable concurrency limit. Busy
+  requests receive a retry response instead of waiting indefinitely for capacity.
+- Administrator setup tokens are no longer written to logs, and sensitive
+  validation responses omit submitted values.
+- The main interface permits same-origin framing only. Companion embedding uses
+  a configurable exact-origin allowlist, defaulting to same-origin only.
+- Role deletion removes billing grants, and permission-group deletion requires
+  reassignment of associated images and fonts as well as templates.
+- Updated certifi and OpenTelemetry API dependencies to address reported advisories.
+
+**Upgrade requirements:** back up the database, retained assets and configuration,
+then update the main server before companions. Migration `34df80b7a621` adds tape
+profile availability; existing profiles remain available. Follow any pending
+relationship-repair workflow when upgrading from earlier releases. Restore a
+coordinated backup for rollback rather than running older code against an
+incompatible schema.
+
+Default request budgets are 16 MiB for ordinary requests, 64 MiB for CSV/run and
+migration requests, and 16 KiB for authentication requests other than avatars.
+Existing 5 MB image/font upload limits remain. Two expensive HTTP requests are
+admitted simultaneously by default; clients must handle 503 with `Retry-After`
+and reuse idempotency keys when retrying supported submissions. Configure
+`LABEL_COMPANION_FRAME_ANCESTORS` explicitly if external companion embedding is
+needed; unset, blank or empty values allow same-origin framing only.
+
+**Known limits:** native parsers still share application resources, and database
+ownership cannot guarantee exactly-once physical printing. Production load,
+hardware recovery and embedding browser behavior require deployment validation.
+The low-severity deepmerge build-tool advisory remains documented and monitored;
+it does not process runtime label uploads. See the
+[security guide](https://github.com/tarobits/label-server/blob/v0.17.0/docs/SECURITY.md)
+and [deployment checklist](https://github.com/tarobits/label-server/blob/v0.17.0/docs/DEPLOYMENT_CHECKLIST.md).
+
+Adversarial testing also identified two unresolved limits: companion idle
+auto-lock does not revoke its remote operator session, and isolated HTTP
+middleware can release processing capacity before a cancelled synchronous worker
+exits. Reusing the former session requires its token and the companion installation
+API key; the equivalent cancellation test through the full application passes.
+The regression tests retain both failing assertions. Existing browser checks also
+have three known selector/expectation failures; this release does not claim a
+fully passing test suite.
+
 ## [0.16.1] - 2026-11-12
 
 ### Fixed
@@ -1128,6 +1208,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.17.0]: https://github.com/tarobits/label-server/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/tarobits/label-server/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/tarobits/label-server/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/tarobits/label-server/compare/v0.14.0...v0.15.0
