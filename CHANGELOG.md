@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.2] - 2026-11-12
+
+### Fixed
+
+- Image-library thumbnails and enlarged previews now queue requests and retry
+  temporary server-busy responses. Failed previews offer manual retry, and closing
+  an enlarged preview cancels pending work.
+- The in-app changelog now formats bold text, inline code and links, with clearer
+  spacing between paragraphs and lists.
+
+**Upgrade notes:** Install the updated frontend bundles and refresh open pages.
+No new database migration is required when upgrading from 0.17.1. Request limits
+remain unchanged.
+
 ## [0.17.1] - 2026-11-12
 
 ### Fixed
@@ -1222,6 +1236,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.17.2]: https://github.com/tarobits/label-server/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/tarobits/label-server/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/tarobits/label-server/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/tarobits/label-server/compare/v0.16.0...v0.16.1
