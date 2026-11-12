@@ -68,7 +68,7 @@ test('templates save preview tape, display stored WebP cards and allow other pri
   await expect
     .poll(() => image.evaluate((img: HTMLImageElement) => img.naturalWidth))
     .toBeGreaterThan(0)
-  await expect(image).toHaveAttribute('src', /preview\.webp\?revision=2/)
+  await expect(image).toHaveAttribute('src', /^blob:/)
   await page.screenshot({ path: 'test-results/template-webp-previews.png', fullPage: true })
   await request.put(`/api/tape-profiles/${tape.id}`, {
     data: {

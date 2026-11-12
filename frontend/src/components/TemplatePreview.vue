@@ -1,33 +1,34 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Template } from '../types'
+import { usePreview } from '../previewLoader'
 
 const props = defineProps<{ template: Template }>()
-const failed = ref('')
-const attempt = ref(0)
+const target = ref<HTMLElement | null>(null)
 const source = computed(() => {
   const missing = (props.template.asset_notices ?? [])
     .map((notice) => `${notice.kind}:${notice.id}`)
     .sort()
     .join(',')
-  return `/api/templates/${encodeURIComponent(props.template.id)}/preview.webp?revision=${props.template.revision}&missing=${encodeURIComponent(missing)}${attempt.value ? `&retry=${attempt.value}` : ''}`
+  return `/api/templates/${encodeURIComponent(props.template.id)}/preview.webp?revision=${props.template.revision}&missing=${encodeURIComponent(missing)}`
 })
+const { image, failed, reload } = usePreview(source, target)
 </script>
 
 <template>
-  <div class="template-preview">
+  <div ref="target" class="template-preview" :aria-busy="!image && !failed">
     <img
-      v-if="failed !== source"
-      :key="source"
-      :src="source"
+      v-if="image && !failed"
+      :key="image"
+      :src="image"
       :alt="`Preview of ${template.name}`"
       loading="lazy"
       decoding="async"
-      @error="failed = source"
+      @error="failed = true"
     />
-    <div v-else class="preview-error" role="status">
+    <div v-else-if="failed" class="preview-error" role="status">
       <span class="help">Preview unavailable</span>
-      <button type="button" class="small secondary" @click="attempt++">Retry preview</button>
+      <button type="button" class="small secondary" @click="reload">Retry preview</button>
     </div>
   </div>
 </template>

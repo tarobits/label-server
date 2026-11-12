@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { usePreview } from '../previewLoader'
 const props = defineProps<{
   jobId: string
   text: string
@@ -7,26 +8,21 @@ const props = defineProps<{
   lengthMm: number
   previewUrl?: string
 }>()
-const failed = ref(false),
+const target = ref<HTMLElement | null>(null),
   opened = ref(false),
-  retry = ref(0),
   dialog = ref<HTMLDialogElement | null>(null)
 const source = computed(
-  () =>
-    `${props.previewUrl ?? `/api/jobs/${encodeURIComponent(props.jobId)}/preview`}${retry.value ? `?retry=${retry.value}` : ''}`,
+  () => props.previewUrl ?? `/api/jobs/${encodeURIComponent(props.jobId)}/preview`,
 )
+const { image, failed, reload } = usePreview(source, target)
 const geometry = computed(() => ({ '--label-ratio': props.lengthMm / props.widthMm }))
-function reload() {
-  failed.value = false
-  retry.value++
-}
 function enlarge() {
   opened.value = true
   dialog.value?.showModal()
 }
 </script>
 <template>
-  <div class="history-label" :style="geometry">
+  <div ref="target" class="history-label" :style="geometry" :aria-busy="!image && !failed">
     <div v-if="failed" class="help" role="status">
       Preview unavailable.
       <button type="button" class="small secondary" @click="reload">Retry preview</button>
@@ -36,10 +32,12 @@ function enlarge() {
       type="button"
       class="history-thumbnail"
       :aria-label="`Enlarge label preview: ${text}`"
+      :disabled="!image"
       @click="enlarge"
     >
       <img
-        :src="source"
+        v-if="image"
+        :src="image"
         :alt="`Label preview: ${text}`"
         loading="lazy"
         decoding="async"
@@ -62,8 +60,8 @@ function enlarge() {
       </div>
       <p v-if="failed" class="alert warning">Saved label preview is unavailable.</p>
       <img
-        v-else-if="opened"
-        :src="source"
+        v-else-if="opened && image"
+        :src="image"
         :alt="`Enlarged label: ${text}`"
         @error="failed = true"
       />
@@ -85,6 +83,7 @@ function enlarge() {
   overflow: hidden;
   background: transparent;
   margin-bottom: 6px;
+  aspect-ratio: var(--label-ratio);
 }
 .history-thumbnail:not(:disabled):hover {
   background: transparent;
