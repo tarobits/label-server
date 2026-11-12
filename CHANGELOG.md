@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.18.0] - 2026-11-12
+
+### Added
+
+- Text supports named and numeric font weights, from Thin to Black for built-in
+  Noto Sans and within the supported range of uploaded variable TTF/OTF fonts.
+  Static fonts retain their actual weight, and saved work preserves its selected
+  weight. Existing Regular/Bold templates retain their appearance.
+
+### Fixed
+
+- Disconnected printers and printers without a detected tape width no longer show
+  a false tape-width mismatch warning.
+
+**Upgrade notes:** Update the main server and frontend bundles together and refresh
+open pages. No new database migration is required when upgrading from 0.17.2.
+Templates and saved work using explicit font weights or variable-font assets
+require 0.18.0 or later; older releases cannot render them correctly. Back up the
+database, retained assets and configuration before upgrading.
+
 ## [0.17.2] - 2026-11-12
 
 ### Fixed
