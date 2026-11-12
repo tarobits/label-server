@@ -348,6 +348,9 @@ export interface AssetAccess extends AssetSharing {
   group_name?: string | null
 }
 export interface FontAsset extends AssetAccess {
+  weight?: number
+  variable?: boolean
+  weight_axis?: { min: number; max: number; default: number } | null
   can_edit?: boolean
   owner_id?: string | null
   id: string

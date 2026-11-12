@@ -8,6 +8,7 @@ from PIL import ImageFont
 from sqlalchemy.orm import Session
 
 from app.asset_store import AssetStore
+from app.font_variations import rename_face, weight_info
 from app.identity import LOCAL_OWNER_ID
 
 MAX_FONT_BYTES = 5_000_000
@@ -28,24 +29,21 @@ class FontStore(AssetStore):
         if not data or len(data) > MAX_FONT_BYTES:
             raise ValueError("Upload a font of at most 5 MB")
         if data[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
-            raise ValueError("Upload a static TTF or OTF font (not a collection or web font)")
+            raise ValueError("Upload a TTF or OTF font (not a collection or web font)")
         identifier = self.identifier(data, owner_id, scope, group_id)
         if self.exists(identifier):
             return self.metadata(identifier)
         alias = f"LabelFont_{identifier[:48]}"
         try:
             with TTFont(io.BytesIO(data), lazy=False, recalcTimestamp=False) as font:
-                if "fvar" in font:
-                    raise ValueError(
-                        "Variable fonts are not supported yet; upload a static font face"
-                    )
+                weights = weight_info(font)
                 if not {"name", "cmap", "head", "hhea", "hmtx", "maxp"}.issubset(font.keys()):
                     raise ValueError("Font is missing required metrics or character tables")
                 if not 1 <= font["maxp"].numGlyphs <= 20000:
                     raise ValueError("Font must contain between 1 and 20000 glyphs")
                 if not font.getBestCmap():
                     raise ValueError("Font must have a Unicode character map")
-                if not (("glyf" in font) or ("CFF " in font)):
+                if not any(table in font for table in ("glyf", "CFF ", "CFF2")):
                     raise ValueError("Font must contain scalable outlines")
                 if any(table in font for table in ("SVG ", "CBDT", "sbix", "COLR")):
                     raise ValueError("Color/bitmap fonts are not supported")
@@ -61,22 +59,7 @@ class FontStore(AssetStore):
                         style = "Italic" if style == "Regular" else f"{style} Italic"
                 # Give each immutable asset a unique rendering family, including
                 # when two uploads have identical original family/style names.
-                for name in names.names:
-                    if name.nameID in (1, 4, 6, 16):
-                        name.string = alias.encode(name.getEncoding())
-                    elif name.nameID in (2, 17):
-                        name.string = "Regular".encode(name.getEncoding())
-                # Some valid fonts omit full/PostScript or Windows names.
-                # Supply complete Unicode records so the rasterizer can select them.
-                for name_id in (1, 4, 6, 16):
-                    names.setName(alias, name_id, 3, 1, 0x409)
-                for name_id in (2, 17):
-                    names.setName("Regular", name_id, 3, 1, 0x409)
-                if "CFF " in font:
-                    cff = font["CFF "].cff
-                    cff.fontNames = [alias]
-                    for top in cff.topDictIndex:
-                        top.FamilyName = top.FullName = alias
+                rename_face(font, alias)
                 output = io.BytesIO()
                 font.save(output)
                 normalized = output.getvalue()
@@ -86,7 +69,7 @@ class FontStore(AssetStore):
         except ValueError:
             raise
         except Exception as error:
-            raise ValueError("Font could not be read; upload a valid static TTF or OTF") from error
+            raise ValueError("Font could not be read; upload a valid TTF or OTF") from error
         metadata = {
             "id": identifier,
             "owner_id": owner_id,
@@ -97,6 +80,15 @@ class FontStore(AssetStore):
             "render_family": alias,
             "size_bytes": len(data),
             "archived": False,
+            **weights,
         }
         self.save(identifier, metadata, normalized, session=session)
         return metadata
+
+    def list(self, *, include_deleted: bool = False) -> list[dict[str, Any]]:
+        entries = super().list(include_deleted=include_deleted)
+        for entry in entries:
+            if "weight" not in entry:
+                with TTFont(self.path(entry["id"], include_deleted=include_deleted)) as font:
+                    entry.update(weight_info(font))
+        return entries

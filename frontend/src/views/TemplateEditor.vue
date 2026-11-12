@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SettingHelp from '../components/SettingHelp.vue'
+import FontWeightControl from '../components/FontWeightControl.vue'
 import TapeProfilePicker from '../components/TapeProfilePicker.vue'
 import { editorHelp } from '../editorHelp'
 import { confirmAction } from '../confirmation'
@@ -391,6 +392,14 @@ function record() {
   history.value.push(state)
   if (history.value.length > 100) history.value.shift()
   cursor.value = history.value.length - 1
+}
+function changeFont() {
+  if (selected.value) selected.value.font_weight = null
+  record()
+}
+function changeWeight(value: number) {
+  if (selected.value) selected.value.font_weight = value
+  record()
 }
 function restore(offset: number) {
   const position = cursor.value + offset
@@ -1624,7 +1633,7 @@ onUnmounted(() => {
             <template v-if="selected.kind === 'text'">
               <div class="field-row typography-fonts">
                 <label
-                  >Font<select v-model="selected.font" @change="record">
+                  >Font<select v-model="selected.font" @change="changeFont">
                     <option>Noto Sans</option>
                     <option
                       v-if="preview?.missing_assets?.[selected.id] === 'font'"
@@ -1638,7 +1647,8 @@ onUnmounted(() => {
                       :key="font.id"
                       :value="font.id"
                     >
-                      {{ font.family }} · {{ font.style }}{{ font.archived ? ' (hidden)' : '' }}
+                      {{ font.family }} · {{ font.variable ? 'Variable' : font.style
+                      }}{{ font.archived ? ' (hidden)' : '' }}
                     </option>
                   </select></label
                 >
@@ -1659,15 +1669,12 @@ onUnmounted(() => {
                 </div>
               </div>
 
+              <FontWeightControl
+                :element="selected"
+                :fonts="w.fonts"
+                :disabled="selectedBindings.includes('bold')"
+                @change="changeWeight" />
               <div class="row">
-                <label class="checkbox"
-                  ><input
-                    v-model="selected.bold"
-                    :disabled="selected.font !== 'Noto Sans'"
-                    type="checkbox"
-                    @change="record"
-                  />Bold</label
-                >
                 <div class="setting-toggle">
                   <label class="checkbox"
                     ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap
@@ -1675,9 +1682,6 @@ onUnmounted(() => {
                   ><SettingHelp :help="editorHelp.wrap" />
                 </div></div
             ></template>
-            <p v-if="selected.kind === 'text' && selected.font !== 'Noto Sans'" class="help">
-              For bold text, select an uploaded bold face.
-            </p>
             <div class="field-row">
               <label
                 >Horizontal text alignment<select v-model="selected.align" @change="record">

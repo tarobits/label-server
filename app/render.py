@@ -21,6 +21,7 @@ from app.asset_cache import using_cache
 from app.barcodes import encode_barcode, encode_matrix
 from app.element_geometry import element_geometry
 from app.font_assets import FontStore
+from app.font_variations import InvalidFontWeight, static_instance
 from app.image_assets import ImageStore, image_svg
 from app.logic_schema import Value, check_text_length
 from app.models import LabelCopy, PrintJob
@@ -134,10 +135,26 @@ def supported_characters(path: str | None = None) -> frozenset[int]:
 
 def font_path(element: Element, fonts: FontStore | None) -> str | None:
     if element.font == "Noto Sans":
-        return None
+        if element.font_weight is None:
+            return None
+        if not 100 <= element.font_weight <= 900:
+            raise InvalidFontWeight("Noto Sans weight must be between 100 and 900")
+        source = FONT_DIR / (
+            "NotoSans.ttf"
+            if element.font_weight == 400
+            else "NotoSans-Bold.ttf"
+            if element.font_weight == 700
+            else "NotoSans-Variable.ttf"
+        )
+        return str(static_instance(source, element.font_weight, fonts.root if fonts else None))
     if fonts is None:
         raise ValueError("Font asset store is unavailable")
-    return str(fonts.path(element.font))
+    source = fonts.path(element.font)
+    with TTFont(source) as font:
+        variable = "fvar" in font
+    if variable or element.font_weight is not None:
+        return str(static_instance(source, element.font_weight, fonts.root))
+    return str(source)
 
 
 def right_to_left(text: str) -> bool:
@@ -189,7 +206,12 @@ def text_block_height(font: ImageFont.FreeTypeFont, count: int, spacing: float) 
 
 def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str:
     path = font_path(element, fonts)
-    family = "Noto Sans" if path is None else f"LabelFont_{element.font[:48]}"
+    if path is None:
+        family = "Noto Sans"
+    elif Path(path).stem.startswith("LabelWeight_"):
+        family = Path(path).stem
+    else:
+        family = f"LabelFont_{element.font[:48]}"
     if any(ord(char) not in supported_characters(path) for char in text if char not in "\n\r\t"):
         raise ValueError("Text contains characters unsupported by the selected font")
     font = font_for(element.font_size, element.bold, path)
@@ -596,6 +618,8 @@ def measure_logic_layout(
         if allow_missing_assets:
             try:
                 font_path(element, fonts)
+            except InvalidFontWeight:
+                raise
             except ValueError:
                 element.auto_width = False
     return resolve_layout(source, values, spec, fonts, warnings=warnings, measure_hidden=True)
@@ -650,6 +674,8 @@ def render_document(
                     if images is None:
                         raise ValueError("Image library unavailable")
                     images.path(element.image_asset)
+            except InvalidFontWeight:
+                raise
             except ValueError:
                 missing[element.id] = "font" if element.kind == "text" else "image"
                 # Resolve placement using the original box, without substituting font metrics.

@@ -67,6 +67,18 @@ use `null` to represent an absent value.
 
 ## Label length and other properties
 
+Text typography supports named and numeric font weights. Built-in Noto Sans supports
+100–900; uploaded variable fonts use their own weight-axis limits. Other variation
+axes stay at their defaults. Static uploads retain their actual weight. The same
+cached static face is used for measurement, preview and printing, and saved work
+retains its selected weight. Existing templates without an explicit weight keep
+their previous Regular/Bold rendering. Legacy `bold` logic remains supported;
+the weight control is disabled when that property is bound. An explicit
+`font_weight` in a document takes precedence over its legacy `bold` value.
+
+Templates with explicit weights or variable-font assets require a server with
+font-weight support; older releases cannot render them correctly.
+
 Automatic text sizing uses resolved content and typography, including logic bindings.
 Positioning logic then reads the measured sizes. After logic, distance holders are
 positioned and automatic label length is fitted to the final visible layout,

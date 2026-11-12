@@ -70,6 +70,7 @@ export interface Element {
   character_spacing?: number
   line_spacing?: number
   bold: boolean
+  font_weight?: number | null
   align: 'left' | 'center' | 'right'
   vertical_align?: 'top' | 'center' | 'bottom'
   auto_width?: boolean

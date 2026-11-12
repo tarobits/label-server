@@ -54,7 +54,7 @@ async function remove(font: FontAsset) {
           <tr>
             <td>Noto Sans</td>
             <td v-if="auth.user?.is_admin">System</td>
-            <td>Regular / Bold</td>
+            <td>Thin–Black (100–900)</td>
             <td>Bundled</td>
             <td>Global</td>
             <td>Available</td>
@@ -67,7 +67,7 @@ async function remove(font: FontAsset) {
             <td v-if="auth.user?.is_admin" class="asset-owner">
               {{ font.owner_name ?? 'Unknown owner' }}
             </td>
-            <td>{{ font.style }}</td>
+            <td>{{ font.variable ? 'Variable' : font.style }}</td>
             <td>{{ (font.size_bytes / 1024).toFixed(0) }} KB</td>
             <td>
               {{

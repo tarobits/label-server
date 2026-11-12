@@ -105,7 +105,7 @@ test('task-based inspector keeps every setting editable and preserves values acr
   await page.keyboard.press('ArrowRight')
   await expect(tabs.getByRole('tab', { name: 'Style' })).toBeFocused()
   await page.getByLabel('Font size (mm)', { exact: true }).fill('4')
-  await page.getByLabel('Bold', { exact: true }).check()
+  await page.getByRole('combobox', { name: 'Weight', exact: true }).selectOption('700')
   await page
     .getByRole('combobox', { name: 'Horizontal text alignment', exact: true })
     .selectOption('center')
@@ -144,7 +144,7 @@ test('task-based inspector keeps every setting editable and preserves values acr
     width: 30,
     height: 10,
     font_size: 4,
-    bold: true,
+    font_weight: 700,
     align: 'center',
     padding_left: 1.5,
     character_spacing: 0.2,

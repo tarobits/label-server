@@ -71,8 +71,8 @@ onUnmounted(() => {
   <section v-if="auth.canUpload(kind)" class="panel form-stack">
     <h2>Upload {{ kind }}</h2>
     <p v-if="kind === 'fonts'" class="help">
-      Static TTF and OTF files, up to 5 MB each. Variable fonts, font collections and color fonts
-      are not supported.
+      Static or variable TTF and OTF files, up to 5 MB each. Font collections and color fonts are
+      not supported.
     </p>
     <template v-else>
       <p class="help">

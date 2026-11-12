@@ -68,6 +68,7 @@ class Element(Input):
     character_spacing: float = Field(default=0, ge=0, le=20)
     line_spacing: float = Field(default=0, ge=0, le=20)
     bold: bool = False
+    font_weight: float | None = Field(default=None, ge=1, le=1000, allow_inf_nan=False)
     align: Literal["left", "center", "right"] = "left"
     vertical_align: Literal["top", "center", "bottom"] = "top"
     auto_width: bool = False

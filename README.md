@@ -335,10 +335,13 @@ server dependencies. Companions continue to receive rendered output.
 
 ### Fonts and images
 
-Noto Sans regular and bold are bundled under the SIL Open Font License. The
-**Fonts** page accepts static TTF/OTF files up to 5 MB and 20,000 glyphs. Upload
-bold and italic faces separately. Variable fonts, color/bitmap fonts, web fonts,
-and collections are unsupported.
+Noto Sans is bundled under the SIL Open Font License, with weights from Thin
+(100) to Black (900). Text supports named and numeric weights. The **Fonts** page
+accepts static and variable TTF/OTF files up to 5 MB and 20,000 glyphs. Variable
+fonts use their supported weight range; other variation axes remain at their
+defaults. Static uploads retain their actual weight; upload separate faces for
+other weights or italics. Color/bitmap fonts, web fonts and collections are
+unsupported. Existing Regular/Bold templates retain their appearance.
 
 The **Images** page accepts PNG, JPEG, WebP, BMP, still GIF, and constrained SVG
 files up to 5 MB. Bitmaps are limited to 16 megapixels and 8192 pixels per side.
