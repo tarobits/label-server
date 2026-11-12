@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AdminDialog from './AdminDialog.vue'
+import ChangelogText from './ChangelogText.vue'
 import type { ReleaseNotes } from '../changelog'
 
 defineProps<{ open: boolean; title: string; releases: ReleaseNotes[] }>()
@@ -15,11 +16,13 @@ const emit = defineEmits<{ close: [] }>()
           <time v-if="release.date" :datetime="release.date">{{ release.date }}</time>
         </header>
         <template v-for="(block, index) in release.blocks" :key="index">
-          <h4 v-if="block.kind === 'heading'">{{ block.text }}</h4>
+          <h4 v-if="block.kind === 'heading'"><ChangelogText :text="block.text" /></h4>
           <ul v-else-if="block.kind === 'list'">
-            <li v-for="(item, itemIndex) in block.items" :key="itemIndex">{{ item }}</li>
+            <li v-for="(item, itemIndex) in block.items" :key="itemIndex">
+              <ChangelogText :text="item" />
+            </li>
           </ul>
-          <p v-else>{{ block.text }}</p>
+          <p v-else><ChangelogText :text="block.text" /></p>
         </template>
       </section>
     </AdminDialog>
@@ -57,6 +60,12 @@ const emit = defineEmits<{ close: [] }>()
 }
 .release-notes li + li {
   margin-top: 8px;
+}
+.release-notes p {
+  margin: 16px 0 0;
+}
+.release-notes p + ul {
+  margin-top: 16px;
 }
 .release-notes li,
 .release-notes p {

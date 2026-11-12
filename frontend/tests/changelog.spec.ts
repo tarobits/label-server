@@ -5,6 +5,41 @@ const releaseHeadings = [
   ...readFileSync('../CHANGELOG.md', 'utf8').matchAll(/^## \[([^\]]+)\]/gm),
 ].map((match) => `v${match[1]}`)
 
+test('release notes format inline Markdown and separate upgrade paragraphs', async ({ page }) => {
+  await page.goto('/#/templates')
+  await page.getByRole('button', { name: 'Changelog', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
+  const latest = dialog
+    .locator('.release-notes')
+    .filter({ has: page.getByRole('heading', { name: 'v0.17.1', exact: true }) })
+  await expect(latest.locator('strong')).toHaveText('Upgrade notes:')
+  await expect(latest).not.toContainText('**')
+  const previous = dialog
+    .locator('.release-notes')
+    .filter({ has: page.getByRole('heading', { name: 'v0.17.0', exact: true }) })
+  await expect(
+    previous.locator('code').filter({ hasText: 'LABEL_COMPANION_FRAME_ANCESTORS' }),
+  ).toHaveCount(1)
+  await expect(previous.getByRole('link', { name: 'security guide', exact: true })).toHaveAttribute(
+    'href',
+    'https://github.com/tarobits/label-server/blob/v0.17.0/docs/SECURITY.md',
+  )
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await latest.scrollIntoViewIfNeeded()
+    const list = (await latest.locator('ul').boundingBox())!
+    const paragraph = (await latest.locator('p').boundingBox())!
+    expect(paragraph.y - list.y - list.height).toBeGreaterThanOrEqual(15)
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await page.screenshot({
+      path: `test-results/changelog-formatting-${width}.png`,
+      animations: 'disabled',
+    })
+  }
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+})
+
 test('pointer opening and closing avoids focus rings while Tab restores keyboard indicators', async ({
   page,
 }) => {
