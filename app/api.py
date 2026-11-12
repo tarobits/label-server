@@ -4,7 +4,7 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from PIL import Image, ImageOps
 from sqlalchemy import Select, false, func, or_, select
@@ -107,9 +107,10 @@ from app.template_schema import (
     TemplateInput,
 )
 from app.templates import save_revision, template_record
+from app.transaction_routes import TransactionRouter
 from app.usage_accounts import AdjustmentInput, account_names
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 @router.get("/status")
@@ -1478,6 +1479,17 @@ def update_completion_notification(
 def label_preview_response(
     request: Request, session: Session, item: PrintJob, label: LabelCopy
 ) -> Response:
+    if session.new or session.dirty or session.deleted:
+        raise RuntimeError("Saved label previews require a read-only transaction")
+    profile = session.get(TapeProfile, item.profile_id)
+    if profile is None:
+        raise HTTPException(404, "TapeProfile not found")
+    foreground, background = profile.foreground, profile.background
+    # Preview routes are read-only. Return their connection before asset stores
+    # open short read transactions, otherwise concurrent previews can fill the
+    # pool while each waits for a second connection. Our session factory keeps
+    # the loaded print snapshot available after commit (expire_on_commit=False).
+    session.commit()
     try:
         rendered = render_job(
             item,
@@ -1490,9 +1502,8 @@ def label_preview_response(
         raise HTTPException(422, "Saved label preview is unavailable") from error
     # Use the same packed ink raster as printing, including legacy fixture jobs.
     ink = Image.frombytes("1", (rendered.pixel_width, rendered.pixel_height), rendered.raster)
-    profile = get(session, TapeProfile, item.profile_id)
     output = io.BytesIO()
-    ImageOps.colorize(ink.convert("L"), black=profile.background, white=profile.foreground).save(
+    ImageOps.colorize(ink.convert("L"), black=background, white=foreground).save(
         output, format="PNG"
     )
     return Response(

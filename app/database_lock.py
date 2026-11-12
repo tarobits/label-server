@@ -1,6 +1,7 @@
 """One main-server owner per database, including when MariaDB is on another host."""
 
 import hashlib
+from collections.abc import Callable
 from contextlib import contextmanager
 from threading import Event, Thread
 from typing import Any, Generator
@@ -15,7 +16,11 @@ def lock_name(engine: Engine) -> str:
 
 @contextmanager
 def database_owner(
-    engine: Engine, *, enforce: bool = False, expected_owner: int | None = None
+    engine: Engine,
+    *,
+    enforce: bool = False,
+    expected_owner: int | None = None,
+    on_loss: Callable[[], None] | None = None,
 ) -> Generator[None, None, None]:
     if engine.dialect.name != "mariadb":
         yield
@@ -27,20 +32,33 @@ def database_owner(
     stopped, lost = Event(), Event()
     heartbeat: Thread | None = None
 
+    def ownership_lost() -> None:
+        lost.set()
+        if on_loss:
+            on_loss()
+
     def check_owner(dbapi: Any, record: Any, proxy: Any) -> None:
         if lost.is_set():
             raise RuntimeError("Database ownership was lost; stop this server and investigate")
-        cursor = dbapi.cursor()
+        cursor = None
         try:
+            cursor = dbapi.cursor()
             cursor.execute("SELECT IS_USED_LOCK(%s)", (name,))
             if cursor.fetchone()[0] != owner_id:
                 raise RuntimeError("Database ownership was lost; stop this server and investigate")
+        except Exception:
+            ownership_lost()
+            raise
         finally:
-            cursor.close()
+            if cursor is not None:
+                cursor.close()
 
     def before_execute(
         conn: Connection, cursor: Any, statement: str, parameters: Any, context: Any, many: bool
     ) -> None:
+        check_owner(conn.connection.dbapi_connection, None, None)
+
+    def before_commit(conn: Connection) -> None:
         check_owner(conn.connection.dbapi_connection, None, None)
 
     try:
@@ -54,6 +72,7 @@ def database_owner(
         if enforce:
             event.listen(engine, "checkout", check_owner)
             event.listen(engine, "before_cursor_execute", before_execute)
+            event.listen(engine, "commit", before_commit)
             installed = True
         if connection is not None:
 
@@ -64,7 +83,7 @@ def database_owner(
                         connection.exec_driver_sql("SELECT 1")
                         connection.commit()
                     except Exception:
-                        lost.set()
+                        ownership_lost()
                         return
 
             heartbeat = Thread(target=keep_alive, name="database-owner", daemon=True)
@@ -77,6 +96,7 @@ def database_owner(
         if installed:
             event.remove(engine, "checkout", check_owner)
             event.remove(engine, "before_cursor_execute", before_execute)
+            event.remove(engine, "commit", before_commit)
         if connection is not None:
             try:
                 if owner_id and not connection.invalidated:

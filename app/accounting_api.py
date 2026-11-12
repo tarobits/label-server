@@ -3,7 +3,7 @@
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -13,10 +13,11 @@ from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.cartridge_debts import cartridge_balances, repayment_allocations
 from app.http import db, record
 from app.models import Batch, Cartridge, TapeAllocation, UsageAdjustment, new_id
+from app.transaction_routes import TransactionRouter
 from app.usage import money
 from app.usage_accounts import AdjustmentInput, account_names, adjust_account, pairwise_report
 
-router = APIRouter(prefix="/api/accounts", tags=["owner accounting"])
+router = TransactionRouter(prefix="/api/accounts", tags=["owner accounting"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

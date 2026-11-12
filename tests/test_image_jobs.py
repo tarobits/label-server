@@ -103,12 +103,17 @@ def test_image_retries_are_atomic_survive_restart_and_share_key_namespace(client
     headers = {"Idempotency-Key": "image:event-1"}
 
     def submit(_):
-        response = client.post("/api/image-jobs", json=body, headers=headers)
-        assert response.status_code == 201, response.text
-        return response.json()
+        return client.post("/api/image-jobs", json=body, headers=headers)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        jobs = list(executor.map(submit, range(4)))
+        responses = list(executor.map(submit, range(4)))
+    assert any(response.status_code == 201 for response in responses)
+    for index, response in enumerate(responses):
+        if response.status_code == 503:
+            assert response.headers["retry-after"] == "1"
+            responses[index] = submit(index)
+    assert all(response.status_code == 201 for response in responses)
+    jobs = [response.json() for response in responses]
     assert len({j["id"] for j in jobs}) == 1
     assert (
         client.post("/api/image-jobs", json={**body, "copies": 2}, headers=headers).status_code

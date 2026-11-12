@@ -1,12 +1,80 @@
 import io
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from conftest import install, profile
 from PIL import Image, ImageOps
+from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
 from test_access import Policy
+from test_image_jobs import upload
 
 from app.access import Action
 from app.models import PrintJob
+
+
+@pytest.mark.parametrize("route", ["job", "batch", "account_history"])
+@pytest.mark.parametrize("deleted_asset", [False, True])
+def test_concurrent_image_previews_do_not_hold_connections_while_loading_assets(
+    client, monkeypatch, route, deleted_asset
+):
+    from app import api
+
+    tape = profile(client, threshold=1)
+    install(client, tape["id"])
+    asset, _ = upload(client)
+    response = client.post(
+        "/api/image-jobs", json={"image_asset": asset, "tape_profile": tape["id"]}
+    )
+    assert response.status_code == 201, response.text
+    job = response.json()
+    client.app.state.fleet.workers["main"].tick()
+    batch = client.get("/api/batches").json()[0]
+    copy_id = job["labels"][0]["id"]
+    url = {
+        "job": f"/api/jobs/{job['id']}/preview",
+        "batch": f"/api/batches/{batch['id']}/items/{copy_id}/preview",
+        "account_history": f"/api/accounts/groups/history/{batch['id']}/items/{copy_id}/preview",
+    }[route]
+    if deleted_asset:
+        deleted = client.delete(f"/api/image-assets/{asset}/permanent")
+        assert deleted.status_code == 200, deleted.text
+    expected = client.get(url)
+    assert expected.status_code == 200, expected.text
+
+    # Two readers fill the pool before either starts asset lookups. Increasing
+    # the production pool size would only move this failure to a larger burst.
+    factory = client.app.state.factory
+    original_bind = factory.kw["bind"]
+    engine = create_engine(
+        client.app.state.settings.database_url,
+        connect_args={"check_same_thread": False},
+        pool_size=2,
+        max_overflow=0,
+        pool_timeout=0.5,
+    )
+    barrier = Barrier(2, timeout=5)
+    original_render = api.render_job
+
+    def synchronized_render(*args, **kwargs):
+        barrier.wait()
+        return original_render(*args, **kwargs)
+
+    monkeypatch.setattr(api, "render_job", synchronized_render)
+    factory.configure(bind=engine)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            responses = list(executor.map(lambda _: client.get(url), range(2)))
+        for result in responses:
+            assert result.status_code == 200, result.text
+            assert result.content == expected.content
+            assert result.headers["cache-control"] == "private, no-store"
+        assert isinstance(engine.pool, QueuePool)
+        assert engine.pool.checkedout() == 0
+    finally:
+        factory.configure(bind=original_bind)
+        engine.dispose()
 
 
 @pytest.mark.parametrize(

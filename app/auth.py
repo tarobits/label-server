@@ -123,7 +123,7 @@ def initialize_auth(factory: sessionmaker[Session], data_dir: Path) -> None:
     else:
         with os.fdopen(fd, "w") as output:
             output.write(secrets.token_urlsafe(32) + "\n")
-    logger.warning("Initial administrator setup token: %s", path.read_text().strip())
+    logger.warning("Initial administrator setup token is available in %s", path)
 
 
 def actor_for_user(session: Session, user: User, *, include_resources: bool = True) -> "Actor":

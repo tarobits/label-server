@@ -2,7 +2,7 @@
 
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import replace
 from typing import TYPE_CHECKING, Annotated
 
@@ -22,6 +22,7 @@ from app.models import (
     User,
 )
 from app.resource_access import resolve_resource_access
+from app.transaction_routes import transaction_dependency
 
 if TYPE_CHECKING:
     from app.access import AccessContext
@@ -45,7 +46,8 @@ def installation(request: Request, session: Session) -> Companion:
     return companion
 
 
-def device_db(request: Request) -> Iterator[Session]:
+@transaction_dependency
+def device_db(request: Request) -> Generator[Session, None, None]:
     with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
         companion = installation(request, session)
         version = request.headers.get("x-companion-version")

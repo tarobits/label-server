@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from pydantic import Field, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ from app.action_audit import record_action
 from app.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.auth import actor_for_user, hash_password, token_hash, verify_password
 from app.avatars import avatar_version, read_avatar
-from app.companion_auth import DeviceDB, accessible_user, operator
+from app.companion_auth import DeviceDB, accessible_user, installation, operator
 from app.http import db
 from app.models import (
     AccessChangeConfirmation,
@@ -34,8 +34,9 @@ from app.queue import require_idle
 from app.resource_access import resolve_resource_access, validate_grant
 from app.resource_api import GrantInput
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api", tags=["companions"])
+router = TransactionRouter(prefix="/api", tags=["companions"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 
@@ -362,22 +363,36 @@ def pin_status(request: Request, session: DB) -> dict[str, bool]:
     return {"configured": session.get(CompanionPin, access_context(request).actor.id) is not None}
 
 
-@router.put("/companions/account/pin")
-def set_pin(body: PinInput, request: Request, session: DB) -> dict[str, bool]:
+def prepare_pin(body: PinInput, request: Request) -> None:
     actor = access_context(request).actor
     request.app.state.auth_limiter.check(request, f"pin-setup:{actor.id}")
-    user = session.get(User, actor.id)
-    if not user or not verify_password(
-        body.current_password.get_secret_value(), user.password_hash
+    with request.app.state.factory() as session:
+        user = session.get(User, actor.id)
+        identity = (user.id, user.password_hash) if user else None
+    if identity is None or not verify_password(
+        body.current_password.get_secret_value(), identity[1]
     ):
         raise HTTPException(403, "Current password is incorrect")
+    value = body.pin.get_secret_value() if body.pin else None
+    if value is not None and (not value.isascii() or not value.isdigit()):
+        raise HTTPException(422, "PIN must contain 4–12 digits")
+    request.state.pin_proof = identity
+    request.state.prepared_pin = hash_password(value) if value else None
+
+
+@router.put("/companions/account/pin", dependencies=[Depends(prepare_pin)])
+def set_pin(body: PinInput, request: Request, session: DB) -> dict[str, bool]:
+    actor = access_context(request).actor
+    user = session.get(User, actor.id)
+    if not user or (user.id, user.password_hash) != request.state.pin_proof:
+        raise HTTPException(409, "Account changed; sign in again")
     value = body.pin.get_secret_value() if body.pin else None
     if value is not None and (not value.isascii() or not value.isdigit()):
         raise HTTPException(422, "PIN must contain 4–12 digits")
     session.execute(delete(CompanionPin).where(CompanionPin.user_id == user.id))
     session.execute(delete(CompanionSession).where(CompanionSession.user_id == user.id))
     if value:
-        session.add(CompanionPin(user_id=user.id, pin_hash=hash_password(value)))
+        session.add(CompanionPin(user_id=user.id, pin_hash=request.state.prepared_pin))
     record_action(session, "account.pin_changed", "global", "", {"configured": value is not None})
     return {"configured": value is not None}
 
@@ -423,16 +438,35 @@ def station_avatar(identifier: str, request: Request, session: DeviceDB) -> Resp
     return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
-@router.post("/companion/unlock")
-def unlock(body: UnlockInput, request: Request, session: DeviceDB) -> dict[str, Any]:
-    item: Companion = session.info["companion"]
-    request.app.state.auth_limiter.check(request, f"pin:{body.user_id}")
-    user = accessible_user(session, item, body.user_id)
-    pin = session.get(CompanionPin, user.id)
-    if not item.bound_user_id and (
-        not pin or not body.pin or not verify_password(body.pin.get_secret_value(), pin.pin_hash)
+def prepare_unlock(body: UnlockInput, request: Request) -> None:
+    with request.app.state.factory() as session:
+        item = installation(request, session)
+        request.app.state.auth_limiter.check(request, f"pin:{body.user_id}")
+        user = accessible_user(session, item, body.user_id)
+        pin = session.get(CompanionPin, user.id)
+        fingerprint = pin.pin_hash if pin else None
+        proof = (item.id, item.revision, item.bound_user_id, fingerprint)
+    if not proof[2] and (
+        not fingerprint
+        or not body.pin
+        or not verify_password(body.pin.get_secret_value(), fingerprint)
     ):
         raise HTTPException(401, "Invalid user or PIN")
+    request.state.unlock_proof = proof
+
+
+@router.post("/companion/unlock", dependencies=[Depends(prepare_unlock)])
+def unlock(body: UnlockInput, request: Request, session: DeviceDB) -> dict[str, Any]:
+    item: Companion = session.info["companion"]
+    user = accessible_user(session, item, body.user_id)
+    pin = session.get(CompanionPin, user.id)
+    if (
+        item.id,
+        item.revision,
+        item.bound_user_id,
+        pin.pin_hash if pin else None,
+    ) != request.state.unlock_proof:
+        raise HTTPException(409, "Companion access changed; unlock again")
     # A bound installation verifies its deployment PIN locally. This trust is
     # restricted to the exact administrator-approved identity, never a body override.
     token = secrets.token_urlsafe(32)
@@ -477,8 +511,23 @@ def unlock(body: UnlockInput, request: Request, session: DeviceDB) -> dict[str, 
 
 @router.post("/companion/lock")
 def lock_station(request: Request, session: DeviceDB) -> dict[str, bool]:
-    user = operator(request, session)
+    operator(request, session)
+    return revoke_station_session(request, session)
+
+
+@router.post("/companion/sessions/revoke")
+def revoke_station_session(request: Request, session: DeviceDB) -> dict[str, bool]:
     item: Companion = session.info["companion"]
+    # Installation ownership is enough to revoke its own session, even after
+    # account/PIN/access revocation. Retries and expired tokens are idempotent.
+    stored = session.get(
+        CompanionSession, token_hash(request.headers.get("x-companion-session", ""))
+    )
+    if stored is None:
+        return {"ok": True}
+    if stored.companion_id != item.id:
+        raise HTTPException(403, "Session belongs to another companion")
+    user = session.get(User, stored.user_id)
     session.execute(
         delete(CompanionSession).where(
             CompanionSession.token_hash
@@ -496,8 +545,8 @@ def lock_station(request: Request, session: DeviceDB) -> dict[str, bool]:
             "companion_id": AuditField(
                 item.id, (AuditRequirement("application", "", "audit.view_all"),)
             ),
-            "actor_id": AuditField(user.id, ()),
-            "actor_name": AuditField(user.username, ()),
+            "actor_id": AuditField(stored.user_id, ()),
+            "actor_name": AuditField(user.username if user else stored.user_id, ()),
         },
     )
     return {"ok": True}

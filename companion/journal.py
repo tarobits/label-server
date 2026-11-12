@@ -20,6 +20,7 @@ class Journal:
                 "CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, digest TEXT NOT NULL, local_id TEXT NOT NULL, payload TEXT NOT NULL, phase TEXT NOT NULL, go_token TEXT, result TEXT)"
             )
             db.execute("CREATE TABLE IF NOT EXISTS blocked_printers (local_id TEXT PRIMARY KEY)")
+            db.execute("CREATE TABLE IF NOT EXISTS session_revocations (token TEXT PRIMARY KEY)")
             db.execute(
                 "CREATE TABLE IF NOT EXISTS clearances (local_id TEXT PRIMARY KEY, generation INTEGER NOT NULL)"
             )
@@ -34,13 +35,26 @@ class Journal:
             )
         path.chmod(0o600)
 
+    def revoke_session(self, token: str) -> None:
+        with self.transaction() as db:
+            db.execute("INSERT OR IGNORE INTO session_revocations VALUES (?)", (token,))
+
+    def pending_revocations(self) -> list[str]:
+        with self.transaction(readonly=True) as db:
+            return [row[0] for row in db.execute("SELECT token FROM session_revocations LIMIT 100")]
+
+    def acknowledge_revocation(self, token: str) -> None:
+        with self.transaction() as db:
+            db.execute("DELETE FROM session_revocations WHERE token=?", (token,))
+
     @contextmanager
-    def transaction(self) -> Generator[sqlite3.Connection, None, None]:
+    def transaction(self, *, readonly: bool = False) -> Generator[sqlite3.Connection, None, None]:
         connection = sqlite3.connect(self.path, timeout=30)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.execute("BEGIN IMMEDIATE")
         try:
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA query_only=ON" if readonly else "PRAGMA query_only=OFF")
+            connection.execute("BEGIN" if readonly else "BEGIN IMMEDIATE")
             yield connection
             connection.commit()
         except BaseException:
@@ -132,14 +146,14 @@ class Journal:
                 )
 
     def row(self, identifier: str) -> dict[str, Any]:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             row = db.execute("SELECT * FROM attempts WHERE id=?", (identifier,)).fetchone()
             if not row:
                 raise ValueError("Unknown attempt")
             return dict(row)
 
     def pending_results(self) -> list[tuple[str, ExecutionResult]]:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             return [
                 (row["id"], ExecutionResult.model_validate_json(row["result"]))
                 for row in db.execute("SELECT * FROM attempts WHERE phase='finished'")
@@ -161,7 +175,7 @@ class Journal:
             )
 
     def blocked(self, local_id: str) -> bool:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             return (
                 db.execute(
                     "SELECT 1 FROM blocked_printers WHERE local_id=?", (local_id,)
@@ -170,7 +184,7 @@ class Journal:
             )
 
     def clearance(self, local_id: str) -> int:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             row = db.execute(
                 "SELECT generation FROM clearances WHERE local_id=?", (local_id,)
             ).fetchone()
@@ -211,7 +225,7 @@ class Journal:
             db.execute("INSERT INTO events VALUES (?, ?)", (identifier, json.dumps(payload)))
 
     def pending_events(self) -> list[dict[str, Any]]:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             return [
                 json.loads(row["payload"])
                 for row in db.execute("SELECT payload FROM events ORDER BY rowid LIMIT 100")
@@ -229,7 +243,7 @@ class Journal:
             )
 
     def printers(self, *, enabled: bool = True) -> list[dict[str, Any]]:
-        with self.transaction() as db:
+        with self.transaction(readonly=True) as db:
             return [
                 json.loads(row["payload"])
                 for row in db.execute(

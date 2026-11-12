@@ -110,7 +110,14 @@ def create_app(
                 raise RuntimeError(
                     "Another server owns this database; run exactly one process"
                 ) from error
-            ownership.enter_context(database_owner(engine, enforce=True))
+
+            def lost_ownership() -> None:
+                stop.set()
+                wake.set()
+                for worker in tuple(fleet.workers.values()):
+                    worker.control.request("after_current")
+
+            ownership.enter_context(database_owner(engine, enforce=True, on_loss=lost_ownership))
             from app.relationship_migration import pending as relationships_pending
             from migrations.relationships_v1 import VERSION as RELATIONSHIP_VERSION
             from migrations.relationships_v1 import finalize
@@ -196,6 +203,8 @@ def create_app(
             lock_file.close()
 
     app = FastAPI(title="Taro's Label Room", version=__version__, lifespan=lifespan)
+    from app.http_security import HttpSecurity
+
     app.state.relationship_maintenance = False
     from app.relationship_migration import router as relationship_router
 
@@ -203,7 +212,9 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> Response:
-        if request.url.path.startswith(("/api/auth/", "/api/companion/", "/api/companions/")):
+        if request.url.path.startswith(
+            ("/api/auth/", "/api/companion/", "/api/companions/", "/api/admin/", "/api/migration/")
+        ):
             # Recovery credentials and passwords must not be echoed in errors.
             return JSONResponse(
                 status_code=422,
@@ -397,4 +408,10 @@ def create_app(
             }
         )
 
+    app.add_middleware(
+        HttpSecurity,
+        json_limit=settings.json_body_limit_bytes,
+        bulk_limit=settings.bulk_body_limit_bytes,
+        expensive_limit=settings.expensive_request_limit,
+    )
     return app

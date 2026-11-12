@@ -7,11 +7,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 def make_engine(url: str) -> Engine:
     parsed = make_url(url)
+    # Keep five idle connections and allow bursts up to 25 total connections.
+    pool_options = {"pool_size": 5, "max_overflow": 20}
     if parsed.drivername == "mariadb+pymysql":
         if not parsed.database or parsed.query.get("charset", "utf8mb4") != "utf8mb4":
             raise ValueError("MariaDB requires a database name and utf8mb4 charset")
         engine = create_engine(
             parsed.update_query_dict({"charset": "utf8mb4"}),
+            **pool_options,
             pool_pre_ping=True,
             pool_recycle=1800,
             hide_parameters=True,
@@ -39,7 +42,10 @@ def make_engine(url: str) -> Engine:
     if parsed.database and parsed.database != ":memory:":
         Path(parsed.database).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(
-        url, connect_args={"check_same_thread": False, "timeout": 30}, hide_parameters=True
+        url,
+        connect_args={"check_same_thread": False, "timeout": 30},
+        hide_parameters=True,
+        **(pool_options if parsed.database and parsed.database != ":memory:" else {}),
     )
 
     @event.listens_for(engine, "connect")

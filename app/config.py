@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     data_dir: Path | None = None
     asset_cache_idle_seconds: int = Field(default=604800, ge=60)
     log_level: LogLevel = "INFO"
+    json_body_limit_bytes: int = Field(default=16 << 20, ge=16384)
+    bulk_body_limit_bytes: int = Field(default=64 << 20, ge=16384)
+    expensive_request_limit: int = Field(default=2, ge=1, le=32)
 
     @property
     def state_directory(self) -> Path:

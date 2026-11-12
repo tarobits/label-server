@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Annotated, Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -37,8 +37,9 @@ from app.resource_access import (
     validate_location_parent,
 )
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/resource-access", tags=["resource access"])
+router = TransactionRouter(prefix="/api/resource-access", tags=["resource access"])
 DB = Annotated[Session, Depends(db, scope="function")]
 MODELS: dict[str, Any] = {"printer": PrinterDevice, "cartridge": Cartridge, "location": Location}
 

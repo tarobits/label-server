@@ -4,7 +4,7 @@ import time
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import HTTPException, Response
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -25,8 +25,9 @@ from app.notification_types import (
     NotificationKind,
     PrinterNotificationKind,
 )
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/admin/notification-endpoints", tags=["administration"])
+router = TransactionRouter(prefix="/api/admin/notification-endpoints", tags=["administration"])
 Priority = Annotated[int, Field(strict=True, ge=1, le=5)]
 
 

@@ -3,7 +3,7 @@
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -29,8 +29,9 @@ from app.models import (
 from app.queue import require_idle
 from app.request_models import PrintRequest
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/printers")
+router = TransactionRouter(prefix="/api/printers")
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

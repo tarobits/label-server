@@ -3,7 +3,7 @@
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,8 +13,9 @@ from app.http import db, job_record, record
 from app.job_access_models import JobAccessHold
 from app.models import LabelCopy, PrintJob, State, User
 from app.print_audit import actor_snapshot
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/access-holds")
+router = TransactionRouter(prefix="/api/access-holds")
 
 
 def administrator(request: Request) -> str:

@@ -198,16 +198,19 @@ def setup(body: SetupInput, request: Request, response: Response) -> dict[str, A
 @router.post("/login")
 def login(body: LoginInput, request: Request, response: Response) -> dict[str, Any]:
     check_origin(request)
-    with request.app.state.fleet.lock, request.app.state.factory() as session:
-        # Serialize password verification and session creation against account resets.
-        begin_write(session)
+    with request.app.state.factory() as session:
         user = find_login_user(session, body.username)
         throttle(request, user.username if user else body.username.strip())
-        if user is None:
-            hash_password(body.password)
-            raise HTTPException(401, "Invalid sign-in details")
-        valid = verify_password(body.password, user.password_hash)
-        if not valid or user.disabled:
+        identity = (user.id, user.password_hash) if user else None
+    if identity is None:
+        hash_password(body.password)
+        raise HTTPException(401, "Invalid sign-in details")
+    valid = verify_password(body.password, identity[1])
+    with request.app.state.fleet.lock, request.app.state.factory() as session:
+        # Recheck the exact credential after hashing without a transaction or lock.
+        begin_write(session)
+        user = find_login_user(session, body.username)
+        if not valid or user is None or user.disabled or (user.id, user.password_hash) != identity:
             raise HTTPException(401, "Invalid sign-in details")
         result = new_session(request, response, session, user)
         record_account(session, "auth.signed_in", user)
@@ -283,25 +286,28 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
 
 @router.post("/password", status_code=204)
 def change_password(body: PasswordChangeInput, request: Request, response: Response) -> None:
-    with request.app.state.fleet.lock, request.app.state.factory() as session:
-        begin_write(session)
+    with request.app.state.factory() as session:
         current = session_user(request, session)
         if current is None:
             raise HTTPException(401, "Sign in to change your password")
         user, record = current
         check_csrf(request, record)
         throttle(request, user.username)
-        if not verify_password(body.current_password, user.password_hash):
-            raise HTTPException(
-                400,
-                detail=[
-                    {
-                        "loc": ["body", "current_password"],
-                        "msg": "Current password is incorrect.",
-                    }
-                ],
-            )
-        user.password_hash = hash_password(body.new_password)
+        identity = (user.id, user.password_hash)
+    if not verify_password(body.current_password, identity[1]):
+        raise HTTPException(
+            400,
+            detail=[{"loc": ["body", "current_password"], "msg": "Current password is incorrect."}],
+        )
+    encoded = hash_password(body.new_password)
+    with request.app.state.fleet.lock, request.app.state.factory() as session:
+        begin_write(session)
+        current = session_user(request, session)
+        if current is None or (current[0].id, current[0].password_hash) != identity:
+            raise HTTPException(409, "Account changed; sign in again")
+        user, record = current
+        check_csrf(request, record)
+        user.password_hash = encoded
         from app.companion_auth import revoke_sessions
 
         revoke_sessions(session, user.id)

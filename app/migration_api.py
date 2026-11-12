@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,9 +31,10 @@ from app.models import (
 from app.resource_access import legacy_permissions
 from app.resource_api import ResourceChange, mutate_with_evidence, objects, rights_for
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 from app.usage_accounts import pairwise_report
 
-router = APIRouter(prefix="/api/migration", tags=["upgrade migration"])
+router = TransactionRouter(prefix="/api/migration", tags=["upgrade migration"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

@@ -118,7 +118,17 @@ def test_pre3_upgrade_with_different_database_collation(maria_engine, partial):
                 "INSERT INTO printers (id, name, driver, config) VALUES ('main', 'Test printer', 'mock', '{}')"
             )
         )
-        session.add(TapeProfile(id="profile", name="Tape", width_mm=24))
+        # Seed the old schema without columns added after this migration target.
+        session.execute(
+            text(
+                "INSERT INTO tape_profiles "
+                "(id, name, width_mm, foreground, background, auto_print_threshold, "
+                "waiting_notification_enabled, waiting_notification_interval_seconds, "
+                "reminder_silenced, reminder_episode, reminder_active) "
+                "VALUES ('profile', 'Tape', 24, '#000000', '#ffffff', 10, "
+                "0, 86400, 0, 0, 0)"
+            )
+        )
         session.flush()
         session.add(
             Cartridge(
@@ -476,6 +486,35 @@ def test_database_ownership_excludes_other_hosts_and_fails_closed_after_loss(mar
             with pytest.raises(RuntimeError, match="ownership was lost"):
                 with maria_engine.connect() as connection:
                     connection.exec_driver_sql("SELECT 1")
+    finally:
+        other.dispose()
+
+
+def test_ownership_loss_between_last_statement_and_commit_rolls_back(maria_engine):
+    other = make_engine(maria_engine.url.render_as_string(hide_password=False))
+    with other.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE fencing_probe (id INT PRIMARY KEY)")
+    losses = []
+    try:
+        with database_owner(maria_engine, enforce=True, on_loss=lambda: losses.append(True)):
+            with maria_engine.connect() as connection:
+                owner_id = connection.scalar(
+                    text("SELECT IS_USED_LOCK(:name)"), {"name": lock_name(maria_engine)}
+                )
+                connection.exec_driver_sql("INSERT INTO fencing_probe VALUES (1)")
+                with other.connect() as admin:
+                    admin.exec_driver_sql(f"KILL {int(owner_id)}")
+                with pytest.raises(RuntimeError, match="ownership was lost"):
+                    connection.commit()
+                connection.rollback()
+            assert losses
+            # Loss stays terminal even if another process acquires the lock.
+            with database_owner(other):
+                with pytest.raises(RuntimeError, match="ownership was lost"):
+                    with maria_engine.connect():
+                        pytest.fail("A fenced owner resumed database work")
+        with other.connect() as connection:
+            assert connection.exec_driver_sql("SELECT COUNT(*) FROM fencing_probe").scalar() == 0
     finally:
         other.dispose()
 

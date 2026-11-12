@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from mock_backend import MockPrinterBackend
 from pydantic import Field
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.destinations import resolve_destination
 from app.http import db
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
 
 class MockPrinterInput(Input):
@@ -16,7 +17,7 @@ class MockPrinterInput(Input):
     fail_after: int | None = Field(default=None, ge=0, le=1000)
 
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 def mock_backend(request: Request, printer_id: str | None = None) -> MockPrinterBackend:

@@ -30,13 +30,18 @@ def test_concurrent_retries_commit_one_job(client: TestClient) -> None:
     tape = profile(client)
     body = {"tape_profile": tape["id"], "data": {"text": "Concurrent"}}
 
-    def submit(_: int) -> str:
-        response = client.post("/api/jobs", json=body, headers={"Idempotency-Key": "concurrent"})
-        assert response.status_code == 201, response.text
-        return str(response.json()["id"])
+    def submit(_: int):
+        return client.post("/api/jobs", json=body, headers={"Idempotency-Key": "concurrent"})
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        assert len(set(executor.map(submit, range(4)))) == 1
+        responses = list(executor.map(submit, range(4)))
+    assert any(response.status_code == 201 for response in responses)
+    for index, response in enumerate(responses):
+        if response.status_code == 503:
+            assert response.headers["retry-after"] == "1"
+            responses[index] = submit(index)
+    assert all(response.status_code == 201 for response in responses)
+    assert len({response.json()["id"] for response in responses}) == 1
     assert len(client.get("/api/jobs").json()) == 1
 
 

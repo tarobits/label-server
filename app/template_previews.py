@@ -5,7 +5,8 @@ import io
 import json
 import tempfile
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
+from weakref import WeakValueDictionary
 
 from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
@@ -17,11 +18,20 @@ from app.models import LabelTemplate
 from app.render import RenderSpec, render_document
 from app.template_schema import TemplateDocument
 
+_locks: WeakValueDictionary[str, RLock] = WeakValueDictionary()
+_registry_lock = Lock()
+
 
 class TemplatePreviews:
     def __init__(self, root: Path):
         self.root = root
-        self.lock = RLock()
+        with _registry_lock:
+            key = str(root.resolve())
+            lock = _locks.get(key)
+            if lock is None:
+                lock = RLock()
+                _locks[key] = lock
+            self.lock = lock
 
     @staticmethod
     def prefix(identifier: str) -> str:

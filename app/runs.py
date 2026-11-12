@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, replace
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,8 +27,9 @@ from app.schemas import BillingSelection, Input, JobInput, MaximumPrice, Process
 from app.submissions import build_job, input_fingerprint, rendering_spec
 from app.template_logic import csv_values, logic_fields
 from app.template_schema import TemplateDocument
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 class CsvInput(Input):

@@ -125,7 +125,20 @@ class Agent:
         response.raise_for_status()
         return response
 
+    def revoke_session(self, token: str) -> None:
+        self.journal.revoke_session(token)
+        self.flush_revocations()
+
+    def flush_revocations(self) -> None:
+        for token in self.journal.pending_revocations():
+            try:
+                self.request("POST", "/api/companion/sessions/revoke", token=token)
+            except httpx.HTTPError:
+                return
+            self.journal.acknowledge_revocation(token)
+
     def sync(self) -> None:
+        self.flush_revocations()
         with self.lock:
             self._sync()
 
@@ -240,6 +253,8 @@ class Agent:
                 self.journal.cancel(envelope.batch_id)
                 continue
             self.journal.authorize(envelope.batch_id, transfer["digest"], go["go_token"])
+            if self.stop.is_set():
+                return
             if transfer.get("stop_mode"):
                 executor.control.request(transfer["stop_mode"])
             thread = Thread(
@@ -259,8 +274,11 @@ class Agent:
                 self.last_contact = 0
             self.stop.wait(2)
 
-    def close(self) -> None:
+    def close(self, *, sync_threads: tuple[Thread, ...] = (), timeout: float = 30) -> None:
+        from companion.shutdown import join_workers
+
         self.stop.set()
-        for thread in self.threads.values():
-            thread.join()
+        deadline = time.monotonic() + timeout
+        join_workers(sync_threads, deadline)
+        join_workers(tuple(self.threads.values()), deadline)
         self.client.close()

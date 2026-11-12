@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import Field, field_validator
@@ -21,8 +21,9 @@ from app.asset_access import (
 from app.http import db
 from app.image_assets import MAX_IMAGE_BYTES
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/image-assets")
+router = TransactionRouter(prefix="/api/image-assets")
 
 
 class ImageNameInput(Input):

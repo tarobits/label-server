@@ -163,12 +163,17 @@ def email_settings(request: Request) -> dict[str, Any]:
 
 @router.put("/email", status_code=202)
 def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> dict[str, str]:
+    with request.app.state.factory() as session:
+        user = require_user(request, session)
+        throttle(request, "email:" + user.username)
+        identity = (user.id, user.password_hash)
+    if not verify_password(body.current_password, identity[1]):
+        raise HTTPException(400, "Current password is incorrect")
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         begin_write(session)
         user = require_user(request, session)
-        throttle(request, "email:" + user.username)
-        if not verify_password(body.current_password, user.password_hash):
-            raise HTTPException(400, "Current password is incorrect")
+        if (user.id, user.password_hash) != identity:
+            raise HTTPException(409, "Account changed; sign in again")
         if body.email is None:
             user.email = None
             session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
@@ -257,10 +262,13 @@ def password_changed_email(settings: Settings, recipient: str) -> None:
 def reset_password(body: ResetInput, request: Request, tasks: BackgroundTasks) -> None:
     check_origin(request)
     throttle(request, "reset:" + token_hash(body.token))
+    with request.app.state.factory() as session:
+        consume_token(session, body.token, "reset")
+    encoded = hash_password(body.new_password)
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         begin_write(session)
         token, user = consume_token(session, body.token, "reset")
-        user.password_hash = hash_password(body.new_password)
+        user.password_hash = encoded
         session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
         from app.companion_auth import revoke_sessions
 

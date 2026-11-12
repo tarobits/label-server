@@ -18,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, SecretStr
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
@@ -82,10 +83,12 @@ class StationSession:
         self.remote_token = ""
         self.last_activity = 0.0
         self.operator: dict[str, Any] | None = None
+        self.generation = 0
         self.csrf = secrets.token_urlsafe(32)
         self.attempts: deque[float] = deque()
 
     def clear(self) -> None:
+        self.generation += 1
         self.browser_token, self.remote_token, self.operator = "", "", None
 
 
@@ -128,11 +131,11 @@ def create_app(
                 yield
             finally:
                 agent.stop.set()
-                if start_agent:
-                    thread.join()
-                agent.close()
+                await run_in_threadpool(agent.close, sync_threads=(thread,) if start_agent else ())
 
     app = FastAPI(title="Label Room companion", lifespan=lifespan)
+    from app.http_security import HttpSecurity
+
     app.state.agent, app.state.station = agent, station
     app.include_router(status_router(settings, agent))
     hostname = urlsplit(settings.public_url).hostname or "localhost"
@@ -173,7 +176,8 @@ def create_app(
         response: Response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        if not settings.frame_ancestors:
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
         return response
 
     def csrf(request: Request) -> None:
@@ -192,7 +196,10 @@ def create_app(
 
     def current(request: Request, *, touch: bool = False) -> str:
         with station.lock:
-            if time.monotonic() - station.last_activity >= settings.lock_timeout_seconds:
+            if (
+                station.browser_token
+                and time.monotonic() - station.last_activity >= settings.lock_timeout_seconds
+            ):
                 station.clear()
             cookie = request.cookies.get(COOKIE, "")
             if not station.browser_token or not hmac.compare_digest(
@@ -215,16 +222,31 @@ def create_app(
         except HTTPException:
             pass
         user = None
+        with station.lock:
+            generation = station.generation
+            if token != station.remote_token:
+                token = None
         if token and agent.online:
             try:
                 user = agent.request("GET", "/api/companion/operator", token=token).json()
-                station.operator = user
+                with station.lock:
+                    if generation == station.generation and token == station.remote_token:
+                        station.operator = user
+                    else:
+                        token, user = None, None
             except httpx.HTTPError:
                 with station.lock:
-                    station.clear()
+                    if generation == station.generation and token == station.remote_token:
+                        station.clear()
+                if token:
+                    agent.revoke_session(token)
                 token = None
         elif token:
-            user = station.operator
+            with station.lock:
+                if generation == station.generation and token == station.remote_token:
+                    user = station.operator
+                else:
+                    token = None
         # Operational summaries never contain label content, requester identities,
         # account balances or credentials. Deployment can hide them until unlock.
         printers = [
@@ -327,6 +349,8 @@ def create_app(
             if len(station.attempts) >= 10:
                 raise HTTPException(429, "Too many PIN attempts; try again later")
             station.attempts.append(now)
+            station.generation += 1
+            generation = station.generation
         pin = body.pin.get_secret_value()
         if settings.single_user_id:
             if (
@@ -347,20 +371,31 @@ def create_app(
             },
         ).json()
         with station.lock:
-            station.browser_token, station.remote_token = (
-                secrets.token_urlsafe(32),
-                result["session_token"],
-            )
-            station.last_activity = time.monotonic()
-            response.set_cookie(
-                COOKIE,
-                station.browser_token,
-                httponly=True,
-                samesite="strict",
-                secure=settings.public_url.startswith("https:"),
-                path="/",
-                max_age=86400,
-            )
+            superseded = generation != station.generation
+            previous = station.remote_token
+            if not superseded:
+                station.browser_token, station.remote_token = (
+                    secrets.token_urlsafe(32),
+                    result["session_token"],
+                )
+                station.operator = None
+                station.last_activity = time.monotonic()
+                response.set_cookie(
+                    COOKIE,
+                    station.browser_token,
+                    httponly=True,
+                    samesite="none"
+                    if settings.frame_ancestors and settings.public_url.startswith("https:")
+                    else "strict",
+                    secure=settings.public_url.startswith("https:"),
+                    path="/",
+                    max_age=86400,
+                )
+        if superseded:
+            agent.revoke_session(result["session_token"])
+            raise HTTPException(409, "Station changed; unlock again")
+        if previous:
+            agent.revoke_session(previous)
         return {"ok": True}
 
     @app.post("/api/station/printers", status_code=201)
@@ -390,14 +425,20 @@ def create_app(
     @app.post("/api/station/lock")
     def lock(request: Request, response: Response) -> dict[str, bool]:
         csrf(request)
-        token = current(request)
+        try:
+            token = current(request)
+        except HTTPException:
+            with station.lock:
+                if station.browser_token:
+                    raise
+                station.clear()
+            return {"ok": True}
         with station.lock:
+            if token != station.remote_token:
+                raise HTTPException(409, "Station changed; refresh the dashboard")
             station.clear()
         response.delete_cookie(COOKIE, path="/")
-        try:
-            agent.request("POST", "/api/companion/lock", token=token)
-        except httpx.HTTPError:
-            pass
+        agent.revoke_session(token)
         return {"ok": True}
 
     @app.post("/api/station/activity")
@@ -501,4 +542,5 @@ def create_app(
             raise HTTPException(503, "Build the companion web interface first")
         return FileResponse(assets / "companion.html")
 
+    app.add_middleware(HttpSecurity, allowed_frames=settings.frame_ancestors)
     return app

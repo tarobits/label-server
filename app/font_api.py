@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
@@ -18,8 +18,9 @@ from app.asset_access import (
 )
 from app.font_assets import MAX_FONT_BYTES
 from app.http import db
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/font-assets")
+router = TransactionRouter(prefix="/api/font-assets")
 
 
 @router.get("")

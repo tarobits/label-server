@@ -68,6 +68,7 @@ def test_install_companion_preserves_config_and_only_explicit_overrides(
         "LABEL_COMPANION_PUBLIC_URL=https://station.example.com\n"
         'LABEL_COMPANION_DATA_DIR="station-state"\n'
         "LABEL_COMPANION_LOCK_TIMEOUT_SECONDS=120\n"
+        "LABEL_COMPANION_FRAME_ANCESTORS='[\"http://dashboard.example.internal\"]'\n"
     )
     source.write_text(original)
     options = ["--role", "companion", "--companion-config", str(source)]
@@ -95,6 +96,9 @@ def test_install_companion_preserves_config_and_only_explicit_overrides(
     )
     assert values["LABEL_COMPANION_DATA_DIR"] == "station-state"
     assert values["LABEL_COMPANION_LOCK_TIMEOUT_SECONDS"] == "120"
+    assert json.loads(require_value(values["LABEL_COMPANION_FRAME_ANCESTORS"])) == [
+        "http://dashboard.example.internal"
+    ]
     for key in ("HOST", "PORT", "PUBLIC_URL", "DATA_DIR"):
         assert text.count(f"LABEL_COMPANION_{key}=") == 1
     assert source.read_text() == original

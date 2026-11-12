@@ -5,7 +5,7 @@ import secrets
 import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import HTTPException, Request
 from pydantic import Field
 from sqlalchemy import select
 
@@ -29,8 +29,9 @@ from app.models import (
 from app.printer.factory import DeviceConfiguration
 from app.printer.remote import RemotePrinterBackend
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/companion", tags=["companion transport"])
+router = TransactionRouter(prefix="/api/companion", tags=["companion transport"])
 
 
 class LocalStopEvent(Input):

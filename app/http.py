@@ -1,7 +1,7 @@
 """HTTP transaction boundary and shared record serialization."""
 
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import nullcontext
 from typing import Any, TypeVar
 
@@ -24,11 +24,13 @@ from app.models import (
 )
 from app.notifications import schedule_reminders
 from app.queue import complete_empty_flushes, require_idle
+from app.transaction_routes import transaction_dependency
 
 T = TypeVar("T", bound=Base)
 
 
-def db(request: Request) -> Iterator[Session]:
+@transaction_dependency
+def db(request: Request) -> Generator[Session, None, None]:
     # The single-process lock serializes API mutations with batch reservation.
     request.state.after_commit = []
     request.state.held_locks = []

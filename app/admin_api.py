@@ -3,19 +3,22 @@
 import json
 import secrets
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
 from app.auth_api import Credentials, Password, Username
+from app.billing_models import BillingGrant
 from app.db import begin_write
 from app.deletion import delete_account, is_deleted, restore_account, restore_content
 from app.history_cleanup import duplicate_history, purge_duplicate_history
@@ -33,15 +36,41 @@ from app.models import (
     RegistrationCode,
     ResourceGrant,
     Role,
+    StoredAsset,
     User,
     UserGroup,
 )
+from app.transaction_routes import TransactionRouter, transaction_dependency
 
-router = APIRouter(prefix="/api/admin", tags=["administration"])
+
+async def prepare_admin_password(request: Request) -> None:
+    if not (
+        request.method == "POST"
+        and request.url.path == "/api/admin/users"
+        or request.method == "PUT"
+        and request.url.path.startswith("/api/admin/users/")
+    ):
+        return
+    if not (await run_in_threadpool(access_context, request)).actor.is_admin:
+        raise HTTPException(403, "Administrator access is required")
+    raw = await request.json()
+    try:
+        body = (CreateUserInput if request.method == "POST" else UserInput).model_validate(raw)
+    except ValidationError as error:
+        raise RequestValidationError(error.errors()) from error
+    password = body.password
+    if password is not None:
+        request.state.prepared_admin_password = await run_in_threadpool(hash_password, password)
+
+
+router = TransactionRouter(
+    prefix="/api/admin", tags=["administration"], dependencies=[Depends(prepare_admin_password)]
+)
 CONFIRMATION_SECONDS = 300
 
 
-def admin_session(request: Request) -> Iterator[Session]:
+@transaction_dependency
+def admin_session(request: Request) -> Generator[Session, None, None]:
     if not access_context(request).actor.is_admin:
         raise HTTPException(403, "Administrator access is required")
     with request.app.state.fleet.lock, request.app.state.factory() as session:
@@ -277,6 +306,7 @@ def state_hash(session: Session) -> str:
         (Cartridge, "id owner_id location_id"),
         (Location, "id name parent_id owner_id"),
         (ResourceGrant, "principal_kind principal_id scope_kind scope_id permission effect"),
+        (BillingGrant, "account_id principal_kind principal_id permission effect"),
         (PrinterGroup, "id name printer_ids"),
         (DeletedContent, "kind identifier deleted_at purge_after purged_at account_id"),
     ):
@@ -284,6 +314,16 @@ def state_hash(session: Session) -> str:
             record(value, fields)
             for value in session.scalars(select(model).order_by(*model.__mapper__.primary_key))
         ]
+    # Ownership affects confirmation, but loading every asset's binary payload
+    # here would turn an access preview into an unbounded memory allocation.
+    state[StoredAsset.__tablename__] = [
+        dict(row._mapping)
+        for row in session.execute(
+            select(StoredAsset.kind, StoredAsset.id, StoredAsset.details).order_by(
+                StoredAsset.kind, StoredAsset.id
+            )
+        )
+    ]
     return token_hash(json.dumps(state, sort_keys=True, separators=(",", ":")))
 
 
@@ -488,6 +528,11 @@ def apply_change(
                         ResourceGrant.principal_id == role.id,
                     )
                 )
+                session.execute(
+                    delete(BillingGrant).where(
+                        BillingGrant.principal_kind == "role", BillingGrant.principal_id == role.id
+                    )
+                )
                 session.delete(role)
                 ensure_administrator_remains(session)
                 return None
@@ -503,6 +548,14 @@ def apply_change(
                 select(LabelTemplate.id).where(LabelTemplate.group_id == group.id).limit(1)
             ):
                 raise HTTPException(409, "Reassign this group's templates before deleting it")
+            if session.scalar(
+                select(StoredAsset.id)
+                .where(StoredAsset.details["group_id"].as_string() == group.id)
+                .limit(1)
+            ):
+                raise HTTPException(
+                    409, "Reassign this group's images and fonts before deleting it"
+                )
             for code in session.scalars(select(RegistrationCode)):
                 code.group_ids = [
                     identifier for identifier in code.group_ids if identifier != group.id
@@ -543,7 +596,12 @@ def apply_change(
         require_ids(session, Role, user_body.role_ids)
         user = User(
             username=user_body.username,
-            password_hash="preview-only" if preview else hash_password(user_body.password),
+            password_hash="preview-only"
+            if preview
+            else (
+                getattr(request.state, "prepared_admin_password", None)
+                or hash_password(user_body.password)
+            ),
             role_ids=user_body.role_ids,
         )
         session.add(user)
@@ -563,7 +621,14 @@ def apply_change(
             user.username = user_update.username
         user.disabled, user.role_ids = user_update.disabled, user_update.role_ids
         if user_update.password is not None:
-            user.password_hash = "preview-only" if preview else hash_password(user_update.password)
+            user.password_hash = (
+                "preview-only"
+                if preview
+                else (
+                    getattr(request.state, "prepared_admin_password", None)
+                    or hash_password(user_update.password)
+                )
+            )
         if user_update.disabled or user_update.password is not None:
             session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
             session.execute(delete(AuthSession).where(AuthSession.user_id == user.id))

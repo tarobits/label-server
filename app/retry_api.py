@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,8 +31,9 @@ from app.pricing import accept_quote, job_geometry
 from app.retry_funding import clone_job, retry_eligible
 from app.schemas import Input, MaximumPrice
 from app.submissions import input_fingerprint
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api", tags=["retry funding"])
+router = TransactionRouter(prefix="/api", tags=["retry funding"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

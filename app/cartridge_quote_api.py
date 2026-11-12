@@ -5,7 +5,7 @@ import json
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,9 +28,10 @@ from app.models import (
 from app.notifications import enqueue
 from app.pricing import job_geometry, remaining_allowance
 from app.schemas import Input, MaximumPrice
+from app.transaction_routes import TransactionRouter
 from app.usage import cost_micros, money
 
-router = APIRouter(prefix="/api/cartridge-quotes", tags=["cartridge price consent"])
+router = TransactionRouter(prefix="/api/cartridge-quotes", tags=["cartridge price consent"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.logging_config import LogLevel
 from app.printer.factory import DeviceConfiguration
@@ -41,8 +42,23 @@ class Settings(BaseSettings):
     allow_offline_emergency_stop: bool = False
     allow_offline_stop_after_label: bool = False
     public_url: str = "http://localhost:8001"
+    frame_ancestors: Annotated[list[str], NoDecode] = Field(default_factory=list, max_length=20)
     host: str = "127.0.0.1"
     port: int = Field(default=8001, ge=1, le=65535)
+
+    @field_validator("frame_ancestors", mode="before")
+    @classmethod
+    def parse_frame_ancestors(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return json.loads(value) if value.strip() else []
+        return value
+
+    @field_validator("frame_ancestors")
+    @classmethod
+    def validate_frame_ancestors(cls, values: list[str]) -> list[str]:
+        from app.http_security import frame_origins
+
+        return frame_origins(values)
 
     @model_validator(mode="after")
     def valid_deployment(self) -> "Settings":

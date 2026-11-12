@@ -3,7 +3,7 @@
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Depends, HTTPException, Query, Request
 from sqlalchemy import Select, and_, delete, func, select
 from sqlalchemy.orm import Session
 
@@ -12,8 +12,9 @@ from app.audit import AuditField, AuditScope, append_audit
 from app.http import db
 from app.models import Notification, NotificationRead, new_id
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/inbox", tags=["notification inbox"])
+router = TransactionRouter(prefix="/api/inbox", tags=["notification inbox"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

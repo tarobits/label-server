@@ -354,6 +354,12 @@ class QueueWorker:
                             extra,
                             plan.minimum_cut_length_mm,
                         )
+                    # Recheck database fencing immediately before handing work
+                    # to hardware/remote transport, after expensive preparation.
+                    from sqlalchemy import text
+
+                    with self.factory() as ownership_session:
+                        ownership_session.execute(text("SELECT 1"))
                     if isinstance(self.backend, DurablePrinterBackend):
                         self.backend.submit_batch(batch_id, labels)
                         return

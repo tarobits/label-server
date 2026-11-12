@@ -6,7 +6,7 @@ import re
 import time
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from PIL import Image, ImageOps
 from pydantic import Field
 from sqlalchemy import or_, select
@@ -25,8 +25,9 @@ from app.render import render_job
 from app.request_models import PrintRequest, RequestDigest
 from app.schemas import ImageJobInput, Input, JobInput
 from app.submissions import build_job, input_fingerprint, rendering_spec
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 class JobRequestInput(Input):

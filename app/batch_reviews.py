@@ -7,7 +7,7 @@ from collections import Counter
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import Field
 from sqlalchemy import select
@@ -29,8 +29,9 @@ from app.models import (
 from app.notifications import enqueue
 from app.schemas import Input
 from app.submissions import input_fingerprint
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/batches", tags=["batch review"])
+router = TransactionRouter(prefix="/api/batches", tags=["batch review"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 

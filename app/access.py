@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import Mapping, Protocol
 
 from fastapi import HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from app.identity import LOCAL_OWNER_ID
 
@@ -334,7 +335,7 @@ async def authorize_request(request: Request) -> None:
         except ValueError:
             pass
     request.state.auth_body_destination = destination
-    authorize_current_request(request)
+    await run_in_threadpool(authorize_current_request, request)
 
 
 def authorize_current_request(request: Request) -> None:

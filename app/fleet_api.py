@@ -4,7 +4,7 @@ import time
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 
@@ -38,8 +38,9 @@ from app.schemas import (
     PrinterInput,
     PrinterStopInput,
 )
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 def validate_device(body: PrinterInput, session: Session, identifier: str | None = None) -> None:

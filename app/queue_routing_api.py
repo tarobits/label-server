@@ -4,7 +4,7 @@ import copy
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import Depends, HTTPException, Query, Request
 from pydantic import Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -26,8 +26,9 @@ from app.models import (
 from app.print_audit import actor_snapshot, unknown_attribution
 from app.queue_routing_models import QueueDestinationChange
 from app.schemas import CopySelectionInput
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api")
+router = TransactionRouter(prefix="/api")
 
 
 class ChangePrinterInput(CopySelectionInput):

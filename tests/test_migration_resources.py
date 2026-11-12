@@ -21,7 +21,6 @@ from app.models import (
     Location,
     PrinterDevice,
     PrinterState,
-    TapeProfile,
     User,
     UserGroup,
 )
@@ -64,6 +63,18 @@ def migration(request, tmp_path):
     with engine.connect() as connection:
         connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
         connection.commit()
+        # Seed the historical schema without columns introduced by later models.
+        connection.execute(
+            text(
+                "INSERT INTO tape_profiles "
+                "(id, name, width_mm, foreground, background, auto_print_threshold, "
+                "waiting_notification_enabled, waiting_notification_interval_seconds, "
+                "reminder_silenced, reminder_episode, reminder_active) "
+                "VALUES ('profile', 'Existing tape', 12, '#000000', '#ffffff', 10, "
+                "0, 86400, 0, 0, 0)"
+            )
+        )
+        connection.commit()
         with Session(connection) as session:
             printer = PrinterDevice(
                 id="printer",
@@ -75,7 +86,6 @@ def migration(request, tmp_path):
                 [
                     printer,
                     Location(id="location", name="Existing location"),
-                    TapeProfile(id="profile", name="Existing tape", width_mm=12),
                 ]
             )
             session.flush()

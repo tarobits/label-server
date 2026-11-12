@@ -3,7 +3,7 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from pydantic import Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,8 +20,9 @@ from app.billing_models import (
 from app.http import db, job_summary, record
 from app.models import BatchItem, LabelCopy, PrintJob, Role, TapeAllocation, UnitCharge, User
 from app.schemas import Input
+from app.transaction_routes import TransactionRouter
 
-router = APIRouter(prefix="/api/accounts/groups", tags=["group billing"])
+router = TransactionRouter(prefix="/api/accounts/groups", tags=["group billing"])
 DB = Annotated[Session, Depends(db, scope="function")]
 
 
