@@ -127,6 +127,7 @@ test('Tab traverses the navigation and reaches page controls in both directions'
       scopes.getByRole('button', { name, exact: true }),
     ),
     page.getByRole('link', { name: 'Create template', exact: true }),
+    page.getByRole('combobox', { name: 'Template status', exact: true }),
     page.getByRole('searchbox', { name: 'Search templates', exact: true }),
     page.getByRole('combobox', { name: 'Tape width', exact: true }),
   ]
@@ -148,6 +149,7 @@ test('the skip link reaches account fields without entering disabled or hidden c
   await page.goto('/#/account')
   await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add email', exact: true })).toBeEnabled()
+  await expect(page.getByLabel('Choose image', { exact: true })).toBeEnabled()
   await expect(
     page.getByRole('button', { name: 'Enable notifications', exact: true }),
   ).toBeEnabled()
@@ -158,6 +160,8 @@ test('the skip link reaches account fields without entering disabled or hidden c
   await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
   for (const control of [
+    page.getByLabel('Choose image', { exact: true }),
+    page.getByRole('combobox', { name: 'Language', exact: true }),
     page.getByLabel('Reduced motion', { exact: true }),
     page.getByRole('button', { name: 'Add email', exact: true }),
     page.getByLabel('Device name', { exact: true }),
@@ -273,8 +277,9 @@ test('mobile queue scrolls locally and compact checkbox targets work at their ed
   await expect(checkbox).toBeVisible()
   const target = checkbox.locator('..')
   const box = await target.boundingBox()
-  expect(box!.width).toBeGreaterThanOrEqual(44)
-  expect(box!.height).toBeGreaterThanOrEqual(44)
+  // DOMRect values can differ by floating-point noise after a transform.
+  expect(Number(box!.width.toFixed(3))).toBeGreaterThanOrEqual(44)
+  expect(Number(box!.height.toFixed(3))).toBeGreaterThanOrEqual(44)
   expect(await checkbox.evaluate((el) => el.getBoundingClientRect().width)).toBeCloseTo(17, 3)
   await target.click({ position: { x: 2, y: 2 } })
   await expect(checkbox).toBeChecked()

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Cartridge } from '../types'
-import { api } from '../api'
-import { useWorkspaceStore } from '../workspace'
+import type { Cartridge } from '../shared/types'
+import { api } from '../shared/api'
+import { useWorkspaceStore } from '../shared/workspace'
 import AnimatedDetails from './AnimatedDetails.vue'
 const props = defineProps<{ cartridge: Cartridge }>()
 const w = useWorkspaceStore()
@@ -22,10 +22,13 @@ async function save() {
       }
     "
   >
-    <template #summary>Notes</template>
+    <template #summary>{{ $t('cartridgeNotes.notes') }}</template>
     <form class="form-stack inset" @submit.prevent="save">
-      <label>Cartridge notes<textarea v-model="notes" rows="4" maxlength="10000" /></label>
-      <button class="secondary" :disabled="w.busy">Save notes</button>
+      <label
+        >{{ $t('cartridgeNotes.cartridgeNotes')
+        }}<textarea v-model="notes" rows="4" maxlength="10000" />
+      </label>
+      <button class="secondary" :disabled="w.busy">{{ $t('common.saveNotes') }}</button>
     </form>
   </AnimatedDetails>
 </template>

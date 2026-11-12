@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { shallowRef } from 'vue'
-import type { AccessLevel, Membership } from '../auth'
+import type { AccessLevel, Membership } from '../auth/auth'
 import { useResourceStore } from './resources'
 
 export interface Person {

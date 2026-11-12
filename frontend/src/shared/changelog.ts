@@ -1,4 +1,4 @@
-import source from '../../CHANGELOG.md?raw'
+import source from '../../../CHANGELOG.md?raw'
 
 type Block = { kind: 'heading' | 'paragraph'; text: string } | { kind: 'list'; items: string[] }
 export type ReleaseNotes = { version: string; date: string | undefined; blocks: Block[] }

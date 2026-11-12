@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useLiveRefresh } from '../live'
+import { useLiveRefresh } from '../shared/live'
 import {
   checkServer,
   checkingServer,
   serverUnavailable,
   serverUnavailableMessage,
-} from '../serverConnection'
+} from '../shared/serverConnection'
 
 const dialog = ref<HTMLDialogElement | null>(null)
 function retry() {
@@ -39,7 +39,7 @@ watch(
     <dialog
       ref="dialog"
       class="server-unavailable"
-      aria-label="Server unavailable"
+      :aria-label="$t('common.serverUnavailable')"
       aria-describedby="server-unavailable-message"
       @cancel.prevent
     >
@@ -52,7 +52,7 @@ watch(
           :aria-busy="checkingServer"
           @click="retry"
         >
-          Retry
+          {{ $t('common.retry') }}
         </button>
       </div>
     </dialog>

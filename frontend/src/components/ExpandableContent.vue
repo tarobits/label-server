@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { reducedMotion } from '../preferences'
+import { reducedMotion } from '../shared/preferences'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ closed: [] }>()

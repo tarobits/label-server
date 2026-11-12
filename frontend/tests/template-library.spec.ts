@@ -1,6 +1,46 @@
 import { test, expect } from './fixtures'
 import type { APIRequestContext } from '@playwright/test'
 
+test('archived templates can be browsed and restored without entering active pickers', async ({
+  page,
+  request,
+}) => {
+  const { templates } = await seedLibrary(request)
+  const item = templates[0]
+  expect((await request.delete(`/api/templates/${item.id}`)).ok()).toBeTruthy()
+  await page.goto('/#/templates')
+  const cards = page.locator('article')
+  await expect(cards.filter({ hasText: item.name })).toHaveCount(0)
+  await page.getByRole('combobox', { name: 'Template status', exact: true }).selectOption('true')
+  await expect(cards).toHaveCount(1)
+  await expect(cards.first()).toContainText(item.name)
+  await expect(cards.getByRole('link', { name: 'Use template', exact: true })).toHaveCount(0)
+  await expect(cards.getByRole('link', { name: 'Edit visually', exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(cards).toHaveCount(1)
+  await page.screenshot({
+    path: 'test-results/template-archive-desktop.png',
+    fullPage: true,
+    animations: 'disabled',
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({
+    path: 'test-results/template-archive-mobile.png',
+    fullPage: true,
+    animations: 'disabled',
+  })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await cards.getByRole('button', { name: 'Restore template', exact: true }).click()
+  await expect(page.getByText('No archived templates.', { exact: true })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Template status', exact: true }).selectOption('false')
+  await expect(cards.filter({ hasText: item.name })).toHaveCount(1)
+  expect(
+    (await (await request.get('/api/templates')).json()).some(
+      (t: { id: string }) => t.id === item.id,
+    ),
+  ).toBeTruthy()
+})
+
 async function seedLibrary(request: APIRequestContext) {
   const groups = []
   for (const name of ['Facilities', 'Operations']) {
@@ -114,7 +154,7 @@ test('the library separates scopes and combines search, tape width, and group fi
   await page.getByRole('combobox', { name: 'Template group', exact: true }).selectOption('')
   await expect(cards).toHaveCount(1)
   await expect(cards.first()).toContainText('Asset inventory')
-  expect(reads).toHaveLength(1)
+  expect(reads).toHaveLength(2)
 })
 
 test('template filters survive reload and returning from the editor', async ({ page, request }) => {

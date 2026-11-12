@@ -12,8 +12,13 @@ onBeforeUnmount(() => URL.revokeObjectURL(licenseUrl))
 
 <template>
   <span class="source-links">
-    <a :href="sourceUrl" target="_blank" rel="noopener noreferrer">Source</a>
-    <a :href="licenseUrl" download="AGPL-3.0.txt" aria-label="Download AGPL license">AGPLv3+</a>
+    <a :href="sourceUrl" target="_blank" rel="noopener noreferrer">{{ $t('common.source') }}</a>
+    <a
+      :href="licenseUrl"
+      download="AGPL-3.0.txt"
+      :aria-label="$t('sourceLink.downloadAgplLicense')"
+      >{{ $t('sourceLink.agplv3') }}</a
+    >
   </span>
 </template>
 

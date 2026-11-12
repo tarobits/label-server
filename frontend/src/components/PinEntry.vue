@@ -43,7 +43,8 @@ function press(key: string) {
 <template>
   <div class="form-stack pin-entry" :class="{ compact }">
     <label
-      >PIN<input
+      >{{ $t('pinEntry.pin')
+      }}<input
         ref="input"
         v-model="pin"
         type="password"
@@ -56,7 +57,7 @@ function press(key: string) {
         :disabled="disabled"
         @input="changed"
     /></label>
-    <div v-if="keypad" class="pin-keypad" role="group" aria-label="PIN keypad">
+    <div v-if="keypad" class="pin-keypad" role="group" :aria-label="$t('pinEntry.pinKeypad')">
       <button
         v-for="(digit, index) in digits.slice(0, 9)"
         :key="index"
@@ -68,7 +69,7 @@ function press(key: string) {
         {{ digit }}
       </button>
       <button class="secondary" type="button" :disabled="disabled" @click="press('clear')">
-        Clear
+        {{ $t('pinEntry.clear') }}
       </button>
       <button
         class="secondary pin-digit"
@@ -79,7 +80,7 @@ function press(key: string) {
         {{ digits[9] }}
       </button>
       <button class="secondary" type="button" :disabled="disabled" @click="press('backspace')">
-        Backspace
+        {{ $t('pinEntry.backspace') }}
       </button>
     </div>
   </div>

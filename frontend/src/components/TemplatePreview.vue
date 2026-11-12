@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Template } from '../types'
-import { usePreview } from '../previewLoader'
+import type { Template } from '../shared/types'
+import { usePreview } from '../shared/previewLoader'
 
 const props = defineProps<{ template: Template }>()
 const target = ref<HTMLElement | null>(null)
@@ -27,8 +27,10 @@ const { image, failed, reload } = usePreview(source, target)
       @error="failed = true"
     />
     <div v-else-if="failed" class="preview-error" role="status">
-      <span class="help">Preview unavailable</span>
-      <button type="button" class="small secondary" @click="reload">Retry preview</button>
+      <span class="help">{{ $t('common.previewUnavailable') }}</span>
+      <button type="button" class="small secondary" @click="reload">
+        {{ $t('common.retryPreview') }}
+      </button>
     </div>
   </div>
 </template>

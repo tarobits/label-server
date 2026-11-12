@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore, date } from '../workspace'
-import { confirmAction } from '../confirmation'
-import { useLiveRefresh } from '../live'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore, date } from '../shared/workspace'
+import { confirmAction } from '../shared/confirmation'
+import { useLiveRefresh } from '../shared/live'
 import { useResourceStore } from '../stores/resources'
 import ChangeCopies from '../components/ChangeCopies.vue'
 interface PrintRequest {
@@ -150,14 +150,16 @@ onUnmounted(() => {
 <template>
   <p v-if="error" class="alert danger" role="alert">
     {{ error }}
-    <button class="text-button" :disabled="loading" @click="load(true)">Retry</button>
+    <button class="text-button" :disabled="loading" @click="load(true)">
+      {{ $t('common.retry') }}
+    </button>
   </p>
   <section v-if="selected" class="panel form-stack">
     <Transition name="notice"
       ><p v-if="changedElsewhere" class="alert warning motion-reveal" role="alert">
-        This request changed. Reload to review the latest version.
+        {{ $t('common.thisRequestChangedReloadToReviewTheLatestVersion') }}
         <button class="text-button" :disabled="loading || busy" @click="load(true)">
-          Reload request
+          {{ $t('requests.reloadRequest') }}
         </button>
       </p></Transition
     >
@@ -167,15 +169,17 @@ onUnmounted(() => {
     </div>
     <p>
       {{ w.destinationName(selected.destination_id) }} · {{ date(selected.created_at) }} ·
-      {{ copies }} {{ copies === 1 ? 'copy' : 'copies' }}
+      {{ copies }} {{ copies === 1 ? 'copy' : $t('common.copies2') }}
     </p>
     <p v-if="selected.status === 'pending'" class="help">
-      These labels are saved for review and have not entered the print queue.
+      {{ $t('common.theseLabelsAreSavedForReviewAndHaveNot') }}
     </p>
     <div v-if="label" class="request-preview">
       <p v-if="previewFailed" class="help" role="status">
-        Preview unavailable.
-        <button type="button" class="small secondary" @click="retryPreview">Retry preview</button>
+        {{ $t('common.previewUnavailable2') }}
+        <button type="button" class="small secondary" @click="retryPreview">
+          {{ $t('common.retryPreview') }}
+        </button>
       </p>
       <img
         v-else
@@ -186,8 +190,8 @@ onUnmounted(() => {
         @error="previewFailed = true"
       />
       <p>
-        {{ label.length_mm }} × {{ label.width_mm }} mm · {{ label.copies }}
-        {{ label.copies === 1 ? 'copy' : 'copies' }}
+        {{ label.length_mm }} × {{ label.width_mm }} {{ $t('common.mm2') }} {{ label.copies }}
+        {{ label.copies === 1 ? 'copy' : $t('common.copies2') }}
       </p>
       <ChangeCopies
         v-if="
@@ -202,10 +206,10 @@ onUnmounted(() => {
         @changed="load(true)"
       />
       <div class="row">
-        <button :disabled="!position" @click="position--">Previous label</button
+        <button :disabled="!position" @click="position--">{{ $t('common.previousLabel') }}</button
         ><span>{{ position + 1 }} / {{ selected.labels.length }}</span
         ><button :disabled="position >= selected.labels.length - 1" @click="position++">
-          Next label
+          {{ $t('common.nextLabel') }}
         </button>
       </div>
     </div>
@@ -215,38 +219,51 @@ onUnmounted(() => {
         selected.status === 'pending' && auth.printer(selected.destination_id, 'approve_requests')
       "
     >
-      <label>Reason for rejection<input v-model="reason" maxlength="1000" /></label>
+      <label
+        >{{ $t('requests.reasonForRejection') }}<input v-model="reason" maxlength="1000"
+      /></label>
       <div class="row wrap">
         <button class="primary" :disabled="busy || changedElsewhere" @click="decide(true)">
-          Approve and queue</button
+          {{ $t('requests.approveAndQueue') }}</button
         ><button
           class="secondary danger-text"
           :disabled="busy || !reason.trim()"
           @click="decide(false)"
         >
-          Reject request
+          {{ $t('requests.rejectRequest') }}
         </button>
       </div>
     </template>
-    <RouterLink v-if="selected.status === 'approved'" class="button secondary" to="/queue"
-      >View print queue</RouterLink
-    >
-    <button class="text-button" @click="router.push('/requests')">Back to requests</button>
+    <RouterLink v-if="selected.status === 'approved'" class="button secondary" to="/queue">{{
+      $t('common.viewPrintQueue')
+    }}</RouterLink>
+    <button class="text-button" @click="router.push('/requests')">
+      {{ $t('requests.backToRequests') }}
+    </button>
   </section>
   <section v-else-if="!route.params.id" class="panel">
     <div class="section-heading">
-      <h2>{{ auth.anyPrinter('approve_requests') ? 'Print requests' : 'Your print requests' }}</h2>
+      <h2>
+        {{
+          auth.anyPrinter('approve_requests') ? $t('common.printRequests') : 'Your print requests'
+        }}
+      </h2>
       <label
-        >Request status<select v-model="filter">
-          <option value="pending">Pending approval</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All requests</option>
+        >{{ $t('requests.requestStatus')
+        }}<select v-model="filter">
+          <option value="pending">{{ $t('requests.pendingApproval') }}</option>
+          <option value="approved">{{ $t('requests.approved') }}</option>
+          <option value="rejected">{{ $t('requests.rejected') }}</option>
+          <option value="">{{ $t('requests.allRequests') }}</option>
         </select></label
       >
     </div>
-    <p v-if="loading && !requests.length" class="empty" role="status">Loading requests…</p>
-    <p v-else-if="!visible.length && !error" class="empty">No {{ filter || 'print' }} requests.</p>
+    <p v-if="loading && !requests.length" class="empty" role="status">
+      {{ $t('requests.loadingRequests') }}
+    </p>
+    <p v-else-if="!visible.length && !error" class="empty">
+      {{ $t('common.no') }} {{ filter || 'print' }} {{ $t('common.requests') }}
+    </p>
     <div v-for="request in visible" :key="request.id" class="list-row">
       <div>
         <strong>{{
@@ -260,12 +277,12 @@ onUnmounted(() => {
         >
       </div>
       <span class="badge">{{ request.status }}</span
-      ><RouterLink class="button secondary" :to="`/requests/${request.id}`"
-        >View request</RouterLink
-      >
+      ><RouterLink class="button secondary" :to="`/requests/${request.id}`">{{
+        $t('common.viewRequest')
+      }}</RouterLink>
     </div>
   </section>
-  <p v-else-if="loading" class="panel empty" role="status">Loading request…</p>
+  <p v-else-if="loading" class="panel empty" role="status">{{ $t('requests.loadingRequest') }}</p>
 </template>
 <style scoped>
 .request-preview {

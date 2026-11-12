@@ -1,17 +1,19 @@
 <script setup lang="ts">
+import { locale, t } from '../shared/i18n'
+
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../auth'
-import { errorMessage } from '../api'
+import { useAuthStore } from '../auth/auth'
+import { errorMessage } from '../shared/api'
 import { useResourceStore } from '../stores/resources'
-import { useLiveRefresh } from '../live'
-import { date, metres } from '../workspace'
+import { useLiveRefresh } from '../shared/live'
+import { date, metres } from '../shared/workspace'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import Badge from '../components/Badge.vue'
 import PairAccounts from '../components/PairAccounts.vue'
 import SectionLayout from '../components/SectionLayout.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
-import type { UsageReport, UsageUser } from '../types'
+import type { UsageReport, UsageUser } from '../shared/types'
 const auth = useAuthStore()
 const resources = useResourceStore()
 const route = useRoute()
@@ -22,9 +24,24 @@ const navigationGroups = [
     title: 'Accounting',
     sections: [
       { id: 'balances', title: 'Account balances' },
-      { id: 'cartridges', title: 'Debts by cartridge' },
-      { id: 'charges', title: 'Charges & receivables' },
-      { id: 'payments', title: 'Repayments & corrections' },
+      {
+        id: 'cartridges',
+        get title() {
+          return t('pairAccounts.debtsByCartridge')
+        },
+      },
+      {
+        id: 'charges',
+        get title() {
+          return t('pairAccounts.chargesReceivables')
+        },
+      },
+      {
+        id: 'payments',
+        get title() {
+          return t('pairAccounts.repaymentsCorrections')
+        },
+      },
     ],
   },
 ]
@@ -104,7 +121,7 @@ onUnmounted(() => {
   sequence++
 })
 function money(value: string, currency: string) {
-  return new Intl.NumberFormat(undefined, {
+  return new Intl.NumberFormat(locale.value, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -115,9 +132,10 @@ function money(value: string, currency: string) {
 <template>
   <div class="row wrap usage-filters">
     <label v-if="canViewOthers"
-      >View<select v-model="selected">
-        <option value="">My usage</option>
-        <option value="all">All users</option>
+      >{{ $t('common.view')
+      }}<select v-model="selected">
+        <option value="">{{ $t('usage.myUsage') }}</option>
+        <option value="all">{{ $t('usage.allUsers') }}</option>
         <option
           v-for="user in users.filter((user) => user.user_id !== auth.user?.id)"
           :key="user.user_id"
@@ -129,13 +147,14 @@ function money(value: string, currency: string) {
     >
     <ExpandableContent :open="section === 'usage'" class="usage-cartridge-filter"
       ><label>
-        Cartridge<select v-model="cartridge">
-          <option value="">All cartridges</option>
+        {{ $t('common.cartridge')
+        }}<select v-model="cartridge">
+          <option value="">{{ $t('usage.allCartridges') }}</option>
           <option
             v-if="cartridge && !cartridges.some((item) => item.id === cartridge)"
             :value="cartridge"
           >
-            Selected cartridge (no tracked usage)
+            {{ $t('common.selectedCartridgeNoTrackedUsage') }}
           </option>
           <option v-for="item in cartridges" :key="item.id" :value="item.id">
             {{ item.name }} · {{ item.profile_name }}
@@ -147,15 +166,21 @@ function money(value: string, currency: string) {
   <Transition name="notice"
     ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
   >
-  <SectionLayout label="Tape usage" :groups="navigationGroups" :active="section" @select="navigate">
+  <SectionLayout
+    :label="$t('common.tapeUsage')"
+    :groups="navigationGroups"
+    :active="section"
+    @select="navigate"
+  >
     <div v-show="section === 'usage'" class="usage-content">
-      <div v-if="!report && !error" class="empty" role="status">Loading tape usage…</div>
+      <div v-if="!report && !error" class="empty" role="status">
+        {{ $t('usage.loadingTapeUsage') }}
+      </div>
       <template v-if="report">
         <section>
-          <h2>Allocated tape and cost</h2>
+          <h2>{{ $t('usage.allocatedTapeAndCost') }}</h2>
           <p class="help">
-            Includes design, feed, unused tape and a proportional share of the batch leader. Prices
-            are frozen per attempt.
+            {{ $t('usage.includesDesignFeedUnusedTapeAndAProportionalShare') }}
           </p>
           <div v-if="!report.users.length" class="empty compact">
             {{
@@ -166,10 +191,11 @@ function money(value: string, currency: string) {
             <div class="grow">
               <strong>{{ user.username }}</strong>
               <small
-                >{{ metres(user.consumed_mm) }} used<span v-if="user.pending_mm">
-                  · {{ metres(user.pending_mm) }} pending review or completion</span
+                >{{ metres(user.consumed_mm) }} {{ $t('common.used')
+                }}<span v-if="user.pending_mm">
+                  · {{ metres(user.pending_mm) }} {{ $t('common.pendingReviewOrCompletion') }}</span
                 ><span v-if="user.unpriced_mm">
-                  · {{ metres(user.unpriced_mm) }} unpriced</span
+                  · {{ metres(user.unpriced_mm) }} {{ $t('common.unpriced') }}</span
                 ></small
               >
             </div>
@@ -181,7 +207,7 @@ function money(value: string, currency: string) {
           </article>
         </section>
         <section v-if="report.entries.length">
-          <h2>Recent allocations</h2>
+          <h2>{{ $t('usage.recentAllocations') }}</h2>
           <AnimatedDetails
             v-for="entry in report.entries"
             :key="`${entry.batch_id}:${entry.user_id}`"
@@ -199,7 +225,10 @@ function money(value: string, currency: string) {
               }}</template
             >
             <div class="form-stack inset">
-              <span>Cartridge: {{ entry.cartridge_name }} · {{ entry.profile_name }}</span>
+              <span
+                >{{ $t('usage.cartridge') }} {{ entry.cartridge_name }} ·
+                {{ entry.profile_name }}</span
+              >
               <div class="row">
                 <Badge :state="entry.state" /><span
                   >{{
@@ -207,21 +236,21 @@ function money(value: string, currency: string) {
                       ? 'Planned'
                       : (entry.consumption_source ?? 'Accounted')
                   }}
-                  tape: {{ metres(entry.consumed_mm ?? entry.planned_mm) }}</span
+                  {{ $t('common.tape2') }} {{ metres(entry.consumed_mm ?? entry.planned_mm) }}</span
                 >
               </div>
               <span
-                >Cartridge price:
+                >{{ $t('usage.cartridgePrice') }}
                 {{
                   entry.price_minor === null
-                    ? 'Not set'
+                    ? $t('variableInput.notSet')
                     : `${(entry.price_minor / 100).toFixed(2)} ${entry.currency}`
                 }}
                 / {{ metres(entry.nominal_length_mm) }}</span
               >
-              <RouterLink v-if="auth.user?.is_admin" :to="`/batches/${entry.batch_id}`"
-                >Batch details →</RouterLink
-              >
+              <RouterLink v-if="auth.user?.is_admin" :to="`/batches/${entry.batch_id}`">{{
+                $t('usage.batchDetails')
+              }}</RouterLink>
             </div>
           </AnimatedDetails>
         </section>

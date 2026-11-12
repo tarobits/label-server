@@ -6,10 +6,10 @@ import {
   ChevronRightIcon,
   Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
-import { useAuthStore } from '../auth'
-import { useAvatarStore } from '../avatar'
+import { useAuthStore } from '../auth/auth'
+import { useAvatarStore } from '../auth/avatar'
 import UserAvatar from './UserAvatar.vue'
-import { useWorkspaceStore } from '../workspace'
+import { useWorkspaceStore } from '../shared/workspace'
 const auth = useAuthStore()
 const avatar = useAvatarStore()
 const workspace = useWorkspaceStore()
@@ -166,14 +166,14 @@ async function logout() {
         class="account-flyout"
         :style="position"
         role="group"
-        aria-label="Account"
+        :aria-label="$t('common.account')"
         @keydown.esc="escape"
         @keydown.tab="moveOut"
         @focusout="focusOutside"
       >
-        <RouterLink to="/account"><Cog6ToothIcon />Account settings</RouterLink>
+        <RouterLink to="/account"><Cog6ToothIcon />{{ $t('navigation.account') }}</RouterLink>
         <button type="button" :aria-disabled="signingOut" :aria-busy="signingOut" @click="logout">
-          <ArrowRightStartOnRectangleIcon />Sign out
+          <ArrowRightStartOnRectangleIcon />{{ $t('common.signOut') }}
         </button>
       </div>
     </Transition>

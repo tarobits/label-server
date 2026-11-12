@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { oppositeSubmissionPermission } from '../printerPermissions'
+import { oppositeSubmissionPermission } from '../printing/printerPermissions'
 const props = defineProps<{
   allowed: string[]
   denied: string[]
@@ -31,9 +31,9 @@ function change(permission: string, effect: string) {
           "
           @change="change(option.id, ($event.target as HTMLSelectElement).value)"
         >
-          <option value="inherit">Inherit</option>
-          <option value="allow">Allow</option>
-          <option value="deny">Deny</option>
+          <option value="inherit">{{ $t('common.inherit') }}</option>
+          <option value="allow">{{ $t('common.allow') }}</option>
+          <option value="deny">{{ $t('common.deny') }}</option>
         </select></label
       >
       <p v-if="hints?.[option.id]" class="muted">{{ hints[option.id] }}</p>

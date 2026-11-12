@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { usePreview } from '../previewLoader'
+import { usePreview } from '../shared/previewLoader'
 
 const props = defineProps<{ asset: { id: string; name: string }; large?: boolean }>()
 const emit = defineEmits<{ enlarge: [] }>()
@@ -15,8 +15,10 @@ const { image, failed, reload } = usePreview(source, target)
 <template>
   <div ref="target" class="asset-preview" :class="{ large }" :aria-busy="!image && !failed">
     <div v-if="failed" class="preview-error" role="status">
-      <span class="help">Preview unavailable</span>
-      <button type="button" class="small secondary" @click="reload">Retry preview</button>
+      <span class="help">{{ $t('common.previewUnavailable') }}</span>
+      <button type="button" class="small secondary" @click="reload">
+        {{ $t('common.retryPreview') }}
+      </button>
     </div>
     <img
       v-else-if="large && image"

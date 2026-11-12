@@ -1,5 +1,5 @@
-import type { Profile, Printer } from './types'
-import type { TemplateDocument } from './editor'
+import type { Profile, Printer } from '../shared/types'
+import type { TemplateDocument } from '../templates/editor'
 
 export interface MediaProperties {
   media_family: 'tze' | 'fixed_label'

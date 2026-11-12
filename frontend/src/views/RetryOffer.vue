@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
 import CostEstimate from '../components/CostEstimate.vue'
 import JobPreview from '../components/JobPreview.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
-import type { CostEstimate as Estimate } from '../types'
+import type { CostEstimate as Estimate } from '../shared/types'
 interface Offer {
   id: string
   status: string
@@ -100,14 +100,14 @@ async function act(action: 'accept' | 'decline') {
 </script>
 <template>
   <section class="panel form-stack">
-    <h2>Retry approval</h2>
+    <h2>{{ $t('retryOffer.retryApproval') }}</h2>
     <Transition name="notice"
       ><p v-if="error" role="alert" class="alert danger">{{ error }}</p></Transition
     >
     <template v-if="offer">
       <strong
         >{{ offer.label.process_name }} · {{ offer.label.copies }}
-        {{ offer.label.copies === 1 ? 'copy' : 'copies' }}</strong
+        {{ offer.label.copies === 1 ? 'copy' : $t('common.copies2') }}</strong
       >
       <JobPreview
         :job-id="offer.label.job_id"
@@ -122,12 +122,12 @@ async function act(action: 'accept' | 'decline') {
         <div class="form-stack">
           <CostEstimate v-if="estimate" :estimate="estimate" />
           <p>
-            Your previous charges remain unchanged. Accepting adds a new paid attempt. Your maximum
-            includes all copies and overhead; unexpected excess is covered by the cartridge owner.
+            {{ $t('common.yourPreviousChargesRemainUnchangedAcceptingAddsANew') }}
           </p>
           <div v-if="estimate?.quotes.length" class="field-row">
             <label
-              >Currency<select v-model="currency">
+              >{{ $t('common.currency')
+              }}<select v-model="currency">
                 <option
                   v-for="quote in estimate.quotes"
                   :key="quote.currency"
@@ -138,17 +138,20 @@ async function act(action: 'accept' | 'decline') {
               </select></label
             >
             <label
-              >Maximum total<input v-model="maximum" type="number" min="0" step="0.000001"
+              >{{ $t('retryOffer.maximumTotal')
+              }}<input v-model="maximum" type="number" min="0" step="0.000001"
             /></label>
           </div>
           <div class="row wrap">
             <button :disabled="loading || w.busy || !canAccept" @click="act('accept')">
-              Accept paid retry
+              {{ $t('retryOffer.acceptPaidRetry') }}
             </button>
             <button class="secondary" :disabled="loading || w.busy" @click="load">
-              Refresh quote
+              {{ $t('common.refreshQuote') }}
             </button>
-            <button class="secondary" :disabled="w.busy" @click="act('decline')">Decline</button>
+            <button class="secondary" :disabled="w.busy" @click="act('decline')">
+              {{ $t('common.decline') }}
+            </button>
           </div>
         </div>
       </ExpandableContent>

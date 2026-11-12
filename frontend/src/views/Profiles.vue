@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { freezeLeavingItem } from '../collectionMotion'
-import { vValidateForm } from '../formValidation'
+import { freezeLeavingItem } from '../shared/collectionMotion'
+import { vValidateForm } from '../shared/formValidation'
 import { storeToRefs } from 'pinia'
-import { confirmAction } from '../confirmation'
+import { confirmAction } from '../shared/confirmation'
 import { reactive, ref } from 'vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
-import { api } from '../api'
-import { useWorkspaceStore, date } from '../workspace'
-import type { Profile, ProfileInput } from '../types'
-import { mediaLabel } from '../media'
+import { api } from '../shared/api'
+import { useWorkspaceStore, date } from '../shared/workspace'
+import type { Profile, ProfileInput } from '../shared/types'
+import { mediaLabel } from '../printing/media'
 const w = useWorkspaceStore()
 const { profiles, busy, status } = storeToRefs(w)
 const editing = ref<string | null>(null),
@@ -106,35 +106,41 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
 </script>
 <template>
   <div class="section-heading">
-    <button class="secondary" @click="edit()">Add tape profile</button>
+    <button class="secondary" @click="edit()">{{ $t('profiles.addTapeProfile') }}</button>
   </div>
   <Transition name="panel-expand">
     <form v-validate-form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
       <div class="section-heading">
         <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
-        <button type="button" class="text-button" @click="formOpen = false">Close</button>
+        <button type="button" class="text-button" @click="formOpen = false">
+          {{ $t('common.close') }}
+        </button>
       </div>
       <div class="field-row">
         <label
-          >Profile name<input
+          >{{ $t('profiles.profileName')
+          }}<input
             v-model="form.name"
             required
             maxlength="100"
-            placeholder="Black on Yellow 24 mm" /></label
+            :placeholder="$t('profiles.blackOnYellow24Mm')" /></label
         ><label
-          >Media family<select v-model="form.media_family">
-            <option value="tze">TZe · Continuous tape</option>
-            <option value="fixed_label">Fixed-size labels</option>
+          >{{ $t('profiles.mediaFamily')
+          }}<select v-model="form.media_family">
+            <option value="tze">{{ $t('common.tzeContinuousTape') }}</option>
+            <option value="fixed_label">{{ $t('profiles.fixedSizeLabels') }}</option>
           </select></label
         ><label v-if="form.media_family !== 'fixed_label'"
-          >Tape width<select v-model.number="form.width_mm">
+          >{{ $t('common.tapeWidth')
+          }}<select v-model.number="form.width_mm">
             <option v-for="width in [3.5, 6, 9, 12, 18, 24]" :key="width" :value="width">
-              {{ width }} mm
+              {{ width }} {{ $t('common.mm') }}
             </option>
           </select></label
         >
         <label v-else
-          >Label width (mm)<input
+          >{{ $t('profiles.labelWidthMm')
+          }}<input
             v-model.number="form.width_mm"
             type="number"
             min="0.1"
@@ -145,7 +151,8 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
       </div>
       <ExpandableContent :open="form.media_family === 'fixed_label'">
         <label
-          >Stock label length (mm)<input
+          >{{ $t('common.stockLabelLengthMm')
+          }}<input
             v-model.number="form.label_length_mm"
             type="number"
             min="10"
@@ -156,10 +163,11 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         /></label>
       </ExpandableContent>
       <div class="field-row">
-        <label>Text color<input type="color" v-model="form.foreground" /></label
-        ><label>Tape color<input type="color" v-model="form.background" /></label
+        <label>{{ $t('common.textColor') }}<input type="color" v-model="form.foreground" /></label
+        ><label>{{ $t('common.tapeColor') }}<input type="color" v-model="form.background" /></label
         ><label
-          >Automatic batch threshold<input
+          >{{ $t('profiles.automaticBatchThreshold')
+          }}<input
             v-model.number="form.auto_print_threshold"
             type="number"
             min="1"
@@ -168,12 +176,14 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         /></label>
       </div>
       <label class="checkbox"
-        ><input v-model="form.waiting_notification_enabled" type="checkbox" />Remind me when this
-        tape is waiting above its threshold</label
+        ><input v-model="form.waiting_notification_enabled" type="checkbox" />{{
+          $t('profiles.remindMeWhenThisTapeIsWaitingAboveIts')
+        }}</label
       >
       <ExpandableContent :open="form.waiting_notification_enabled">
         <label
-          >Repeat reminder every (hours)<input
+          >{{ $t('profiles.repeatReminderEveryHours')
+          }}<input
             v-model.number="intervalHours"
             type="number"
             min="0.017"
@@ -183,15 +193,16 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         /></label>
       </ExpandableContent>
       <p class="help">
-        Thresholds count physical copies. Lowering an installed tape’s threshold may start a batch
-        immediately. Media family and dimensions cannot change after a profile has been used.
+        {{ $t('common.thresholdsCountPhysicalCopiesLoweringAnInstalledTapeS') }}
       </p>
-      <button class="primary" :disabled="busy" type="submit">Save tape profile</button>
+      <button class="primary" :disabled="busy" type="submit">
+        {{ $t('common.saveTapeProfile') }}
+      </button>
     </form>
   </Transition>
   <div v-if="!profiles.length && !formOpen" class="panel empty">
-    <h2>No tape profiles</h2>
-    <button class="primary" @click="edit()">Create first tape profile</button>
+    <h2>{{ $t('common.noTapeProfiles') }}</h2>
+    <button class="primary" @click="edit()">{{ $t('profiles.createFirstTapeProfile') }}</button>
   </div>
   <TransitionGroup
     v-if="profiles.length"
@@ -205,27 +216,28 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         <span
           class="swatch large"
           :style="{ background: profile.background, color: profile.foreground }"
-          >Aa</span
+          >{{ $t('common.aa') }}</span
         ><span class="badge">{{ mediaLabel(profile) }}</span>
       </div>
       <h2>{{ profile.name }}</h2>
       <ExpandableContent :open="profile.available === false">
-        <span class="badge">Unavailable</span>
+        <span class="badge">{{ $t('common.unavailable') }}</span>
       </ExpandableContent>
       <p>
-        {{ status?.queues.find((q) => q.profile_id === profile.id)?.queued_copies ?? 0 }} queued ·
-        Prints at {{ profile.auto_print_threshold }} copies
+        {{ status?.queues.find((q) => q.profile_id === profile.id)?.queued_copies ?? 0 }}
+        {{ $t('common.queuedPrintsAt') }} {{ profile.auto_print_threshold }}
+        {{ $t('common.copies2') }}
       </p>
       <div class="profile-meta">
-        <span>Waiting reminders</span
+        <span>{{ $t('common.waitingReminders') }}</span
         ><strong>{{
           profile.waiting_notification_enabled
             ? `Every ${+(profile.waiting_notification_interval_seconds / 3600).toFixed(2)} h`
-            : 'Off'
+            : $t('accountSettings.off')
         }}</strong>
       </div>
       <p v-if="profile.reminder_silenced" class="inline-warning">
-        Silenced for this waiting episode.
+        {{ $t('common.silencedForThisWaitingEpisode') }}
       </p>
       <p
         v-else-if="
@@ -233,14 +245,15 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         "
         class="help"
       >
-        Snoozed until {{ date(profile.reminder_snoozed_until) }}
+        {{ $t('common.snoozedUntil') }} {{ date(profile.reminder_snoozed_until) }}
       </p>
       <div v-if="profile.waiting_notification_enabled" class="row wrap">
         <button class="small" :disabled="busy" @click="reminder(profile.id, 'silence')">
-          Silence episode</button
-        ><button class="small" @click="openSnooze(profile.id, $event)">Snooze</button
+          {{ $t('common.silenceEpisode') }}</button
+        ><button class="small" @click="openSnooze(profile.id, $event)">
+          {{ $t('common.snooze') }}</button
         ><button class="small" :disabled="busy" @click="reminder(profile.id, 'resume')">
-          Resume
+          {{ $t('profiles.resume') }}
         </button>
       </div>
       <Transition name="panel-expand">
@@ -251,11 +264,14 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
           @submit.prevent="reminder(profile.id, 'snooze')"
         >
           <label
-            >Snooze until (local time)<input v-model="snoozeUntil" type="datetime-local" required
+            >{{ $t('common.snoozeUntilLocalTime')
+            }}<input v-model="snoozeUntil" type="datetime-local" required
           /></label>
           <div class="row wrap">
-            <button class="secondary" :disabled="busy">Set snooze</button>
-            <button type="button" :disabled="busy" @click="closeSnooze">Cancel</button>
+            <button class="secondary" :disabled="busy">{{ $t('common.setSnooze') }}</button>
+            <button type="button" :disabled="busy" @click="closeSnooze">
+              {{ $t('common.cancel') }}
+            </button>
           </div>
         </form>
       </Transition>
@@ -263,9 +279,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         <button class="text-button" :disabled="busy" @click="setAvailability(profile)">
           {{ profile.available === false ? 'Make available' : 'Mark unavailable' }}
         </button>
-        <button class="text-button" @click="edit(profile)">Edit profile</button
+        <button class="text-button" @click="edit(profile)">{{ $t('profiles.editProfile') }}</button
         ><button class="text-button danger-text" :disabled="busy" @click="remove(profile)">
-          Delete
+          {{ $t('common.delete') }}
         </button>
       </div>
     </article>

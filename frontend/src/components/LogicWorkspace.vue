@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { logicTargetLabel } from '../logicGraph'
+import { t } from '../shared/i18n'
+
+import { logicTargetLabel } from '../templates/logicGraph'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ChevronDownIcon,
@@ -15,15 +17,15 @@ import LogicReference from './LogicReference.vue'
 const LogicSourceEditor = defineAsyncComponent(() => import('./LogicSourceEditor.vue'))
 import LogicSocket from './LogicSocket.vue'
 import VariableInput from './VariableInput.vue'
-import { api, errorMessage } from '../api'
-import { upgradeDocument, displayValue } from '../variableInputs'
+import { api, errorMessage } from '../shared/api'
+import { upgradeDocument, displayValue } from '../templates/variableInputs'
 import type {
   LogicEditorState,
   LogicNode,
   TemplateDocument,
   ValueType,
   VariableValue,
-} from '../editor'
+} from '../templates/editor'
 import {
   canConnect,
   compileGraph,
@@ -45,7 +47,7 @@ import {
   type SocketType,
   type SourceDiagnostic,
   type CompileResult,
-} from '../logicGraph'
+} from '../templates/logicGraph'
 
 const props = defineProps<{
   document: TemplateDocument
@@ -108,7 +110,9 @@ const selectedValueType = computed(() => {
 })
 const literalField = computed(() => ({
   name: 'value',
-  label: 'Value',
+  get label() {
+    return t('common.value')
+  },
   type: selected.value?.type ?? 'number',
   required: false,
   default: null,
@@ -118,7 +122,9 @@ const fallbackFields = computed(
   () =>
     selected.value?.inputs.map((_, index) => ({
       name: 'value',
-      label: 'Value',
+      get label() {
+        return t('common.value')
+      },
       type: fallbackType(selected.value!, index),
       required: false,
       default: null,
@@ -861,7 +867,7 @@ onBeforeUnmount(() => {
           aria-controls="logic-workspace-body"
           @click="toggle"
         >
-          Template logic<ChevronDownIcon :class="{ collapsed: !open }" />
+          {{ $t('common.templateLogic') }}<ChevronDownIcon :class="{ collapsed: !open }" />
         </button>
       </h2>
       <button v-if="open" class="small" :aria-pressed="expanded" @click="expanded = !expanded">
@@ -869,12 +875,12 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <ExpandableContent id="logic-workspace-body" :open="open">
-      <p v-if="loading" role="status">Loading logic…</p>
+      <p v-if="loading" role="status">{{ $t('logicWorkspace.loadingLogic') }}</p>
       <template v-if="catalog">
         <div class="row wrap logic-modes">
           <MotionTrack
             role="tablist"
-            aria-label="Logic editor mode"
+            :aria-label="$t('logicWorkspace.logicEditorMode')"
             class="inspector-tabs"
             :identity="mode"
             selector="[aria-selected='true']"
@@ -889,7 +895,7 @@ onBeforeUnmount(() => {
               @click="selectMode('nodes')"
               @keydown="modeKeys"
             >
-              Nodes
+              {{ $t('logicWorkspace.nodes') }}
             </button>
             <button
               id="logic-source-tab"
@@ -900,7 +906,7 @@ onBeforeUnmount(() => {
               @click="selectMode('source')"
               @keydown="modeKeys"
             >
-              Source
+              {{ $t('common.source') }}
             </button>
           </MotionTrack>
           <button
@@ -908,7 +914,7 @@ onBeforeUnmount(() => {
             aria-controls="logic-reference-panel"
             @click="referenceOpen = !referenceOpen"
           >
-            Reference
+            {{ $t('logicWorkspace.reference') }}
           </button>
         </div>
         <MotionSurface :identity="mode" :order="mode === 'nodes' ? 0 : 1">
@@ -920,21 +926,31 @@ onBeforeUnmount(() => {
             :inert="mode !== 'nodes'"
           >
             <p v-if="sourceDirty" class="alert warning">
-              Source has unapplied changes. Nodes show the last valid logic.
+              {{ $t('common.sourceHasUnappliedChangesNodesShowTheLastValid') }}
             </p>
             <div class="row wrap logic-toolbar">
               <button :disabled="graphLocked" :aria-expanded="palette" @click="palette = !palette">
-                <PlusIcon />Add node
+                <PlusIcon />{{ $t('logicWorkspace.addNode') }}
               </button>
-              <button aria-label="Zoom out logic" @click="zoom(1 / 1.2)"><MinusIcon /></button>
-              <output aria-label="Logic zoom">{{ Math.round(state.zoom * 100) }}%</output>
-              <button aria-label="Zoom in logic" @click="zoom(1.2)"><PlusIcon /></button>
-              <button @click="frame()">Frame nodes</button>
-              <span v-if="pending && !error" role="status">Checking…</span>
+              <button :aria-label="$t('common.zoomOutLogic')" @click="zoom(1 / 1.2)">
+                <MinusIcon />
+              </button>
+              <output :aria-label="$t('logicWorkspace.logicZoom')"
+                >{{ Math.round(state.zoom * 100) }}%</output
+              >
+              <button :aria-label="$t('common.zoomInLogic')" @click="zoom(1.2)">
+                <PlusIcon />
+              </button>
+              <button @click="frame()">{{ $t('logicWorkspace.frameNodes') }}</button>
+              <span v-if="pending && !error" role="status">{{
+                $t('logicWorkspace.checking')
+              }}</span>
             </div>
             <ExpandableContent :open="palette">
               <div class="node-palette">
-                <label>Search nodes<input v-model="search" type="search" /></label>
+                <label
+                  >{{ $t('common.searchNodes') }}<input v-model="search" type="search"
+                /></label>
                 <div class="node-options">
                   <button
                     v-for="type in valueTypes.filter((type) =>
@@ -943,13 +959,13 @@ onBeforeUnmount(() => {
                     :key="type"
                     @click="add('literal', type)"
                   >
-                    {{ title(type) }} value
+                    {{ title(type) }} {{ $t('common.value2') }}
                   </button>
                   <button
                     v-if="'intermediate variable'.includes(search.toLowerCase())"
                     @click="add('variable', '')"
                   >
-                    Intermediate variable
+                    {{ $t('logicWorkspace.intermediateVariable') }}
                   </button>
                   <button
                     v-for="operation in operations"
@@ -962,7 +978,8 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="field-row">
                   <label
-                    >Property target<select v-model="target">
+                    >{{ $t('logicWorkspace.propertyTarget')
+                    }}<select v-model="target">
                       <option
                         v-for="alias in Object.keys(catalog.targets)"
                         :key="alias"
@@ -973,16 +990,19 @@ onBeforeUnmount(() => {
                     </select></label
                   >
                   <label
-                    >Property<select v-model="property">
+                    >{{ $t('logicWorkspace.property')
+                    }}<select v-model="property">
                       <option v-for="(type, name) in availableProperties" :key="name" :value="name">
                         {{ name }} ({{ type }})
                       </option>
                     </select></label
                   >
                   <button :disabled="!readableProperties[property]" @click="addPropertyInput">
-                    Read property
+                    {{ $t('logicWorkspace.readProperty') }}
                   </button>
-                  <button :disabled="bindingDisabled" @click="addOutput">Bind property</button>
+                  <button :disabled="bindingDisabled" @click="addOutput">
+                    {{ $t('logicWorkspace.bindProperty') }}
+                  </button>
                 </div>
               </div>
             </ExpandableContent>
@@ -991,7 +1011,7 @@ onBeforeUnmount(() => {
                 ref="canvas"
                 class="logic-canvas"
                 tabindex="0"
-                aria-label="Logic node canvas"
+                :aria-label="$t('logicWorkspace.logicNodeCanvas')"
                 @pointerdown="startPan"
                 @wheel.prevent="wheel"
                 @keydown="keyboard($event)"
@@ -1056,7 +1076,10 @@ onBeforeUnmount(() => {
                       <span
                         >{{ socketLabel(node, index)
                         }}<small v-if="!source"
-                          >: {{ displayValue(node.defaults[index] ?? null) || 'Not set' }}</small
+                          >:
+                          {{
+                            displayValue(node.defaults[index] ?? null) || $t('variableInput.notSet')
+                          }}</small
                         ></span
                       >
                     </div>
@@ -1077,19 +1100,23 @@ onBeforeUnmount(() => {
                     <small v-if="node.kind === 'variable'" class="node-result">{{
                       displayValue(catalog.values[node.name!] ?? null)
                     }}</small>
-                    <small v-if="automaticOutput(node, document)" class="node-result"
-                      >Inactive · automatic sizing</small
-                    >
+                    <small v-if="automaticOutput(node, document)" class="node-result">{{
+                      $t('logicWorkspace.inactiveAutomaticSizing')
+                    }}</small>
                   </article>
                 </TransitionGroup>
                 <p v-if="!state.nodes.length" class="canvas-empty">
-                  Add a node or bind a property.
+                  {{ $t('logicWorkspace.addANodeOrBindAProperty') }}
                 </p>
               </div>
-              <aside class="node-inspector form-stack" aria-label="Node properties">
+              <aside
+                class="node-inspector form-stack"
+                :aria-label="$t('logicWorkspace.nodeProperties')"
+              >
                 <label
-                  >Node<select v-model="selectedId" @change="selected && frame(selected)">
-                    <option value="">Choose node</option>
+                  >{{ $t('logicWorkspace.node')
+                  }}<select v-model="selectedId" @change="selected && frame(selected)">
+                    <option value="">{{ $t('logicWorkspace.chooseNode') }}</option>
                     <option v-for="node in state.nodes" :key="node.id" :value="node.id">
                       {{ label(node) }}
                     </option>
@@ -1098,7 +1125,9 @@ onBeforeUnmount(() => {
                 <MotionSurface :identity="selectedId" class="form-stack">
                   <template v-if="selected">
                     <h3>{{ label(selected) }}</h3>
-                    <button class="small" @click="nodeHelp(selected)">Node reference</button>
+                    <button class="small" @click="nodeHelp(selected)">
+                      {{ $t('logicWorkspace.nodeReference') }}
+                    </button>
                     <p v-if="selected.kind === 'call'" class="help">
                       {{
                         catalog.operations.find(
@@ -1107,7 +1136,8 @@ onBeforeUnmount(() => {
                       }}
                     </p>
                     <label v-if="selected.kind === 'variable'"
-                      >Variable name<input
+                      >{{ $t('common.variableName')
+                      }}<input
                         v-model="selected.name"
                         maxlength="40"
                         :disabled="graphLocked"
@@ -1117,13 +1147,14 @@ onBeforeUnmount(() => {
                       v-if="selected.kind === 'literal'"
                       v-model="selected.value"
                       :field="literalField"
-                      label="Value"
+                      :label="$t('common.value')"
                       :disabled="graphLocked"
                       nullable
                       @change="changed"
                     />
                     <label v-if="valueTypeInputs.length"
-                      >Value type<select
+                      >{{ $t('common.valueType')
+                      }}<select
                         :value="selectedValueType"
                         :disabled="
                           graphLocked || valueTypeInputs.some((index) => !!selected!.inputs[index])
@@ -1149,7 +1180,7 @@ onBeforeUnmount(() => {
                           :aria-label="`Disconnect ${socketLabel(selected, index)}`"
                           @click="disconnect(selected, index)"
                         >
-                          Disconnect
+                          {{ $t('logicWorkspace.disconnect') }}
                         </button>
                       </div>
                       <template v-else>
@@ -1169,7 +1200,7 @@ onBeforeUnmount(() => {
                       :disabled="graphLocked"
                       @click="removeSelected"
                     >
-                      <TrashIcon />Remove node
+                      <TrashIcon />{{ $t('logicWorkspace.removeNode') }}
                     </button>
                   </template>
                 </MotionSurface>
@@ -1177,7 +1208,7 @@ onBeforeUnmount(() => {
                   v-if="preview"
                   :src="preview"
                   :style="previewGeometry"
-                  alt="Logic label preview"
+                  :alt="$t('logicWorkspace.logicLabelPreview')"
                   class="logic-preview"
                 />
               </aside>
@@ -1196,7 +1227,7 @@ onBeforeUnmount(() => {
             class="source-panel"
           >
             <p v-if="pending" class="alert warning">
-              Resolve or revert node changes before editing source.
+              {{ $t('logicWorkspace.resolveOrRevertNodeChangesBeforeEditingSource') }}
             </p>
             <div class="source-layout">
               <LogicSourceEditor
@@ -1215,7 +1246,7 @@ onBeforeUnmount(() => {
                   v-if="preview"
                   :src="preview"
                   :style="previewGeometry"
-                  alt="Source label preview"
+                  :alt="$t('common.sourceLabelPreview')"
                 />
                 <p v-if="previewError || catalog.sample_error" class="alert danger" role="alert">
                   {{ previewError || catalog.sample_error }}
@@ -1223,8 +1254,10 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="row wrap source-toolbar">
-              <span v-if="sourceBusy" role="status">Checking source…</span
-              ><button v-if="sourceDirty" @click="revertSource">Revert source changes</button>
+              <span v-if="sourceBusy" role="status">{{ $t('logicWorkspace.checkingSource') }}</span
+              ><button v-if="sourceDirty" @click="revertSource">
+                {{ $t('logicWorkspace.revertSourceChanges') }}
+              </button>
             </div>
           </div>
         </MotionSurface>
@@ -1237,7 +1270,10 @@ onBeforeUnmount(() => {
         /></ExpandableContent>
       </template>
       <div v-if="error" class="alert danger" role="alert">
-        {{ error }}<button class="text-button" @click="initialize">Revert node changes</button>
+        {{ error
+        }}<button class="text-button" @click="initialize">
+          {{ $t('logicWorkspace.revertNodeChanges') }}
+        </button>
       </div>
     </ExpandableContent>
   </section>

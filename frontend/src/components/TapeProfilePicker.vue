@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import type { Profile } from '../types'
-import { mediaLabel } from '../media'
+import type { Profile } from '../shared/types'
+import { mediaLabel } from '../printing/media'
 import AdminDialog from './AdminDialog.vue'
 import MotionSurface from './MotionSurface.vue'
 
@@ -78,7 +78,9 @@ function clearFilters() {
 
 <template>
   <div class="template-choice">
-    <slot name="label"><span class="template-choice-label">Tape profile</span></slot>
+    <slot name="label"
+      ><span class="template-choice-label">{{ $t('common.tapeProfile') }}</span></slot
+    >
     <button
       v-if="compact"
       :id="controlId"
@@ -86,7 +88,7 @@ function clearFilters() {
       class="secondary compact-profile"
       :value="modelValue"
       :disabled="disabled"
-      aria-label="Change tape profile"
+      :aria-label="$t('tapeProfilePicker.changeTapeProfile')"
       aria-haspopup="dialog"
       @click="show"
     >
@@ -95,7 +97,7 @@ function clearFilters() {
         class="swatch"
         :style="{ background: selected.background, color: selected.foreground }"
         aria-hidden="true"
-        >Aa</span
+        >{{ $t('common.aa') }}</span
       >
       <span
         >{{ selected?.name ?? savedName ?? 'Choose a tape profile'
@@ -109,12 +111,14 @@ function clearFilters() {
         :style="{ background: selected.background, color: selected.foreground }"
         aria-hidden="true"
       >
-        Aa
+        {{ $t('common.aa') }}
       </div>
       <div class="template-choice-description">
         <strong>{{ selected?.name ?? 'Choose a tape profile' }}</strong>
         <span v-if="selected" class="muted">{{ mediaLabel(selected) }}</span>
-        <span v-if="selected?.available === false" class="badge">Unavailable</span>
+        <span v-if="selected?.available === false" class="badge">{{
+          $t('common.unavailable')
+        }}</span>
         <button
           :id="controlId"
           type="button"
@@ -124,7 +128,7 @@ function clearFilters() {
           aria-haspopup="dialog"
           @click="show"
         >
-          Change tape profile
+          {{ $t('tapeProfilePicker.changeTapeProfile') }}
         </button>
       </div>
     </div>
@@ -132,7 +136,7 @@ function clearFilters() {
   <Teleport to="body">
     <AdminDialog
       :open="open"
-      title="Choose tape profile"
+      :title="$t('tapeProfilePicker.chooseTapeProfile')"
       wide
       class="template-picker"
       @close="open = false"
@@ -140,31 +144,36 @@ function clearFilters() {
       <div class="picker-body">
         <div class="picker-filters profile-filters">
           <label class="picker-search"
-            >Search tape profiles<input
+            >{{ $t('common.searchTapeProfiles')
+            }}<input
               v-model="filters.search"
               type="search"
-              placeholder="Name or media"
+              :placeholder="$t('tapeProfilePicker.nameOrMedia')"
               @keydown.esc.prevent.stop="open = false"
           /></label>
           <label
-            >Tape width<select v-model="filters.width">
-              <option value="">All widths</option>
+            >{{ $t('common.tapeWidth')
+            }}<select v-model="filters.width">
+              <option value="">{{ $t('common.allWidths') }}</option>
               <option v-for="width in widths" :key="width" :value="String(width)">
-                {{ width }} mm
+                {{ width }} {{ $t('common.mm') }}
               </option>
             </select></label
           >
           <label
-            >Media<select v-model="filters.media">
-              <option value="">All media</option>
-              <option value="tze">Continuous TZe</option>
-              <option value="fixed_label">Fixed labels</option>
+            >{{ $t('common.media')
+            }}<select v-model="filters.media">
+              <option value="">{{ $t('common.allMedia') }}</option>
+              <option value="tze">{{ $t('common.continuousTze') }}</option>
+              <option value="fixed_label">{{ $t('common.fixedLabels') }}</option>
             </select></label
           >
         </div>
         <div class="picker-options">
           <label v-if="compatible" class="checkbox"
-            ><input v-model="filters.compatible" type="checkbox" />Compatible with selection</label
+            ><input v-model="filters.compatible" type="checkbox" />{{
+              $t('tapeProfilePicker.compatibleWithSelection')
+            }}</label
           >
           <button
             type="button"
@@ -172,7 +181,7 @@ function clearFilters() {
             :disabled="!activeFilters"
             @click="clearFilters"
           >
-            Clear filters
+            {{ $t('common.clearFilters') }}
           </button>
         </div>
         <div class="picker-meta" role="status" aria-live="polite" aria-atomic="true">
@@ -182,7 +191,7 @@ function clearFilters() {
           ref="results"
           class="picker-results"
           role="region"
-          aria-label="Tape profile results"
+          :aria-label="$t('common.tapeProfileResults')"
           tabindex="0"
         >
           <MotionSurface :identity="identity" :order="page">
@@ -199,7 +208,7 @@ function clearFilters() {
                   :style="{ background: item.background, color: item.foreground }"
                   aria-hidden="true"
                 >
-                  Aa
+                  {{ $t('common.aa') }}
                 </div>
                 <button
                   type="button"
@@ -212,22 +221,24 @@ function clearFilters() {
                   {{ item.name }}
                 </button>
                 <span class="muted">{{ mediaLabel(item) }}</span>
-                <span v-if="item.available === false" class="picker-card-meta">Unavailable</span>
-                <span v-else-if="compatible && !compatible(item)" class="picker-card-meta"
-                  >Incompatible with selection</span
-                >
+                <span v-if="item.available === false" class="picker-card-meta">{{
+                  $t('common.unavailable')
+                }}</span>
+                <span v-else-if="compatible && !compatible(item)" class="picker-card-meta">{{
+                  $t('tapeProfilePicker.incompatibleWithSelection')
+                }}</span>
               </article>
             </div>
-            <p v-else class="picker-empty">No matching tape profiles.</p>
+            <p v-else class="picker-empty">{{ $t('tapeProfilePicker.noMatchingTapeProfiles') }}</p>
           </MotionSurface>
         </div>
-        <nav class="picker-pagination" aria-label="Tape profile pages">
+        <nav class="picker-pagination" :aria-label="$t('common.tapeProfilePages')">
           <button type="button" class="secondary" :disabled="page === 0" @click="page--">
-            Previous
+            {{ $t('common.previous') }}
           </button>
-          <span>Page {{ page + 1 }} of {{ pages }}</span>
+          <span>{{ $t('common.page') }} {{ page + 1 }} {{ $t('common.of') }} {{ pages }}</span>
           <button type="button" class="secondary" :disabled="page + 1 >= pages" @click="page++">
-            Next
+            {{ $t('common.next') }}
           </button>
         </nav>
       </div>

@@ -38,7 +38,8 @@ test('queue process names stay visible while details and previews remain collaps
     previews.push(path)
     if (path.includes(other.id) && failOther) {
       failOther = false
-      await route.fulfill({ status: 503, body: 'Unavailable' })
+      // A rendering error needs manual retry; 503 is retried automatically.
+      await route.fulfill({ status: 500, body: 'Unavailable' })
     } else await route.continue()
   })
   await page.goto('/#/queue')

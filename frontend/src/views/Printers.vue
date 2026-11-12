@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { freezeLeavingItem } from '../collectionMotion'
-import { vValidateForm } from '../formValidation'
-import { useAuthStore } from '../auth'
+import { freezeLeavingItem } from '../shared/collectionMotion'
+import { vValidateForm } from '../shared/formValidation'
+import { useAuthStore } from '../auth/auth'
 import { computed, reactive, ref } from 'vue'
-import { api } from '../api'
-import { requestPrinting } from '../printing'
-import { useWorkspaceStore, metres } from '../workspace'
+import { api } from '../shared/api'
+import { requestPrinting } from '../printing/printing'
+import { useWorkspaceStore, metres } from '../shared/workspace'
 import PropertySection from '../components/PropertySection.vue'
 import AdminDialog from '../components/AdminDialog.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
-import { installCartridge } from '../cartridges'
-import { confirmAction } from '../confirmation'
-import type { Destination, Printer } from '../types'
+import { installCartridge } from '../printing/cartridges'
+import { confirmAction } from '../shared/confirmation'
+import type { Destination, Printer } from '../shared/types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const showPrinter = ref(false),
@@ -217,37 +217,44 @@ function move(index: number, offset: number) {
   <div class="section-heading">
     <div class="row wrap">
       <button v-if="auth.can('printers.manage')" class="secondary" @click="editPrinter()">
-        Add printer</button
+        {{ $t('common.addPrinter') }}</button
       ><button v-if="auth.can('printers.manage')" class="primary" @click="editGroup()">
-        Create group
+        {{ $t('printers.createGroup') }}
       </button>
     </div>
   </div>
   <Transition name="panel-expand">
     <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
-      <h2>{{ editingPrinter ? 'Edit printer' : 'Add printer' }}</h2>
+      <h2>{{ editingPrinter ? 'Edit printer' : $t('common.addPrinter') }}</h2>
       <label v-if="!editingPrinter" class="checkbox"
-        ><input v-model="ownPrinter" type="checkbox" />Own this printer</label
+        ><input v-model="ownPrinter" type="checkbox" />{{ $t('printers.ownThisPrinter') }}</label
       >
       <div class="field-row">
-        <label>Printer name<input v-model="printer.name" required maxlength="100" /></label>
         <label
-          >Driver<select v-model="printer.driver">
-            <option value="brother-pt-p710bt">Brother PT-P710BT (USB)</option>
+          >{{ $t('printers.printerName') }}<input v-model="printer.name" required maxlength="100"
+        /></label>
+        <label
+          >{{ $t('printers.driver')
+          }}<select v-model="printer.driver">
+            <option value="brother-pt-p710bt">{{ $t('printers.brotherPtP710btUsb') }}</option>
           </select></label
         >
-        <label>USB serial number<input v-model="printer.usb_serial" maxlength="128" /></label>
         <label
-          >Default print resolution<select v-model="printer.resolution">
-            <option value="normal">180 × 180 dpi</option>
-            <option value="high">180 × 360 dpi</option>
+          >{{ $t('common.usbSerialNumber') }}<input v-model="printer.usb_serial" maxlength="128"
+        /></label>
+        <label
+          >{{ $t('printers.defaultPrintResolution')
+          }}<select v-model="printer.resolution">
+            <option value="normal">{{ $t('printers.180180Dpi') }}</option>
+            <option value="high">{{ $t('printers.180360Dpi') }}</option>
           </select></label
         >
       </div>
-      <PropertySection title="Feed & cut settings">
+      <PropertySection :title="$t('printers.feedCutSettings')">
         <div class="field-row">
           <label
-            >Feed (mm)<input
+            >{{ $t('common.feedMm')
+            }}<input
               v-model.number="printer.feed_mm"
               type="number"
               min="2"
@@ -256,7 +263,8 @@ function move(index: number, offset: number) {
               required
           /></label>
           <label
-            >Leader estimate (mm)<input
+            >{{ $t('printers.leaderEstimateMm')
+            }}<input
               v-model.number="printer.leader_mm"
               type="number"
               min="0"
@@ -265,7 +273,8 @@ function move(index: number, offset: number) {
               required
           /></label>
           <label
-            >Page timeout (seconds)<input
+            >{{ $t('printers.pageTimeoutSeconds')
+            }}<input
               v-model.number="printer.timeout_seconds"
               type="number"
               min="5"
@@ -274,21 +283,26 @@ function move(index: number, offset: number) {
           /></label>
         </div>
         <label class="checkbox"
-          ><input v-model="printer.cut_each" type="checkbox" />Cut each label</label
+          ><input v-model="printer.cut_each" type="checkbox" />{{
+            $t('common.cutEachLabel')
+          }}</label
         >
       </PropertySection>
 
       <label class="checkbox"
-        ><input v-model="printer.no_automatic_printing" type="checkbox" />No automatic
-        printing</label
+        ><input v-model="printer.no_automatic_printing" type="checkbox" />{{
+          $t('common.noAutomaticPrinting')
+        }}</label
       >
       <p class="help">
-        USB serial is optional for one printer. Multiple printers each need a distinct serial.
+        {{ $t('common.usbSerialIsOptionalForOnePrinterMultiplePrinters') }}
       </p>
       <div class="row">
         <button class="primary" :disabled="w.busy">
           {{ editingPrinter ? 'Save printer' : 'Register printer' }}</button
-        ><button type="button" class="secondary" @click="showPrinter = false">Cancel</button>
+        ><button type="button" class="secondary" @click="showPrinter = false">
+          {{ $t('common.cancel') }}
+        </button>
       </div>
     </form>
   </Transition>
@@ -308,14 +322,17 @@ function move(index: number, offset: number) {
     <section v-for="device in w.printers" :key="device.id" class="panel form-stack printer-device">
       <div class="section-heading">
         <h2>{{ device.name }}</h2>
-        <span v-if="device.no_automatic_printing" class="muted">Manual only</span>
-        <span v-if="device.owner_id === null" class="badge">No owner</span>
+        <span v-if="device.no_automatic_printing" class="muted">{{
+          $t('printers.manualOnly')
+        }}</span>
+        <span v-if="device.owner_id === null" class="badge">{{ $t('common.noOwner') }}</span>
         <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
           state(device.id)?.connected ? 'Connected' : 'Disconnected'
         }}</span>
       </div>
       <p v-if="device.configuration_error" class="alert warning">
-        Configuration error: {{ device.configuration_error }}. Edit this printer to repair it.
+        {{ $t('printers.configurationError') }} {{ device.configuration_error
+        }}{{ $t('printers.editThisPrinterToRepairIt') }}
       </p>
       <p
         v-if="
@@ -328,16 +345,19 @@ function move(index: number, offset: number) {
         {{ state(device.id)?.printer_error }}
       </p>
       <CartridgeDetection :status="state(device.id)" />
-      <p class="muted">Brother PT-P710BT · USB</p>
+      <p class="muted">{{ $t('printers.brotherPtP710btUsb2') }}</p>
       <p class="help">
-        {{ device.capabilities?.dpi_y }} × {{ device.capabilities?.dpi_x }} dpi · Detected tape:
+        {{ device.capabilities?.dpi_y }} × {{ device.capabilities?.dpi_x }}
+        {{ $t('common.dpiDetectedTape') }}
         {{
           state(device.id)?.detected_width_mm
             ? `${state(device.id)?.detected_width_mm} mm`
             : 'Unknown'
         }}
       </p>
-      <button class="text-button" @click="detailsPrinter = device.id">Detected details</button>
+      <button class="text-button" @click="detailsPrinter = device.id">
+        {{ $t('printers.detectedDetails') }}
+      </button>
       <label v-if="auth.printer(device.id, 'configure')" class="checkbox">
         <input
           type="checkbox"
@@ -347,10 +367,11 @@ function move(index: number, offset: number) {
           "
           @change="setCartridgeCheck(device.id, $event)"
         />
-        Confirm cartridge after opening
+        {{ $t('printers.confirmCartridgeAfterOpening') }}
       </label>
       <label
-        >Installed cartridge<select
+        >{{ $t('printers.installedCartridge')
+        }}<select
           :value="state(device.id)?.active_cartridge_id ?? ''"
           :disabled="
             !auth.printer(device.id, 'swap_cartridges') ||
@@ -361,7 +382,7 @@ function move(index: number, offset: number) {
           "
           @change="install(device.id, $event)"
         >
-          <option value="">No cartridge installed</option>
+          <option value="">{{ $t('common.noCartridgeInstalled') }}</option>
           <option v-for="item in availableCartridges(device.id)" :key="item.id" :value="item.id">
             {{ item.name }} · {{ w.profileName(item.profile_id) }}
           </option>
@@ -369,18 +390,18 @@ function move(index: number, offset: number) {
       >
       <p v-if="cartridge(device.id)" class="help">
         {{ w.profileName(cartridge(device.id)!.profile_id) }} · ≈
-        {{ metres(cartridge(device.id)!.remaining_mm) }} remaining
+        {{ metres(cartridge(device.id)!.remaining_mm) }} {{ $t('common.remaining') }}
       </p>
-      <p v-if="state(device.id)?.printing">Printing…</p>
+      <p v-if="state(device.id)?.printing">{{ $t('printers.printing') }}</p>
       <div v-if="state(device.id)?.pending_flush" class="row wrap">
-        <span>A manual flush is waiting. Finish or cancel it before changing cartridges.</span>
+        <span>{{ $t('printers.aManualFlushIsWaitingFinishOrCancelIt') }}</span>
         <button
           v-if="auth.printer(device.id, 'manage_queue')"
           class="secondary"
           :disabled="w.busy"
           @click="cancelFlush(device.id)"
         >
-          Cancel pending flush
+          {{ $t('printers.cancelPendingFlush') }}
         </button>
       </div>
       <RouterLink
@@ -390,7 +411,7 @@ function move(index: number, offset: number) {
         :key="batch"
         class="button secondary"
         :to="`/batches/${batch}`"
-        >Review interrupted batch</RouterLink
+        >{{ $t('common.reviewInterruptedBatch') }}</RouterLink
       >
       <div class="row wrap">
         <button
@@ -401,7 +422,7 @@ function move(index: number, offset: number) {
           "
           @click="clearBlock(device.id)"
         >
-          Clear block
+          {{ $t('common.clearBlock') }}
         </button>
         <button
           v-if="!device.no_automatic_printing && auth.printer(device.id, 'hold_resume')"
@@ -421,7 +442,7 @@ function move(index: number, offset: number) {
           :disabled="w.busy"
           @click="editPrinter(device)"
         >
-          Configure
+          {{ $t('common.configure') }}
         </button>
         <button
           v-if="auth.user?.is_admin && device.connection_kind === 'main'"
@@ -429,7 +450,7 @@ function move(index: number, offset: number) {
           :disabled="w.busy"
           @click="openMove(device)"
         >
-          Move to companion
+          {{ $t('printers.moveToCompanion') }}
         </button>
         <button
           v-if="auth.printer(device.id, 'configure')"
@@ -437,14 +458,14 @@ function move(index: number, offset: number) {
           :disabled="w.busy"
           @click="retirePrinter(device)"
         >
-          Retire printer
+          {{ $t('printers.retirePrinter') }}
         </button>
       </div>
     </section>
   </TransitionGroup>
   <AdminDialog
     :open="!!movingPrinter"
-    title="Move printer to companion"
+    :title="$t('printers.movePrinterToCompanion')"
     :busy="w.busy"
     @close="movingPrinter = ''"
   >
@@ -453,36 +474,36 @@ function move(index: number, offset: number) {
         ><p class="alert danger" role="alert">{{ moveError }}</p></ExpandableContent
       >
       <label
-        >Companion printer
+        >{{ $t('printers.companionPrinter') }}
         <select v-model="moveTarget" required>
-          <option disabled value="">Select the new connection</option>
+          <option disabled value="">{{ $t('common.selectTheNewConnection') }}</option>
           <option v-for="device in moveChoices" :key="device.id" :value="device.id">
             {{ device.companion?.name }} · {{ device.name }}
           </option>
         </select>
       </label>
       <p v-if="!moveChoices.length" role="status">
-        Add the printer in the companion’s web interface first.
+        {{ $t('printers.addThePrinterInTheCompanionSWebInterface') }}
       </p>
       <p>
-        The original printer keeps its history, permissions, owner and queued work. The selected
-        duplicate registration will be retired. Printing stays on hold for a cartridge check.
+        {{ $t('common.theOriginalPrinterKeepsItsHistoryPermissionsOwnerAnd') }}
       </p>
       <p>
-        The printer inherits the companion’s location and its location-based permissions. Restart
-        companions running 0.13.0-pre1 after moving.
+        {{ $t('common.thePrinterInheritsTheCompanionSLocationAndIts') }}
       </p>
       <div class="row wrap">
-        <button class="primary" :disabled="w.busy || !moveTarget">Move printer</button>
+        <button class="primary" :disabled="w.busy || !moveTarget">
+          {{ $t('printers.movePrinter') }}
+        </button>
         <button type="button" class="secondary" :disabled="w.busy" @click="movingPrinter = ''">
-          Cancel
+          {{ $t('common.cancel') }}
         </button>
       </div>
     </form>
   </AdminDialog>
   <AdminDialog
     :open="!!detailsDevice"
-    :title="`${detailsDevice?.name ?? 'Printer'} · Detected details`"
+    :title="`${detailsDevice?.name ?? $t('common.printer')} · Detected details`"
     @close="detailsPrinter = ''"
   >
     <p role="status">{{ state(detailsPrinter)?.connected ? 'Connected' : 'Disconnected' }}</p>
@@ -495,14 +516,16 @@ function move(index: number, offset: number) {
         <dd>{{ value }}</dd>
       </template>
     </dl>
-    <p v-else class="muted">No detection details available.</p>
+    <p v-else class="muted">{{ $t('printers.noDetectionDetailsAvailable') }}</p>
   </AdminDialog>
   <Transition name="panel-expand">
     <form v-validate-form v-if="showGroup" class="panel form-stack" @submit.prevent="saveGroup">
-      <h2>{{ editing ? 'Edit group' : 'Create group' }}</h2>
-      <label>Group name<input v-model="group.name" required maxlength="100" /></label>
+      <h2>{{ editing ? $t('printers.editGroup') : $t('printers.createGroup') }}</h2>
+      <label
+        >{{ $t('common.groupName') }}<input v-model="group.name" required maxlength="100"
+      /></label>
       <fieldset>
-        <legend>Member printers</legend>
+        <legend>{{ $t('printers.memberPrinters') }}</legend>
         <label v-for="device in groupChoices" :key="device.id" class="checkbox"
           ><input v-model="group.printer_ids" type="checkbox" :value="device.id" />{{
             device.name
@@ -532,17 +555,19 @@ function move(index: number, offset: number) {
         </li>
       </ol>
       <p class="help">
-        The first ready member with matching tape is used. Members need matching geometry and
-        resolution. CSV runs stay on one printer.
+        {{ $t('common.theFirstReadyMemberWithMatchingTapeIsUsed') }}
       </p>
       <div class="row">
-        <button class="primary" :disabled="w.busy || !group.printer_ids.length">Save group</button
-        ><button type="button" class="secondary" @click="showGroup = false">Cancel</button>
+        <button class="primary" :disabled="w.busy || !group.printer_ids.length">
+          {{ $t('common.saveGroup') }}</button
+        ><button type="button" class="secondary" @click="showGroup = false">
+          {{ $t('common.cancel') }}
+        </button>
       </div>
     </form>
   </Transition>
   <section v-if="groups.length" class="panel form-stack">
-    <h2>Printer groups</h2>
+    <h2>{{ $t('printers.printerGroups') }}</h2>
     <article v-for="target in groups" :key="target.id" class="printer-group">
       <div class="section-heading">
         <h3>{{ target.name }}</h3>
@@ -551,7 +576,7 @@ function move(index: number, offset: number) {
           class="small secondary"
           @click="editGroup(target)"
         >
-          Edit group
+          {{ $t('printers.editGroup') }}
         </button>
       </div>
       <p>
@@ -562,27 +587,26 @@ function move(index: number, offset: number) {
         }}
       </p>
       <p class="help">
-        Labels wait for a member with the matching tape profile. Tape colors use your
-        installed-cartridge selection; the printer verifies the width.
+        {{ $t('printers.labelsWaitForAMemberWithTheMatchingTape') }}
       </p>
       <div class="row wrap">
         <RouterLink
           v-if="auth.printer(target.id, 'view')"
           class="button primary"
           :to="`/new?destination=${target.id}`"
-          >Print a label</RouterLink
+          >{{ $t('printers.printALabel') }}</RouterLink
         ><RouterLink
           v-if="auth.printer(target.id, 'view')"
           class="button secondary"
           :to="`/runs?destination=${target.id}`"
-          >Use with CSV</RouterLink
+          >{{ $t('common.useWithCsv') }}</RouterLink
         ><button
           v-if="auth.printer(target.id, 'start_any')"
           class="secondary"
           :disabled="w.busy"
           @click="print(target.id)"
         >
-          Print matching queue</button
+          {{ $t('printers.printMatchingQueue') }}</button
         ><button
           v-if="!target.no_automatic_printing && auth.printer(target.id, 'hold_resume')"
           class="secondary"
@@ -595,7 +619,7 @@ function move(index: number, offset: number) {
     </article>
   </section>
   <section class="panel">
-    <h2>Notifications</h2>
+    <h2>{{ $t('common.notifications') }}</h2>
     <p>
       {{
         w.overview.notifications_enabled
@@ -603,10 +627,10 @@ function move(index: number, offset: number) {
           : 'ntfy delivery is not configured.'
       }}
     </p>
-    <p class="help">Notification endpoints are configured in Administration.</p>
-    <RouterLink v-if="auth.can('inventory.manage')" class="button secondary" to="/profiles"
-      >Manage tape reminders</RouterLink
-    >
+    <p class="help">{{ $t('printers.notificationEndpointsAreConfiguredInAdministration') }}</p>
+    <RouterLink v-if="auth.can('inventory.manage')" class="button secondary" to="/profiles">{{
+      $t('printers.manageTapeReminders')
+    }}</RouterLink>
   </section>
 </template>
 <style scoped>

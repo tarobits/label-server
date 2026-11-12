@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { locale } from '../shared/i18n'
+
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useLiveRefresh } from '../live'
-import { date, metres } from '../workspace'
-import type { UsageAdjustment, UsageUser } from '../types'
-import type { PairBalance } from '../resourceAccess'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useLiveRefresh } from '../shared/live'
+import { date, metres } from '../shared/workspace'
+import type { UsageAdjustment, UsageUser } from '../shared/types'
+import type { PairBalance } from '../shared/resourceAccess'
 import AccountAdjustment from './AccountAdjustment.vue'
 import AnimatedDetails from './AnimatedDetails.vue'
 import AdminDialog from './AdminDialog.vue'
@@ -105,7 +107,7 @@ watch(
 )
 useLiveRefresh(refresh)
 const money = (value: string, currency: string) =>
-  new Intl.NumberFormat(undefined, {
+  new Intl.NumberFormat(locale.value, {
     style: 'currency',
     currency,
     maximumFractionDigits: 6,
@@ -120,9 +122,9 @@ const money = (value: string, currency: string) =>
         <table>
           <thead>
             <tr>
-              <th>Payer</th>
-              <th>Recipient</th>
-              <th>Owed</th>
+              <th>{{ $t('common.payer') }}</th>
+              <th>{{ $t('common.recipient') }}</th>
+              <th>{{ $t('common.owed') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -146,7 +148,7 @@ const money = (value: string, currency: string) =>
                   }"
                   >{{ balance.requester_name }}</RouterLink
                 ><template v-else>{{ balance.requester_name }}</template>
-                <small v-if="balance.group_account_id">Group account</small>
+                <small v-if="balance.group_account_id">{{ $t('common.groupAccount') }}</small>
               </td>
               <td>
                 <RouterLink
@@ -163,22 +165,22 @@ const money = (value: string, currency: string) =>
           </tbody>
         </table>
       </div>
-      <p v-if="!displayedBalances.length && !error">No debts.</p>
+      <p v-if="!displayedBalances.length && !error">{{ $t('pairAccounts.noDebts') }}</p>
     </section>
     <section v-show="section === 'cartridges'" class="cartridge-balances">
-      <h2>Debts by cartridge</h2>
+      <h2>{{ $t('pairAccounts.debtsByCartridge') }}</h2>
       <p v-if="!displayedCartridges.length && !unallocated.length && !error" class="empty">
-        No cartridge debts.
+        {{ $t('pairAccounts.noCartridgeDebts') }}
       </p>
       <template v-else>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Payer</th>
-                <th>Recipient</th>
-                <th>Cartridge</th>
-                <th>Owed</th>
+                <th>{{ $t('common.payer') }}</th>
+                <th>{{ $t('common.recipient') }}</th>
+                <th>{{ $t('common.cartridge') }}</th>
+                <th>{{ $t('common.owed') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -196,7 +198,7 @@ const money = (value: string, currency: string) =>
                     >{{ balance.requester_name }}</RouterLink
                   >
                   <template v-else>{{ balance.requester_name }}</template>
-                  <small v-if="balance.group_account_id">Group account</small>
+                  <small v-if="balance.group_account_id">{{ $t('common.groupAccount') }}</small>
                 </td>
                 <td>{{ balance.recipient_name ?? balance.cartridge_name }}</td>
                 <td>{{ balance.cartridge_name }}</td>
@@ -209,7 +211,8 @@ const money = (value: string, currency: string) =>
                 <td>{{ balance.requester_name }}</td>
                 <td>{{ balance.recipient_name }}</td>
                 <td>
-                  Unallocated {{ Number(balance.unallocated_owed) < 0 ? 'credit' : 'adjustment' }}
+                  {{ $t('common.unallocated') }}
+                  {{ Number(balance.unallocated_owed) < 0 ? 'credit' : 'adjustment' }}
                 </td>
                 <td>{{ money(balance.unallocated_owed!, balance.currency) }}</td>
               </tr>
@@ -220,10 +223,14 @@ const money = (value: string, currency: string) =>
     </section>
     <section v-show="section === 'payments'">
       <header class="account-section-heading">
-        <h2>Repayments & corrections</h2>
-        <button class="primary" @click="openAdjustment">Record repayment or correction</button>
+        <h2>{{ $t('pairAccounts.repaymentsCorrections') }}</h2>
+        <button class="primary" @click="openAdjustment">
+          {{ $t('pairAccounts.recordRepaymentOrCorrection') }}
+        </button>
       </header>
-      <p v-if="!adjustments.length && !error" class="empty">No repayments or corrections.</p>
+      <p v-if="!adjustments.length && !error" class="empty">
+        {{ $t('pairAccounts.noRepaymentsOrCorrections') }}
+      </p>
       <article
         v-for="adjustment in adjustments"
         :key="adjustment.id"
@@ -240,8 +247,8 @@ const money = (value: string, currency: string) =>
       </article>
     </section>
     <section v-show="section === 'charges'">
-      <h2>Charges & receivables</h2>
-      <p v-if="!charges.length && !error" class="empty">No charges yet.</p>
+      <h2>{{ $t('pairAccounts.chargesReceivables') }}</h2>
+      <p v-if="!charges.length && !error" class="empty">{{ $t('common.noChargesYet') }}</p>
       <AnimatedDetails
         v-for="charge in charges"
         :key="`${charge.batch_id}:${charge.requester_id}`"
@@ -251,11 +258,13 @@ const money = (value: string, currency: string) =>
           {{ date(charge.created_at) }}</template
         >
         <dl>
-          <dt>{{ charge.recipient_assigned_at ? 'Assigned recipient' : 'Recipient' }}</dt>
+          <dt>
+            {{ charge.recipient_assigned_at ? 'Assigned recipient' : $t('common.recipient') }}
+          </dt>
           <dd>{{ charge.recipient_name ?? charge.cartridge_name }}</dd>
-          <dt>Tape used</dt>
+          <dt>{{ $t('common.tapeUsed') }}</dt>
           <dd>{{ charge.consumed_mm === null ? 'Pending' : metres(charge.consumed_mm) }}</dd>
-          <dt>Actual cost</dt>
+          <dt>{{ $t('pairAccounts.actualCost') }}</dt>
           <dd>
             {{
               charge.actual_cost === null
@@ -263,7 +272,7 @@ const money = (value: string, currency: string) =>
                 : money(charge.actual_cost, charge.currency)
             }}
           </dd>
-          <dt>Charged</dt>
+          <dt>{{ $t('common.charged') }}</dt>
           <dd>
             {{
               charge.own_cartridge
@@ -278,7 +287,7 @@ const money = (value: string, currency: string) =>
     </section>
     <AdminDialog
       :open="editing"
-      title="Record repayment or correction"
+      :title="$t('pairAccounts.recordRepaymentOrCorrection')"
       :busy="saving"
       @close="editing = false"
     >

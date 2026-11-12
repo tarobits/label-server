@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { api } from './api'
+import { api } from '../shared/api'
 import { useAuthStore } from './auth'
 
 export const useAvatarStore = defineStore('avatar', () => {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useAvatarStore } from '../avatar'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useAvatarStore } from '../auth/avatar'
 import UserAvatar from './UserAvatar.vue'
 const auth = useAuthStore()
 const avatar = useAvatarStore()
@@ -71,16 +71,17 @@ async function remove() {
 
 <template>
   <div class="form-stack">
-    <h2>Profile picture</h2>
+    <h2>{{ $t('common.profilePicture') }}</h2>
     <UserAvatar :username="auth.user?.username ?? ''" :src="avatar.src" />
     <label
-      >Choose image<input
+      >{{ $t('accountPicture.chooseImage')
+      }}<input
         type="file"
         accept="image/png,image/jpeg,image/webp"
         :disabled="busy"
         @change="upload"
     /></label>
-    <p class="help">Visible to people using companions you can access.</p>
+    <p class="help">{{ $t('common.visibleToPeopleUsingCompanionsYouCanAccess') }}</p>
     <Transition name="notice"
       ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
     >
@@ -95,7 +96,7 @@ async function remove() {
         :disabled="busy"
         @click="remove"
       >
-        Remove picture
+        {{ $t('accountPicture.removePicture') }}
       </button></Transition
     >
   </div>

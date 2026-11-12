@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { confirmAction } from '../confirmation'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { confirmAction } from '../shared/confirmation'
+import { useWorkspaceStore } from '../shared/workspace'
 import AdminDialog from './AdminDialog.vue'
 import MotionSurface from './MotionSurface.vue'
 import ExpandableContent from './ExpandableContent.vue'
@@ -16,7 +16,7 @@ import {
   priorityOptions,
   type PrinterKinds,
   type PrinterPriorities,
-} from '../notificationPreferences'
+} from '../notifications/notificationPreferences'
 import {
   useAdministrationStore,
   type NotificationEndpoint as Endpoint,
@@ -223,17 +223,21 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     <p v-if="success" class="alert success" role="status">{{ success }}</p>
     <header class="admin-section-heading">
       <h2>
-        Notification endpoints <span>{{ endpoints.length }}</span>
+        {{ $t('notificationEndpoints.notificationEndpoints') }} <span>{{ endpoints.length }}</span>
       </h2>
-      <button class="secondary" :disabled="busy" @click="edit()">Add notification endpoint</button>
+      <button class="secondary" :disabled="busy" @click="edit()">
+        {{ $t('notificationEndpoints.addNotificationEndpoint') }}
+      </button>
     </header>
     <label v-if="endpoints.length" class="admin-search"
-      >Search notification endpoints<input v-model="search" type="search"
+      >{{ $t('common.searchNotificationEndpoints') }}<input v-model="search" type="search"
     /></label>
     <p v-if="endpoints.length && !filteredEndpoints.length" class="empty compact">
-      No notification endpoints found.
+      {{ $t('notificationEndpoints.noNotificationEndpointsFound') }}
     </p>
-    <p v-if="!endpoints.length" class="empty compact">No notification endpoints configured.</p>
+    <p v-if="!endpoints.length" class="empty compact">
+      {{ $t('notificationEndpoints.noNotificationEndpointsConfigured') }}
+    </p>
     <article v-for="endpoint in filteredEndpoints" :key="endpoint.id" class="endpoint-row">
       <div class="grow">
         <strong>{{ endpoint.name }}</strong>
@@ -246,7 +250,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </template>
           {{
             endpoint.all_printers
-              ? 'All current and future printers'
+              ? $t('notificationEndpoints.allCurrentAndFuturePrinters')
               : endpoint.destination_ids.length
                 ? endpoint.destination_ids.map(w.destinationName).join(', ')
                 : 'No printers or groups selected'
@@ -254,7 +258,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         >
       </div>
       <span class="badge" :class="endpoint.enabled ? 'printed' : 'cancelled'">{{
-        endpoint.enabled ? 'Enabled' : 'Disabled'
+        endpoint.enabled ? 'Enabled' : $t('administration.disabled')
       }}</span>
       <div class="row wrap">
         <button
@@ -263,7 +267,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           :aria-label="`Edit endpoint ${endpoint.name}`"
           @click="edit(endpoint)"
         >
-          Edit
+          {{ $t('common.edit') }}
         </button>
       </div>
     </article>
@@ -276,37 +280,41 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     >
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <form v-validate-form class="form-stack" @submit.prevent="save">
-        <label>Endpoint name<input v-model="form.name" required maxlength="100" /></label>
         <label
-          >Delivery method<select v-model="form.transport">
-            <option value="ntfy">ntfy</option>
-            <option value="email">Email</option>
+          >{{ $t('notificationEndpoints.endpointName')
+          }}<input v-model="form.name" required maxlength="100"
+        /></label>
+        <label
+          >{{ $t('notificationEndpoints.deliveryMethod')
+          }}<select v-model="form.transport">
+            <option value="ntfy">{{ $t('common.ntfy') }}</option>
+            <option value="email">{{ $t('notificationEndpoints.email') }}</option>
           </select></label
         >
         <MotionSurface :identity="form.transport" class="form-stack">
           <label v-if="form.transport === 'email'"
-            >Recipient email<input v-model="form.email" type="email" required maxlength="254"
+            >{{ $t('notificationEndpoints.recipientEmail')
+            }}<input v-model="form.email" type="email" required maxlength="254"
           /></label>
           <template v-else>
             <div class="field-row">
               <label
-                >ntfy server URL<input
+                >{{ $t('common.ntfyServerUrl')
+                }}<input
                   v-model="form.url"
                   type="url"
                   required
                   maxlength="2048"
-                  placeholder="https://ntfy.example.com"
+                  :placeholder="$t('common.httpsNtfyExampleCom')"
               /></label>
               <label
-                >ntfy topic<input
-                  v-model="form.topic"
-                  required
-                  maxlength="64"
-                  pattern="[-_A-Za-z0-9]+"
+                >{{ $t('common.ntfyTopic')
+                }}<input v-model="form.topic" required maxlength="64" pattern="[-_A-Za-z0-9]+"
               /></label>
             </div>
             <label
-              >Access token<input
+              >{{ $t('notificationEndpoints.accessToken')
+              }}<input
                 v-model="form.token"
                 type="password"
                 autocomplete="new-password"
@@ -318,17 +326,23 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               }}</span></label
             >
             <label v-if="editing?.has_token" class="checkbox"
-              ><input v-model="form.clear_token" type="checkbox" />Clear stored token</label
+              ><input v-model="form.clear_token" type="checkbox" />{{
+                $t('notificationEndpoints.clearStoredToken')
+              }}</label
             >
           </template>
         </MotionSurface>
         <label class="checkbox"
-          ><input v-model="form.enabled" type="checkbox" />Enable this endpoint</label
+          ><input v-model="form.enabled" type="checkbox" />{{
+            $t('notificationEndpoints.enableThisEndpoint')
+          }}</label
         >
         <fieldset class="choice-list">
-          <legend>Print destinations</legend>
+          <legend>{{ $t('common.printDestinations') }}</legend>
           <label class="checkbox">
-            <input v-model="form.all_printers" type="checkbox" />All current and future printers
+            <input v-model="form.all_printers" type="checkbox" />{{
+              $t('notificationEndpoints.allCurrentAndFuturePrinters')
+            }}
           </label>
           <div class="row wrap">
             <button
@@ -337,7 +351,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               :disabled="busy || !currentPrinters.length"
               @click="selectAll"
             >
-              Select all
+              {{ $t('common.selectAll') }}
             </button>
             <button
               type="button"
@@ -345,7 +359,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               :disabled="busy || !hasPrinterScope"
               @click="clearSelection"
             >
-              Clear selection
+              {{ $t('notificationEndpoints.clearSelection') }}
             </button>
           </div>
           <div class="choice-grid">
@@ -370,19 +384,18 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 type="checkbox"
                 :value="id"
                 :aria-label="`Remove unavailable destination ${id}`"
-              />Unavailable destination ({{ id }})</label
+              />{{ $t('common.unavailableDestination') }}{{ id }})</label
             >
           </div>
         </fieldset>
         <p v-if="unavailableDestinations.length" class="help">
-          Unselect unavailable destinations before saving.
+          {{ $t('common.unselectUnavailableDestinationsBeforeSaving') }}
         </p>
         <p class="help">
-          Select all chooses only current physical printers. Select groups individually to include
-          their member printers’ operational alerts as membership changes.
+          {{ $t('common.selectAllChoosesOnlyCurrentPhysicalPrintersSelectGroups') }}
         </p>
         <fieldset class="notification-event-grid">
-          <legend>Default event types</legend>
+          <legend>{{ $t('common.defaultEventTypes') }}</legend>
           <div
             v-for="kind in eventKinds"
             :key="kind.value"
@@ -399,7 +412,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             </label>
             <ExpandableContent :open="form.transport === 'ntfy'">
               <label class="event-priority"
-                >Priority
+                >{{ $t('common.priority') }}
                 <select
                   v-model.number="form.priorities[kind.value]"
                   :aria-label="`Priority for ${kind.label}`"
@@ -427,10 +440,9 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           :disabled="busy"
         />
         <p v-if="!hasPrinterScope" class="help">
-          Select a printer, group or all printers to enable cartridge, printer, batch and tape
-          alerts. General alerts and pending print requests can be sent without a printer selection.
+          {{ $t('common.selectAPrinterGroupOrAllPrintersToEnable') }}
         </p>
-        <p v-if="!hasEvents" class="help">Select at least one event type.</p>
+        <p v-if="!hasEvents" class="help">{{ $t('common.selectAtLeastOneEventType') }}</p>
         <div class="admin-actions">
           <button
             v-if="editing"
@@ -440,15 +452,15 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             :aria-label="`Delete endpoint ${editing.name}`"
             @click="remove(editing)"
           >
-            Delete endpoint
+            {{ $t('notificationEndpoints.deleteEndpoint') }}
           </button>
           <button
             class="primary"
             :disabled="busy || !hasEvents || !!unavailableDestinations.length"
           >
-            Save notification endpoint
+            {{ $t('common.saveNotificationEndpoint') }}
           </button>
-          <button type="button" :disabled="busy" @click="cancel">Cancel</button>
+          <button type="button" :disabled="busy" @click="cancel">{{ $t('common.cancel') }}</button>
         </div>
       </form>
     </AdminDialog>

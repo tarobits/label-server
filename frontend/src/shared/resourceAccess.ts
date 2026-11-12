@@ -1,4 +1,4 @@
-import { printerPermissionLabel } from './printerPermissions'
+import { printerPermissionLabel } from '../printing/printerPermissions'
 export type ResourceKind = 'printer' | 'cartridge' | 'location'
 export interface Grant {
   principal_kind: 'user' | 'role'

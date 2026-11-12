@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { PrintAttribution } from '../types'
-import { date } from '../workspace'
+import type { PrintAttribution } from '../shared/types'
+import { date } from '../shared/workspace'
 defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
 </script>
 
@@ -39,14 +39,16 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
       </dt>
       <dd>{{ attribution?.authorization.actor?.name ?? 'Not recorded' }}</dd>
       <dd class="attribution-detail">
-        <template v-if="attribution?.authorization.kind === 'direct'">Direct printing</template>
-        <template v-else-if="attribution?.authorization.kind === 'approval'"
-          >Request approved</template
-        >
-        <template v-else-if="attribution?.authorization.kind === 'override'"
-          >Administrator override</template
-        >
-        <template v-else>Authorization not recorded</template>
+        <template v-if="attribution?.authorization.kind === 'direct'">{{
+          $t('printAttribution.directPrinting')
+        }}</template>
+        <template v-else-if="attribution?.authorization.kind === 'approval'">{{
+          $t('printAttribution.requestApproved')
+        }}</template>
+        <template v-else-if="attribution?.authorization.kind === 'override'">{{
+          $t('printAttribution.administratorOverride')
+        }}</template>
+        <template v-else>{{ $t('printAttribution.authorizationNotRecorded') }}</template>
         <span v-if="attribution?.authorization.at != null">
           · {{ date(attribution.authorization.at) }}</span
         >
@@ -57,21 +59,22 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
       :key="change.id"
       class="release-attribution"
     >
-      <dt>Printer changed by</dt>
+      <dt>{{ $t('printAttribution.printerChangedBy') }}</dt>
       <dd>{{ change.actor.name }} · {{ change.source.name }} → {{ change.target.name }}</dd>
       <dd class="attribution-detail">
-        {{ date(change.created_at) }} · {{ change.copy_ids.length }} copies<span
-          v-if="change.previous_assignment"
-        >
-          · Previously assigned to {{ change.previous_assignment.name }}</span
+        {{ date(change.created_at) }} · {{ change.copy_ids.length }} {{ $t('common.copies2')
+        }}<span v-if="change.previous_assignment">
+          {{ $t('common.previouslyAssignedTo') }} {{ change.previous_assignment.name }}</span
         >
       </dd>
       <dd v-if="change.reason" class="attribution-detail">{{ change.reason }}</dd>
     </div>
     <div v-if="attribution?.release" class="release-attribution">
-      <dt>Released by</dt>
+      <dt>{{ $t('printAttribution.releasedBy') }}</dt>
       <dd>{{ attribution.release.actor?.name ?? 'Not recorded' }}</dd>
-      <dd class="attribution-detail">Access hold released · {{ date(attribution.release.at) }}</dd>
+      <dd class="attribution-detail">
+        {{ $t('printAttribution.accessHoldReleased') }} {{ date(attribution.release.at) }}
+      </dd>
     </div>
   </dl>
 </template>

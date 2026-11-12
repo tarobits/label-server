@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { locale } from '../shared/i18n'
+
 import { computed } from 'vue'
-import type { CostEstimate } from '../types'
+import type { CostEstimate } from '../shared/types'
 const props = defineProps<{ estimate?: CostEstimate | null; pending?: boolean }>()
 function amount(value: string, currency: string) {
-  const format = new Intl.NumberFormat(undefined, {
+  const format = new Intl.NumberFormat(locale.value, {
     style: 'currency',
     currency,
     minimumFractionDigits: 2,
@@ -34,16 +36,25 @@ const missing = computed(() => {
 </script>
 <template>
   <Transition name="notice">
-    <div v-if="estimate || pending" class="cost-estimate" role="status" aria-label="Estimated cost">
-      <span v-if="pending" class="muted">Estimating cost…</span>
+    <div
+      v-if="estimate || pending"
+      class="cost-estimate"
+      role="status"
+      :aria-label="$t('costEstimate.estimatedCost')"
+    >
+      <span v-if="pending" class="muted">{{ $t('costEstimate.estimatingCost') }}</span>
       <template v-else-if="prices">
         <span
-          >Approx. cost (one batch): <strong>{{ prices }}</strong></span
+          >{{ $t('costEstimate.approxCostOneBatch') }} <strong>{{ prices }}</strong></span
         >
-        <small v-if="estimate?.incomplete">Some matching cartridges have no price.</small>
-        <small v-if="estimate?.basis === 'inventory'">Based on registered cartridges.</small>
+        <small v-if="estimate?.incomplete">{{
+          $t('common.someMatchingCartridgesHaveNoPrice')
+        }}</small>
+        <small v-if="estimate?.basis === 'inventory'">{{
+          $t('costEstimate.basedOnRegisteredCartridges')
+        }}</small>
       </template>
-      <span v-else class="muted">Cost unavailable · {{ missing }}</span>
+      <span v-else class="muted">{{ $t('costEstimate.costUnavailable') }} {{ missing }}</span>
     </div>
   </Transition>
 </template>

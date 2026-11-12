@@ -1,8 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { api, configureSession, errorMessage } from './api'
-import { clearBrowserPush } from './push'
-import { legacyPrinterPermissions } from './printerPermissions'
+import { api, configureSession, errorMessage } from '../shared/api'
+import { clearBrowserPush } from '../notifications/push'
+import { legacyPrinterPermissions } from '../printing/printerPermissions'
+import {
+  accountLanguage,
+  browserLanguage,
+  validPreference,
+  type LanguagePreference,
+} from '../shared/i18n'
 export type AccessLevel = 'none' | 'request' | 'print' | 'moderator' | 'full'
 export const accessLevels: { value: AccessLevel; label: string }[] = [
   { value: 'none', label: 'No access' },
@@ -22,6 +28,7 @@ export interface Membership extends GroupRights {
 }
 
 export interface User {
+  language?: LanguagePreference
   id: string
   username: string
   is_admin: boolean
@@ -93,8 +100,14 @@ export const useAuthStore = defineStore('auth', () => {
     generation = 0
   let pending: Promise<void> | null = null
   let forced: Promise<void> | null = null
+  function accessSnapshot(value: User | null) {
+    if (!value) return 'null'
+    const { language: _language, ...access } = value
+    return JSON.stringify(access)
+  }
   function accept(value: Session) {
-    const previous = JSON.stringify(session.value?.user ?? null)
+    accountLanguage.value = value.user ? validPreference(value.user.language) : null
+    const previous = accessSnapshot(session.value?.user ?? null)
     const changed = session.value?.user?.id !== value.user?.id
     if (changed) {
       generation++
@@ -105,6 +118,7 @@ export const useAuthStore = defineStore('auth', () => {
     fetchedAt = Date.now()
     configureSession(value.csrf_token, () => {
       if (session.value) session.value = { ...session.value, user: null, csrf_token: null }
+      accountLanguage.value = null
       configureSession(null)
       generation++
       pending = null
@@ -114,7 +128,7 @@ export const useAuthStore = defineStore('auth', () => {
     })
     ready.value = true
     if (changed) window.dispatchEvent(new Event('session-ended'))
-    else if (previous !== JSON.stringify(value.user))
+    else if (previous !== accessSnapshot(value.user))
       window.dispatchEvent(new Event('access-changed'))
   }
   async function refresh(force = false) {
@@ -156,6 +170,19 @@ export const useAuthStore = defineStore('auth', () => {
     window.dispatchEvent(new Event('session-ended'))
     await refresh(true)
   }
+  async function saveLanguage(language: LanguagePreference) {
+    const ticket = generation
+    const identifier = user.value?.id
+    if (!identifier) return false
+    await api('/auth/language', 'PUT', { language, browser_language: browserLanguage.value })
+    if (ticket !== generation || user.value?.id !== identifier || !session.value?.user) return false
+    // A session poll begun before this save must not restore the old preference.
+    generation++
+    pending = null
+    forced = null
+    accept({ ...session.value, user: { ...session.value.user, language } })
+    return true
+  }
   return {
     session,
     user,
@@ -174,5 +201,6 @@ export const useAuthStore = defineStore('auth', () => {
     accept,
     refresh,
     logout,
+    saveLanguage,
   }
 })

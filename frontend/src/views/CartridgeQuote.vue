@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
 import JobPreview from '../components/JobPreview.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 
 interface Offer {
   id: string
@@ -112,16 +112,16 @@ async function act(action: 'accept' | 'decline') {
           </p>
           <template v-if="offer.quote">
             <p>
-              {{ offer.quote.copies }} remaining
-              {{ offer.quote.copies === 1 ? 'copy' : 'copies' }} · Up to {{ offer.quote.maximum }}
+              {{ offer.quote.copies }} {{ $t('common.remaining') }}
+              {{ offer.quote.copies === 1 ? 'copy' : $t('common.copies2') }}
+              {{ $t('common.upTo2') }} {{ offer.quote.maximum }}
               {{ offer.quote.currency }}
             </p>
             <p>
-              This sets a new maximum for the remaining copies, including overhead. Previous charges
-              stay unchanged. The operator must still approve this cartridge’s use.
+              {{ $t('common.thisSetsANewMaximumForTheRemainingCopies') }}
             </p>
             <label
-              >Maximum total ({{ offer.quote.currency }})<input
+              >{{ $t('cartridgeQuote.maximumTotal') }}{{ offer.quote.currency }})<input
                 v-model="maximum"
                 type="number"
                 min="0"
@@ -133,10 +133,10 @@ async function act(action: 'accept' | 'decline') {
           </template>
           <div class="row wrap">
             <button class="primary" :disabled="w.busy || loading || !offer.quote || !valid">
-              Accept price
+              {{ $t('cartridgeQuote.acceptPrice') }}
             </button>
             <button type="button" class="secondary" :disabled="w.busy || loading" @click="load">
-              Refresh quote
+              {{ $t('common.refreshQuote') }}
             </button>
             <button
               type="button"
@@ -144,12 +144,14 @@ async function act(action: 'accept' | 'decline') {
               :disabled="w.busy || loading"
               @click="act('decline')"
             >
-              Decline
+              {{ $t('common.decline') }}
             </button>
           </div>
         </form>
       </ExpandableContent>
     </template>
-    <button v-else-if="error" class="secondary" :disabled="loading" @click="load">Retry</button>
+    <button v-else-if="error" class="secondary" :disabled="loading" @click="load">
+      {{ $t('common.retry') }}
+    </button>
   </section>
 </template>

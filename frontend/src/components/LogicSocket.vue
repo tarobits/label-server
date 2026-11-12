@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SocketType } from '../logicGraph'
+import type { SocketType } from '../templates/logicGraph'
 defineProps<{
   type: SocketType
   label: string

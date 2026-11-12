@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useWorkspaceStore, date, metres } from '../workspace'
-import { api } from '../api'
-import { requestPrinting } from '../printing'
-import { useAuthStore } from '../auth'
-import type { Destination } from '../types'
+import { useWorkspaceStore, date, metres } from '../shared/workspace'
+import { api } from '../shared/api'
+import { requestPrinting } from '../printing/printing'
+import { useAuthStore } from '../auth/auth'
+import type { Destination } from '../shared/types'
 import Badge from '../components/Badge.vue'
 import Icon from '../components/Icon.vue'
 
@@ -73,44 +73,57 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
       {{ auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet' }}
     </h2>
     <p v-if="!auth.can('printers.manage')">
-      Ask your administrator to assign you a role with access to a printer or distribution group.
+      {{ $t('common.askYourAdministratorToAssignYouARoleWith') }}
     </p>
-    <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers"
-      >Set up printers</RouterLink
-    >
+    <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers">{{
+      $t('common.setUpPrinters')
+    }}</RouterLink>
   </div>
   <div class="stats-grid fleet-stats" :class="{ 'groups-only': !w.printers.length }">
-    <article class="stat" aria-label="Queued labels">
-      <span>QUEUED LABELS</span><strong>{{ w.totalQueued }}<small>copies</small></strong>
+    <article class="stat" :aria-label="$t('common.queuedLabels')">
+      <span>{{ $t('dashboard.queuedLabels') }}</span
+      ><strong
+        >{{ w.totalQueued }}<small>{{ $t('common.copies2') }}</small></strong
+      >
     </article>
     <template v-if="w.printers.length">
-      <article class="stat" aria-label="Connected printers">
-        <span>CONNECTED PRINTERS</span
+      <article class="stat" :aria-label="$t('common.connectedPrinters')">
+        <span>{{ $t('dashboard.connectedPrinters') }}</span
         ><strong
           >{{ connected }}<small>/ {{ w.printers.length }}</small></strong
         >
       </article>
-      <article class="stat" aria-label="Printing now">
-        <span>PRINTING NOW</span><strong>{{ printing }}<small>printers</small></strong>
-        <p>{{ pending }} manual {{ pending === 1 ? 'batch' : 'batches' }} waiting to start</p>
+      <article class="stat" :aria-label="$t('dashboard.printingNow2')">
+        <span>{{ $t('dashboard.printingNow') }}</span
+        ><strong
+          >{{ printing }}<small>{{ $t('common.printers2') }}</small></strong
+        >
+        <p>
+          {{ pending }} {{ $t('common.manual') }} {{ pending === 1 ? 'batch' : 'batches' }}
+          {{ $t('common.waitingToStart') }}
+        </p>
       </article>
-      <article class="stat" aria-label="Printers needing review">
-        <span>NEEDS YOUR REVIEW</span><strong>{{ reviews }}<small>printers</small></strong>
+      <article class="stat" :aria-label="$t('dashboard.printersNeedingReview')">
+        <span>{{ $t('dashboard.needsYourReview') }}</span
+        ><strong
+          >{{ reviews }}<small>{{ $t('common.printers2') }}</small></strong
+        >
       </article>
     </template>
-    <article v-else class="stat" aria-label="Distribution groups">
-      <span>DISTRIBUTION GROUPS</span><strong>{{ groups.length }}</strong>
+    <article v-else class="stat" :aria-label="$t('dashboard.distributionGroups2')">
+      <span>{{ $t('dashboard.distributionGroups') }}</span
+      ><strong>{{ groups.length }}</strong>
     </article>
   </div>
 
   <section v-if="w.printers.length" aria-labelledby="fleet-printers-title">
     <div class="section-heading">
       <div>
-        <h2 id="fleet-printers-title">Your printers</h2>
+        <h2 id="fleet-printers-title">{{ $t('common.yourPrinters') }}</h2>
       </div>
-      <RouterLink v-if="auth.can('printers.manage')" to="/printers" class="text-link"
-        >Manage printers →</RouterLink
-      >
+      <RouterLink v-if="auth.can('printers.manage')" to="/printers" class="text-link">{{
+        $t('dashboard.managePrinters')
+      }}</RouterLink>
     </div>
     <div class="fleet-grid">
       <article
@@ -129,14 +142,18 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
           }}</span>
         </div>
         <div class="row wrap fleet-state">
-          <span class="badge" v-if="state(device.id)?.printing">Printing</span>
-          <span class="badge failed" v-if="state(device.id)?.needs_review.length"
-            >Review needed</span
-          >
-          <span class="badge" v-if="state(device.id)?.pending_flush">Manual batch pending</span>
+          <span class="badge" v-if="state(device.id)?.printing">{{
+            $t('dashboard.printing')
+          }}</span>
+          <span class="badge failed" v-if="state(device.id)?.needs_review.length">{{
+            $t('dashboard.reviewNeeded')
+          }}</span>
+          <span class="badge" v-if="state(device.id)?.pending_flush">{{
+            $t('dashboard.manualBatchPending')
+          }}</span>
           <span class="muted">{{
             device.no_automatic_printing
-              ? 'Manual only'
+              ? $t('printers.manualOnly')
               : state(device.id)?.automatic_printing_held
                 ? 'Automatic printing held'
                 : 'Automatic printing enabled'
@@ -149,10 +166,10 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               background: profile(device.id)?.background ?? 'var(--surface-secondary)',
               color: profile(device.id)?.foreground ?? 'var(--text-secondary)',
             }"
-            >Aa</span
+            >{{ $t('common.aa') }}</span
           >
           <div>
-            <small>INSTALLED TAPE</small
+            <small>{{ $t('dashboard.installedTape') }}</small
             ><strong>{{ profile(device.id)?.name ?? 'No cartridge selected' }}</strong
             ><span>{{
               cartridge(device.id)?.name ?? 'Install a cartridge to print matching labels'
@@ -161,16 +178,18 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         </div>
         <dl class="fleet-metrics">
           <div>
-            <dt>Direct queue</dt>
-            <dd>{{ queued(directQueue(device.id)) }} <small>copies</small></dd>
+            <dt>{{ $t('dashboard.directQueue') }}</dt>
+            <dd>
+              {{ queued(directQueue(device.id)) }} <small>{{ $t('common.copies2') }}</small>
+            </dd>
           </div>
           <div>
-            <dt>Approximate tape remaining</dt>
+            <dt>{{ $t('dashboard.approximateTapeRemaining') }}</dt>
             <dd>{{ cartridge(device.id) ? metres(cartridge(device.id)!.remaining_mm) : '—' }}</dd>
           </div>
         </dl>
         <p v-if="cartridge(device.id)?.consumption_uncertain" class="inline-warning">
-          Tape remaining is uncertain until the interrupted batch is reviewed.
+          {{ $t('common.tapeRemainingIsUncertainUntilTheInterruptedBatchIs') }}
         </p>
         <p
           v-if="device.configuration_error || state(device.id)?.printer_error"
@@ -188,14 +207,14 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
           "
           class="inline-warning"
         >
-          Detected tape width does not match the installed {{ profile(device.id)?.width_mm }} mm
-          profile.
+          {{ $t('dashboard.detectedTapeWidthDoesNotMatchTheInstalled') }}
+          {{ profile(device.id)?.width_mm }} {{ $t('common.mmProfile') }}
         </p>
         <p v-else-if="state(device.id)?.blocker" class="inline-warning">
           {{ state(device.id)?.blocker }}
         </p>
         <div class="fleet-queue">
-          <p class="help">Direct queue · copies / threshold</p>
+          <p class="help">{{ $t('dashboard.directQueueCopiesThreshold') }}</p>
           <div
             v-for="queue in waiting(directQueue(device.id))"
             :key="queue.profile_id"
@@ -206,7 +225,9 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >{{ queue.queued_copies }} <small>/ {{ queue.threshold }}</small></strong
             >
           </div>
-          <p v-if="!queued(directQueue(device.id))" class="help">No direct copies waiting.</p>
+          <p v-if="!queued(directQueue(device.id))" class="help">
+            {{ $t('dashboard.noDirectCopiesWaiting') }}
+          </p>
         </div>
         <div class="fleet-actions">
           <div class="row wrap">
@@ -215,19 +236,21 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               class="button secondary"
               :to="{ path: '/new', query: { destination: device.id } }"
               >{{
-                auth.printer(device.id, 'submit_directly') ? 'Print a label' : 'Request printing'
+                auth.printer(device.id, 'submit_directly')
+                  ? $t('printers.printALabel')
+                  : 'Request printing'
               }}</RouterLink
             >
             <RouterLink
               class="button secondary"
               :to="{ path: '/queue', query: { destination: device.id } }"
-              >View direct queue</RouterLink
+              >{{ $t('common.viewDirectQueue') }}</RouterLink
             >
             <RouterLink
               v-if="auth.printer(device.id, 'configure')"
               class="button secondary"
               :to="{ path: '/printers', query: { printer: device.id } }"
-              >Configure</RouterLink
+              >{{ $t('common.configure') }}</RouterLink
             >
           </div>
           <template
@@ -244,7 +267,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 :disabled="!canPrintDirect(device.id)"
                 @click="print(device.id)"
               >
-                <Icon name="printer" />Print direct queue
+                <Icon name="printer" />{{ $t('dashboard.printDirectQueue') }}
               </button>
               <button
                 v-if="!device.no_automatic_printing && auth.printer(device.id, 'hold_resume')"
@@ -274,7 +297,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 "
                 @click="stopPrinter(device.id, 'after_current')"
               >
-                Stop after current label
+                {{ $t('common.stopAfterCurrentLabel') }}
               </button>
               <button
                 v-if="
@@ -290,14 +313,14 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
                 "
                 @click="stopPrinter(device.id, 'emergency')"
               >
-                Emergency stop
+                {{ $t('common.emergencyStop') }}
               </button>
               <button
                 v-if="auth.printer(device.id, 'configure') && device.driver === 'brother-pt-p710bt'"
                 class="secondary"
                 disabled
               >
-                Cut tape
+                {{ $t('dashboard.cutTape') }}
               </button>
             </div>
             <p v-if="state(device.id)?.stop_requested" class="alert warning" role="status">
@@ -314,22 +337,20 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               "
               class="help"
             >
-              Emergency stop may allow the current label to finish. Review all output before
-              printing again.
+              {{ $t('dashboard.emergencyStopMayAllowTheCurrentLabelToFinish') }}
             </p>
             <p
               v-if="auth.printer(device.id, 'configure') && device.driver === 'brother-pt-p710bt'"
               class="help"
             >
-              Manual cut over USB is unavailable. While idle, double-press the printer’s power
-              button to feed and cut.
+              {{ $t('dashboard.manualCutOverUsbIsUnavailableWhileIdleDouble') }}
             </p>
             <RouterLink
               v-for="batchId in state(device.id)?.needs_review ?? []"
               :key="batchId"
               class="button secondary"
               :to="`/batches/${batchId}`"
-              >Review interrupted batch</RouterLink
+              >{{ $t('common.reviewInterruptedBatch') }}</RouterLink
             >
           </template>
         </div>
@@ -340,7 +361,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
   <section v-if="groups.length" aria-labelledby="fleet-groups-title">
     <div class="section-heading">
       <div>
-        <h2 id="fleet-groups-title">Distribution groups</h2>
+        <h2 id="fleet-groups-title">{{ $t('dashboard.distributionGroups2') }}</h2>
       </div>
     </div>
     <div class="fleet-grid">
@@ -362,7 +383,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
             "
             >{{
               group.available === false
-                ? 'Unavailable'
+                ? $t('common.unavailable')
                 : group.automatic_printing_held
                   ? 'Held'
                   : 'Automatic routing'
@@ -370,16 +391,19 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
           >
         </div>
         <p v-if="group.available === false" class="help">
-          No configured member printer is available. Existing labels remain queued.
+          {{ $t('dashboard.noConfiguredMemberPrinterIsAvailableExistingLabelsRemain') }}
         </p>
         <p class="help">
-          {{ group.printer_ids.length }} member
-          {{ group.printer_ids.length === 1 ? 'printer' : 'printers' }} · copies / threshold
+          {{ group.printer_ids.length }} {{ $t('common.member') }}
+          {{ group.printer_ids.length === 1 ? 'printer' : $t('common.printers2') }}
+          {{ $t('common.copiesThreshold') }}
         </p>
         <dl class="fleet-metrics">
           <div>
-            <dt>Group queue</dt>
-            <dd>{{ queued(group) }} <small>copies</small></dd>
+            <dt>{{ $t('dashboard.groupQueue') }}</dt>
+            <dd>
+              {{ queued(group) }} <small>{{ $t('common.copies2') }}</small>
+            </dd>
           </div>
         </dl>
         <div class="fleet-queue">
@@ -389,7 +413,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >{{ queue.queued_copies }} <small>/ {{ queue.threshold }}</small></strong
             >
           </div>
-          <p v-if="!queued(group)" class="help">No group copies waiting.</p>
+          <p v-if="!queued(group)" class="help">{{ $t('dashboard.noGroupCopiesWaiting') }}</p>
         </div>
         <div class="fleet-actions">
           <div class="row wrap">
@@ -398,22 +422,28 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               class="button secondary"
               :to="{ path: '/new', query: { destination: group.id } }"
               >{{
-                auth.printer(group.id, 'submit_directly') ? 'Print a label' : 'Request printing'
+                auth.printer(group.id, 'submit_directly')
+                  ? $t('printers.printALabel')
+                  : 'Request printing'
               }}</RouterLink
             >
             <button v-else class="secondary" disabled>
-              {{ auth.printer(group.id, 'submit_directly') ? 'Print a label' : 'Request printing' }}
+              {{
+                auth.printer(group.id, 'submit_directly')
+                  ? $t('printers.printALabel')
+                  : 'Request printing'
+              }}
             </button>
             <RouterLink
               class="button secondary"
               :to="{ path: '/queue', query: { destination: group.id } }"
-              >View group queue</RouterLink
+              >{{ $t('common.viewGroupQueue') }}</RouterLink
             >
             <RouterLink
               v-if="auth.printer(group.id, 'configure')"
               class="button secondary"
               to="/printers"
-              >Configure group</RouterLink
+              >{{ $t('dashboard.configureGroup') }}</RouterLink
             >
           </div>
           <div
@@ -428,7 +458,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               "
               @click="print(group.id)"
             >
-              <Icon name="printer" />Print group queue
+              <Icon name="printer" />{{ $t('dashboard.printGroupQueue') }}
             </button>
             <button
               v-if="!group.no_automatic_printing && auth.printer(group.id, 'hold_resume')"
@@ -446,8 +476,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
 
   <section v-if="recentBatches.length" class="panel">
     <div class="section-heading">
-      <h2>Recent batches</h2>
-      <RouterLink class="text-link" to="/activity">All activity →</RouterLink>
+      <h2>{{ $t('dashboard.recentBatches') }}</h2>
+      <RouterLink class="text-link" to="/activity">{{ $t('dashboard.allActivity') }}</RouterLink>
     </div>
     <div v-for="batch in recentBatches" :key="batch.id" class="list-row">
       <div>

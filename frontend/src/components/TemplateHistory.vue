@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
-import { useAuthStore } from '../auth'
-import { api, errorMessage } from '../api'
-import { confirmAction } from '../confirmation'
+import { useAuthStore } from '../auth/auth'
+import { api, errorMessage } from '../shared/api'
+import { confirmAction } from '../shared/confirmation'
 import { useResourceStore } from '../stores/resources'
-import { date, useWorkspaceStore } from '../workspace'
-import type { Template, TemplateRevision } from '../types'
-import { templateLength } from '../templateDimensions'
+import { date, useWorkspaceStore } from '../shared/workspace'
+import type { Template, TemplateRevision } from '../shared/types'
+import { templateLength } from '../templates/templateDimensions'
 import AdminDialog from './AdminDialog.vue'
 import MotionSurface from './MotionSurface.vue'
 
@@ -183,14 +183,18 @@ onBeforeUnmount(() => {
       wide
       @close="emit('close')"
     >
-      <p v-if="loading" role="status">Loading revisions…</p>
+      <p v-if="loading" role="status">{{ $t('templateHistory.loadingRevisions') }}</p>
       <div v-if="historyError" class="alert danger" role="alert">
         {{ historyError }}
-        <button type="button" class="small secondary" @click="loadHistory">Retry</button>
+        <button type="button" class="small secondary" @click="loadHistory">
+          {{ $t('common.retry') }}
+        </button>
       </div>
-      <p v-if="!loading && !historyError && !entries.length">No saved revisions.</p>
+      <p v-if="!loading && !historyError && !entries.length">
+        {{ $t('templateHistory.noSavedRevisions') }}
+      </p>
       <div v-if="entries.length" class="revision-history">
-        <ol class="revision-list" aria-label="Saved revisions">
+        <ol class="revision-list" :aria-label="$t('common.savedRevisions')">
           <li v-for="entry in entries" :key="entry.revision">
             <button
               type="button"
@@ -203,8 +207,10 @@ onBeforeUnmount(() => {
               @click="selectedNumber = entry.revision"
             >
               <span class="revision-label"
-                >Revision {{ entry.revision
-                }}<span v-if="entry.revision === currentRevision" class="badge">Current</span></span
+                >{{ $t('common.revision') }} {{ entry.revision
+                }}<span v-if="entry.revision === currentRevision" class="badge">{{
+                  $t('templateHistory.current')
+                }}</span></span
               >
               <span :id="`${previewId}-${entry.revision}-metadata`" class="revision-metadata">
                 <span>{{ entry.edited_by?.name || 'Editor not recorded' }}</span>
@@ -214,7 +220,8 @@ onBeforeUnmount(() => {
                   >{{ date(entry.created_at) }}</time
                 >
                 <span v-if="entry.restored_from_revision"
-                  >Restored from revision {{ entry.restored_from_revision }}</span
+                  >{{ $t('templateHistory.restoredFromRevision') }}
+                  {{ entry.restored_from_revision }}</span
                 >
               </span>
             </button>
@@ -236,34 +243,36 @@ onBeforeUnmount(() => {
               :alt="`Preview of revision ${selected.revision}`"
               :style="{ aspectRatio: `${preview.length_mm} / ${preview.width_mm}` }"
             />
-            <p v-else-if="previewLoading" role="status">Loading preview…</p>
+            <p v-else-if="previewLoading" role="status">{{ $t('common.loadingPreview') }}</p>
             <div v-else-if="previewError" class="alert warning" role="alert">
               {{ previewError }}
               <button type="button" class="small secondary" @click="loadPreview">
-                Retry preview
+                {{ $t('common.retryPreview') }}
               </button>
             </div>
           </div>
           <p class="revision-dimensions">
-            {{ selected.document.width_mm }} mm wide · {{ templateLength(selected) }} ·
+            {{ selected.document.width_mm }} {{ $t('common.mmWide') }}
+            {{ templateLength(selected) }} ·
             {{ selected.document.elements.length }}
-            {{ selected.document.elements.length === 1 ? 'element' : 'elements' }}
+            {{ selected.document.elements.length === 1 ? 'element' : $t('common.elements') }}
           </p>
           <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
             {{ warning }}
           </p>
           <p v-if="preview && Object.keys(preview.missing_assets).length" class="alert warning">
-            Restore the missing assets before restoring this revision.
+            {{ $t('templateHistory.restoreTheMissingAssetsBeforeRestoringThisRevision') }}
           </p>
           <p v-if="selected.document.fields.length" class="help">
-            Fields: {{ selected.document.fields.map((field) => field.label).join(', ') }}
+            {{ $t('common.fields') }}
+            {{ selected.document.fields.map((field) => field.label).join(', ') }}
           </p>
         </MotionSurface>
       </div>
       <div v-if="restoreError" class="alert danger" role="alert">
         {{ restoreError }}
         <button type="button" class="small secondary" :disabled="restoring" @click="loadHistory">
-          Reload history
+          {{ $t('templateHistory.reloadHistory') }}
         </button>
       </div>
       <div v-if="entries.length && canRestore" class="admin-actions">
@@ -281,7 +290,7 @@ onBeforeUnmount(() => {
           "
           @click="restoreSelected"
         >
-          Restore revision {{ selected?.revision }}
+          {{ $t('templateHistory.restoreRevision') }} {{ selected?.revision }}
         </button>
       </div>
     </AdminDialog>

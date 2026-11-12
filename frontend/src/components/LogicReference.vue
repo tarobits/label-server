@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { referenceEntries } from '../logicReference'
-import type { TemplateDocument } from '../editor'
-import type { LogicCatalog } from '../logicGraph'
+import { referenceEntries } from '../templates/logicReference'
+import type { TemplateDocument } from '../templates/editor'
+import type { LogicCatalog } from '../templates/logicGraph'
 import MotionSurface from './MotionSurface.vue'
 const props = defineProps<{
   catalog: LogicCatalog
@@ -49,10 +49,10 @@ async function copy() {
 }
 </script>
 <template>
-  <section class="logic-reference" aria-label="Logic reference">
-    <label>Search reference<input v-model="query" type="search" /></label>
+  <section class="logic-reference" :aria-label="$t('logicReference.logicReference')">
+    <label>{{ $t('common.searchReference') }}<input v-model="query" type="search" /></label>
     <div class="reference-layout">
-      <nav aria-label="Reference entries">
+      <nav :aria-label="$t('logicReference.referenceEntries')">
         <button
           v-for="entry in filtered"
           :key="entry.id"
@@ -62,7 +62,7 @@ async function copy() {
           <span>{{ entry.title }}</span
           ><small>{{ entry.group }}</small>
         </button>
-        <p v-if="!filtered.length" class="help">No matching entries.</p>
+        <p v-if="!filtered.length" class="help">{{ $t('logicReference.noMatchingEntries') }}</p>
       </nav>
       <MotionSurface :identity="selection" class="reference-entry">
         <article v-if="selected && filtered.length">
@@ -71,7 +71,7 @@ async function copy() {
           <p v-for="detail in selected.details" :key="detail">{{ detail }}</p>
           <template v-if="selected.example">
             <pre><code>{{ selected.example }}</code></pre>
-            <button class="small" @click="copy">Copy example</button>
+            <button class="small" @click="copy">{{ $t('logicReference.copyExample') }}</button>
             <p v-if="copied" role="status">{{ copied }}</p></template
           >
         </article>

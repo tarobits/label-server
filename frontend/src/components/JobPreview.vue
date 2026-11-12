@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { usePreview } from '../previewLoader'
+import { usePreview } from '../shared/previewLoader'
 const props = defineProps<{
   jobId: string
   text: string
@@ -24,8 +24,10 @@ function enlarge() {
 <template>
   <div ref="target" class="history-label" :style="geometry" :aria-busy="!image && !failed">
     <div v-if="failed" class="help" role="status">
-      Preview unavailable.
-      <button type="button" class="small secondary" @click="reload">Retry preview</button>
+      {{ $t('common.previewUnavailable2') }}
+      <button type="button" class="small secondary" @click="reload">
+        {{ $t('common.retryPreview') }}
+      </button>
     </div>
     <button
       v-else
@@ -44,28 +46,30 @@ function enlarge() {
         @error="failed = true"
       />
     </button>
-    <small>{{ lengthMm }} × {{ widthMm }} mm</small>
+    <small>{{ lengthMm }} × {{ widthMm }} {{ $t('common.mm') }}</small>
   </div>
   <Teleport to="body">
     <dialog
       ref="dialog"
       class="label-preview-dialog"
-      aria-label="Label preview"
+      :aria-label="$t('common.labelPreview')"
       :style="geometry"
       @close="opened = false"
     >
       <div class="section-heading">
-        <h2>Label preview</h2>
-        <button type="button" class="secondary" autofocus @click="dialog?.close()">Close</button>
+        <h2>{{ $t('common.labelPreview') }}</h2>
+        <button type="button" class="secondary" autofocus @click="dialog?.close()">
+          {{ $t('common.close') }}
+        </button>
       </div>
-      <p v-if="failed" class="alert warning">Saved label preview is unavailable.</p>
+      <p v-if="failed" class="alert warning">{{ $t('common.savedLabelPreviewIsUnavailable') }}</p>
       <img
         v-else-if="opened && image"
         :src="image"
         :alt="`Enlarged label: ${text}`"
         @error="failed = true"
       />
-      <p class="help">{{ lengthMm }} × {{ widthMm }} mm · Saved print pixels</p>
+      <p class="help">{{ lengthMm }} × {{ widthMm }} {{ $t('common.mmSavedPrintPixels') }}</p>
     </dialog>
   </Teleport>
 </template>

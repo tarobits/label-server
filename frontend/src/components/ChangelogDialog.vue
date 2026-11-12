@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AdminDialog from './AdminDialog.vue'
 import ChangelogText from './ChangelogText.vue'
-import type { ReleaseNotes } from '../changelog'
+import type { ReleaseNotes } from '../shared/changelog'
 
 defineProps<{ open: boolean; title: string; releases: ReleaseNotes[] }>()
 const emit = defineEmits<{ close: [] }>()
@@ -12,7 +12,7 @@ const emit = defineEmits<{ close: [] }>()
     <AdminDialog :open="open" :title="title" @close="emit('close')">
       <section v-for="release in releases" :key="release.version" class="release-notes">
         <header>
-          <h3>v{{ release.version }}</h3>
+          <h3>{{ $t('common.v') }}{{ release.version }}</h3>
           <time v-if="release.date" :datetime="release.date">{{ release.date }}</time>
         </header>
         <template v-for="(block, index) in release.blocks" :key="index">

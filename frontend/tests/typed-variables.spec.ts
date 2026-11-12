@@ -175,12 +175,17 @@ test('typed label inputs preserve zero, false, null and uploaded images in submi
   await page.getByLabel('Quantity', { exact: true }).fill('11')
   await expect(page.getByRole('button', { name: 'Add to queue', exact: true })).toBeDisabled()
   await page.getByLabel('Quantity', { exact: true }).fill('0')
+  // Let the valid preview finish before testing image input. Otherwise this
+  // upload races the deliberately triggered previews for scarce render slots.
+  await expect(page.getByRole('button', { name: 'Add to queue', exact: true })).toBeEnabled()
   const uploaded = page.waitForResponse(
     (response) =>
       response.url().includes('/api/image-assets?') && response.request().method() === 'POST',
   )
   await page.getByLabel('Upload photo', { exact: true }).setInputFiles(artwork)
-  const asset = await (await uploaded).json()
+  const uploadResponse = await uploaded
+  expect(uploadResponse.ok(), await uploadResponse.text()).toBeTruthy()
+  const asset = await uploadResponse.json()
   await expect(page.getByRole('combobox', { name: 'Photo', exact: true })).toHaveValue(asset.id)
   await page.getByRole('combobox', { name: 'Optional flag', exact: true }).selectOption('false')
   await page.getByRole('combobox', { name: 'Optional flag', exact: true }).selectOption('')

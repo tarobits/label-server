@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { BatchDetail } from '../types'
+import type { BatchDetail } from '../shared/types'
 import JobPreview from './JobPreview.vue'
-import { freezeLeavingItem } from '../collectionMotion'
+import { freezeLeavingItem } from '../shared/collectionMotion'
 const props = withDefaults(defineProps<{ batch: BatchDetail; apiPrefix?: string }>(), {
   apiPrefix: '',
 })
@@ -37,12 +37,15 @@ const groups = computed(() => {
 </script>
 <template>
   <label class="packing-sort"
-    >Sort by<select v-model="order">
-      <option value="print">Print order</option>
-      <option value="requester">Requester</option>
+    >{{ $t('common.sortBy')
+    }}<select v-model="order">
+      <option value="print">{{ $t('common.printOrder') }}</option>
+      <option value="requester">{{ $t('common.requester') }}</option>
     </select></label
   >
-  <p v-if="complete && !groups.length" class="empty">No confirmed printed labels.</p>
+  <p v-if="complete && !groups.length" class="empty">
+    {{ $t('packingLabels.noConfirmedPrintedLabels') }}
+  </p>
   <TransitionGroup
     name="collection"
     tag="div"
@@ -52,7 +55,7 @@ const groups = computed(() => {
     <article v-for="group in groups" :key="group.item.copy_id" class="panel packing-label">
       <div class="section-heading">
         <h2>{{ group.name }}</h2>
-        <strong>{{ group.copies }} {{ group.copies === 1 ? 'copy' : 'copies' }}</strong>
+        <strong>{{ group.copies }} {{ group.copies === 1 ? 'copy' : $t('common.copies2') }}</strong>
       </div>
       <JobPreview
         :job-id="group.item.job_id"
@@ -62,7 +65,7 @@ const groups = computed(() => {
         :preview-url="`/api${apiPrefix}/batches/${batch.id}/items/${group.item.copy_id}/preview`"
       />
       <small
-        >Print position {{ group.item.position + 1
+        >{{ $t('packingLabels.printPosition') }} {{ group.item.position + 1
         }}{{ group.copies > 1 ? `–${group.last + 1}` : '' }}</small
       >
     </article>

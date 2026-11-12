@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore, date } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore, date } from '../shared/workspace'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
 import HistoryPagination from '../components/HistoryPagination.vue'
 import MotionSurface from '../components/MotionSurface.vue'
@@ -103,14 +103,14 @@ const fields = (entry: Entry) =>
 <template>
   <section class="panel form-stack">
     <div class="section-heading">
-      <h2>Audit log</h2>
-      <button class="secondary" :disabled="busy" @click="load">Refresh</button>
+      <h2>{{ $t('common.auditLog') }}</h2>
+      <button class="secondary" :disabled="busy" @click="load">{{ $t('common.refresh') }}</button>
     </div>
     <div class="field-row">
       <label v-for="kind in facets" :key="kind"
         >{{ label(kind)
         }}<select :value="route.query[kind] ?? ''" @change="filter(kind, $event)">
-          <option value="">All</option>
+          <option value="">{{ $t('common.all') }}</option>
           <option v-for="option in options[kind] ?? []" :key="option.id" :value="option.id">
             {{ optionLabel(kind, option) }}
           </option>
@@ -124,10 +124,12 @@ const fields = (entry: Entry) =>
       :page="page"
       :pages="pages"
       :loading="busy"
-      label="Audit log pages"
+      :label="$t('auditLog.auditLogPages')"
       @change="go"
     />
-    <p v-if="!busy && !error && !items.length" class="empty compact">No matching events.</p>
+    <p v-if="!busy && !error && !items.length" class="empty compact">
+      {{ $t('auditLog.noMatchingEvents') }}
+    </p>
     <MotionSurface :identity="route.fullPath" :order="page">
       <article v-for="entry in items" :key="entry.id" class="audit-entry">
         <div class="row spread wrap">
@@ -141,7 +143,7 @@ const fields = (entry: Entry) =>
           {{
             entry.fields.actor_name ??
             entry.fields.actor_id ??
-            (entry.fields.source === 'anonymous' ? 'Unauthenticated' : 'System')
+            (entry.fields.source === 'anonymous' ? 'Unauthenticated' : $t('common.system'))
           }}</small
         >
         <AnimatedDetails
@@ -152,7 +154,7 @@ const fields = (entry: Entry) =>
             entry.restricted_details
           "
         >
-          <template #summary>Details</template>
+          <template #summary>{{ $t('common.details') }}</template>
           <dl>
             <template
               v-for="(value, key) in { printers: entry.printers, cartridges: entry.cartridges }"
@@ -171,10 +173,14 @@ const fields = (entry: Entry) =>
               ></template
             ><template v-for="[key, value] in fields(entry)" :key="key"
               ><dt>{{ label(key) }}</dt>
-              <dd>{{ Array.isArray(value) ? value.join(', ') : (value ?? 'None') }}</dd></template
+              <dd>
+                {{ Array.isArray(value) ? value.join(', ') : (value ?? $t('resourceAccess.none')) }}
+              </dd></template
             >
           </dl>
-          <p v-if="entry.restricted_details" class="muted">Some details are restricted.</p>
+          <p v-if="entry.restricted_details" class="muted">
+            {{ $t('common.someDetailsAreRestricted') }}
+          </p>
         </AnimatedDetails>
       </article>
     </MotionSurface>
@@ -183,7 +189,7 @@ const fields = (entry: Entry) =>
       :page="page"
       :pages="pages"
       :loading="busy"
-      label="Audit log pages, bottom"
+      :label="$t('auditLog.auditLogPagesBottom')"
       @change="go"
     />
   </section>

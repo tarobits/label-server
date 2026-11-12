@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, shallowRef, watch } from 'vue'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
-import type { PreviewExample, TemplateDocument, TemplateField, VariableValue } from '../editor'
-import { randomUUID } from '../uuid'
+import type {
+  PreviewExample,
+  TemplateDocument,
+  TemplateField,
+  VariableValue,
+} from '../templates/editor'
+import { randomUUID } from '../shared/uuid'
 import VariableInput from './VariableInput.vue'
 import ExpandableContent from './ExpandableContent.vue'
 import MotionSurface from './MotionSurface.vue'
@@ -73,9 +78,9 @@ function sample(field: TemplateField) {
   <section
     v-if="document.fields.length || examples.length"
     class="panel preview-inputs"
-    aria-label="Preview inputs"
+    :aria-label="$t('templatePreviewInputs.previewInputs')"
   >
-    <PropertySection title="Preview inputs" initially-open>
+    <PropertySection :title="$t('templatePreviewInputs.previewInputs')" initially-open>
       <div class="section-heading preview-actions">
         <div class="row wrap">
           <button
@@ -84,7 +89,7 @@ function sample(field: TemplateField) {
             :disabled="disabled || examples.length >= 50"
             @click="add()"
           >
-            Add example
+            {{ $t('templatePreviewInputs.addExample') }}
           </button>
           <button
             type="button"
@@ -92,7 +97,7 @@ function sample(field: TemplateField) {
             :disabled="disabled || !selected || examples.length >= 50"
             @click="add(true)"
           >
-            Duplicate
+            {{ $t('common.duplicate') }}
           </button>
           <button
             type="button"
@@ -100,27 +105,32 @@ function sample(field: TemplateField) {
             :disabled="disabled || !selected"
             @click="remove"
           >
-            Delete example
+            {{ $t('templatePreviewInputs.deleteExample') }}
           </button>
         </div>
       </div>
       <div class="row wrap preview-picker">
         <label class="grow"
-          >Example<select
+          >{{ $t('templatePreviewInputs.example')
+          }}<select
             :value="selected?.id ?? ''"
             @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
           >
-            <option value="">Sample values</option>
+            <option value="">{{ $t('templatePreviewInputs.sampleValues') }}</option>
             <option v-for="example in examples" :key="example.id" :value="example.id">
               {{ example.name }}
             </option>
           </select></label
         >
-        <div class="row" role="group" aria-label="Browse preview examples">
+        <div
+          class="row"
+          role="group"
+          :aria-label="$t('templatePreviewInputs.browsePreviewExamples')"
+        >
           <button
             type="button"
             class="secondary"
-            aria-label="Previous example"
+            :aria-label="$t('templatePreviewInputs.previousExample')"
             :disabled="!examples.length"
             @click="select(-1)"
           >
@@ -132,7 +142,7 @@ function sample(field: TemplateField) {
           <button
             type="button"
             class="secondary"
-            aria-label="Next example"
+            :aria-label="$t('templatePreviewInputs.nextExample')"
             :disabled="!examples.length"
             @click="select(1)"
           >
@@ -144,7 +154,8 @@ function sample(field: TemplateField) {
         <MotionSurface :identity="selected?.id ?? ''" :order="index">
           <div v-if="displayed" class="example-fields">
             <label
-              >Example name<input
+              >{{ $t('templatePreviewInputs.exampleName')
+              }}<input
                 v-model="displayed.name"
                 maxlength="100"
                 required

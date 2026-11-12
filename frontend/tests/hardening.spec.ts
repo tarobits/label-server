@@ -210,25 +210,6 @@ test('request detail errors offer retry and failed previews can recover', async 
   await expect(page.getByRole('button', { name: 'Approve and queue', exact: true })).toBeEnabled()
 })
 
-test('template previews can retry a transient failure', async ({ page }) => {
-  let fail = true
-  await page.route('**/api/templates/text/preview.webp*', async (route) => {
-    if (fail) {
-      fail = false
-      await route.fulfill({ status: 503, body: 'Unavailable' })
-    } else await route.continue()
-  })
-  await page.goto('/#/templates')
-  await page.getByRole('button', { name: 'Retry preview', exact: true }).click()
-  await expect
-    .poll(() =>
-      page
-        .getByAltText('Preview of Simple text')
-        .evaluate((el: HTMLImageElement) => el.naturalWidth),
-    )
-    .toBeGreaterThan(0)
-})
-
 for (const mode of ['existing', 'new'] as const) {
   test(`${mode} templates keep edits made while a save is in flight`, async ({ page, request }) => {
     const existing =

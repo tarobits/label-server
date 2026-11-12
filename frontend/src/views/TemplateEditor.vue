@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
+
 import SettingHelp from '../components/SettingHelp.vue'
 import FontWeightControl from '../components/FontWeightControl.vue'
 import TapeProfilePicker from '../components/TapeProfilePicker.vue'
-import { editorHelp } from '../editorHelp'
-import { confirmAction } from '../confirmation'
-import { mediaProperties, compatibleProfile } from '../media'
+import { editorHelp } from '../templates/editorHelp'
+import { confirmAction } from '../shared/confirmation'
+import { mediaProperties, compatibleProfile } from '../printing/media'
 import EditorRuler from '../components/EditorRuler.vue'
 import ElementDetails from '../components/ElementDetails.vue'
 import PropertySection from '../components/PropertySection.vue'
@@ -20,8 +22,8 @@ import {
   renameField,
   setFieldType,
   visitReferences,
-} from '../variableInputs'
-import { decodeLabel } from '../labelPreview'
+} from '../templates/variableInputs'
+import { decodeLabel } from '../printing/labelPreview'
 import {
   PhotoIcon,
   LanguageIcon,
@@ -35,11 +37,11 @@ import {
 } from '@heroicons/vue/24/outline'
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
 import { useResourceStore } from '../stores/resources'
-import { randomUUID } from '../uuid'
+import { randomUUID } from '../shared/uuid'
 import {
   newDocument,
   newElement,
@@ -51,8 +53,8 @@ import {
   type TemplateDocument,
   type TemplateField,
   type ValueType,
-} from '../editor'
-import type { ImageAsset, Template } from '../types'
+} from '../templates/editor'
+import type { ImageAsset, Template } from '../shared/types'
 const LogicWorkspace = defineAsyncComponent(() => import('../components/LogicWorkspace.vue'))
 const w = useWorkspaceStore()
 const resources = useResourceStore()
@@ -225,7 +227,12 @@ watch(
 )
 const inspectorTabs = computed(() =>
   [
-    { id: 'content' as const, label: 'Content' },
+    {
+      id: 'content' as const,
+      get label() {
+        return t('templateEditor.content')
+      },
+    },
     { id: 'style' as const, label: 'Style' },
     { id: 'layout' as const, label: 'Layout' },
   ].filter((tab) =>
@@ -1020,36 +1027,41 @@ onUnmounted(() => {
 </script>
 <template>
   <div v-if="!w.profiles.length" class="panel empty">
-    <h2>No tape profiles</h2>
-    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
-      >Create tape profile</RouterLink
-    >
-    <p v-else class="help">Ask an administrator to create a tape profile.</p>
+    <h2>{{ $t('common.noTapeProfiles') }}</h2>
+    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles">{{
+      $t('common.createTapeProfile')
+    }}</RouterLink>
+    <p v-else class="help">{{ $t('common.askAnAdministratorToCreateATapeProfile') }}</p>
   </div>
   <div v-if="w.profiles.length && !ready" class="panel empty">
     <template v-if="error"
       ><p class="alert danger" role="alert">{{ error }}</p>
-      <button class="secondary" @click="load">Retry</button></template
+      <button class="secondary" @click="load">{{ $t('common.retry') }}</button></template
     >
-    <p v-else role="status">Loading template…</p>
+    <p v-else role="status">{{ $t('templateEditor.loadingTemplate') }}</p>
   </div>
   <div v-if="ready && w.profiles.length && !editable" class="alert warning">
     {{ id ? 'This template is read-only.' : 'You do not have permission to create templates.' }}
   </div>
   <section v-if="ready && w.profiles.length" class="panel editor-toolbar">
     <div class="editor-settings-fields">
-      <label>Template name<input v-model="name" maxlength="100" required @change="record" /></label>
+      <label
+        >{{ $t('common.templateName')
+        }}<input v-model="name" maxlength="100" required @change="record"
+      /></label>
       <div class="setting-field resolution-choice">
         <SettingHelp
           :help="editorHelp.resolution"
           for="setting-resolution"
-          label="Print resolution"
+          :label="$t('templateEditor.printResolution')"
         /><select id="setting-resolution" v-model="document.print_resolution" @change="record">
           <option value="printer">
-            Printer default ({{ defaultResolution[1] }} × {{ defaultResolution[0] }} dpi)
+            {{ $t('templateEditor.printerDefault') }}{{ defaultResolution[1] }} ×
+            {{ defaultResolution[0] }} {{ $t('common.dpi2') }}
           </option>
           <option v-for="(dpi, mode) in resolutionModes" :key="mode" :value="mode">
-            {{ mode === 'high' ? 'High' : 'Normal' }} · {{ dpi[1] }} × {{ dpi[0] }} dpi
+            {{ mode === 'high' ? $t('companionApp.high') : $t('companionApp.normal') }} ·
+            {{ dpi[1] }} × {{ dpi[0] }} {{ $t('common.dpi') }}
           </option>
         </select>
       </div>
@@ -1063,7 +1075,10 @@ onUnmounted(() => {
           compact
         >
           <template #label
-            ><SettingHelp :help="editorHelp.profile" for="setting-profile" label="Tape profile"
+            ><SettingHelp
+              :help="editorHelp.profile"
+              for="setting-profile"
+              :label="$t('common.tapeProfile')"
           /></template>
         </TapeProfilePicker>
       </div>
@@ -1071,7 +1086,7 @@ onUnmounted(() => {
         <SettingHelp
           :help="editorHelp.length"
           for="setting-length"
-          label="Label length (mm)"
+          :label="$t('templateEditor.labelLengthMm')"
         /><input
           id="setting-length"
           :value="document.auto_length || boundLength ? canvasLength : document.length_mm"
@@ -1094,7 +1109,7 @@ onUnmounted(() => {
         <SettingHelp
           :help="editorHelp.destination"
           for="setting-destination"
-          label="Design destination"
+          :label="$t('templateEditor.designDestination')"
         /><select id="setting-destination" v-model="w.selectedPrinter">
           <option v-for="printer in w.destinations" :key="printer.id" :value="printer.id">
             {{ printer.name }}
@@ -1105,7 +1120,7 @@ onUnmounted(() => {
         <SettingHelp
           :help="editorHelp.visibility"
           for="setting-visibility"
-          label="Template visibility"
+          :label="$t('common.templateVisibility')"
         /><select
           id="setting-visibility"
           v-model="scope"
@@ -1118,25 +1133,26 @@ onUnmounted(() => {
             "
             value="personal"
           >
-            Personal
+            {{ $t('common.personal') }}
           </option>
-          <option v-if="availableGroups.length" value="group">User group</option>
+          <option v-if="availableGroups.length" value="group">{{ $t('common.userGroup') }}</option>
           <option
             v-if="auth.can('templates.create_global') || (id && originalSharing.scope === 'global')"
             value="global"
           >
-            Global
+            {{ $t('common.global') }}
           </option>
         </select>
       </div>
       <label v-if="scope === 'group'"
-        >User group<select
+        >{{ $t('common.userGroup')
+        }}<select
           v-model="groupId"
           :disabled="!editable || !canChangeSharing"
           required
           @change="record"
         >
-          <option :value="null" disabled>Choose a group</option>
+          <option :value="null" disabled>{{ $t('templateEditor.chooseAGroup') }}</option>
           <option v-for="group in availableGroups" :key="group.id" :value="group.id">
             {{ group.name }}
           </option>
@@ -1152,7 +1168,7 @@ onUnmounted(() => {
       "
       class="help template-history-sharing"
     >
-      Sharing includes all saved revisions.
+      {{ $t('common.sharingIncludesAllSavedRevisions') }}
     </p>
     <div class="editor-settings-footer">
       <div class="editor-settings-toggles">
@@ -1163,7 +1179,7 @@ onUnmounted(() => {
               :disabled="document.media?.media_family === 'fixed_label'"
               type="checkbox"
               @change="changeAutomaticLength"
-            /><span>Automatic label length</span></label
+            /><span>{{ $t('templateEditor.automaticLabelLength') }}</span></label
           ><SettingHelp :help="editorHelp.autoLength" />
         </div>
         <div class="setting-toggle">
@@ -1172,16 +1188,18 @@ onUnmounted(() => {
               :checked="document.out_of_bounds === 'clip'"
               type="checkbox"
               @change="setClipping"
-            /><span>Ignore out-of-bounds objects</span></label
+            /><span>{{ $t('templateEditor.ignoreOutOfBoundsObjects') }}</span></label
           ><SettingHelp :help="editorHelp.clipping" />
         </div>
       </div>
       <div class="editor-settings-actions">
         <button v-if="id" type="button" :disabled="w.busy" @click="showRevisionHistory">
-          History
+          {{ $t('common.history') }}
         </button>
-        <button :disabled="cursor === 0" @click="restore(-1)">Undo</button
-        ><button :disabled="cursor >= history.length - 1" @click="restore(1)">Redo</button>
+        <button :disabled="cursor === 0" @click="restore(-1)">{{ $t('common.undo') }}</button
+        ><button :disabled="cursor >= history.length - 1" @click="restore(1)">
+          {{ $t('templateEditor.redo') }}
+        </button>
         <button
           class="primary"
           :disabled="
@@ -1197,7 +1215,7 @@ onUnmounted(() => {
           "
           @click="save"
         >
-          Save template
+          {{ $t('common.saveTemplate') }}
         </button>
         <span class="help">{{
           dirty ? 'Unsaved changes' : revision ? `Revision ${revision}` : 'New document'
@@ -1219,47 +1237,60 @@ onUnmounted(() => {
   >
     <section class="panel editor-workspace">
       <div class="editor-tools">
-        <div class="editor-add-buttons" role="group" aria-label="Add elements">
-          <button aria-label="Add image" @click="add('image')"><PhotoIcon />Image</button>
-          <button aria-label="Add text" @click="add('text')"><LanguageIcon />Text</button>
-          <button aria-label="Add QR code" @click="add('qr')"><QrCodeIcon />QR code</button>
-          <button aria-label="Add barcode" @click="add('barcode')">
-            <ViewColumnsIcon />Barcode
+        <div class="editor-add-buttons" role="group" :aria-label="$t('templateEditor.addElements')">
+          <button :aria-label="$t('templateEditor.addImage')" @click="add('image')">
+            <PhotoIcon />{{ $t('templateEditor.image') }}
           </button>
-          <button aria-label="Add Data Matrix" @click="add('datamatrix')">
-            <Squares2X2Icon />Data Matrix
+          <button :aria-label="$t('templateEditor.addText')" @click="add('text')">
+            <LanguageIcon />{{ $t('common.text') }}
           </button>
-          <button aria-label="Add Aztec code" @click="add('aztec')"><QrCodeIcon />Aztec</button>
-          <button aria-label="Add rectangle" @click="add('rectangle')">
-            <StopIcon />Rectangle
+          <button :aria-label="$t('templateEditor.addQrCode')" @click="add('qr')">
+            <QrCodeIcon />{{ $t('templateEditor.qrCode') }}
           </button>
-          <button aria-label="Add horizontal line" @click="add('line')">
-            <MinusIcon />Horizontal line
+          <button :aria-label="$t('templateEditor.addBarcode')" @click="add('barcode')">
+            <ViewColumnsIcon />{{ $t('templateEditor.barcode') }}
           </button>
-          <button aria-label="Add vertical line" @click="add('line', true)">
-            <MinusIcon style="transform: rotate(90deg)" />Vertical line
+          <button :aria-label="$t('templateEditor.addDataMatrix')" @click="add('datamatrix')">
+            <Squares2X2Icon />{{ $t('templateEditor.dataMatrix') }}
+          </button>
+          <button :aria-label="$t('templateEditor.addAztecCode')" @click="add('aztec')">
+            <QrCodeIcon />{{ $t('templateEditor.aztec') }}
+          </button>
+          <button :aria-label="$t('templateEditor.addRectangle')" @click="add('rectangle')">
+            <StopIcon />{{ $t('templateEditor.rectangle') }}
+          </button>
+          <button :aria-label="$t('templateEditor.addHorizontalLine')" @click="add('line')">
+            <MinusIcon />{{ $t('templateEditor.horizontalLine') }}
+          </button>
+          <button :aria-label="$t('templateEditor.addVerticalLine')" @click="add('line', true)">
+            <MinusIcon style="transform: rotate(90deg)" />{{ $t('common.verticalLine') }}
           </button>
         </div>
       </div>
       <div class="editor-options">
         <div class="setting-toggle">
           <label class="checkbox"
-            ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
+            ><input v-model="showPrintPixels" type="checkbox" />{{
+              $t('common.showPrintPixels')
+            }}</label
           ><SettingHelp :help="editorHelp.pixels" />
         </div>
         <div class="setting-toggle">
-          <label class="checkbox"><input v-model="snap" type="checkbox" />Snap 0.5 mm</label
+          <label class="checkbox"
+            ><input v-model="snap" type="checkbox" />{{ $t('common.snap05Mm') }}</label
           ><SettingHelp :help="editorHelp.snap" />
         </div>
         <div class="setting-toggle">
           <label class="checkbox"
-            ><input v-model="showBounds" type="checkbox" />Object boundaries</label
+            ><input v-model="showBounds" type="checkbox" />{{
+              $t('templateEditor.objectBoundaries')
+            }}</label
           ><SettingHelp :help="editorHelp.bounds" />
         </div>
         <label class="editor-zoom"
-          >Zoom
+          >{{ $t('common.zoom') }}
           <input
-            aria-label="Zoom"
+            :aria-label="$t('common.zoom')"
             v-model.number="zoom"
             type="range"
             min="50"
@@ -1273,9 +1304,9 @@ onUnmounted(() => {
         v-if="document.fields.length || document.preview_examples?.length"
         class="canvas-example-name"
         role="status"
-        aria-label="Canvas example"
+        :aria-label="$t('templateEditor.canvasExample')"
       >
-        {{ previewExample?.name ?? 'Sample values' }}
+        {{ previewExample?.name ?? $t('templatePreviewInputs.sampleValues') }}
       </p>
       <div
         class="canvas-example-navigation"
@@ -1285,14 +1316,14 @@ onUnmounted(() => {
           v-if="document.preview_examples?.length"
           type="button"
           class="secondary canvas-example-arrow"
-          aria-label="Previous canvas example"
+          :aria-label="$t('templateEditor.previousCanvasExample')"
           @click="browseCanvasExample(-1)"
         >
           <ChevronLeftIcon aria-hidden="true" />
         </button>
         <div class="editor-canvas-scroll">
           <div class="editor-board">
-            <div class="ruler-corner">mm</div>
+            <div class="ruler-corner">{{ $t('common.mm') }}</div>
             <EditorRuler
               :selection-key="selectedId"
               :length="canvasLength"
@@ -1321,7 +1352,7 @@ onUnmounted(() => {
               class="editor-canvas"
               tabindex="0"
               role="img"
-              aria-label="Label design canvas"
+              :aria-label="$t('templateEditor.labelDesignCanvas')"
               :width="canvasLength * scale"
               :height="document.width_mm * scale"
               :viewBox="`0 0 ${canvasLength} ${document.width_mm}`"
@@ -1435,30 +1466,32 @@ onUnmounted(() => {
           v-if="document.preview_examples?.length"
           type="button"
           class="secondary canvas-example-arrow"
-          aria-label="Next canvas example"
+          :aria-label="$t('templateEditor.nextCanvasExample')"
           @click="browseCanvasExample(1)"
         >
           <ChevronRightIcon aria-hidden="true" />
         </button>
       </div>
       <p v-if="pointer" class="help cursor-position">
-        Cursor: {{ pointer.x.toFixed(2) }} × {{ pointer.y.toFixed(2) }} mm
+        {{ $t('templateEditor.cursor') }} {{ pointer.x.toFixed(2) }} × {{ pointer.y.toFixed(2) }}
+        {{ $t('common.mm') }}
       </p>
       <p class="help">
-        {{ canvasLength }} × {{ document.width_mm }} mm · {{ margin }} mm end /
-        {{ printableBand.height.toFixed(2) }} mm printable width ·
+        {{ canvasLength }} × {{ document.width_mm }} {{ $t('common.mm2') }} {{ margin }}
+        {{ $t('common.mmEnd') }} {{ printableBand.height.toFixed(2) }}
+        {{ $t('common.mmPrintableWidth') }}
         {{
           rendering
-            ? 'Rendering…'
+            ? $t('newLabel.rendering')
             : showPrintPixels
               ? 'Device raster preview'
               : 'Smooth design preview'
         }}
       </p>
       <p v-if="document.auto_length || document.out_of_bounds === 'clip'" class="help">
-        <span v-if="document.auto_length">Automatic length: 10–300 mm.</span>
+        <span v-if="document.auto_length">{{ $t('templateEditor.automaticLength10300Mm') }}</span>
         <span v-if="document.out_of_bounds === 'clip'">
-          Objects outside the guides are clipped.
+          {{ $t('templateEditor.objectsOutsideTheGuidesAreClipped') }}
         </span>
       </p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
@@ -1487,7 +1520,7 @@ onUnmounted(() => {
         {{ selected.name?.trim() || elementTitles[selected.kind] }}
       </h2>
       <p v-if="selectedBindings.length" class="help">
-        Controlled by logic: {{ selectedBindings.join(', ') }}.
+        {{ $t('templateEditor.controlledByLogic') }} {{ selectedBindings.join(', ') }}.
       </p>
       <MotionTrack
         class="inspector-tabs"
@@ -1495,7 +1528,7 @@ onUnmounted(() => {
         selector="[aria-selected='true']"
         underline
         role="tablist"
-        aria-label="Element settings"
+        :aria-label="$t('templateEditor.elementSettings')"
       >
         <button
           v-for="tab in inspectorTabs"
@@ -1532,15 +1565,17 @@ onUnmounted(() => {
             @remove="remove"
           />
           <label v-if="['text', 'qr', 'barcode', 'datamatrix', 'aztec'].includes(selected.kind)"
-            >Content<textarea
-              aria-label="Content"
+            >{{ $t('templateEditor.content')
+            }}<textarea
+              :aria-label="$t('templateEditor.content')"
               v-model="selected.content"
               maxlength="2000"
               rows="3"
               @change="record"
             ></textarea
             ><span class="help"
-              >Use <code v-pre>{{ name }}</code> for a variable.</span
+              >{{ $t('common.use') }} <code v-pre>{{ name }}</code>
+              {{ $t('common.forAVariable') }}</span
             ></label
           >
           <template v-if="selected.kind === 'barcode'">
@@ -1548,23 +1583,25 @@ onUnmounted(() => {
               <SettingHelp
                 :help="editorHelp.barcode"
                 for="setting-barcode"
-                label="Barcode format"
+                :label="$t('templateEditor.barcodeFormat')"
               /><select id="setting-barcode" v-model="selected.barcode_format" @change="record">
-                <option value="code128">Code 128</option>
-                <option value="ean13">EAN-13</option>
-                <option value="ean8">EAN-8</option>
-                <option value="code39">Code 39</option>
+                <option value="code128">{{ $t('templateEditor.code128') }}</option>
+                <option value="ean13">{{ $t('templateEditor.ean13') }}</option>
+                <option value="ean8">{{ $t('templateEditor.ean8') }}</option>
+                <option value="code39">{{ $t('templateEditor.code39') }}</option>
               </select>
             </div>
             <div class="setting-toggle">
               <label class="checkbox"
-                ><input v-model="selected.barcode_caption" type="checkbox" @change="record" />Show
-                caption</label
+                ><input v-model="selected.barcode_caption" type="checkbox" @change="record" />{{
+                  $t('common.showCaption')
+                }}</label
               ><SettingHelp :help="editorHelp.caption" />
             </div>
             <ExpandableContent :open="!!selected.barcode_caption">
               <label
-                >Caption size (mm)<input
+                >{{ $t('templateEditor.captionSizeMm')
+                }}<input
                   v-model.number="selected.font_size"
                   type="number"
                   min="1"
@@ -1576,14 +1613,15 @@ onUnmounted(() => {
           </template>
           <template v-if="selected.kind === 'image'">
             <label
-              >Image<select v-model="selected.image_asset" @change="record">
-                <option :value="null" disabled>Select an uploaded image</option>
+              >{{ $t('templateEditor.image')
+              }}<select v-model="selected.image_asset" @change="record">
+                <option :value="null" disabled>{{ $t('common.selectAnUploadedImage') }}</option>
                 <option
                   v-if="preview?.missing_assets?.[selected.id] === 'image'"
                   :value="selected.image_asset"
                   disabled
                 >
-                  Missing image — choose a replacement
+                  {{ $t('templateEditor.missingImageChooseAReplacement') }}
                 </option>
                 <option
                   v-for="asset in w.images.filter(
@@ -1597,7 +1635,8 @@ onUnmounted(() => {
               </select></label
             >
             <label v-if="auth.can('images.create_personal')"
-              >Upload image file<input
+              >{{ $t('common.uploadImageFile')
+              }}<input
                 ref="imageInput"
                 type="file"
                 accept=".png,.jpg,.jpeg,.webp,.bmp,.gif,.svg"
@@ -1610,7 +1649,7 @@ onUnmounted(() => {
               :disabled="!imageFile || w.busy"
               @click="uploadImage"
             >
-              Upload and use image
+              {{ $t('common.uploadAndUseImage') }}
             </button>
           </template>
         </div>
@@ -1629,18 +1668,23 @@ onUnmounted(() => {
             @duplicate="duplicate"
             @remove="remove"
           />
-          <PropertySection v-if="selected.kind === 'text'" title="Typography" initially-open>
+          <PropertySection
+            v-if="selected.kind === 'text'"
+            :title="$t('common.typography')"
+            initially-open
+          >
             <template v-if="selected.kind === 'text'">
               <div class="field-row typography-fonts">
                 <label
-                  >Font<select v-model="selected.font" @change="changeFont">
-                    <option>Noto Sans</option>
+                  >{{ $t('templateEditor.font')
+                  }}<select v-model="selected.font" @change="changeFont">
+                    <option>{{ $t('common.notoSans') }}</option>
                     <option
                       v-if="preview?.missing_assets?.[selected.id] === 'font'"
                       :value="selected.font"
                       disabled
                     >
-                      Missing font — choose a replacement
+                      {{ $t('templateEditor.missingFontChooseAReplacement') }}
                     </option>
                     <option
                       v-for="font in w.fonts.filter((f) => !f.archived || f.id === selected?.font)"
@@ -1656,7 +1700,7 @@ onUnmounted(() => {
                   <SettingHelp
                     :help="editorHelp.fontSize"
                     for="setting-fontSize"
-                    label="Font size (mm)"
+                    :label="$t('templateEditor.fontSizeMm')"
                   /><input
                     id="setting-fontSize"
                     v-model.number="selected.font_size"
@@ -1677,43 +1721,43 @@ onUnmounted(() => {
               <div class="row">
                 <div class="setting-toggle">
                   <label class="checkbox"
-                    ><input v-model="selected.wrap" type="checkbox" @change="record" />Wrap
-                    text</label
+                    ><input v-model="selected.wrap" type="checkbox" @change="record" />{{
+                      $t('common.wrapText')
+                    }}</label
                   ><SettingHelp :help="editorHelp.wrap" />
                 </div></div
             ></template>
             <div class="field-row">
               <label
-                >Horizontal text alignment<select v-model="selected.align" @change="record">
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
+                >{{ $t('templateEditor.horizontalTextAlignment')
+                }}<select v-model="selected.align" @change="record">
+                  <option value="left">{{ $t('templateEditor.left') }}</option>
+                  <option value="center">{{ $t('templateEditor.center') }}</option>
+                  <option value="right">{{ $t('templateEditor.right') }}</option>
                 </select></label
               >
               <label
-                >Vertical text alignment<select
-                  :value="selected.vertical_align ?? 'top'"
-                  @change="setVerticalAlign"
-                >
-                  <option value="top">Top</option>
-                  <option value="center">Center</option>
-                  <option value="bottom">Bottom</option>
+                >{{ $t('common.verticalTextAlignment')
+                }}<select :value="selected.vertical_align ?? 'top'" @change="setVerticalAlign">
+                  <option value="top">{{ $t('common.top') }}</option>
+                  <option value="center">{{ $t('templateEditor.center') }}</option>
+                  <option value="bottom">{{ $t('templateEditor.bottom') }}</option>
                 </select></label
               >
             </div>
           </PropertySection>
-          <PropertySection v-if="selected.kind === 'text'" title="Spacing &amp; padding">
+          <PropertySection v-if="selected.kind === 'text'" :title="$t('common.spacingPadding')">
             <fieldset class="text-padding">
-              <legend>Text spacing (mm)</legend>
+              <legend>{{ $t('common.textSpacingMm') }}</legend>
               <div class="field-row">
                 <div class="setting-field">
                   <SettingHelp
                     :help="editorHelp.characterSpacing"
                     for="setting-characterSpacing"
-                    label="Horizontal"
+                    :label="$t('templateEditor.horizontal')"
                   /><input
                     id="setting-characterSpacing"
-                    aria-label="Horizontal character spacing (mm)"
+                    :aria-label="$t('templateEditor.horizontalCharacterSpacingMm')"
                     :value="selected.character_spacing ?? 0"
                     type="number"
                     min="0"
@@ -1726,10 +1770,10 @@ onUnmounted(() => {
                   <SettingHelp
                     :help="editorHelp.lineSpacing"
                     for="setting-lineSpacing"
-                    label="Vertical"
+                    :label="$t('common.vertical')"
                   /><input
                     id="setting-lineSpacing"
-                    aria-label="Vertical line spacing (mm)"
+                    :aria-label="$t('common.verticalLineSpacingMm')"
                     :value="selected.line_spacing ?? 0"
                     type="number"
                     min="0"
@@ -1740,11 +1784,11 @@ onUnmounted(() => {
                 </div>
               </div>
             </fieldset>
-            <p class="help">Zero uses normal spacing; gaps shrink with text.</p>
+            <p class="help">{{ $t('common.zeroUsesNormalSpacingGapsShrinkWithText') }}</p>
             <fieldset class="text-padding">
               <legend>
                 <span class="setting-toggle"
-                  >Text padding (mm)<SettingHelp :help="editorHelp.padding"
+                  >{{ $t('common.textPaddingMm') }}<SettingHelp :help="editorHelp.padding"
                 /></span>
               </legend>
               <div
@@ -1768,7 +1812,7 @@ onUnmounted(() => {
           </PropertySection>
           <PropertySection
             v-if="selected.kind === 'image'"
-            title="Image adjustments"
+            :title="$t('templateEditor.imageAdjustments')"
             initially-open
           >
             <div class="setting-toggle">
@@ -1777,14 +1821,14 @@ onUnmounted(() => {
                   type="checkbox"
                   :checked="selected.preserve_aspect ?? true"
                   @change="setPreserveAspect"
-                />Keep image proportions</label
+                />{{ $t('templateEditor.keepImageProportions') }}</label
               ><SettingHelp :help="editorHelp.imageProportions" />
             </div>
             <div class="setting-field">
               <SettingHelp
                 :help="editorHelp.imageScale"
                 for="setting-imageScale"
-                label="Image scale"
+                :label="$t('templateEditor.imageScale')"
               /><input
                 id="setting-imageScale"
                 type="number"
@@ -1798,7 +1842,7 @@ onUnmounted(() => {
             </div>
             <input
               type="range"
-              aria-label="Image scale slider"
+              :aria-label="$t('templateEditor.imageScaleSlider')"
               min="0.1"
               max="1"
               step="0.05"
@@ -1810,7 +1854,7 @@ onUnmounted(() => {
               <SettingHelp
                 :help="editorHelp.brightness"
                 for="setting-brightness"
-                label="Brightness"
+                :label="$t('templateEditor.brightness')"
               /><input
                 id="setting-brightness"
                 type="number"
@@ -1825,7 +1869,7 @@ onUnmounted(() => {
               <SettingHelp
                 :help="editorHelp.contrast"
                 for="setting-contrast"
-                label="Contrast"
+                :label="$t('templateEditor.contrast')"
               /><input
                 id="setting-contrast"
                 type="number"
@@ -1840,17 +1884,17 @@ onUnmounted(() => {
               <SettingHelp
                 :help="editorHelp.conversion"
                 for="setting-conversion"
-                label="Image conversion"
+                :label="$t('templateEditor.imageConversion')"
               /><select id="setting-conversion" v-model="selected.image_mode" @change="record">
-                <option value="threshold">Black and white (threshold)</option>
-                <option value="dither">Dithered shading</option>
+                <option value="threshold">{{ $t('templateEditor.blackAndWhiteThreshold') }}</option>
+                <option value="dither">{{ $t('templateEditor.ditheredShading') }}</option>
               </select>
             </div>
             <div v-if="selected.image_mode !== 'dither'" class="setting-field">
               <SettingHelp
                 :help="editorHelp.threshold"
                 for="setting-threshold"
-                label="Threshold"
+                :label="$t('common.threshold')"
               /><input
                 id="setting-threshold"
                 type="number"
@@ -1864,12 +1908,13 @@ onUnmounted(() => {
           </PropertySection>
           <PropertySection
             v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
-            title="Appearance"
+            :title="$t('templateEditor.appearance')"
             initially-open
           >
             <template v-if="selected.kind === 'rectangle' || selected.kind === 'line'"
               ><label
-                >Stroke (mm)<input
+                >{{ $t('common.strokeMm')
+                }}<input
                   :value="selected.stroke"
                   @input="setStroke"
                   type="number"
@@ -1878,8 +1923,9 @@ onUnmounted(() => {
                   step="0.1"
                   @change="record" /></label
               ><label v-if="selected.kind === 'rectangle'" class="checkbox"
-                ><input v-model="selected.filled" type="checkbox" @change="record" />Filled
-                rectangle</label
+                ><input v-model="selected.filled" type="checkbox" @change="record" />{{
+                  $t('templateEditor.filledRectangle')
+                }}</label
               ></template
             >
           </PropertySection>
@@ -1892,10 +1938,11 @@ onUnmounted(() => {
           :inert="activeInspector !== 'layout'"
           class="inspector-panel"
         >
-          <PropertySection title="Position &amp; size" initially-open>
+          <PropertySection :title="$t('templateEditor.positionSize')" initially-open>
             <div class="field-row">
               <label
-                >X (mm)<input
+                >{{ $t('common.xMm')
+                }}<input
                   :value="elementGeometry(positionedElement(selected)).x"
                   :disabled="positionLocked('x')"
                   @input="setPosition('x', $event)"
@@ -1904,7 +1951,8 @@ onUnmounted(() => {
                   step="0.5"
                   @change="record" /></label
               ><label
-                >Y (mm)<input
+                >{{ $t('common.yMm')
+                }}<input
                   :value="elementGeometry(positionedElement(selected)).y"
                   :disabled="positionLocked('y')"
                   @input="setPosition('y', $event)"
@@ -1916,7 +1964,7 @@ onUnmounted(() => {
             </div>
             <div class="field-row">
               <label
-                >{{ selected.kind === 'line' ? 'Length (mm)' : 'Width (mm)'
+                >{{ selected.kind === 'line' ? $t('companionApp.lengthMm') : 'Width (mm)'
                 }}<input
                   ref="widthInput"
                   :value="
@@ -1936,7 +1984,8 @@ onUnmounted(() => {
                   "
                   @change="record" /></label
               ><label v-if="selected.kind !== 'line'"
-                >Height (mm)<input
+                >{{ $t('templateEditor.heightMm')
+                }}<input
                   :value="elementGeometry(positionedElement(selected)).height"
                   :disabled="selected.kind === 'qr' || automaticDimension(selected) === 'height'"
                   type="number"
@@ -1947,13 +1996,15 @@ onUnmounted(() => {
               /></label>
             </div>
             <label v-if="selected.kind === 'line'"
-              >Direction<select :value="selected.rotation % 180" @change="rotateElement">
-                <option :value="0">Horizontal</option>
-                <option :value="90">Vertical</option>
+              >{{ $t('templateEditor.direction')
+              }}<select :value="selected.rotation % 180" @change="rotateElement">
+                <option :value="0">{{ $t('templateEditor.horizontal') }}</option>
+                <option :value="90">{{ $t('common.vertical') }}</option>
               </select></label
             >
             <label v-else
-              >Rotation<select :value="selected.rotation" @change="rotateElement">
+              >{{ $t('templateEditor.rotation')
+              }}<select :value="selected.rotation" @change="rotateElement">
                 <option v-for="angle in [0, 90, 180, 270]" :key="angle">{{ angle }}</option>
               </select></label
             >
@@ -1964,7 +2015,7 @@ onUnmounted(() => {
                     type="checkbox"
                     :checked="boxAspectLocked(selected)"
                     @change="setBoxAspectLock"
-                  />Lock box proportions</label
+                  />{{ $t('templateEditor.lockBoxProportions') }}</label
                 ><SettingHelp :help="editorHelp.boxProportions" />
               </div>
               <ExpandableContent :open="imageBoxMismatch"
@@ -1980,7 +2031,7 @@ onUnmounted(() => {
                     "
                     @click="fitImageBox"
                   >
-                    Fit box to image
+                    {{ $t('templateEditor.fitBoxToImage') }}
                   </button>
                 </div></ExpandableContent
               >
@@ -2004,7 +2055,7 @@ onUnmounted(() => {
               <div class="setting-toggle">
                 <label class="checkbox">
                   <input v-model="selected.qr_fill_box" type="checkbox" @change="record" />
-                  Scale up to bounding box </label
+                  {{ $t('common.scaleUpToBoundingBox') }} </label
                 ><SettingHelp :help="editorHelp.qrFill" />
               </div>
               <template v-if="selected.qr_fill_box">
@@ -2012,36 +2063,35 @@ onUnmounted(() => {
                   <SettingHelp
                     :help="editorHelp.qrMargin"
                     for="setting-qrMargin"
-                    label="QR margin (mm)"
+                    :label="$t('templateEditor.qrMarginMm')"
                   /><input
                     id="setting-qrMargin"
                     type="number"
                     min="0"
                     step="0.1"
                     :value="selected.qr_margin_mm ?? ''"
-                    placeholder="Auto (4 modules)"
+                    :placeholder="$t('templateEditor.auto4Modules')"
                     @change="setQrMargin"
                   />
                 </div>
                 <p class="help">
-                  Inset on each side: 0 fills the box; blank adds a four-module border. Leave clear
-                  space around the code for scanning.
+                  {{ $t('templateEditor.insetOnEachSide0FillsTheBoxBlank') }}
                 </p>
               </template>
             </template>
           </PropertySection>
-          <PropertySection title="Distance holder">
+          <PropertySection :title="$t('templateEditor.distanceHolder')">
             <div class="setting-field">
               <SettingHelp
                 :help="editorHelp.follow"
                 for="setting-follow"
-                label="Follow element"
+                :label="$t('templateEditor.followElement')"
               /><select
                 id="setting-follow"
                 :value="selected.distance_holder?.element_id ?? ''"
                 @change="setDistanceTarget"
               >
-                <option value="">None (free position)</option>
+                <option value="">{{ $t('templateEditor.noneFreePosition') }}</option>
                 <option v-for="element in distanceTargets" :key="element.id" :value="element.id">
                   {{ document.elements.indexOf(element) + 1 }}.
                   {{ element.name?.trim() || element.kind
@@ -2055,13 +2105,18 @@ onUnmounted(() => {
             </div>
             <template v-if="selected.distance_holder">
               <label
-                >Placement<select v-model="selected.distance_holder.axis" @change="record">
-                  <option value="horizontal">Right of element</option>
-                  <option value="vertical">Below element</option>
+                >{{ $t('templateEditor.placement')
+                }}<select v-model="selected.distance_holder.axis" @change="record">
+                  <option value="horizontal">{{ $t('templateEditor.rightOfElement') }}</option>
+                  <option value="vertical">{{ $t('templateEditor.belowElement') }}</option>
                 </select></label
               >
               <div class="setting-field">
-                <SettingHelp :help="editorHelp.gap" for="setting-gap" label="Gap (mm)" /><input
+                <SettingHelp
+                  :help="editorHelp.gap"
+                  for="setting-gap"
+                  :label="$t('templateEditor.gapMm')"
+                /><input
                   id="setting-gap"
                   v-model.number="selected.distance_holder.gap_mm"
                   type="number"
@@ -2073,20 +2128,26 @@ onUnmounted(() => {
               </div>
             </template>
             <p class="help">
-              Gap between element bounds, including rotation and padding. Deleting the anchor
-              detaches this element at its current position.
+              {{ $t('templateEditor.gapBetweenElementBoundsIncludingRotationAndPaddingDeleting') }}
             </p>
           </PropertySection>
-          <PropertySection title="Arrange">
+          <PropertySection :title="$t('templateEditor.arrange')">
             <div class="row wrap">
-              <button class="small" @click="align('left')">Align left</button
-              ><button class="small" @click="align('center')">Center horizontally</button
-              ><button class="small" @click="align('right')">Align right</button
-              ><button class="small" @click="align('middle')">Center vertically</button>
+              <button class="small" @click="align('left')">
+                {{ $t('templateEditor.alignLeft') }}</button
+              ><button class="small" @click="align('center')">
+                {{ $t('templateEditor.centerHorizontally') }}</button
+              ><button class="small" @click="align('right')">
+                {{ $t('templateEditor.alignRight') }}</button
+              ><button class="small" @click="align('middle')">
+                {{ $t('templateEditor.centerVertically') }}
+              </button>
             </div>
             <div class="row wrap">
-              <button class="small" @click="order(-1)">Send backward</button
-              ><button class="small" @click="order(1)">Bring forward</button>
+              <button class="small" @click="order(-1)">{{ $t('common.sendBackward') }}</button
+              ><button class="small" @click="order(1)">
+                {{ $t('templateEditor.bringForward') }}
+              </button>
             </div>
           </PropertySection>
         </div>
@@ -2108,13 +2169,13 @@ onUnmounted(() => {
   <section v-if="ready && w.profiles.length" class="panel variable-fields">
     <div class="section-heading">
       <div class="setting-toggle">
-        <h2>Variable fields</h2>
+        <h2>{{ $t('common.variableFields') }}</h2>
         <SettingHelp :help="editorHelp.variables" />
       </div>
-      <button @click="addField">Add variable</button>
+      <button @click="addField">{{ $t('templateEditor.addVariable') }}</button>
     </div>
     <p v-if="document.fields.length" class="help">
-      Samples are used in the editor. Defaults prefill the label submission form.
+      {{ $t('templateEditor.samplesAreUsedInTheEditorDefaultsPrefillThe') }}
     </p>
     <div
       v-for="(field, index) in document.fields"
@@ -2123,25 +2184,29 @@ onUnmounted(() => {
       :class="{ 'image-variable': field.type === 'image' }"
     >
       <label
-        >Variable name<input
+        >{{ $t('common.variableName')
+        }}<input
           :value="field.name"
           pattern="[A-Za-z][A-Za-z0-9_]*"
           :maxlength="document.version === 2 ? 40 : undefined"
           @change="changeFieldName(field, $event)" /></label
-      ><label>Field label<input v-model="field.label" @change="record" /></label>
+      ><label
+        >{{ $t('templateEditor.fieldLabel') }}<input v-model="field.label" @change="record"
+      /></label>
       <label
-        >Type<select :value="field.type ?? 'text'" @change="changeFieldType(field, $event)">
-          <option value="text">Text</option>
-          <option value="number">Number</option>
-          <option value="boolean">Boolean</option>
-          <option value="image">Image</option>
+        >{{ $t('common.type')
+        }}<select :value="field.type ?? 'text'" @change="changeFieldType(field, $event)">
+          <option value="text">{{ $t('common.text') }}</option>
+          <option value="number">{{ $t('templateEditor.number') }}</option>
+          <option value="boolean">{{ $t('templateEditor.boolean') }}</option>
+          <option value="image">{{ $t('templateEditor.image') }}</option>
         </select></label
       >
       <VariableInput
         :key="`${field.name}:${field.type}:sample`"
         v-model="field.sample"
         :field="field"
-        label="Sample value"
+        :label="$t('templateEditor.sampleValue')"
         nullable
         @change="record"
       />
@@ -2149,17 +2214,22 @@ onUnmounted(() => {
         :key="`${field.name}:${field.type}:default`"
         v-model="field.default"
         :field="field"
-        label="Default value"
+        :label="$t('templateEditor.defaultValue')"
         nullable
         @change="record"
       />
       <label class="checkbox"
-        ><input v-model="field.required" type="checkbox" @change="record" />Required</label
-      ><button class="danger-text" @click="removeField(index)">Remove variable</button>
+        ><input v-model="field.required" type="checkbox" @change="record" />{{
+          $t('common.required')
+        }}</label
+      ><button class="danger-text" @click="removeField(index)">
+        {{ $t('templateEditor.removeVariable') }}
+      </button>
       <ExpandableContent :open="field.type === 'number'" class="variable-limits">
         <div class="field-row">
           <label
-            >Minimum<input
+            >{{ $t('templateEditor.minimum')
+            }}<input
               type="number"
               step="any"
               min="-1000000000000"
@@ -2168,7 +2238,8 @@ onUnmounted(() => {
               @change="changeLimit(field, 'minimum', $event)"
           /></label>
           <label
-            >Maximum<input
+            >{{ $t('templateEditor.maximum')
+            }}<input
               type="number"
               step="any"
               min="-1000000000000"
@@ -2184,7 +2255,7 @@ onUnmounted(() => {
             <SettingHelp
               :help="editorHelp.minimumLength"
               :for="`setting-minimumLength-${index}`"
-              label="Minimum length"
+              :label="$t('templateEditor.minimumLength')"
             /><input
               :id="`setting-minimumLength-${index}`"
               type="number"
@@ -2199,7 +2270,7 @@ onUnmounted(() => {
             <SettingHelp
               :help="editorHelp.maximumLength"
               :for="`setting-maximumLength-${index}`"
-              label="Maximum length"
+              :label="$t('templateEditor.maximumLength')"
             /><input
               :id="`setting-maximumLength-${index}`"
               type="number"

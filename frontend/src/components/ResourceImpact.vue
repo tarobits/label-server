@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { AccessImpact, ResourceEntry } from '../resourceAccess'
+import type { AccessImpact, ResourceEntry } from '../shared/resourceAccess'
 import AnimatedDetails from './AnimatedDetails.vue'
-import { printerPermissionLabel } from '../printerPermissions'
+import { printerPermissionLabel } from '../printing/printerPermissions'
 defineProps<{ changes: AccessImpact[]; resources: ResourceEntry[] }>()
 const difference = (a: string[], b: string[]) => a.filter((value) => !b.includes(value))
 function label(permission: string) {
@@ -11,7 +11,7 @@ function label(permission: string) {
 }
 </script>
 <template>
-  <p v-if="!changes.length">Effective permissions are unchanged.</p>
+  <p v-if="!changes.length">{{ $t('resourceImpact.effectivePermissionsAreUnchanged') }}</p>
   <AnimatedDetails v-for="change in changes" :key="change.id" class="settings-details">
     <template #summary>{{ change.name }}</template>
     <template v-for="(permissions, key) in change.after" :key="key">
@@ -23,7 +23,7 @@ function label(permission: string) {
           resources.find((item) => `${item.kind}:${item.id}` === key)?.name ?? key
         }}</strong>
         <p v-if="difference(permissions, change.before[key] ?? []).length">
-          Added:
+          {{ $t('resourceImpact.added') }}
           {{
             difference(permissions, change.before[key] ?? [])
               .map(label)
@@ -31,7 +31,7 @@ function label(permission: string) {
           }}
         </p>
         <p v-if="difference(change.before[key] ?? [], permissions).length">
-          Removed:
+          {{ $t('resourceImpact.removed') }}
           {{
             difference(change.before[key] ?? [], permissions)
               .map(label)

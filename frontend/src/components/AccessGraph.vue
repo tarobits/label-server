@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { permissionLabel, decisionSummary } from '../resourceAccess'
-import type { AccessCatalog, AccessExplanation, PermissionRule } from '../resourceAccess'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { permissionLabel, decisionSummary } from '../shared/resourceAccess'
+import type { AccessCatalog, AccessExplanation, PermissionRule } from '../shared/resourceAccess'
 import ExpandableContent from './ExpandableContent.vue'
 const props = defineProps<{
   catalog: AccessCatalog
@@ -88,15 +88,17 @@ function steps(rule: PermissionRule, name: string) {
   <div class="form-stack access-graph" :aria-busy="busy">
     <div class="graph-filters">
       <label
-        >User<select v-model="user">
+        >{{ $t('common.user')
+        }}<select v-model="user">
           <option v-for="person in catalog.users" :key="person.id" :value="person.id">
             {{ person.name }}
           </option>
         </select></label
       >
       <label
-        >Resource<select v-model="resource">
-          <option value="">All inspectable resources</option>
+        >{{ $t('common.resource')
+        }}<select v-model="resource">
+          <option value="">{{ $t('accessGraph.allInspectableResources') }}</option>
           <option
             v-for="item in catalog.resources"
             :key="`${item.kind}:${item.id}`"
@@ -107,7 +109,8 @@ function steps(rule: PermissionRule, name: string) {
         </select></label
       >
       <label
-        >Permission<select v-model="permission" :disabled="busy || !choices.length">
+        >{{ $t('common.permission')
+        }}<select v-model="permission" :disabled="busy || !choices.length">
           <option v-for="choice in choices" :key="choice" :value="choice">
             {{ permissionLabel(choice) }}
           </option>
@@ -117,11 +120,10 @@ function steps(rule: PermissionRule, name: string) {
     <ExpandableContent :open="!!error"
       ><p class="alert danger" role="alert">{{ error }}</p></ExpandableContent
     >
-    <p v-if="busy" role="status">Loading access paths…</p>
+    <p v-if="busy" role="status">{{ $t('accessGraph.loadingAccessPaths') }}</p>
     <template v-else-if="result">
       <p class="muted">
-        More specific resource rules win, then user rules over roles. Equal role rules favor deny.
-        Owners and administrators retain protected access.
+        {{ $t('accessGraph.moreSpecificResourceRulesWinThenUserRulesOver') }}
       </p>
       <section v-for="row in rows" :key="`${row.kind}:${row.id}`" class="graph-resource">
         <div class="section-heading wrap">
@@ -151,14 +153,16 @@ function steps(rule: PermissionRule, name: string) {
               </template>
             </div>
             <p class="path-outcome">
-              {{ rule.effect === 'allow' ? 'Allow' : 'Deny' }} ·
+              {{ rule.effect === 'allow' ? $t('common.allow') : $t('common.deny') }} ·
               {{ rule.winning ? 'Applies' : 'Overridden'
               }}{{ rule.protected ? ' · Protected' : '' }}
             </p>
           </li>
         </ol>
       </section>
-      <p v-if="!rows.length" class="empty">No resources match this permission.</p>
+      <p v-if="!rows.length" class="empty">
+        {{ $t('accessGraph.noResourcesMatchThisPermission') }}
+      </p>
     </template>
   </div>
 </template>

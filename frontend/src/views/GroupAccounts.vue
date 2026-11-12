@@ -1,16 +1,20 @@
 <script setup lang="ts">
+import { locale, t } from '../shared/i18n'
+
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { date } from '../workspace'
-import { randomUUID } from '../uuid'
-import { useLiveRefresh } from '../live'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { date } from '../shared/workspace'
+import { randomUUID } from '../shared/uuid'
+import { useLiveRefresh } from '../shared/live'
+import { freezeLeavingItem } from '../shared/collectionMotion'
 import AdminDialog from '../components/AdminDialog.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import JobPreview from '../components/JobPreview.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import MotionSurface from '../components/MotionSurface.vue'
+import GroupPrintDetails from '../components/GroupPrintDetails.vue'
 
 interface Account {
   id: string
@@ -30,6 +34,8 @@ interface Charge {
   outstanding_micros: number
   kind: string
   created_at: number
+  source_kind: string
+  prints_url: string | null
 }
 interface FundingRequest {
   id: string
@@ -41,6 +47,7 @@ interface FundingRequest {
   created_at: number
   can_decide: boolean
   can_resolve: boolean
+  prints_url: string | null
   preview: { url: string; width_mm: number; length_mm: number; copies: number } | null
   details: {
     amount_micros?: number
@@ -54,6 +61,7 @@ interface Details extends Account {
   requests: FundingRequest[]
 }
 interface History {
+  labels: { job_id: string; available_micros: number; pending: boolean }[]
   previews: {
     job_id: string
     copy_id: string
@@ -123,6 +131,24 @@ const grant = reactive({
 })
 const rights = computed(() => new Set(details.value?.permissions ?? []))
 const createOpen = ref(false)
+const historyOpen = ref(false)
+const selections = reactive<Record<string, string[]>>({})
+const chargeId = ref('')
+const chargeItem = computed(() => details.value?.charges.find((c) => c.id === chargeId.value))
+function openCharge(item: Charge, event: MouseEvent) {
+  ;(event.currentTarget as HTMLElement).focus()
+  chargeId.value = item.id
+}
+function openHistory(event: MouseEvent) {
+  ;(event.currentTarget as HTMLElement).focus()
+  historyOpen.value = true
+  void loadHistory()
+}
+function selectedCost(item: History) {
+  return item.labels
+    .filter((label) => selections[item.batch_id]?.includes(label.job_id))
+    .reduce((sum, label) => sum + label.available_micros, 0)
+}
 function openCreate(event: MouseEvent) {
   ;(event.currentTarget as HTMLElement).focus()
   error.value = ''
@@ -159,16 +185,64 @@ const canRecordPayment = computed(
     payees.value.some(([id]) => id === auth.user?.id),
 )
 const sections = computed(() => [
-  { id: 'requests', title: 'Requests' },
-  { id: 'balances', title: 'Balances & charges' },
-  ...(canRecordPayment.value ? [{ id: 'payments', title: 'Payments' }] : []),
-  ...(rights.value.has('request_transfer') && !details.value?.archived
-    ? [{ id: 'transfers', title: 'Previous print costs' }]
+  {
+    id: 'requests',
+    get title() {
+      return t('groupAccounts.requests')
+    },
+  },
+  {
+    id: 'balances',
+    get title() {
+      return t('groupAccounts.balancesCharges')
+    },
+  },
+  ...(canRecordPayment.value
+    ? [
+        {
+          id: 'payments',
+          get title() {
+            return t('groupAccounts.payments')
+          },
+        },
+      ]
     : []),
-  { id: 'history', title: 'Request history' },
-  ...(rights.value.has('edit') ? [{ id: 'settings', title: 'Account settings' }] : []),
-  ...(rights.value.has('manage_access') ? [{ id: 'permissions', title: 'Permissions' }] : []),
-  ...(rights.value.has('view_audit') ? [{ id: 'audit', title: 'Audit log' }] : []),
+  {
+    id: 'history',
+    get title() {
+      return t('groupAccounts.requestHistory')
+    },
+  },
+  ...(rights.value.has('edit')
+    ? [
+        {
+          id: 'settings',
+          get title() {
+            return t('navigation.account')
+          },
+        },
+      ]
+    : []),
+  ...(rights.value.has('manage_access')
+    ? [
+        {
+          id: 'permissions',
+          get title() {
+            return t('common.permissions')
+          },
+        },
+      ]
+    : []),
+  ...(rights.value.has('view_audit')
+    ? [
+        {
+          id: 'audit',
+          get title() {
+            return t('common.auditLog')
+          },
+        },
+      ]
+    : []),
 ])
 const section = computed(
   () => sections.value.find((item) => item.id === route.query.section) ?? sections.value[0]!,
@@ -176,13 +250,17 @@ const section = computed(
 const navigationGroups = computed(() =>
   [
     {
-      title: 'Funding',
+      get title() {
+        return t('common.funding')
+      },
       sections: sections.value.filter(
         (item) => !['settings', 'permissions', 'audit'].includes(item.id),
       ),
     },
     {
-      title: 'Manage',
+      get title() {
+        return t('resourceAccess.manage')
+      },
       sections: sections.value.filter((item) =>
         ['settings', 'permissions', 'audit'].includes(item.id),
       ),
@@ -197,6 +275,7 @@ async function loadHistory() {
     history.value = (await api<History[]>('/accounts/groups/history')).filter(
       (item) => item.available_micros > 0,
     )
+    for (const item of history.value) selections[item.batch_id] ??= []
   }, '')
 }
 async function loadEvents() {
@@ -252,7 +331,7 @@ const currencies = computed(() => [
   ),
 ])
 const money = (micros: number | string, currency: string) =>
-  new Intl.NumberFormat(undefined, {
+  new Intl.NumberFormat(locale.value, {
     style: 'currency',
     currency,
     maximumFractionDigits: 6,
@@ -266,6 +345,10 @@ const kind = (value: string) =>
     reimbursement: 'Reimbursement',
     supply: 'Cartridge use',
   })[value] ?? value
+const obligation = (value: string) =>
+  ({ transfer: 'Cartridge cost', reimbursement: 'Reimbursement', supply: 'Own cartridge' })[
+    value
+  ] ?? value
 let generation = 0
 async function load() {
   const ticket = ++generation
@@ -314,6 +397,8 @@ watch(selected, async (value) => {
   access.value = null
   events.value = []
   history.value = []
+  historyOpen.value = false
+  chargeId.value = ''
   payment.recipient_id = ''
   payment.amount = ''
   payment.note = ''
@@ -367,7 +452,6 @@ watch(
 watch([() => section.value.id, () => details.value?.id], ([tab, account]) => {
   if (!account) return
   if (tab === 'permissions') void loadAccess()
-  if (tab === 'transfers') void loadHistory()
   if (tab === 'audit') void loadEvents()
 })
 onMounted(refresh)
@@ -454,14 +538,19 @@ const transferKeys = new Map<string, string>()
 async function transfer(item: History, direct = false) {
   await perform(
     async () => {
-      const key = `${selected.value}:${item.batch_id}:${direct}`
+      const jobIds = [...(selections[item.batch_id] ?? [])].sort()
+      const key = JSON.stringify([selected.value, item.batch_id, jobIds, direct])
       if (!transferKeys.has(key)) transferKeys.set(key, randomUUID())
       await api(`/accounts/groups/${selected.value}/transfers`, 'POST', {
         batch_id: item.batch_id,
         request_id: transferKeys.get(key),
         direct,
+        job_ids: jobIds,
       })
-      history.value = history.value.filter((row) => row.batch_id !== item.batch_id)
+      selections[item.batch_id] = []
+      history.value = (await api<History[]>('/accounts/groups/history')).filter(
+        (row) => row.available_micros > 0,
+      )
     },
     direct ? 'Costs transferred.' : 'Transfer requested.',
   )
@@ -469,21 +558,34 @@ async function transfer(item: History, direct = false) {
 </script>
 <template>
   <div class="group-accounts">
-    <ExpandableContent :open="(!!error && !createOpen && !reviewId) || !!success">
-      <p v-if="error && !createOpen && !reviewId" class="alert danger" role="alert">{{ error }}</p>
+    <ExpandableContent
+      :open="(!!error && !createOpen && !reviewId && !historyOpen) || (!!success && !historyOpen)"
+    >
+      <p v-if="error && !createOpen && !reviewId && !historyOpen" class="alert danger" role="alert">
+        {{ error }}
+      </p>
       <p v-else-if="success" class="alert success" role="status">{{ success }}</p>
     </ExpandableContent>
     <header class="account-toolbar">
       <label v-if="accounts.length"
-        >Group account<select v-model="selected" :disabled="busy">
+        >{{ $t('common.groupAccount')
+        }}<select v-model="selected" :disabled="busy">
           <option v-for="account in accounts" :key="account.id" :value="account.id">
             {{ account.name }}{{ account.archived ? ' (archived)' : '' }}
           </option>
         </select></label
       >
-      <p v-else class="muted">No group accounts available.</p>
+      <p v-else class="muted">{{ $t('groupAccounts.noGroupAccountsAvailable') }}</p>
+      <button
+        v-if="rights.has('request_transfer') && !details?.archived"
+        class="secondary"
+        :disabled="busy"
+        @click="openHistory"
+      >
+        {{ $t('common.transferPreviousPrintCosts') }}
+      </button>
       <button v-if="canCreate" class="primary" :disabled="busy" @click="openCreate">
-        Create group account
+        {{ $t('groupAccounts.createGroupAccount') }}
       </button>
     </header>
     <div v-if="details" class="administration-layout">
@@ -492,7 +594,7 @@ async function transfer(item: History, direct = false) {
         class="administration-nav"
         :identity="section.id"
         selector="button.active"
-        aria-label="Group funding sections"
+        :aria-label="$t('groupAccounts.groupFundingSections')"
       >
         <div v-for="group in navigationGroups" :key="group.title" class="administration-nav-group">
           <h2>{{ group.title }}</h2>
@@ -512,7 +614,7 @@ async function transfer(item: History, direct = false) {
         </div>
       </MotionTrack>
       <label class="administration-mobile-nav"
-        ><span class="sr-only">Group funding section</span
+        ><span class="sr-only">{{ $t('groupAccounts.groupFundingSection') }}</span
         ><select
           :value="section.id"
           :disabled="busy"
@@ -536,8 +638,12 @@ async function transfer(item: History, direct = false) {
           class="admin-section"
           aria-labelledby="funding-requests"
         >
-          <header class="admin-section-heading"><h2 id="funding-requests">Requests</h2></header>
-          <p v-if="!pending.length" class="empty">No requests awaiting action.</p>
+          <header class="admin-section-heading">
+            <h2 id="funding-requests">{{ $t('groupAccounts.requests') }}</h2>
+          </header>
+          <p v-if="!pending.length" class="empty">
+            {{ $t('groupAccounts.noRequestsAwaitingAction') }}
+          </p>
           <div v-for="item in pending" :key="item.id" class="admin-record">
             <div>
               <strong>{{ kind(item.kind) }}</strong
@@ -547,10 +653,10 @@ async function transfer(item: History, direct = false) {
             <button
               class="secondary"
               :disabled="busy"
-              :aria-label="`${item.can_decide ? 'Review' : 'View'} ${kind(item.kind)} from ${item.requester_name}`"
+              :aria-label="`${item.can_decide ? 'Review' : $t('common.view')} ${kind(item.kind)} from ${item.requester_name}`"
               @click="openRequest(item, $event)"
             >
-              {{ item.can_decide ? 'Review' : 'View request' }}
+              {{ item.can_decide ? 'Review' : $t('common.viewRequest') }}
             </button>
           </div>
         </section>
@@ -560,15 +666,15 @@ async function transfer(item: History, direct = false) {
           aria-labelledby="funding-balances"
         >
           <header class="admin-section-heading">
-            <h2 id="funding-balances">Balances & charges</h2>
+            <h2 id="funding-balances">{{ $t('groupAccounts.balancesCharges') }}</h2>
           </header>
-          <h3>Balances</h3>
+          <h3>{{ $t('groupAccounts.balances') }}</h3>
           <div v-if="balances.length" class="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Recipient</th>
-                  <th>Owed</th>
+                  <th>{{ $t('common.recipient') }}</th>
+                  <th>{{ $t('common.owed') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -579,18 +685,21 @@ async function transfer(item: History, direct = false) {
               </tbody>
             </table>
           </div>
-          <p v-else class="muted">No outstanding debts.</p>
-          <h3>Charges</h3>
+          <p v-else class="muted">{{ $t('groupAccounts.noOutstandingDebts') }}</p>
+          <h3>{{ $t('groupAccounts.charges') }}</h3>
           <div v-if="details.charges.length" class="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Requester</th>
-                  <th>Recipient</th>
-                  <th>Cartridge</th>
-                  <th>Type</th>
-                  <th>Charged</th>
-                  <th>Outstanding</th>
+                  <th>{{ $t('common.requester') }}</th>
+                  <th>{{ $t('common.recipient') }}</th>
+                  <th>{{ $t('common.cartridge') }}</th>
+                  <th>{{ $t('common.type') }}</th>
+                  <th>{{ $t('common.charged') }}</th>
+                  <th>{{ $t('groupAccounts.outstanding') }}</th>
+                  <th>
+                    <span class="sr-only">{{ $t('groupAccounts.printDetails') }}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -600,14 +709,25 @@ async function transfer(item: History, direct = false) {
                     {{ charge.recipient_name ?? charge.cartridge_name ?? 'Unowned cartridge' }}
                   </td>
                   <td>{{ charge.cartridge_name ?? charge.cartridge_id }}</td>
-                  <td>{{ kind(charge.kind) }}</td>
+                  <td>
+                    {{ kind(charge.source_kind) }}<small>{{ obligation(charge.kind) }}</small>
+                  </td>
                   <td>{{ money(charge.amount_micros, charge.currency) }}</td>
                   <td>{{ money(charge.outstanding_micros, charge.currency) }}</td>
+                  <td>
+                    <button
+                      v-if="charge.prints_url"
+                      class="secondary"
+                      @click="openCharge(charge, $event)"
+                    >
+                      {{ $t('common.viewPrints') }}
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p v-else class="muted">No charges yet.</p>
+          <p v-else class="muted">{{ $t('common.noChargesYet') }}</p>
         </section>
         <section
           v-if="canRecordPayment"
@@ -615,13 +735,16 @@ async function transfer(item: History, direct = false) {
           class="admin-section"
           aria-labelledby="funding-payments"
         >
-          <header class="admin-section-heading"><h2 id="funding-payments">Payments</h2></header>
-          <p v-if="!payees.length" class="empty">No outstanding payments.</p>
+          <header class="admin-section-heading">
+            <h2 id="funding-payments">{{ $t('groupAccounts.payments') }}</h2>
+          </header>
+          <p v-if="!payees.length" class="empty">{{ $t('groupAccounts.noOutstandingPayments') }}</p>
           <template v-else>
             <form class="account-form" @submit.prevent="reportPayment">
               <label
-                >Recipient<select v-model="payment.recipient_id" required>
-                  <option disabled value="">Choose recipient</option>
+                >{{ $t('common.recipient')
+                }}<select v-model="payment.recipient_id" required>
+                  <option disabled value="">{{ $t('groupAccounts.chooseRecipient') }}</option>
                   <option
                     v-for="[id, name] in payees"
                     :key="id"
@@ -637,15 +760,18 @@ async function transfer(item: History, direct = false) {
                 </select></label
               >
               <div class="row wrap">
-                <label>Amount<input v-model="payment.amount" inputmode="decimal" required /></label
+                <label
+                  >{{ $t('common.amount')
+                  }}<input v-model="payment.amount" inputmode="decimal" required /></label
                 ><label
-                  >Currency<select v-model="payment.currency">
+                  >{{ $t('common.currency')
+                  }}<select v-model="payment.currency">
                     <option v-for="currency in currencies" :key="currency">{{ currency }}</option>
                   </select></label
                 >
               </div>
               <fieldset v-if="cartridges.length">
-                <legend>Cartridges (all by default, oldest debts first)</legend>
+                <legend>{{ $t('groupAccounts.cartridgesAllByDefaultOldestDebtsFirst') }}</legend>
                 <label v-for="[id, name] in cartridges" :key="id" class="checkbox"
                   ><input v-model="payment.cartridge_ids" type="checkbox" :value="id" />{{
                     name
@@ -653,66 +779,15 @@ async function transfer(item: History, direct = false) {
                 >
               </fieldset>
               <label
-                >Payment reference<input v-model="payment.note" maxlength="500" required
+                >{{ $t('groupAccounts.paymentReference')
+                }}<input v-model="payment.note" maxlength="500" required
               /></label>
               <p class="muted">
-                The recipient or an accounting editor must confirm receipt before debts are reduced.
+                {{ $t('common.theRecipientOrAnAccountingEditorMustConfirmReceipt') }}
               </p>
-              <button :disabled="busy">Record payment</button>
+              <button :disabled="busy">{{ $t('groupAccounts.recordPayment') }}</button>
             </form>
           </template>
-        </section>
-        <section
-          v-if="rights.has('request_transfer') && !details.archived"
-          v-show="section.id === 'transfers'"
-          class="admin-section"
-          aria-labelledby="funding-transfers"
-        >
-          <header class="admin-section-heading">
-            <h2 id="funding-transfers">Previous print costs</h2>
-            <button class="secondary" :disabled="busy" @click="loadHistory">Refresh</button>
-          </header>
-          <p v-if="!busy && !history.length" class="empty">No eligible prints.</p>
-          <div class="account-form">
-            <article v-for="item in history" :key="item.batch_id" class="historical-charge">
-              <div class="historical-previews">
-                <div v-for="preview in item.previews" :key="preview.job_id">
-                  <strong>{{ preview.text }}</strong>
-                  <JobPreview
-                    :job-id="preview.job_id"
-                    :text="preview.text"
-                    :preview-url="preview.url"
-                    :width-mm="preview.width_mm"
-                    :length-mm="preview.length_mm"
-                  />
-                  <small>{{ preview.copies }} {{ preview.copies === 1 ? 'copy' : 'copies' }}</small>
-                </div>
-              </div>
-              <div class="row wrap">
-                <span
-                  >{{ date(item.created_at) }} ·
-                  {{ money(item.available_micros, item.currency) }}</span
-                ><span v-if="item.paid_micros"
-                  >Paid: {{ money(item.paid_micros, item.currency) }}</span
-                ><span v-if="item.needs_payment_allocation" class="muted"
-                  >Existing payments need cartridge allocation first.</span
-                ><button
-                  class="secondary"
-                  :disabled="busy || item.needs_payment_allocation"
-                  @click="transfer(item)"
-                >
-                  Request transfer</button
-                ><button
-                  v-if="rights.has('direct')"
-                  class="secondary"
-                  :disabled="busy || item.needs_payment_allocation"
-                  @click="transfer(item, true)"
-                >
-                  Charge group directly
-                </button>
-              </div>
-            </article>
-          </div>
         </section>
         <section
           v-show="section.id === 'history'"
@@ -720,9 +795,11 @@ async function transfer(item: History, direct = false) {
           aria-labelledby="funding-history"
         >
           <header class="admin-section-heading">
-            <h2 id="funding-history">Request history</h2>
+            <h2 id="funding-history">{{ $t('groupAccounts.requestHistory') }}</h2>
           </header>
-          <p v-if="!completed.length" class="empty">No completed requests.</p>
+          <p v-if="!completed.length" class="empty">
+            {{ $t('groupAccounts.noCompletedRequests') }}
+          </p>
           <div v-for="item in completed" :key="item.id" class="request-row">
             <div class="row wrap">
               <strong>{{ kind(item.kind) }}</strong
@@ -731,7 +808,9 @@ async function transfer(item: History, direct = false) {
               >
             </div>
             <p v-if="item.reason">{{ item.reason }}</p>
-            <button class="secondary" @click="openRequest(item, $event)">View request</button>
+            <button class="secondary" @click="openRequest(item, $event)">
+              {{ $t('common.viewRequest') }}
+            </button>
           </div>
         </section>
         <section
@@ -741,7 +820,7 @@ async function transfer(item: History, direct = false) {
           aria-labelledby="funding-settings"
         >
           <header class="admin-section-heading">
-            <h2 id="funding-settings">Account settings</h2>
+            <h2 id="funding-settings">{{ $t('navigation.account') }}</h2>
           </header>
           <form
             class="account-form"
@@ -754,14 +833,15 @@ async function transfer(item: History, direct = false) {
               }, 'Account saved.')
             "
           >
-            <label>Name<input v-model="editName" required maxlength="100" /></label
+            <label
+              >{{ $t('common.name') }}<input v-model="editName" required maxlength="100" /></label
             ><label class="checkbox"
-              ><input v-model="editArchived" type="checkbox" />Archived</label
+              ><input v-model="editArchived" type="checkbox" />{{ $t('common.archived') }}</label
             >
             <p class="muted">
-              Archiving prevents new funding and holds group-funded labels that have not started.
+              {{ $t('groupAccounts.archivingPreventsNewFundingAndHoldsGroupFundedLabels') }}
             </p>
-            <button :disabled="busy">Save account</button>
+            <button :disabled="busy">{{ $t('groupAccounts.saveAccount') }}</button>
           </form>
         </section>
         <section
@@ -771,8 +851,10 @@ async function transfer(item: History, direct = false) {
           aria-labelledby="funding-permissions"
         >
           <header class="admin-section-heading">
-            <h2 id="funding-permissions">Permissions</h2>
-            <button class="secondary" :disabled="busy" @click="loadAccess">Refresh</button>
+            <h2 id="funding-permissions">{{ $t('common.permissions') }}</h2>
+            <button class="secondary" :disabled="busy" @click="loadAccess">
+              {{ $t('common.refresh') }}
+            </button>
           </header>
           <div class="account-form">
             <ExpandableContent :open="!!access"
@@ -780,13 +862,15 @@ async function transfer(item: History, direct = false) {
                 <form class="account-form" @submit.prevent="saveGrant">
                   <div class="row wrap">
                     <label
-                      >Principal<select v-model="grant.principal_kind">
-                        <option value="user">User</option>
-                        <option value="role">Role</option>
+                      >{{ $t('groupAccounts.principal')
+                      }}<select v-model="grant.principal_kind">
+                        <option value="user">{{ $t('common.user') }}</option>
+                        <option value="role">{{ $t('groupAccounts.role') }}</option>
                       </select></label
                     ><label
-                      >Name<select v-model="grant.principal_id" required>
-                        <option value="" disabled>Choose</option>
+                      >{{ $t('common.name')
+                      }}<select v-model="grant.principal_id" required>
+                        <option value="" disabled>{{ $t('common.choose') }}</option>
                         <option
                           v-for="principal in grant.principal_kind === 'user'
                             ? access.users
@@ -800,27 +884,29 @@ async function transfer(item: History, direct = false) {
                     >
                   </div>
                   <label
-                    >Permission<select v-model="grant.permission">
+                    >{{ $t('common.permission')
+                    }}<select v-model="grant.permission">
                       <option v-for="(label, key) in access.permissions" :key="key" :value="key">
                         {{ label }}
                       </option>
                     </select></label
                   >
                   <label
-                    >Rule<select v-model="grant.effect">
-                      <option value="allow">Allow</option>
-                      <option value="deny">Deny</option>
-                      <option value="inherit">Inherit</option>
+                    >{{ $t('groupAccounts.rule')
+                    }}<select v-model="grant.effect">
+                      <option value="allow">{{ $t('common.allow') }}</option>
+                      <option value="deny">{{ $t('common.deny') }}</option>
+                      <option value="inherit">{{ $t('common.inherit') }}</option>
                     </select></label
-                  ><button :disabled="busy">Save permission</button>
+                  ><button :disabled="busy">{{ $t('common.savePermission') }}</button>
                 </form>
                 <div class="table-scroll">
                   <table>
                     <thead>
                       <tr>
-                        <th>Principal</th>
-                        <th>Permission</th>
-                        <th>Rule</th>
+                        <th>{{ $t('groupAccounts.principal') }}</th>
+                        <th>{{ $t('common.permission') }}</th>
+                        <th>{{ $t('groupAccounts.rule') }}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -852,10 +938,12 @@ async function transfer(item: History, direct = false) {
           aria-labelledby="funding-audit"
         >
           <header class="admin-section-heading">
-            <h2 id="funding-audit">Audit log</h2>
-            <button class="secondary" :disabled="busy" @click="loadEvents">Refresh</button>
+            <h2 id="funding-audit">{{ $t('common.auditLog') }}</h2>
+            <button class="secondary" :disabled="busy" @click="loadEvents">
+              {{ $t('common.refresh') }}
+            </button>
           </header>
-          <p v-if="!busy && !events.length" class="empty">No events yet.</p>
+          <p v-if="!busy && !events.length" class="empty">{{ $t('groupAccounts.noEventsYet') }}</p>
           <div class="account-form">
             <div v-for="event in events" :key="event.id" class="request-row">
               <div class="row wrap">
@@ -868,11 +956,155 @@ async function transfer(item: History, direct = false) {
         </section>
       </MotionSurface>
     </div>
-    <AdminDialog :open="createOpen" title="Create group account" :busy="busy" @close="closeCreate">
+    <AdminDialog
+      :open="historyOpen && rights.has('request_transfer') && !details?.archived"
+      :title="$t('groupAccounts.previousPrintCosts')"
+      :busy="busy"
+      wide
+      @close="historyOpen = false"
+    >
+      <div class="account-form">
+        <Transition name="notice"
+          ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
+        >
+        <Transition name="notice"
+          ><p v-if="success" class="alert success" role="status">{{ success }}</p></Transition
+        >
+        <div class="row wrap">
+          <strong>{{ $t('common.transferTo') }} {{ details?.name }}</strong>
+          <button class="secondary" :disabled="busy" @click="loadHistory">
+            {{ $t('common.refresh') }}
+          </button>
+        </div>
+        <Transition name="panel-expand" mode="out-in">
+          <p v-if="busy" key="loading" role="status">{{ $t('groupAccounts.loading') }}</p>
+          <p v-else-if="!history.length" key="empty" class="empty">
+            {{ $t('groupAccounts.noEligiblePrints') }}
+          </p>
+        </Transition>
+        <TransitionGroup
+          name="collection"
+          tag="div"
+          class="account-form historical-list"
+          @before-leave="freezeLeavingItem"
+        >
+          <article v-for="item in history" :key="item.batch_id" class="historical-charge">
+            <div class="row wrap">
+              <span>{{ date(item.created_at) }}</span>
+              <RouterLink :to="`/batches/${encodeURIComponent(item.batch_id)}`">{{
+                $t('common.viewBatch')
+              }}</RouterLink>
+            </div>
+            <div class="historical-previews">
+              <div v-for="preview in item.previews" :key="preview.job_id">
+                <label class="checkbox">
+                  <input
+                    v-model="selections[item.batch_id]"
+                    type="checkbox"
+                    :value="preview.job_id"
+                    :disabled="
+                      busy ||
+                      item.needs_payment_allocation ||
+                      !item.labels.find((l) => l.job_id === preview.job_id)?.available_micros ||
+                      item.labels.find((l) => l.job_id === preview.job_id)?.pending
+                    "
+                  />
+                  {{ preview.text }}
+                </label>
+                <JobPreview
+                  :job-id="preview.job_id"
+                  :text="preview.text"
+                  :preview-url="preview.url"
+                  :width-mm="preview.width_mm"
+                  :length-mm="preview.length_mm"
+                />
+                <small
+                  >{{ preview.copies }} {{ preview.copies === 1 ? 'copy' : $t('common.copies2') }} ·
+                  {{
+                    money(
+                      item.labels.find((l) => l.job_id === preview.job_id)?.available_micros ?? 0,
+                      item.currency,
+                    )
+                  }}
+                  <template v-if="item.labels.find((l) => l.job_id === preview.job_id)?.pending">
+                    {{ $t('common.transferPending') }}</template
+                  >
+                </small>
+              </div>
+            </div>
+            <p v-if="item.needs_payment_allocation" class="muted">
+              {{ $t('groupAccounts.existingPaymentsNeedCartridgeAllocationFirst') }}
+            </p>
+            <p v-if="!item.labels.length" class="muted">
+              {{ $t('groupAccounts.perLabelCostsAreUnavailableForThisOlderBatch') }}
+            </p>
+            <div class="row wrap">
+              <strong
+                >{{ $t('common.selected') }} {{ money(selectedCost(item), item.currency) }}</strong
+              >
+              <span v-if="item.paid_micros && selectedCost(item)"
+                >{{ $t('groupAccounts.alreadyPaid') }}
+                {{ money(Math.min(item.paid_micros, selectedCost(item)), item.currency) }}</span
+              >
+            </div>
+            <div class="row wrap">
+              <button
+                class="secondary"
+                :disabled="busy || item.needs_payment_allocation || !selectedCost(item)"
+                @click="transfer(item)"
+              >
+                {{ $t('groupAccounts.requestTransfer') }}
+              </button>
+              <button
+                v-if="rights.has('direct')"
+                class="secondary"
+                :disabled="busy || item.needs_payment_allocation || !selectedCost(item)"
+                @click="transfer(item, true)"
+              >
+                {{ $t('groupAccounts.chargeGroupDirectly') }}
+              </button>
+            </div>
+          </article>
+        </TransitionGroup>
+      </div>
+    </AdminDialog>
+    <AdminDialog
+      :open="!!chargeItem"
+      :title="$t('groupAccounts.chargeDetails')"
+      wide
+      @close="chargeId = ''"
+    >
+      <div v-if="chargeItem" class="account-form">
+        <strong>{{ kind(chargeItem.source_kind) }} · {{ obligation(chargeItem.kind) }}</strong>
+        <div class="row wrap">
+          <span
+            >{{ chargeItem.requester_name }} →
+            {{ chargeItem.recipient_name ?? 'Unowned cartridge' }}</span
+          ><span>{{ date(chargeItem.created_at) }}</span>
+        </div>
+        <span>{{ chargeItem.cartridge_name ?? chargeItem.cartridge_id }}</span>
+        <div class="row wrap">
+          <span
+            >{{ $t('groupAccounts.charged') }}
+            {{ money(chargeItem.amount_micros, chargeItem.currency) }}</span
+          ><span
+            >{{ $t('groupAccounts.outstanding2') }}
+            {{ money(chargeItem.outstanding_micros, chargeItem.currency) }}</span
+          >
+        </div>
+        <GroupPrintDetails v-if="chargeItem.prints_url" :url="chargeItem.prints_url" />
+      </div>
+    </AdminDialog>
+    <AdminDialog
+      :open="createOpen"
+      :title="$t('groupAccounts.createGroupAccount')"
+      :busy="busy"
+      @close="closeCreate"
+    >
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <form class="account-form" @submit.prevent="create">
-        <label>Name<input v-model="createName" maxlength="100" required /></label
-        ><button class="primary" :disabled="busy">Create account</button>
+        <label>{{ $t('common.name') }}<input v-model="createName" maxlength="100" required /></label
+        ><button class="primary" :disabled="busy">{{ $t('groupAccounts.createAccount') }}</button>
       </form>
     </AdminDialog>
     <AdminDialog
@@ -883,20 +1115,11 @@ async function transfer(item: History, direct = false) {
     >
       <div v-if="reviewItem" class="account-form">
         <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-        <div v-if="reviewItem.preview" class="funding-preview">
-          <JobPreview
-            :key="reviewItem.id"
-            :job-id="reviewItem.id"
-            text="Funding request"
-            :preview-url="reviewItem.preview.url"
-            :width-mm="reviewItem.preview.width_mm"
-            :length-mm="reviewItem.preview.length_mm"
-          />
-          <p>
-            {{ reviewItem.preview.copies }}
-            {{ reviewItem.preview.copies === 1 ? 'copy' : 'copies' }}
-          </p>
-        </div>
+        <GroupPrintDetails
+          v-if="reviewItem.prints_url"
+          :key="reviewItem.id"
+          :url="reviewItem.prints_url"
+        />
         <div class="row wrap">
           <strong>{{ reviewItem.requester_name }}</strong
           ><span class="muted">{{ reviewItem.status }} · {{ date(reviewItem.created_at) }}</span>
@@ -907,7 +1130,7 @@ async function transfer(item: History, direct = false) {
             >{{ money(reviewItem.details.amount_micros, reviewItem.details.currency) }}</span
           >
           <span v-for="(amount, currency) in reviewItem.details.pricing?.quotes" :key="currency"
-            >Up to {{ money(amount, currency) }}</span
+            >{{ $t('common.upTo') }} {{ money(amount, currency) }}</span
           >
           <span v-if="reviewItem.kind === 'job' && reviewItem.status === 'pending'">{{
             reviewItem.mode === 'wait'
@@ -918,20 +1141,23 @@ async function transfer(item: History, direct = false) {
         <p v-if="reviewItem.reason">{{ reviewItem.reason }}</p>
         <p v-if="reviewItem.details.note">{{ reviewItem.details.note }}</p>
         <div v-if="reviewItem.can_decide" class="account-form">
-          <label>Decision note<input v-model="reasons[reviewItem.id]" maxlength="500" /></label>
+          <label
+            >{{ $t('groupAccounts.decisionNote')
+            }}<input v-model="reasons[reviewItem.id]" maxlength="500"
+          /></label>
           <div class="row wrap">
             <button class="primary" :disabled="busy" @click="decide(reviewItem, true)">
               {{ reviewItem.kind === 'payment' ? 'Confirm receipt' : 'Approve' }}</button
             ><button class="secondary" :disabled="busy" @click="decide(reviewItem, false)">
-              Reject
+              {{ $t('groupAccounts.reject') }}
             </button>
           </div>
         </div>
         <div v-if="reviewItem.can_resolve" class="row wrap">
           <button class="secondary" :disabled="busy" @click="resolve(reviewItem, false)">
-            Pay personally</button
+            {{ $t('groupAccounts.payPersonally') }}</button
           ><button class="secondary" :disabled="busy" @click="resolve(reviewItem, true)">
-            Cancel queued labels
+            {{ $t('groupAccounts.cancelQueuedLabels') }}
           </button>
         </div>
       </div>
@@ -949,6 +1175,9 @@ async function transfer(item: History, direct = false) {
   gap: 16px;
   padding-block: 16px;
   border-bottom: 1px solid var(--line);
+}
+.historical-list {
+  position: relative;
 }
 .historical-previews {
   display: grid;

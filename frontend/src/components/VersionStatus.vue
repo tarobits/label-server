@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useLiveRefresh } from '../live'
-import { releaseHistory } from '../changelog'
+import { useLiveRefresh } from '../shared/live'
+import { releaseHistory } from '../shared/changelog'
 import ChangelogDialog from './ChangelogDialog.vue'
-import { showAppUpdate } from '../pwa'
+import { showAppUpdate } from '../shared/pwa'
 
 type VersionInfo = {
   current_version: string
@@ -46,26 +46,37 @@ function dismiss() {
 
 <template>
   <span v-if="version" class="version-details">
-    <span class="version-number">v{{ version.current_version }}</span>
+    <span class="version-number">{{ $t('common.v') }}{{ version.current_version }}</span>
     <button type="button" class="changelog-link" aria-haspopup="dialog" @click="openChangelog">
-      Changelog
+      {{ $t('versionStatus.changelog') }}
     </button>
   </span>
   <ChangelogDialog
     :open="changelogOpen"
-    title="Changelog"
+    :title="$t('versionStatus.changelog')"
     :releases="history"
     @close="changelogOpen = false"
   />
-  <aside v-if="showUpdate" class="update-notice" role="status" aria-label="Software update">
+  <aside
+    v-if="showUpdate"
+    class="update-notice"
+    role="status"
+    :aria-label="$t('common.softwareUpdate')"
+  >
     <div>
-      <strong>Update available</strong>
-      <p>Version {{ version?.latest_version }} is ready.</p>
-      <a :href="version?.release_url || undefined" target="_blank" rel="noopener noreferrer"
-        >View release</a
-      >
+      <strong>{{ $t('common.updateAvailable') }}</strong>
+      <p>{{ $t('common.version') }} {{ version?.latest_version }} {{ $t('common.isReady') }}</p>
+      <a :href="version?.release_url || undefined" target="_blank" rel="noopener noreferrer">{{
+        $t('common.viewRelease')
+      }}</a>
     </div>
-    <button type="button" aria-label="Dismiss update notification" @click="dismiss">×</button>
+    <button
+      type="button"
+      :aria-label="$t('versionStatus.dismissUpdateNotification')"
+      @click="dismiss"
+    >
+      ×
+    </button>
   </aside>
 </template>
 

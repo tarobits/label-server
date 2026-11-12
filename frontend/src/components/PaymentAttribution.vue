@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Payer } from '../types'
+import type { Payer } from '../shared/types'
 const props = defineProps<{ payers?: Payer[] }>()
 const unique = computed(() => [
   ...new Map((props.payers ?? []).map((payer) => [JSON.stringify(payer), payer])).values(),
@@ -10,11 +10,9 @@ const unique = computed(() => [
 <template>
   <div v-if="unique.length" class="payment-attribution">
     <small v-for="payer in unique" :key="`${payer.kind}:${payer.id}:${payer.note ?? ''}`">
-      Payer: {{ payer.name }} ({{ payer.kind === 'group' ? 'group account' : 'user' }})<span
-        v-if="payer.note"
-      >
-        · {{ payer.note }}</span
-      >
+      {{ $t('paymentAttribution.payer') }} {{ payer.name }} ({{
+        payer.kind === 'group' ? 'group account' : 'user'
+      }})<span v-if="payer.note"> · {{ payer.note }}</span>
     </small>
   </div>
 </template>

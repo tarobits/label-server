@@ -1,6 +1,11 @@
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
 
+// Use Chromium's full headless mode: headless-shell reports notification
+// permission as denied even after a successful browser permission grant.
+// Keep real service-worker notification delivery and permission assertions.
+test.use({ channel: 'chromium' })
+
 // Simulate only the vendor handshake; use the real worker, API, and database.
 async function mockSubscription(page: Page, permission = 'granted') {
   await page.addInitScript((permission) => {
@@ -157,11 +162,13 @@ test('an unanswered permission prompt is not reported as a browser block', async
 test('existing notification permission does not request permission again', async ({
   page,
   context,
+  baseURL,
 }) => {
-  await context.grantPermissions(['notifications'])
+  await context.grantPermissions(['notifications'], { origin: baseURL })
   // If a redundant permission request is made, the simulated prompt denies it.
   await mockSubscription(page, 'denied')
   await page.goto('/#/account')
+  expect(await page.evaluate(() => Notification.permission)).toBe('granted')
   const push = page.getByRole('region', { name: 'Push notifications', exact: true })
   await push.getByRole('button', { name: 'Enable notifications', exact: true }).click()
   await expect(push.getByRole('status')).toHaveText('Notifications enabled.')
@@ -186,7 +193,7 @@ test('real worker displays a push offline and restricts notification links to th
   context,
   baseURL,
 }) => {
-  await context.grantPermissions(['notifications'])
+  await context.grantPermissions(['notifications'], { origin: baseURL })
   const cdp = await context.newCDPSession(page)
   let registrationId = ''
   cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
@@ -196,6 +203,7 @@ test('real worker displays a push offline and restricts notification links to th
   })
   await cdp.send('ServiceWorker.enable')
   await page.goto('/#/account')
+  expect(await page.evaluate(() => Notification.permission)).toBe('granted')
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true))
   await expect.poll(() => registrationId).not.toBe('')
   await context.setOffline(true)

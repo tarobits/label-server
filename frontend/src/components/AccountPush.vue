@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
-import { api, ApiError, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import { confirmAction } from '../confirmation'
-import { vValidateForm } from '../formValidation'
+import { api, ApiError, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import { confirmAction } from '../shared/confirmation'
+import { vValidateForm } from '../shared/formValidation'
 import {
   applicationKey,
   needsHomeScreen,
   pushRegistration,
   pushSupported,
   subscriptionId,
-} from '../push'
-import { scopedPrinters, selectedPrinterKinds, type PrinterKinds } from '../notificationPreferences'
+} from '../notifications/push'
+import {
+  scopedPrinters,
+  selectedPrinterKinds,
+  type PrinterKinds,
+} from '../notifications/notificationPreferences'
 import ExpandableContent from './ExpandableContent.vue'
 import PrinterNotificationKinds from './PrinterNotificationKinds.vue'
 
@@ -224,25 +228,25 @@ onMounted(() => {
 
 <template>
   <div class="account-push">
-    <h2>Push notifications</h2>
+    <h2>{{ $t('common.pushNotifications') }}</h2>
     <Transition name="notice"
       ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
     >
     <Transition name="notice"
       ><p v-if="success" class="alert success" role="status">{{ success }}</p></Transition
     >
-    <p v-if="!settings && !error" class="help" role="status">Loading notification settings…</p>
+    <p v-if="!settings && !error" class="help" role="status">
+      {{ $t('accountPush.loadingNotificationSettings') }}
+    </p>
     <template v-if="settings">
       <p v-if="!settings.public_key" class="alert warning">
-        Push delivery has not been configured by your administrator.
+        {{ $t('accountPush.pushDeliveryHasNotBeenConfiguredByYourAdministrator') }}
       </p>
       <p v-else-if="homeScreen" class="help">
-        On iPhone or iPad, use Share → Add to Home Screen, then open the app from your Home Screen
-        to enable notifications. Requires iOS or iPadOS 16.4 or later.
+        {{ $t('accountPush.onIphoneOrIpadUseShareAddToHome') }}
       </p>
       <p v-else-if="!supported" class="help">
-        Push notifications are not supported in this browser. Open the app in a supported browser
-        over HTTPS.
+        {{ $t('accountPush.pushNotificationsAreNotSupportedInThisBrowserOpen') }}
       </p>
       <template v-else>
         <Transition name="notice" mode="out-in" @after-enter="restorePushFocus">
@@ -253,31 +257,35 @@ onMounted(() => {
             @submit.prevent="enable"
           >
             <label
-              >Device name<input v-model="name" required maxlength="100" :disabled="busy"
+              >{{ $t('accountPush.deviceName')
+              }}<input v-model="name" required maxlength="100" :disabled="busy"
             /></label>
             <button ref="enableButton" class="primary" :disabled="busy || !registration">
-              Enable notifications
+              {{ $t('accountPush.enableNotifications') }}
             </button>
           </form>
           <div v-else class="row wrap motion-reveal">
-            <button :disabled="busy" @click="testPush">Send test notification</button>
+            <button :disabled="busy" @click="testPush">
+              {{ $t('common.sendTestNotification') }}
+            </button>
             <button
               ref="preferencesButton"
               :aria-expanded="editing"
               :disabled="busy"
               @click="editing = !editing"
             >
-              Notification preferences
+              {{ $t('accountPush.notificationPreferences') }}
             </button>
           </div>
         </Transition>
         <ExpandableContent :open="editing && !!current?.enabled">
           <form v-validate-form class="form-stack subscription-options" @submit.prevent="save">
             <fieldset v-if="destinations.length" class="choice-list">
-              <legend>Print destinations</legend>
+              <legend>{{ $t('common.printDestinations') }}</legend>
               <label class="checkbox"
-                ><input v-model="preferences.all_printers" type="checkbox" :disabled="busy" />All
-                printers I can moderate</label
+                ><input v-model="preferences.all_printers" type="checkbox" :disabled="busy" />{{
+                  $t('common.allPrintersICanModerate')
+                }}</label
               >
               <label v-for="destination in destinations" :key="destination.id" class="checkbox"
                 ><input
@@ -289,7 +297,7 @@ onMounted(() => {
               >
             </fieldset>
             <fieldset class="choice-list">
-              <legend>Default event types</legend>
+              <legend>{{ $t('common.defaultEventTypes') }}</legend>
               <label v-for="kind in kinds" :key="kind.value" class="checkbox"
                 ><input
                   v-model="preferences.kinds"
@@ -311,12 +319,17 @@ onMounted(() => {
               :disabled="busy"
             />
             <button class="primary" :disabled="busy || !hasEvents">
-              Save notification preferences
+              {{ $t('common.saveNotificationPreferences') }}
             </button>
           </form>
         </ExpandableContent>
       </template>
-      <TransitionGroup name="notice" tag="ul" class="device-list" aria-label="Notification devices">
+      <TransitionGroup
+        name="notice"
+        tag="ul"
+        class="device-list"
+        :aria-label="$t('accountPush.notificationDevices')"
+      >
         <li v-for="device in settings.devices" :key="device.id" class="row wrap motion-reveal">
           <span class="device-name"
             >{{ device.name
@@ -333,7 +346,7 @@ onMounted(() => {
             :aria-label="`Remove ${device.name}`"
             @click="remove(device)"
           >
-            Remove
+            {{ $t('common.remove') }}
           </button>
         </li>
       </TransitionGroup>

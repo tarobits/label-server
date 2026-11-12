@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onUnmounted, ref, watch } from 'vue'
-import { confirmation, resolveConfirmation, resolveChoice } from '../confirmation'
+import { confirmation, resolveConfirmation, resolveChoice } from '../shared/confirmation'
 const dialog = ref<HTMLDialogElement | null>(null)
 watch(confirmation, async (pending) => {
   await nextTick()
@@ -30,7 +30,7 @@ onUnmounted(() => resolveConfirmation(false))
           {{ confirmation.alternateLabel }}
         </button>
         <button class="secondary" autofocus @click="resolveConfirmation(false)">
-          {{ confirmation?.cancelLabel ?? 'Cancel' }}
+          {{ confirmation?.cancelLabel ?? $t('common.cancel') }}
         </button>
         <button class="primary" @click="resolveConfirmation(true)">
           {{ confirmation?.confirmLabel }}

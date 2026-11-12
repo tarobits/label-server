@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import ChangelogDialog from './ChangelogDialog.vue'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { unseenReleases, type ReleaseNotes } from '../changelog'
-import { useLiveRefresh } from '../live'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { unseenReleases, type ReleaseNotes } from '../shared/changelog'
+import { useLiveRefresh } from '../shared/live'
 
 const auth = useAuthStore()
 const actor = auth.user?.id
@@ -41,5 +41,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ChangelogDialog :open="open" title="What’s new" :releases="releases" @close="open = false" />
+  <ChangelogDialog
+    :open="open"
+    :title="$t('common.whatSNew')"
+    :releases="releases"
+    @close="open = false"
+  />
 </template>

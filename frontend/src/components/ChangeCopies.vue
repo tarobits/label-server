@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useWorkspaceStore } from '../shared/workspace'
 import AdminDialog from './AdminDialog.vue'
 
 const props = defineProps<{ url: string; copies: number; revision?: number; disabled?: boolean }>()
@@ -42,11 +42,19 @@ async function save() {
 }
 </script>
 <template>
-  <button class="text-button" :disabled="disabled || w.busy" @click="show">Change copies</button>
-  <AdminDialog :open="open" title="Change copies" :busy="busy" @close="open = false">
+  <button class="text-button" :disabled="disabled || w.busy" @click="show">
+    {{ $t('changeCopies.changeCopies') }}
+  </button>
+  <AdminDialog
+    :open="open"
+    :title="$t('changeCopies.changeCopies')"
+    :busy="busy"
+    @close="open = false"
+  >
     <form v-validate-form class="form-stack" @submit.prevent="save">
       <label
-        >Copies<input
+        >{{ $t('common.copies')
+        }}<input
           v-model.number="count"
           type="number"
           min="1"
@@ -60,7 +68,7 @@ async function save() {
       >
       <div class="admin-actions">
         <button type="button" class="secondary" :disabled="busy" @click="open = false">
-          Cancel
+          {{ $t('common.cancel') }}
         </button>
         <button type="submit" class="primary" :disabled="busy || count === original">
           {{ busy ? 'Saving…' : 'Save' }}

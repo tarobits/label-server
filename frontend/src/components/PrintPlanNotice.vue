@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PrintPlan } from '../types'
+import type { PrintPlan } from '../shared/types'
 
 const props = withDefaults(defineProps<{ plan?: PrintPlan | null; copies?: number }>(), {
   copies: 1,

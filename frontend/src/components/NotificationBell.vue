@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useLiveRefresh } from '../live'
-import { date } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useLiveRefresh } from '../shared/live'
+import { date } from '../shared/workspace'
 import AdminDialog from './AdminDialog.vue'
 import Icon from './Icon.vue'
 interface Notice {
@@ -90,7 +90,7 @@ useLiveRefresh(refresh)
 <template>
   <button
     class="notification-bell text-button"
-    :aria-label="unread ? `Notifications, ${unread} unread` : 'Notifications'"
+    :aria-label="unread ? `Notifications, ${unread} unread` : $t('common.notifications')"
     :aria-expanded="open"
     @click="show"
   >
@@ -100,11 +100,12 @@ useLiveRefresh(refresh)
       }}</span></Transition
     >
   </button>
-  <AdminDialog :open="open" title="Notifications" :busy="busy" @close="open = false">
+  <AdminDialog :open="open" :title="$t('common.notifications')" :busy="busy" @close="open = false">
     <div class="row wrap spread">
-      <label class="checkbox"><input v-model="unreadOnly" type="checkbox" />Unread only</label
+      <label class="checkbox"
+        ><input v-model="unreadOnly" type="checkbox" />{{ $t('common.unreadOnly') }}</label
       ><button class="text-button" :disabled="busy || !unread" @click="mark()">
-        Mark all read
+        {{ $t('notificationBell.markAllRead') }}
       </button>
     </div>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
@@ -129,10 +130,11 @@ useLiveRefresh(refresh)
         :disabled="offset === 0 || busy"
         @click="offset = Math.max(0, offset - 20)"
       >
-        Previous</button
-      ><span>{{ offset + 1 }}–{{ Math.min(offset + 20, total) }} of {{ total }}</span
+        {{ $t('common.previous') }}</button
+      ><span
+        >{{ offset + 1 }}–{{ Math.min(offset + 20, total) }} {{ $t('common.of') }} {{ total }}</span
       ><button class="secondary" :disabled="offset + 20 >= total || busy" @click="offset += 20">
-        Next
+        {{ $t('common.next') }}
       </button>
     </div>
   </AdminDialog>

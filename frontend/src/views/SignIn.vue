@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import SourceLink from '../components/SourceLink.vue'
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 import { computed, nextTick, reactive, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore, type Session } from '../auth'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore, type Session } from '../auth/auth'
 import BrandLogo from '../components/BrandLogo.vue'
+import LanguagePicker from '../components/LanguagePicker.vue'
 const auth = useAuthStore()
 const registering = ref(false)
 const setup = computed(() => auth.session?.setup_required)
@@ -44,6 +45,7 @@ async function submit() {
   <main class="auth-shell">
     <div class="auth-layout">
       <BrandLogo class="auth-brand" />
+      <LanguagePicker />
       <form
         :key="setup ? 'setup' : registering ? 'register' : 'login'"
         v-validate-form
@@ -51,18 +53,25 @@ async function submit() {
         @submit.prevent="submit"
       >
         <h1>
-          {{ setup ? 'Create administrator' : registering ? 'Create account' : 'Sign in' }}
+          {{
+            setup
+              ? $t('common.createAdministrator')
+              : registering
+                ? $t('groupAccounts.createAccount')
+                : $t('common.signIn')
+          }}
         </h1>
         <div v-if="error" class="alert danger" role="alert">{{ error }}</div>
         <label v-if="setup"
-          >Setup token<input v-model="form.setup_token" autocomplete="off" required />
+          >{{ $t('common.setupToken')
+          }}<input v-model="form.setup_token" autocomplete="off" required />
           <span class="help"
-            >Use the token from the server’s startup logs or <code>auth-setup-token</code> in its
-            data directory.</span
+            >{{ $t('common.useTheTokenFromTheServerSStartupLogs') }} <code>auth-setup-token</code>
+            {{ $t('common.inItsDataDirectory') }}</span
           >
         </label>
         <label
-          >{{ setup || registering ? 'Username' : 'Username or email'
+          >{{ setup || registering ? $t('common.username') : $t('common.usernameOrEmail')
           }}<input
             ref="usernameInput"
             v-model="form.username"
@@ -75,10 +84,11 @@ async function submit() {
             :pattern="setup || registering ? '[A-Za-z0-9_.-]+' : undefined"
         /></label>
         <p v-if="setup || registering" class="help">
-          Use at least 3 letters, numbers, dots, underscores, or hyphens.
+          {{ $t('common.useAtLeast3LettersNumbersDotsUnderscoresOr') }}
         </p>
         <label
-          >Password<input
+          >{{ $t('signIn.password')
+          }}<input
             v-model="form.password"
             type="password"
             :autocomplete="setup || registering ? 'new-password' : 'current-password'"
@@ -86,30 +96,33 @@ async function submit() {
             required
         /></label>
         <label v-if="registering"
-          >Registration code{{ auth.session?.registration_code_required ? '' : ' (optional)'
+          >{{ $t('signIn.registrationCode')
+          }}{{ auth.session?.registration_code_required ? '' : $t('common.optional')
           }}<input
             v-model="form.registration_code"
             autocomplete="off"
             :required="auth.session?.registration_code_required"
-          /><span class="help">Ask your administrator for a registration code.</span></label
+          /><span class="help">{{
+            $t('signIn.askYourAdministratorForARegistrationCode')
+          }}</span></label
         >
         <button class="primary" :disabled="busy">
           {{
             busy
-              ? 'Please wait…'
+              ? $t('common.pleaseWait')
               : setup
-                ? 'Create administrator'
+                ? $t('common.createAdministrator')
                 : registering
-                  ? 'Create account'
-                  : 'Sign in'
+                  ? $t('groupAccounts.createAccount')
+                  : $t('common.signIn')
           }}
         </button>
         <button v-if="!setup" type="button" class="secondary" :disabled="busy" @click="switchForm">
-          {{ registering ? 'Back to sign in' : 'Create an account' }}
+          {{ registering ? $t('common.backToSignIn') : $t('administration.createAnAccount') }}
         </button>
-        <RouterLink v-if="!setup && !registering" to="/forgot-password"
-          >Forgot password?</RouterLink
-        >
+        <RouterLink v-if="!setup && !registering" to="/forgot-password">{{
+          $t('signIn.forgotPassword')
+        }}</RouterLink>
       </form>
       <SourceLink />
     </div>

@@ -1,4 +1,4 @@
-import type { AccessLevel } from './auth'
+import type { AccessLevel } from '../auth/auth'
 
 export const printerPermissionOptions = [
   ['view', 'View printer'],

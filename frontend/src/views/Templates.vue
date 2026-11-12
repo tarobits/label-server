@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { freezeLeavingItem } from '../collectionMotion'
-import { confirmAction } from '../confirmation'
+import { t } from '../shared/i18n'
+
+import { freezeLeavingItem } from '../shared/collectionMotion'
+import { confirmAction } from '../shared/confirmation'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import type { Template } from '../types'
-import { templateLength } from '../templateDimensions'
-import { matchesTemplateSearch, compareTemplateNames } from '../templateBrowser'
-import { useWorkspaceStore } from '../workspace'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import type { Template } from '../shared/types'
+import { templateLength } from '../templates/templateDimensions'
+import { matchesTemplateSearch, compareTemplateNames } from '../templates/templateBrowser'
+import { useWorkspaceStore } from '../shared/workspace'
 import TemplatePreview from '../components/TemplatePreview.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import MotionSurface from '../components/MotionSurface.vue'
@@ -31,10 +33,33 @@ function showHistory(template: Template, event: MouseEvent) {
   historyTemplate.value = template
 }
 const scopes = [
-  { id: 'all', label: 'All' },
-  { id: 'personal', label: 'Personal', heading: 'Personal templates' },
-  { id: 'group', label: 'Groups', heading: 'Group templates' },
-  { id: 'global', label: 'Global', heading: 'Global templates' },
+  {
+    id: 'all',
+    get label() {
+      return t('common.all')
+    },
+  },
+  {
+    id: 'personal',
+    get label() {
+      return t('common.personal')
+    },
+    heading: 'Personal templates',
+  },
+  {
+    id: 'group',
+    get label() {
+      return t('templatePicker.groups')
+    },
+    heading: 'Group templates',
+  },
+  {
+    id: 'global',
+    get label() {
+      return t('common.global')
+    },
+    heading: 'Global templates',
+  },
 ] as const
 type Scope = (typeof scopes)[number]['id']
 function readFilters(query: LocationQuery) {
@@ -42,6 +67,7 @@ function readFilters(query: LocationQuery) {
   const scope = scopes.some((item) => item.id === text('scope')) ? (text('scope') as Scope) : 'all'
   return {
     scope,
+    archived: text('archived') === 'true',
     search: text('q'),
     width: /^\d+(?:\.\d+)?$/.test(text('width')) && Number(text('width')) > 0 ? text('width') : '',
     group: scope === 'group' ? text('group') : '',
@@ -57,11 +83,12 @@ watch(filters, () => {
     ...route.query,
     q: filters.search || undefined,
     scope: filters.scope === 'all' ? undefined : filters.scope,
+    archived: filters.archived ? 'true' : undefined,
     width: filters.width || undefined,
     group: filters.scope === 'group' ? filters.group || undefined : undefined,
   }
   if (
-    ['q', 'scope', 'width', 'group'].some(
+    ['q', 'scope', 'width', 'group', 'archived'].some(
       (key) => (route.query[key] || undefined) !== query[key as keyof typeof query],
     )
   )
@@ -83,9 +110,10 @@ const activeFilters = computed(
     !!filters.group ||
     showOtherPersonal.value,
 )
-const sorted = computed(() => [...w.templates].sort(compareTemplateNames))
+const library = computed(() => (filters.archived ? w.archivedTemplates : w.templates))
+const sorted = computed(() => [...library.value].sort(compareTemplateNames))
 const widths = computed(() =>
-  [...new Set(w.templates.map((template) => template.document.width_mm))].sort((a, b) => a - b),
+  [...new Set(library.value.map((template) => template.document.width_mm))].sort((a, b) => a - b),
 )
 const groups = computed(() => {
   const names = new Map<string, string>()
@@ -159,6 +187,9 @@ async function archive(template: Template) {
       'Template archived. Existing queued labels are unchanged.',
     )
 }
+async function restore(template: Template) {
+  await w.action(() => api(`/templates/${template.id}/unarchive`, 'POST'), 'Template restored.')
+}
 async function remove(template: Template) {
   if (
     await confirmAction(
@@ -180,7 +211,7 @@ async function remove(template: Template) {
         selector="[aria-pressed='true']"
         underline
         role="group"
-        aria-label="Template visibility"
+        :aria-label="$t('common.templateVisibility')"
       >
         <button
           v-for="scope in scopes"
@@ -193,30 +224,40 @@ async function remove(template: Template) {
           }}<span class="template-count" aria-hidden="true">{{ scopeCount(scope.id) }}</span>
         </button>
       </MotionTrack>
-      <RouterLink v-if="auth.canCreateTemplates" class="button primary" to="/templates/new"
-        >Create template</RouterLink
-      >
+      <RouterLink v-if="auth.canCreateTemplates" class="button primary" to="/templates/new">{{
+        $t('templates.createTemplate')
+      }}</RouterLink>
     </div>
     <div class="template-filters">
       <label
-        >Search templates<input
+        >{{ $t('common.templateStatus')
+        }}<select v-model="filters.archived">
+          <option :value="false">{{ $t('common.active') }}</option>
+          <option :value="true">{{ $t('common.archived') }}</option>
+        </select></label
+      >
+      <label
+        >{{ $t('common.searchTemplates')
+        }}<input
           v-model="filters.search"
           type="search"
-          placeholder="Name, field, or group"
+          :placeholder="$t('common.nameFieldOrGroup')"
       /></label>
       <label
-        >Tape width<select v-model="filters.width">
-          <option value="">All widths</option>
+        >{{ $t('common.tapeWidth')
+        }}<select v-model="filters.width">
+          <option value="">{{ $t('common.allWidths') }}</option>
           <option v-for="width in widths" :key="width" :value="String(width)">
-            {{ width }} mm
+            {{ width }} {{ $t('common.mm') }}
           </option>
         </select></label
       >
     </div>
     <ExpandableContent :open="filters.scope === 'group'">
       <label class="template-group-filter"
-        >Template group<select v-model="filters.group">
-          <option value="">All groups</option>
+        >{{ $t('common.templateGroup')
+        }}<select v-model="filters.group">
+          <option value="">{{ $t('templates.allGroups') }}</option>
           <option v-for="group in groups" :key="group.id" :value="group.id">
             {{ group.name }}
           </option>
@@ -231,7 +272,7 @@ async function remove(template: Template) {
         :aria-pressed="showOtherPersonal"
         @click="showOtherPersonal = !showOtherPersonal"
       >
-        Show others’ personal templates
+        {{ $t('common.showOthersPersonalTemplates') }}
       </button>
       <span role="status" aria-live="polite" aria-atomic="true"
         >{{ resultCount }} {{ resultCount === 1 ? 'template' : 'templates' }}</span
@@ -243,14 +284,17 @@ async function remove(template: Template) {
           class="text-button motion-reveal"
           @click="clearFilters"
         >
-          Clear filters
+          {{ $t('common.clearFilters') }}
         </button></Transition
       >
     </div>
   </div>
   <MotionSurface
-    :identity="filters.scope"
-    :order="scopes.findIndex((scope) => scope.id === filters.scope)"
+    :identity="`${filters.archived}:${filters.scope}`"
+    :order="
+      Number(filters.archived) * scopes.length +
+      scopes.findIndex((scope) => scope.id === filters.scope)
+    "
   >
     <TransitionGroup
       tag="div"
@@ -267,17 +311,19 @@ async function remove(template: Template) {
           <TemplatePreview :template="template" />
           <div class="section-heading">
             <h3>{{ template.name }}</h3>
-            <span class="badge">{{ template.document.width_mm }} mm</span>
+            <span class="badge">{{ template.document.width_mm }} {{ $t('common.mm') }}</span>
           </div>
           <p v-if="template.owner_id && template.owner_id !== auth.user?.id" class="help">
             {{ template.owner_username || 'Unavailable user' }}
           </p>
           <p>
-            Revision {{ template.revision }} ·
+            {{ $t('common.revision') }} {{ template.revision }} ·
             {{ templateLength(template) }}
-            · {{ template.document.elements.length }} elements
+            · {{ template.document.elements.length }} {{ $t('common.elements') }}
           </p>
-          <p class="help">Fields: {{ template.fields.join(', ') || 'No variable fields' }}</p>
+          <p class="help">
+            {{ $t('common.fields') }} {{ template.fields.join(', ') || 'No variable fields' }}
+          </p>
           <p
             v-for="notice in template.asset_notices ?? []"
             :key="notice.kind + notice.id"
@@ -291,44 +337,51 @@ async function remove(template: Template) {
           <div class="row wrap">
             <RouterLink
               v-if="
-                template.can_edit ?? (auth.user?.is_admin || template.owner_id === auth.user?.id)
+                !template.archived &&
+                (template.can_edit ?? (auth.user?.is_admin || template.owner_id === auth.user?.id))
               "
               class="button primary"
               :to="`/templates/${template.id}/edit`"
-              >Edit visually</RouterLink
+              >{{ $t('templates.editVisually') }}</RouterLink
             ><RouterLink
-              v-if="auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')"
+              v-if="
+                !template.archived &&
+                (auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly'))
+              "
               class="button secondary"
               :to="{ path: '/new', query: { template: template.id } }"
-              >Use template</RouterLink
+              >{{ $t('common.useTemplate') }}</RouterLink
             >
             <RouterLink
-              v-if="auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')"
+              v-if="
+                !template.archived &&
+                (auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly'))
+              "
               class="button secondary"
               :to="{ path: '/runs', query: { template: template.id } }"
-              >Use with CSV</RouterLink
+              >{{ $t('common.useWithCsv') }}</RouterLink
             >
           </div>
           <div class="card-actions">
             <button type="button" class="text-button" @click="showHistory(template, $event)">
-              History
+              {{ $t('common.history') }}
             </button>
             <button
-              v-if="auth.can('templates.create_personal')"
+              v-if="!template.archived && auth.can('templates.create_personal')"
               :disabled="w.busy"
               class="text-button"
               @click="duplicate(template)"
             >
-              Duplicate template</button
+              {{ $t('templates.duplicateTemplate') }}</button
             ><button
               v-if="
                 template.can_delete ?? (auth.user?.is_admin || template.owner_id === auth.user?.id)
               "
               :disabled="w.busy"
-              class="text-button danger-text"
-              @click="archive(template)"
+              :class="['text-button', { 'danger-text': !template.archived }]"
+              @click="template.archived ? restore(template) : archive(template)"
             >
-              Archive
+              {{ template.archived ? 'Restore template' : 'Archive' }}
             </button>
             <button
               v-if="
@@ -339,13 +392,21 @@ async function remove(template: Template) {
               class="text-button danger-text"
               @click="remove(template)"
             >
-              Delete template
+              {{ $t('templates.deleteTemplate') }}
             </button>
           </div>
         </article>
       </template>
       <div v-if="!resultCount" key="empty" class="panel template-empty">
-        <p>{{ activeFilters ? 'No matching templates.' : 'No templates yet.' }}</p>
+        <p>
+          {{
+            activeFilters
+              ? $t('templatePicker.noMatchingTemplates')
+              : filters.archived
+                ? 'No archived templates.'
+                : 'No templates yet.'
+          }}
+        </p>
       </div>
     </TransitionGroup>
   </MotionSurface>
@@ -354,8 +415,9 @@ async function remove(template: Template) {
     :template-id="historyTemplate?.id ?? ''"
     :template-name="historyTemplate?.name ?? ''"
     :can-restore="
-      historyTemplate?.can_edit ??
-      (!!auth.user?.is_admin || historyTemplate?.owner_id === auth.user?.id)
+      !historyTemplate?.archived &&
+      (historyTemplate?.can_edit ??
+        (!!auth.user?.is_admin || historyTemplate?.owner_id === auth.user?.id))
     "
     @close="historyTemplate = null"
   />
@@ -402,7 +464,7 @@ async function remove(template: Template) {
 }
 .template-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(140px, 200px);
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) minmax(140px, 200px);
   gap: 16px;
 }
 .template-group-filter {

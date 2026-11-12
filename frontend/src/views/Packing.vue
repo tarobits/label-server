@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import type { BatchDetail } from '../types'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import type { BatchDetail } from '../shared/types'
 import PackingLabels from '../components/PackingLabels.vue'
-import { useLiveRefresh } from '../live'
+import { useLiveRefresh } from '../shared/live'
 const route = useRoute(),
   auth = useAuthStore()
 const batch = ref<BatchDetail | null>(null),
@@ -44,11 +44,11 @@ const complete = computed(
 </script>
 <template>
   <div class="section-heading">
-    <RouterLink :to="`/batches/${route.params.id}`">Batch details</RouterLink>
+    <RouterLink :to="`/batches/${route.params.id}`">{{ $t('packing.batchDetails') }}</RouterLink>
   </div>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <p v-else-if="batch && !complete" class="alert warning">
-    Finish reviewing this batch before packing it.
+    {{ $t('packing.finishReviewingThisBatchBeforePackingIt') }}
   </p>
   <PackingLabels v-if="batch && complete" :batch="batch" />
 </template>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { locale } from '../shared/i18n'
+
 import { computed } from 'vue'
 export interface StationDashboard {
   held: boolean
@@ -41,16 +43,16 @@ const lastResult = computed(() => {
   <div class="printer-telemetry">
     <dl class="printer-counts">
       <div>
-        <dt>Queued labels</dt>
+        <dt>{{ $t('common.queuedLabels') }}</dt>
         <dd>
           {{ details.queued_labels
           }}<span v-if="details.shared_queued_labels" class="shared-queue">
-            + {{ details.shared_queued_labels }} shared</span
+            + {{ details.shared_queued_labels }} {{ $t('common.shared') }}</span
           >
         </dd>
       </div>
       <div>
-        <dt>Printed · last 24h</dt>
+        <dt>{{ $t('stationTelemetry.printedLast24h') }}</dt>
         <dd>{{ details.printed_last_24h }}</dd>
       </div>
     </dl>
@@ -61,7 +63,7 @@ const lastResult = computed(() => {
             class="stock-swatch"
             :style="{ background: stock.background ?? '#fff', color: stock.foreground ?? '#000' }"
             aria-hidden="true"
-            >Aa</span
+            >{{ $t('common.aa') }}</span
           >
           <div>
             <strong>{{ stock.name }}</strong
@@ -75,7 +77,7 @@ const lastResult = computed(() => {
         <meter
           v-if="stock.nominal_length_mm > 0 && !stock.uncertain"
           class="stock-meter"
-          aria-label="Estimated cartridge remaining"
+          :aria-label="$t('stationTelemetry.estimatedCartridgeRemaining')"
           min="0"
           :max="stock.nominal_length_mm"
           :low="stock.nominal_length_mm * 0.15"
@@ -84,26 +86,27 @@ const lastResult = computed(() => {
           :aria-valuetext="`${metres(stock.remaining_mm)} of ${metres(stock.nominal_length_mm)}`"
         />
       </template>
-      <p v-else class="muted stock-empty">No cartridge installed</p>
+      <p v-else class="muted stock-empty">{{ $t('common.noCartridgeInstalled') }}</p>
     </div>
     <div v-if="details.active_batch" class="batch-strip" :class="{ active: printing }">
       <strong>{{ printing ? 'Active batch' : 'Awaiting batch result' }}</strong>
-      <span>{{ details.active_batch.total_labels }} labels</span>
+      <span>{{ details.active_batch.total_labels }} {{ $t('common.labels') }}</span>
     </div>
     <p v-else-if="details.last_batch" class="last-batch">
-      <span>Last batch</span><strong>{{ lastResult }}</strong
+      <span>{{ $t('stationTelemetry.lastBatch') }}</span
+      ><strong>{{ lastResult }}</strong
       ><time
         v-if="details.last_batch.finished_at"
         :datetime="new Date(details.last_batch.finished_at * 1000).toISOString()"
         >{{
-          new Date(details.last_batch.finished_at * 1000).toLocaleTimeString([], {
+          new Date(details.last_batch.finished_at * 1000).toLocaleTimeString(locale, {
             hour: '2-digit',
             minute: '2-digit',
           })
         }}</time
       >
     </p>
-    <p v-if="stale" class="stale-data">Last known server data</p>
+    <p v-if="stale" class="stale-data">{{ $t('stationTelemetry.lastKnownServerData') }}</p>
   </div>
 </template>
 

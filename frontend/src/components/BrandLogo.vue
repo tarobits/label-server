@@ -5,6 +5,6 @@ import Icon from './Icon.vue'
 <template>
   <span class="brand">
     <span class="brand-icon"><Icon name="printer" /></span>
-    <span class="brand-wordmark">Taro's Label Room</span>
+    <span class="brand-wordmark">{{ $t('common.taroSLabelRoom') }}</span>
   </span>
 </template>

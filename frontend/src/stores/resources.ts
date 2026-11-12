@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { shallowRef } from 'vue'
-import { api, onApiMutation } from '../api'
+import { api, onApiMutation } from '../shared/api'
 
 interface Entry {
   value: unknown

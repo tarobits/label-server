@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Cartridge } from '../types'
-import { api } from '../api'
-import { useWorkspaceStore } from '../workspace'
-import { vValidateForm } from '../formValidation'
+import type { Cartridge } from '../shared/types'
+import { api } from '../shared/api'
+import { useWorkspaceStore } from '../shared/workspace'
+import { vValidateForm } from '../shared/formValidation'
 import AnimatedDetails from './AnimatedDetails.vue'
 const props = defineProps<{ cartridge: Cartridge }>()
 const w = useWorkspaceStore()
@@ -29,24 +29,28 @@ async function save() {
 <template>
   <AnimatedDetails class="cartridge-price" @toggle="opened">
     <template #summary
-      >Price:
+      >{{ $t('common.price') }}
       {{
         cartridge.price_minor === null
-          ? 'Not set'
+          ? $t('variableInput.notSet')
           : `${(cartridge.price_minor / 100).toFixed(2)} ${cartridge.currency}`
       }}</template
     >
     <form v-validate-form class="form-stack inset" @submit.prevent="save">
       <div class="field-row">
         <label
-          >Cartridge price<input v-model="price" type="number" min="0" max="10000000" step="0.01"
+          >{{ $t('common.cartridgePrice')
+          }}<input v-model="price" type="number" min="0" max="10000000" step="0.01"
         /></label>
         <label
-          >Currency<input v-model="currency" required pattern="[A-Z]{3}" maxlength="3"
+          >{{ $t('common.currency')
+          }}<input v-model="currency" required pattern="[A-Z]{3}" maxlength="3"
         /></label>
       </div>
-      <p class="help">Applies to future print attempts.</p>
-      <button class="secondary" :disabled="w.busy || cartridge.estimate_locked">Save price</button>
+      <p class="help">{{ $t('cartridgePrice.appliesToFuturePrintAttempts') }}</p>
+      <button class="secondary" :disabled="w.busy || cartridge.estimate_locked">
+        {{ $t('common.savePrice') }}
+      </button>
     </form>
   </AnimatedDetails>
 </template>

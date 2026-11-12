@@ -196,8 +196,10 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await settings.click()
     await expect(page).toHaveURL(/#\/account$/)
     await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
-    await expect(page.getByLabel('Language', { exact: true })).toBeDisabled()
-    await expect(page.getByLabel('Language', { exact: true })).toHaveValue('browser')
+    await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toBeEnabled()
+    await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toHaveValue(
+      'browser',
+    )
     await expect(page.getByLabel('Reduced motion', { exact: true })).toHaveValue('browser')
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await page.screenshot({

@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { vValidateForm } from '../formValidation'
+import { t } from '../shared/i18n'
+
+import { vValidateForm } from '../shared/formValidation'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { api, ApiError, errorMessage } from '../api'
-import { useAuthStore, accessLevels, type AccessLevel, type Membership } from '../auth'
-import { useWorkspaceStore, date } from '../workspace'
+import { api, ApiError, errorMessage } from '../shared/api'
+import { useAuthStore, accessLevels, type AccessLevel, type Membership } from '../auth/auth'
+import { useWorkspaceStore, date } from '../shared/workspace'
 import { useRoute, useRouter } from 'vue-router'
-import { confirmAction } from '../confirmation'
+import { confirmAction } from '../shared/confirmation'
 import AdminDialog from '../components/AdminDialog.vue'
 import PermissionRules from '../components/PermissionRules.vue'
-import type { AccessCatalog } from '../resourceAccess'
-import { permissionLabel } from '../resourceAccess'
+import type { AccessCatalog } from '../shared/resourceAccess'
+import { permissionLabel } from '../shared/resourceAccess'
 import MotionSurface from '../components/MotionSurface.vue'
 import MotionTrack from '../components/MotionTrack.vue'
 import NotificationEndpoints from '../components/NotificationEndpoints.vue'
@@ -22,7 +24,7 @@ import {
   permissionOptions,
   printerPreset,
   printerPermissionLabel,
-} from '../printerPermissions'
+} from '../printing/printerPermissions'
 import {
   useAdministrationStore,
   type AdminResource,
@@ -65,13 +67,48 @@ interface Change {
 const route = useRoute()
 const router = useRouter()
 const sections = [
-  { id: 'users', title: 'Users' },
-  { id: 'roles', title: 'Roles' },
-  { id: 'groups', title: 'Content groups' },
-  { id: 'codes', title: 'Registration codes' },
-  { id: 'settings', title: 'Account settings' },
-  { id: 'notifications', title: 'Notification endpoints' },
-  { id: 'trash', title: 'Deleted accounts and content' },
+  {
+    id: 'users',
+    get title() {
+      return t('common.users')
+    },
+  },
+  {
+    id: 'roles',
+    get title() {
+      return t('administration.roles')
+    },
+  },
+  {
+    id: 'groups',
+    get title() {
+      return t('administration.contentGroups')
+    },
+  },
+  {
+    id: 'codes',
+    get title() {
+      return t('administration.registrationCodes')
+    },
+  },
+  {
+    id: 'settings',
+    get title() {
+      return t('navigation.account')
+    },
+  },
+  {
+    id: 'notifications',
+    get title() {
+      return t('notificationEndpoints.notificationEndpoints')
+    },
+  },
+  {
+    id: 'trash',
+    get title() {
+      return t('administration.deletedAccountsAndContent')
+    },
+  },
 ] as const
 const navigationGroups = [
   { title: 'Accounts', sections: sections.slice(0, 4) },
@@ -92,16 +129,16 @@ const editorTitle = computed(() =>
   editor.value === 'user'
     ? `Edit ${selectedUser.value?.username}`
     : editor.value === 'new-user'
-      ? 'Create an account'
+      ? t('administration.createAnAccount')
       : editor.value === 'role'
         ? roleForm.id
           ? `Edit ${roleForm.name}`
-          : 'New role'
+          : t('administration.newRole')
         : editor.value === 'group'
           ? groupForm.id
             ? `Edit ${groupForm.name}`
-            : 'New content group'
-          : 'New registration code',
+            : t('administration.newContentGroup')
+          : t('administration.newRegistrationCode'),
 )
 const loading = ref(true)
 const w = useWorkspaceStore()
@@ -221,7 +258,7 @@ const rolePermissions = () => [
 ]
 const permissionGroups = computed(() => [
   ...(['templates', 'images', 'fonts'] as const).map((kind) => ({
-    title: `${kind === 'templates' ? 'Template' : kind === 'images' ? 'Image' : 'Font'} permissions`,
+    title: `${kind === 'templates' ? t('common.template') : kind === 'images' ? t('templateEditor.image') : t('templateEditor.font')} permissions`,
     options: permissions.value.filter((permission) => permission.id.startsWith(`${kind}.`)),
   })),
   {
@@ -445,6 +482,18 @@ function restoreDeleted(item: DeletedItem) {
       ['trash'],
     )
   }
+}
+async function purgeDeleted(item: DeletedItem) {
+  const content = item.kind === 'users' ? ' and the content deleted with this account' : ''
+  if (await confirmAction(`Permanently purge “${item.name}”${content}? This cannot be undone.`))
+    await perform(
+      () =>
+        api(`/admin/trash/${item.kind}/${item.identifier}/purge`, 'POST', {
+          confirmation: item.identifier,
+        }),
+      'Permanently purged.',
+      ['trash', 'users'],
+    )
 }
 function editRole(role?: Role) {
   editor.value = 'role'
@@ -692,7 +741,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       class="administration-nav"
       :identity="section.id"
       selector="button.active"
-      aria-label="Administration sections"
+      :aria-label="$t('administration.administrationSections')"
     >
       <div v-for="group in navigationGroups" :key="group.title" class="administration-nav-group">
         <h2>{{ group.title }}</h2>
@@ -708,7 +757,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       </div>
     </MotionTrack>
     <label class="administration-mobile-nav">
-      <span class="sr-only">Administration section</span>
+      <span class="sr-only">{{ $t('administration.administrationSection') }}</span>
       <select :value="section.id" @change="navigate(($event.target as HTMLSelectElement).value)">
         <optgroup v-for="group in navigationGroups" :key="group.title" :label="group.title">
           <option v-for="item in group.sections" :key="item.id" :value="item.id">
@@ -725,7 +774,9 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     >
       <p v-if="error && !editor" class="alert danger" role="alert">{{ error }}</p>
       <p v-if="success" class="alert success" role="status">{{ success }}</p>
-      <p v-if="loading" class="empty" role="status">Loading administration…</p>
+      <p v-if="loading" class="empty" role="status">
+        {{ $t('administration.loadingAdministration') }}
+      </p>
       <template v-else>
         <section
           v-if="section.id === 'users'"
@@ -734,19 +785,25 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         >
           <header class="admin-section-heading">
             <h2 id="users-heading">
-              Users <span>{{ users.length }}</span>
+              {{ $t('common.users') }} <span>{{ users.length }}</span>
             </h2>
-            <button class="primary" @click="newUser">Create an account</button>
+            <button class="primary" @click="newUser">
+              {{ $t('administration.createAnAccount') }}
+            </button>
           </header>
-          <label class="admin-search">Search users<input v-model="search" type="search" /></label>
+          <label class="admin-search"
+            >{{ $t('common.searchUsers') }}<input v-model="search" type="search"
+          /></label>
           <div class="table-scroll">
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th>Account</th>
-                  <th>Roles</th>
-                  <th>State</th>
-                  <th><span class="sr-only">Actions</span></th>
+                  <th>{{ $t('common.account') }}</th>
+                  <th>{{ $t('administration.roles') }}</th>
+                  <th>{{ $t('common.state') }}</th>
+                  <th>
+                    <span class="sr-only">{{ $t('common.actions') }}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -757,7 +814,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   <td>{{ roleNames(user.role_ids) }}</td>
                   <td>
                     <span class="badge" :class="user.disabled ? 'cancelled' : 'printed'">{{
-                      user.disabled ? 'Disabled' : 'Active'
+                      user.disabled ? $t('administration.disabled') : $t('common.active')
                     }}</span>
                   </td>
                   <td class="action-cell">
@@ -767,7 +824,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                         class="button secondary"
                         :to="{ path: '/resource-access', query: { user: user.id } }"
                         :aria-label="`Permissions graph for ${user.username}`"
-                        >Permissions graph</RouterLink
+                        >{{ $t('common.permissionsGraph') }}</RouterLink
                       >
                       <button
                         class="secondary"
@@ -775,7 +832,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                         :aria-label="`Edit ${user.username}`"
                         @click="editUser(user)"
                       >
-                        Edit
+                        {{ $t('common.edit') }}
                       </button>
                     </div>
                   </td>
@@ -783,7 +840,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               </tbody>
             </table>
           </div>
-          <p v-if="!filteredUsers.length" class="empty">No users found.</p>
+          <p v-if="!filteredUsers.length" class="empty">{{ $t('administration.noUsersFound') }}</p>
         </section>
         <section
           v-if="section.id === 'roles'"
@@ -792,17 +849,19 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         >
           <header class="admin-section-heading">
             <h2 id="roles-heading">
-              Roles <span>{{ roles.length }}</span>
+              {{ $t('administration.roles') }} <span>{{ roles.length }}</span>
             </h2>
-            <button class="primary" @click="editRole()">New role</button>
+            <button class="primary" @click="editRole()">{{ $t('administration.newRole') }}</button>
           </header>
-          <label class="admin-search">Search roles<input v-model="search" type="search" /></label>
+          <label class="admin-search"
+            >{{ $t('common.searchRoles') }}<input v-model="search" type="search"
+          /></label>
           <div v-for="role in filteredRoles" :key="role.id" class="admin-record">
             <div>
               <strong>{{ role.name }}</strong
               ><small>{{ roleSummary(role) }}</small>
             </div>
-            <span v-if="role.protected" class="muted">Protected</span
+            <span v-if="role.protected" class="muted">{{ $t('administration.protected') }}</span
             ><button
               v-else
               class="secondary"
@@ -810,10 +869,10 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               :aria-label="`Edit role ${role.name}`"
               @click="editRole(role)"
             >
-              Edit
+              {{ $t('common.edit') }}
             </button>
           </div>
-          <p v-if="!filteredRoles.length" class="empty">No roles found.</p>
+          <p v-if="!filteredRoles.length" class="empty">{{ $t('administration.noRolesFound') }}</p>
         </section>
         <section
           v-if="section.id === 'groups'"
@@ -822,19 +881,21 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         >
           <header class="admin-section-heading">
             <h2 id="groups-heading">
-              Content groups <span>{{ groups.length }}</span>
+              {{ $t('administration.contentGroups') }} <span>{{ groups.length }}</span>
             </h2>
-            <button class="primary" @click="editGroup()">New content group</button>
+            <button class="primary" @click="editGroup()">
+              {{ $t('administration.newContentGroup') }}
+            </button>
           </header>
           <label v-if="groups.length" class="admin-search"
-            >Search content groups<input v-model="search" type="search"
+            >{{ $t('common.searchContentGroups') }}<input v-model="search" type="search"
           /></label>
           <div v-for="group in filteredGroups" :key="group.id" class="admin-record">
             <div>
               <strong>{{ group.name }}</strong
               ><small
                 >{{ group.members.length }}
-                {{ group.members.length === 1 ? 'member' : 'members' }}</small
+                {{ group.members.length === 1 ? $t('common.member') : 'members' }}</small
               >
             </div>
             <button
@@ -843,7 +904,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               :aria-label="`Edit group ${group.name}`"
               @click="editGroup(group)"
             >
-              Edit
+              {{ $t('common.edit') }}
             </button>
           </div>
           <p v-if="!filteredGroups.length" class="empty">
@@ -856,28 +917,35 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           aria-labelledby="codes-heading"
         >
           <header class="admin-section-heading">
-            <h2 id="codes-heading">Registration codes</h2>
-            <button class="primary" @click="newCode">New registration code</button>
+            <h2 id="codes-heading">{{ $t('administration.registrationCodes') }}</h2>
+            <button class="primary" @click="newCode">
+              {{ $t('administration.newRegistrationCode') }}
+            </button>
           </header>
           <div v-if="issuedCode" class="alert success code-result">
             <label
-              >New registration code<input
+              >{{ $t('administration.newRegistrationCode')
+              }}<input
                 :value="issuedCode"
                 readonly
                 @focus="($event.target as HTMLInputElement).select()"
             /></label>
-            <p>Shown once.</p>
-            <button class="secondary" @click="issuedCode = ''">Dismiss code</button>
+            <p>{{ $t('common.shownOnce') }}</p>
+            <button class="secondary" @click="issuedCode = ''">
+              {{ $t('administration.dismissCode') }}
+            </button>
           </div>
           <label v-if="codes.length" class="admin-search"
-            >Search registration codes<input v-model="search" type="search"
+            >{{ $t('common.searchRegistrationCodes') }}<input v-model="search" type="search"
           /></label>
           <div v-for="code in filteredCodes" :key="code.id" class="admin-record">
             <div>
               <strong>{{ code.name }}</strong
               ><small
-                >{{ code.revoked ? 'Revoked' : code.redeemed_at ? 'Redeemed' : 'Unused' }} ·
-                {{ code.expires_at ? 'Expires ' + date(code.expires_at) : 'No expiry' }}</small
+                >{{
+                  code.revoked ? 'Revoked' : code.redeemed_at ? 'Redeemed' : $t('common.unused')
+                }}
+                · {{ code.expires_at ? 'Expires ' + date(code.expires_at) : 'No expiry' }}</small
               >
             </div>
             <button
@@ -887,7 +955,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               :aria-label="`Revoke code ${code.name}`"
               @click="revokeCode(code.id)"
             >
-              Revoke
+              {{ $t('administration.revoke') }}
             </button>
           </div>
           <p v-if="!filteredCodes.length" class="empty">
@@ -900,7 +968,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           aria-labelledby="settings-heading"
         >
           <header class="admin-section-heading">
-            <h2 id="settings-heading">Account settings</h2>
+            <h2 id="settings-heading">{{ $t('navigation.account') }}</h2>
           </header>
           <form
             v-validate-form
@@ -912,29 +980,34 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             "
           >
             <label class="checkbox"
-              ><input v-model="settings.registration_code_required" type="checkbox" />Require an
-              administrator-issued registration code</label
+              ><input v-model="settings.registration_code_required" type="checkbox" />{{
+                $t('administration.requireAnAdministratorIssuedRegistrationCode')
+              }}</label
             ><label class="checkbox"
-              ><input v-model="settings.approval_notifications_enabled" type="checkbox" />Notify
-              administrators about pending print requests</label
+              ><input v-model="settings.approval_notifications_enabled" type="checkbox" />{{
+                $t('administration.notifyAdministratorsAboutPendingPrintRequests')
+              }}</label
             ><label
-              >Approval notification delay (seconds)<input
+              >{{ $t('administration.approvalNotificationDelaySeconds')
+              }}<input
                 v-model.number="settings.approval_notification_debounce_seconds"
                 type="number"
                 min="0"
                 max="86400"
                 required
-              /><span class="help"
-                >Combine pending requests during a fixed interval beginning with the first
-                request.</span
-              ></label
+              /><span class="help">{{
+                $t('administration.combinePendingRequestsDuringAFixedIntervalBeginningWith')
+              }}</span></label
             ><label
-              >Batch review evidence<select v-model="settings.batch_review_evidence">
-                <option value="disabled">Disabled</option>
-                <option value="optional">Optional</option>
-                <option value="required">Required</option>
+              >{{ $t('common.batchReviewEvidence')
+              }}<select v-model="settings.batch_review_evidence">
+                <option value="disabled">{{ $t('administration.disabled') }}</option>
+                <option value="optional">{{ $t('administration.optional') }}</option>
+                <option value="required">{{ $t('common.required') }}</option>
               </select></label
-            ><button class="primary" :disabled="busy">Save account settings</button>
+            ><button class="primary" :disabled="busy">
+              {{ $t('administration.saveAccountSettings') }}
+            </button>
           </form>
         </section>
         <NotificationEndpoints v-show="section.id === 'notifications'" />
@@ -944,14 +1017,13 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           aria-labelledby="trash-heading"
         >
           <header class="admin-section-heading">
-            <h2 id="trash-heading">Deleted accounts and content</h2>
+            <h2 id="trash-heading">{{ $t('administration.deletedAccountsAndContent') }}</h2>
           </header>
           <p class="help">
-            Restore deleted accounts and content within 30 days. Restoring an account also restores
-            the content deleted with it.
+            {{ $t('administration.restoreDeletedAccountsAndContentWithin30DaysRestoring') }}
           </p>
           <label v-if="trash.length" class="admin-search"
-            >Search deleted content<input v-model="search" type="search"
+            >{{ $t('common.searchDeletedContent') }}<input v-model="search" type="search"
           /></label>
           <div
             v-for="item in filteredTrash"
@@ -960,20 +1032,32 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
             <div>
               <strong>{{ item.name }}</strong
-              ><small>{{ item.kind }} · Purge after {{ date(item.purge_after) }}</small>
+              ><small
+                >{{ item.kind }} {{ $t('common.purgeAfter') }} {{ date(item.purge_after) }}</small
+              >
             </div>
-            <button
-              class="secondary"
-              :disabled="
-                busy ||
-                item.purge_after * 1000 <= Date.now() ||
-                (!!item.account_id && item.kind !== 'users')
-              "
-              :aria-label="`Restore ${item.name}`"
-              @click="restoreDeleted(item)"
-            >
-              Restore
-            </button>
+            <div class="row wrap">
+              <button
+                class="secondary"
+                :disabled="
+                  busy ||
+                  item.purge_after * 1000 <= Date.now() ||
+                  (!!item.account_id && item.kind !== 'users')
+                "
+                :aria-label="`Restore ${item.name}`"
+                @click="restoreDeleted(item)"
+              >
+                {{ $t('administration.restore') }}
+              </button>
+              <button
+                class="danger"
+                :disabled="busy"
+                :aria-label="`Purge ${item.name} now`"
+                @click="purgeDeleted(item)"
+              >
+                {{ $t('administration.purgeNow') }}
+              </button>
+            </div>
           </div>
           <p v-if="!filteredTrash.length" class="empty">
             {{
@@ -996,7 +1080,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     <template v-if="editor === 'user'">
       <form v-validate-form v-if="selectedUser" class="form-stack" @submit.prevent="saveUser">
         <label
-          >Username<input
+          >{{ $t('common.username')
+          }}<input
             v-model="selectedUser.username"
             autocomplete="off"
             autocapitalize="none"
@@ -1007,10 +1092,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             pattern="[A-Za-z0-9_.-]+"
         /></label>
         <label class="checkbox"
-          ><input v-model="selectedUser.disabled" type="checkbox" />Disable account</label
+          ><input v-model="selectedUser.disabled" type="checkbox" />{{
+            $t('administration.disableAccount')
+          }}</label
         >
         <fieldset class="choice-grid">
-          <legend>Assigned roles</legend>
+          <legend>{{ $t('administration.assignedRoles') }}</legend>
           <label v-for="role in roles" :key="role.id" class="checkbox"
             ><input
               v-model="selectedUser.role_ids"
@@ -1027,15 +1114,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
         </fieldset>
         <label
-          >New password (optional)<input
-            v-model="password"
-            type="password"
-            minlength="12"
-            autocomplete="new-password"
+          >{{ $t('administration.newPasswordOptional')
+          }}<input v-model="password" type="password" minlength="12" autocomplete="new-password"
         /></label>
         <p class="help">
-          Disabling an account ends its sessions. Queued work affected by lost access waits for an
-          administrator.
+          {{ $t('administration.disablingAnAccountEndsItsSessionsQueuedWorkAffected') }}
         </p>
         <div class="admin-actions">
           <button
@@ -1045,16 +1128,18 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             :aria-label="`Delete account ${selectedUser.username}`"
             @click="deleteUser(selectedUser)"
           >
-            Delete account</button
-          ><button class="primary" :disabled="busy || !editorChanged">Review account changes</button
-          ><button type="button" @click="closeEditor">Cancel</button>
+            {{ $t('administration.deleteAccount') }}</button
+          ><button class="primary" :disabled="busy || !editorChanged">
+            {{ $t('administration.reviewAccountChanges') }}</button
+          ><button type="button" @click="closeEditor">{{ $t('common.cancel') }}</button>
         </div>
       </form> </template
     ><template v-if="editor === 'new-user'"
       ><form v-validate-form class="form-stack" @submit.prevent="createUser">
         <div class="field-row">
           <label
-            >New username<input
+            >{{ $t('administration.newUsername')
+            }}<input
               v-model="userForm.username"
               required
               minlength="3"
@@ -1062,7 +1147,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               pattern="[A-Za-z0-9_.-]+"
               autocomplete="off" /></label
           ><label
-            >Initial password<input
+            >{{ $t('administration.initialPassword')
+            }}<input
               v-model="userForm.password"
               type="password"
               required
@@ -1071,7 +1157,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           /></label>
         </div>
         <fieldset class="choice-grid">
-          <legend>Initial roles</legend>
+          <legend>{{ $t('administration.initialRoles') }}</legend>
           <label v-for="role in roles" :key="role.id" class="checkbox"
             ><input
               v-model="userForm.role_ids"
@@ -1088,13 +1174,19 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
         </fieldset>
         <div class="admin-actions">
-          <button type="button" class="secondary" @click="closeEditor">Cancel</button
-          ><button class="primary" :disabled="busy">Review new account</button>
+          <button type="button" class="secondary" @click="closeEditor">
+            {{ $t('common.cancel') }}</button
+          ><button class="primary" :disabled="busy">
+            {{ $t('administration.reviewNewAccount') }}
+          </button>
         </div>
       </form></template
     ><template v-if="editor === 'role'">
       <form v-validate-form class="form-stack" @submit.prevent="saveRole">
-        <label>Role name<input v-model="roleForm.name" required maxlength="100" /></label>
+        <label
+          >{{ $t('administration.roleName')
+          }}<input v-model="roleForm.name" required maxlength="100"
+        /></label>
         <fieldset v-for="category in permissionGroups" :key="category.title" class="choice-grid">
           <legend>{{ category.title }}</legend>
           <label v-for="permission in category.options" :key="permission.id" class="checkbox"
@@ -1104,16 +1196,18 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
         </fieldset>
         <fieldset>
-          <legend>Print destinations</legend>
+          <legend>{{ $t('common.printDestinations') }}</legend>
           <AnimatedDetails v-for="destination in w.destinations" :key="destination.id">
             <template #summary
-              >{{ destination.name }} ·
-              {{ (roleForm.destinations[destination.id] ?? []).length }} allowed ·
-              {{ (roleForm.destinationDenials[destination.id] ?? []).length }} denied</template
+              >{{ destination.name }} · {{ (roleForm.destinations[destination.id] ?? []).length }}
+              {{ $t('common.allowed') }}
+              {{ (roleForm.destinationDenials[destination.id] ?? []).length }}
+              {{ $t('common.denied') }}</template
             >
             <div class="form-stack">
               <label
-                >Preset<select
+                >{{ $t('administration.preset')
+                }}<select
                   :aria-label="`Access to ${destination.name}`"
                   :value="selectedPreset(destination.id, destination.kind === 'group')"
                   @change="
@@ -1127,7 +1221,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                     )
                   "
                 >
-                  <option value="custom" disabled>Custom</option>
+                  <option value="custom" disabled>{{ $t('common.custom') }}</option>
                   <option v-for="level in accessLevels" :key="level.value" :value="level.value">
                     {{ level.label }}
                   </option>
@@ -1145,7 +1239,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </AnimatedDetails>
         </fieldset>
         <fieldset class="form-stack">
-          <legend>Locations</legend>
+          <legend>{{ $t('common.locations') }}</legend>
           <AnimatedDetails v-for="location in accessCatalog?.locations" :key="location.id">
             <template #summary>{{ location.name }}</template>
             <fieldset
@@ -1181,16 +1275,21 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             :disabled="busy"
             @click="remove('roles', roleForm.id)"
           >
-            Delete role</button
-          ><button class="primary" :disabled="busy || !editorChanged">Review role changes</button
-          ><button type="button" class="secondary" @click="closeEditor">Cancel</button>
+            {{ $t('administration.deleteRole') }}</button
+          ><button class="primary" :disabled="busy || !editorChanged">
+            {{ $t('administration.reviewRoleChanges') }}</button
+          ><button type="button" class="secondary" @click="closeEditor">
+            {{ $t('common.cancel') }}
+          </button>
         </div>
       </form> </template
     ><template v-if="editor === 'group'"
       ><form v-validate-form class="form-stack" @submit.prevent="saveGroup">
-        <label>Group name<input v-model="groupForm.name" required maxlength="100" /></label>
+        <label
+          >{{ $t('common.groupName') }}<input v-model="groupForm.name" required maxlength="100"
+        /></label>
         <fieldset>
-          <legend>Membership and collaboration</legend>
+          <legend>{{ $t('administration.membershipAndCollaboration') }}</legend>
           <div class="member-matrix">
             <div v-for="user in users" :key="user.id" class="member-row">
               <label class="checkbox member-name"
@@ -1212,8 +1311,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </div>
         </fieldset>
         <p class="help">
-          Members can view this group’s templates, images and fonts. Creation, editing and deletion
-          permissions are independent for each resource.
+          {{ $t('administration.membersCanViewThisGroupSTemplatesImagesAnd') }}
         </p>
         <div class="admin-actions">
           <button
@@ -1223,17 +1321,23 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             :disabled="busy"
             @click="remove('groups', groupForm.id)"
           >
-            Delete group</button
-          ><button type="button" class="secondary" @click="closeEditor">Cancel</button
-          ><button class="primary" :disabled="busy || !editorChanged">Review group changes</button>
+            {{ $t('administration.deleteGroup') }}</button
+          ><button type="button" class="secondary" @click="closeEditor">
+            {{ $t('common.cancel') }}</button
+          ><button class="primary" :disabled="busy || !editorChanged">
+            {{ $t('administration.reviewGroupChanges') }}
+          </button>
         </div>
       </form></template
     ><template v-if="editor === 'code'">
       <form v-validate-form class="form-stack" @submit.prevent="issueCode">
         <div class="field-row">
-          <label>Code label<input v-model="codeForm.name" required maxlength="100" /></label
+          <label
+            >{{ $t('administration.codeLabel')
+            }}<input v-model="codeForm.name" required maxlength="100" /></label
           ><label
-            >Valid for (days)<input
+            >{{ $t('common.validForDays')
+            }}<input
               v-model.number="codeForm.expires_in_days"
               type="number"
               min="1"
@@ -1242,7 +1346,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           /></label>
         </div>
         <fieldset class="choice-grid">
-          <legend>Initial roles</legend>
+          <legend>{{ $t('administration.initialRoles') }}</legend>
           <label v-for="role in roles.filter((r) => !r.protected)" :key="role.id" class="checkbox"
             ><input
               v-model="codeForm.role_ids"
@@ -1259,7 +1363,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           >
         </fieldset>
         <fieldset v-if="groups.length">
-          <legend>Join content groups</legend>
+          <legend>{{ $t('administration.joinContentGroups') }}</legend>
           <div class="member-matrix">
             <div v-for="group in groups" :key="group.id" class="member-row">
               <label class="checkbox member-name"
@@ -1282,8 +1386,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           </div>
         </fieldset>
         <div class="admin-actions">
-          <button type="button" class="secondary" @click="closeEditor">Cancel</button
-          ><button class="primary" :disabled="busy">Create registration code</button>
+          <button type="button" class="secondary" @click="closeEditor">
+            {{ $t('common.cancel') }}</button
+          ><button class="primary" :disabled="busy">
+            {{ $t('administration.createRegistrationCode') }}
+          </button>
         </div>
       </form>
     </template></AdminDialog
@@ -1296,31 +1403,27 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       @cancel.prevent="cancelPreview"
     >
       <h2 id="access-preview-title">
-        {{ deletingAccount ? 'Delete account' : 'Review effective access' }}
+        {{ deletingAccount ? $t('administration.deleteAccount') : 'Review effective access' }}
       </h2>
       <template v-if="deletingAccount">
         <p>
-          Delete this account, end its sessions, and remove all its templates, images and fonts from
-          use, including shared content. Administrators can restore the account and its content for
-          30 days before permanent purging. Other templates using its assets will show missing-asset
-          placeholders. Affected queued work is paused. Print history is retained.
+          {{ $t('administration.deleteThisAccountEndItsSessionsAndRemoveAll') }}
         </p>
         <p v-if="change?.identifier === auth.user?.id" class="alert warning">
-          You are deleting your own account and will be signed out.
+          {{ $t('common.youAreDeletingYourOwnAccountAndWillBe') }}
         </p>
       </template>
       <p v-if="previewError" class="alert warning" role="alert">{{ previewError }}</p>
       <p v-if="impact?.owner_loss_warning" class="alert warning">
-        This change grants Approve use on cartridges. Their owners cover costs above the requester’s
-        accepted price, including free retries.
+        {{ $t('common.thisChangeGrantsApproveUseOnCartridgesTheirOwners') }}
       </p>
       <div v-if="impact" class="table-scroll">
         <table v-if="changedUsers.length">
           <thead>
             <tr>
-              <th>User</th>
-              <th>Before</th>
-              <th>After</th>
+              <th>{{ $t('common.user') }}</th>
+              <th>{{ $t('administration.before') }}</th>
+              <th>{{ $t('administration.after') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -1346,10 +1449,12 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             </tr>
           </tbody>
         </table>
-        <p v-if="!changedUsers.length" class="empty compact">No effective access changes.</p>
+        <p v-if="!changedUsers.length" class="empty compact">
+          {{ $t('administration.noEffectiveAccessChanges') }}
+        </p>
         <AnimatedDetails v-if="unchangedUsers.length" class="unchanged-access">
           <template #summary>
-            {{ unchangedUsers.length }} unchanged
+            {{ unchangedUsers.length }} {{ $t('common.unchanged') }}
             {{ unchangedUsers.length === 1 ? 'account' : 'accounts' }}
           </template>
           <ul>
@@ -1358,9 +1463,14 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         </AnimatedDetails>
       </div>
       <div class="row wrap">
-        <button class="secondary" :disabled="busy" @click="cancelPreview">Cancel</button
+        <button class="secondary" :disabled="busy" @click="cancelPreview">
+          {{ $t('common.cancel') }}</button
         ><button class="primary" :disabled="busy || !impact" @click="applyChange">
-          {{ deletingAccount ? 'Delete account' : 'Confirm access changes' }}
+          {{
+            deletingAccount
+              ? $t('administration.deleteAccount')
+              : $t('resourceAccess.confirmAccessChanges')
+          }}
         </button>
       </div>
     </dialog></Teleport

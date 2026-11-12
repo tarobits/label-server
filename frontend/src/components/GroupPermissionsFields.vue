@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import type { GroupRights, Membership } from '../auth'
+import { t } from '../shared/i18n'
+
+import type { GroupRights, Membership } from '../auth/auth'
 const props = defineProps<{ modelValue: Membership; subject: string; invitation?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: Membership] }>()
 const kinds = ['templates', 'images', 'fonts'] as const
 const rights = [
-  { key: 'can_create', title: 'Create', action: 'create group' },
+  {
+    key: 'can_create',
+    get title() {
+      return t('migrationResourceCreator.create')
+    },
+    action: 'create group',
+  },
   { key: 'can_edit_others', title: 'Edit others', action: 'edit others’' },
   { key: 'can_delete_others', title: 'Delete others', action: 'delete others’' },
 ] as const
@@ -31,18 +39,23 @@ function update(kind: (typeof kinds)[number], key: keyof GroupRights, event: Eve
 }
 function label(kind: (typeof kinds)[number], right: (typeof rights)[number]) {
   return props.invitation
-    ? `${right.title === 'Create' ? 'Create' : right.title.replace('others', 'others’')} ${kind} in ${props.subject}`
+    ? `${right.title === 'Create' ? t('migrationResourceCreator.create') : right.title.replace('others', 'others’')} ${kind} in ${props.subject}`
     : `Allow ${props.subject} to ${right.action} ${kind}`
 }
 </script>
 <template>
   <div class="group-rights">
     <div class="rights-row rights-heading" aria-hidden="true">
-      <span>Resource</span><span v-for="right in rights" :key="right.key">{{ right.title }}</span>
+      <span>{{ $t('common.resource') }}</span
+      ><span v-for="right in rights" :key="right.key">{{ right.title }}</span>
     </div>
     <div v-for="kind in kinds" :key="kind" class="rights-row">
       <strong>{{
-        kind === 'templates' ? 'Templates' : kind === 'images' ? 'Images' : 'Fonts'
+        kind === 'templates'
+          ? $t('common.templates')
+          : kind === 'images'
+            ? $t('common.images')
+            : $t('common.fonts')
       }}</strong>
       <label v-for="right in rights" :key="right.key" class="checkbox"
         ><input

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore, date } from '../workspace'
-import { useAuthStore } from '../auth'
-import { useHistoryPage } from '../history'
-import type { Notice } from '../types'
+import { useWorkspaceStore, date } from '../shared/workspace'
+import { useAuthStore } from '../auth/auth'
+import { useHistoryPage } from '../printing/history'
+import type { Notice } from '../shared/types'
 import Badge from '../components/Badge.vue'
 import HistoryPagination from '../components/HistoryPagination.vue'
 import MotionSurface from '../components/MotionSurface.vue'
@@ -38,34 +38,34 @@ function noticeState(notice: Notice) {
     :aria-busy="notices.loading"
   >
     <div class="section-heading">
-      <h2 id="notification-history-title">Notifications</h2>
+      <h2 id="notification-history-title">{{ $t('common.notifications') }}</h2>
       <span class="badge" :class="overview.notifications_enabled ? 'printed' : 'queued'">{{
         overview.notifications_enabled ? 'Delivery enabled' : 'Delivery not configured'
       }}</span>
     </div>
     <p v-if="!overview.notifications_enabled" class="help">
-      Add a notification endpoint in Administration to deliver alerts.
+      {{ $t('deliveryHistory.addANotificationEndpointInAdministrationToDeliverAlerts') }}
     </p>
     <HistoryPagination
       v-bind="notices.pagination"
-      label="Notification pages"
+      :label="$t('deliveryHistory.notificationPages')"
       @change="notices.go($event)"
     />
     <Transition name="notice"
       ><div v-if="notices.error" class="alert danger motion-reveal" role="alert">
         {{ notices.error }}
         <button class="secondary small" :disabled="notices.loading" @click="notices.retry()">
-          Retry
+          {{ $t('common.retry') }}
         </button>
       </div></Transition
     >
     <Transition name="notice"
       ><p v-if="notices.loading" role="status" class="muted motion-reveal">
-        Loading page {{ notices.page }}…
+        {{ $t('common.loadingPage') }} {{ notices.page }}…
       </p></Transition
     >
     <div v-if="!notices.items.length && !notices.loading && !notices.error" class="empty compact">
-      All quiet.
+      {{ $t('deliveryHistory.allQuiet') }}
     </div>
     <MotionSurface
       :identity="String(notices.loadedPage)"
@@ -82,33 +82,35 @@ function noticeState(notice: Notice) {
         <ul
           v-if="notice.deliveries?.length"
           class="notice-deliveries"
-          aria-label="Endpoint deliveries"
+          :aria-label="$t('deliveryHistory.endpointDeliveries')"
         >
           <li v-for="(delivery, index) in notice.deliveries" :key="index">
             <div class="row spread">
-              <strong>{{ delivery.endpoint_name }}</strong>
+              <strong
+                >{{ delivery.endpoint_name
+                }}<span v-if="delivery.account_name"> · {{ delivery.account_name }}</span></strong
+              >
               <Badge :state="deliveryState(delivery)" />
             </div>
             <small
-              >{{ delivery.attempts }} delivery attempts<span v-if="delivery.delivered_at">
-                · {{ date(delivery.delivered_at) }}</span
+              >{{ delivery.attempts }} {{ $t('common.deliveryAttempts')
+              }}<span v-if="delivery.delivered_at"> · {{ date(delivery.delivered_at) }}</span
               ><span v-if="delivery.last_error"> · {{ delivery.last_error }}</span></small
             >
           </li>
         </ul>
         <small
-          >{{ date(notice.created_at) }} · {{ notice.attempts }} delivery attempts<span
-            v-if="notice.last_error"
-          >
-            · {{ notice.last_error }}</span
-          ></small
-        ><a v-if="notice.path.startsWith('/#/')" :href="notice.path">Open details →</a>
+          >{{ date(notice.created_at) }} · {{ notice.attempts }} {{ $t('common.deliveryAttempts')
+          }}<span v-if="notice.last_error"> · {{ notice.last_error }}</span></small
+        ><a v-if="notice.path.startsWith('/#/')" :href="notice.path">{{
+          $t('deliveryHistory.openDetails')
+        }}</a>
       </article>
     </MotionSurface>
     <HistoryPagination
       v-if="notices.items.length"
       v-bind="notices.pagination"
-      label="Notification pages, bottom"
+      :label="$t('deliveryHistory.notificationPagesBottom')"
       @change="notices.go($event)"
     />
   </section>

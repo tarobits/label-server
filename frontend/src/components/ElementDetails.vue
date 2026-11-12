@@ -7,13 +7,24 @@ defineEmits<{ change: []; duplicate: []; remove: [] }>()
 
 <template>
   <div class="element-details">
-    <label>Element name<input v-model="name" maxlength="100" @change="$emit('change')" /></label>
+    <label
+      >{{ $t('elementDetails.elementName')
+      }}<input v-model="name" maxlength="100" @change="$emit('change')"
+    /></label>
     <div class="row wrap">
-      <button class="small" aria-label="Duplicate element" @click="$emit('duplicate')">
-        <DocumentDuplicateIcon aria-hidden="true" />Duplicate
+      <button
+        class="small"
+        :aria-label="$t('elementDetails.duplicateElement')"
+        @click="$emit('duplicate')"
+      >
+        <DocumentDuplicateIcon aria-hidden="true" />{{ $t('common.duplicate') }}
       </button>
-      <button class="small danger-text" aria-label="Delete element" @click="$emit('remove')">
-        <TrashIcon aria-hidden="true" />Delete
+      <button
+        class="small danger-text"
+        :aria-label="$t('elementDetails.deleteElement')"
+        @click="$emit('remove')"
+      >
+        <TrashIcon aria-hidden="true" />{{ $t('common.delete') }}
       </button>
     </div>
   </div>

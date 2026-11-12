@@ -1,19 +1,22 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
+
 import { nextTick, onBeforeUnmount, reactive, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { motionPreference } from '../preferences'
+import { api, errorMessage } from '../shared/api'
+import { motionPreference } from '../shared/preferences'
 import AccountEmail from '../components/AccountEmail.vue'
 import AccountPush from '../components/AccountPush.vue'
 import AccountSessions from '../components/AccountSessions.vue'
 import AccountPicture from '../components/AccountPicture.vue'
 import AccountPin from '../components/AccountPin.vue'
+import LanguagePicker from '../components/LanguagePicker.vue'
 import {
   vValidateForm,
   apiFieldErrors,
   focusFormErrors,
   resetFormValidation,
   type FieldErrors,
-} from '../formValidation'
+} from '../shared/formValidation'
 
 const form = reactive({ current_password: '', new_password: '', confirmation: '' })
 const sessionsRevision = ref(0)
@@ -55,7 +58,7 @@ async function savePassword() {
     if (disposed) return
     Object.assign(form, { current_password: '', new_password: '', confirmation: '' })
     resetFormValidation(passwordForm.value)
-    success.value = 'Password changed. Other sessions signed out.'
+    success.value = t('common.passwordChangedOtherSessionsSignedOut')
     sessionsRevision.value++
   } catch (issue) {
     if (disposed) return
@@ -73,34 +76,31 @@ async function savePassword() {
 
 <template>
   <div class="account-settings panel">
-    <section class="settings-section" aria-label="Profile picture"><AccountPicture /></section>
+    <section class="settings-section" :aria-label="$t('common.profilePicture')">
+      <AccountPicture />
+    </section>
     <section class="settings-section" aria-labelledby="preferences-heading">
-      <h2 id="preferences-heading">Preferences</h2>
+      <h2 id="preferences-heading">{{ $t('accountSettings.preferences') }}</h2>
       <div class="settings-preferences">
-        <label>
-          <span class="language-label">Language <small>Coming soon</small></span>
-          <select aria-label="Language" disabled>
-            <option value="browser">Browser</option>
-          </select>
-        </label>
+        <LanguagePicker account />
         <label
-          >Reduced motion
-          <select v-model="motionPreference" aria-label="Reduced motion">
-            <option value="browser">Browser</option>
-            <option value="on">On</option>
-            <option value="off">Off</option>
+          >{{ $t('accountSettings.reducedMotion') }}
+          <select v-model="motionPreference" :aria-label="$t('accountSettings.reducedMotion')">
+            <option value="browser">{{ $t('common.browser') }}</option>
+            <option value="on">{{ $t('accountSettings.on') }}</option>
+            <option value="off">{{ $t('accountSettings.off') }}</option>
           </select>
         </label>
       </div>
     </section>
-    <section class="settings-section" aria-label="Email settings">
+    <section class="settings-section" :aria-label="$t('accountSettings.emailSettings')">
       <AccountEmail />
     </section>
-    <section class="settings-section" aria-label="Push notifications">
+    <section class="settings-section" :aria-label="$t('common.pushNotifications')">
       <AccountPush />
     </section>
     <section class="settings-section" aria-labelledby="password-heading">
-      <h2 id="password-heading">Change password</h2>
+      <h2 id="password-heading">{{ $t('accountSettings.changePassword') }}</h2>
       <form
         ref="passwordForm"
         v-validate-form="errors"
@@ -111,7 +111,8 @@ async function savePassword() {
         <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
         <p v-if="success" class="alert success" role="status">{{ success }}</p>
         <label
-          >Current password<input
+          >{{ $t('common.currentPassword')
+          }}<input
             v-model="form.current_password"
             name="current_password"
             type="password"
@@ -121,7 +122,8 @@ async function savePassword() {
             :disabled="busy"
         /></label>
         <label
-          >New password<input
+          >{{ $t('common.newPassword')
+          }}<input
             v-model="form.new_password"
             name="new_password"
             type="password"
@@ -132,7 +134,8 @@ async function savePassword() {
             :disabled="busy"
         /></label>
         <label
-          >Confirm new password<input
+          >{{ $t('common.confirmNewPassword')
+          }}<input
             v-model="form.confirmation"
             name="confirmation"
             type="password"
@@ -142,11 +145,15 @@ async function savePassword() {
             required
             :disabled="busy"
         /></label>
-        <button class="primary" :disabled="busy" type="submit">Change password</button>
+        <button class="primary" :disabled="busy" type="submit">
+          {{ $t('accountSettings.changePassword') }}
+        </button>
       </form>
     </section>
-    <section class="settings-section" aria-label="Companion PIN"><AccountPin /></section>
-    <section class="settings-section" aria-label="Logged-in sessions">
+    <section class="settings-section" :aria-label="$t('common.companionPin')">
+      <AccountPin />
+    </section>
+    <section class="settings-section" :aria-label="$t('common.loggedInSessions')">
       <AccountSessions :refresh-key="sessionsRevision" />
     </section>
   </div>

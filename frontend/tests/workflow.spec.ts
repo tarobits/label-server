@@ -54,6 +54,33 @@ test(
     await page.getByLabel('Decision for label 2', { exact: true }).selectOption('failed')
     await page.getByLabel('Decision for label 3', { exact: true }).selectOption('cancelled')
     await page.getByLabel('Total tape consumed by this attempt (mm)').fill('70')
+    await expect
+      .poll(() =>
+        page
+          .locator('img[alt^="Label preview:"]')
+          .evaluateAll(
+            (images) =>
+              images.length === 3 &&
+              images.every((image) => (image as HTMLImageElement).naturalWidth > 0),
+          ),
+      )
+      .toBe(true)
+    // A busy response must retain the operator's review for an explicit retry.
+    await page.route(
+      '**/api/batches/*/review',
+      (route) =>
+        route.fulfill({
+          status: 503,
+          headers: { 'Retry-After': '1' },
+          json: { detail: 'Rendering is busy; try again shortly' },
+        }),
+      { times: 1 },
+    )
+    await page.getByRole('button', { name: 'Save review', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('Rendering is busy')
+    await expect(page.getByLabel('Total tape consumed by this attempt (mm)')).toHaveValue('70')
+    await expect(page.getByLabel('Decision for label 2', { exact: true })).toHaveValue('failed')
+    await expect(page.getByLabel('Decision for label 3', { exact: true })).toHaveValue('cancelled')
     await page.getByRole('button', { name: 'Save review', exact: true }).click()
     await expect(page.getByText('Tape consumed: 0.07 m.')).toBeVisible()
     await page.goto('/#/activity')
@@ -380,7 +407,7 @@ test('queue runs expand, select individual rows, and drafts can be deleted', asy
   const run = (await (await page.request.post('/api/runs/prepare', { data: body })).json()).run
   const submitted = await (await page.request.post(`/api/runs/${run.id}/submit`)).json()
   await page.goto('/#/queue')
-  await chooseTapeProfile(page, profile.id)
+  await page.locator('#queue-profile-filter').selectOption(profile.id)
   for (const viewport of [
     { width: 1280, height: 720 },
     { width: 390, height: 844 },
@@ -852,7 +879,20 @@ test('template resolution, text padding, rulers and object bounds work together'
   const properties = (await page.locator('.editor-properties').boundingBox())!
   expect(properties.x).toBeGreaterThanOrEqual(workspace.x + workspace.width)
   expect(properties.y).toBe(workspace.y)
-  await expect(page.getByRole('group', { name: 'Add elements' }).locator('svg')).toHaveCount(6)
+  const elementTools = page.getByRole('group', { name: 'Add elements' })
+  for (const name of [
+    'Add image',
+    'Add text',
+    'Add QR code',
+    'Add barcode',
+    'Add Data Matrix',
+    'Add Aztec code',
+    'Add rectangle',
+    'Add horizontal line',
+    'Add vertical line',
+  ]) {
+    await expect(elementTools.getByRole('button', { name, exact: true })).toBeEnabled()
+  }
   const heights = await page
     .locator('.editor-layout input[type=number]:visible, .editor-layout select:visible')
     .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))
@@ -1144,7 +1184,7 @@ test('printed batch history shows saved pixels and an enlarged preview', async (
   const box = (await thumbnails.first().boundingBox())!
   expect(box.width / box.height).toBeCloseTo(60 / 24, 1)
   await page
-    .getByRole('button', { name: 'Enlarge label preview: Label', exact: true })
+    .getByRole('button', { name: 'Enlarge label preview: History template', exact: true })
     .first()
     .click()
   const dialog = page.getByRole('dialog', { name: 'Label preview', exact: true })
@@ -1156,7 +1196,9 @@ test('printed batch history shows saved pixels and an enlarged preview', async (
   await page.keyboard.press('Escape')
   await expect(dialog).not.toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Enlarge label preview: Label', exact: true }).first(),
+    page
+      .getByRole('button', { name: 'Enlarge label preview: History template', exact: true })
+      .first(),
   ).toBeFocused()
   await page.route('**/api/batches/*/items/*/preview', (route) => route.fulfill({ status: 404 }))
   await page.reload()

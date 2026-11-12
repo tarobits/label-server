@@ -21,7 +21,7 @@ test('resource access creates locations and previews inherited grants on desktop
   await page
     .getByRole('combobox', { name: 'User or role', exact: true })
     .selectOption({ label: 'Role: Member' })
-  await page.getByLabel('Use cartridge', { exact: true }).check()
+  await page.getByRole('combobox', { name: 'Use cartridge', exact: true }).selectOption('allow')
   await page.getByRole('button', { name: 'Review changes', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Review access changes' })).toBeVisible()
   await page.getByRole('button', { name: 'Confirm access changes', exact: true }).click()
@@ -33,7 +33,9 @@ test('resource access creates locations and previews inherited grants on desktop
   await page
     .getByRole('combobox', { name: 'User or role', exact: true })
     .selectOption({ label: 'Role: Member' })
-  await page.getByLabel('Hold/resume printing', { exact: true }).check()
+  await page
+    .getByRole('combobox', { name: 'Hold/resume printing', exact: true })
+    .selectOption('allow')
   await settle(page)
   await page.screenshot({ path: 'test-results/resource-access-desktop.png', fullPage: true })
   await page.setViewportSize({ width: 390, height: 844 })

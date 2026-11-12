@@ -1,12 +1,14 @@
 <script setup lang="ts">
+import { locale, t } from '../shared/i18n'
+
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { confirmAction } from '../confirmation'
-import type { AccessCatalog, AccessPreview, Grant } from '../resourceAccess'
+import { api, errorMessage } from '../shared/api'
+import { confirmAction } from '../shared/confirmation'
+import type { AccessCatalog, AccessPreview, Grant } from '../shared/resourceAccess'
 import AdminDialog from '../components/AdminDialog.vue'
 import ExpandableContent from '../components/ExpandableContent.vue'
 import ResourceImpact from '../components/ResourceImpact.vue'
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 
 interface Companion {
   id: string
@@ -163,7 +165,7 @@ async function keyAction(item: Companion, revoke: boolean) {
       revoke
         ? `Revoke ${item.name}'s key? It will disconnect and cannot receive more work.`
         : `Replace ${item.name}'s key? Update its deployment with the new key to reconnect.`,
-      revoke ? 'Revoke key' : 'Replace key',
+      revoke ? t('companions.revokeKey') : 'Replace key',
     ))
   )
     return
@@ -201,9 +203,9 @@ function removeGrant(index: number) {
 <template>
   <section class="panel">
     <div class="section-heading wrap">
-      <h2>Companions</h2>
+      <h2>{{ $t('companions.companions') }}</h2>
       <button class="primary" :disabled="busy || !catalog?.locations.length" @click="edit()">
-        Add companion
+        {{ $t('companions.addCompanion') }}
       </button>
     </div>
     <p v-if="(error || refreshError) && !form && !key" class="alert danger" role="alert">
@@ -211,9 +213,10 @@ function removeGrant(index: number) {
     </p>
     <p v-if="success" class="alert success" role="status">{{ success }}</p>
     <p v-if="catalog && !catalog.locations.length">
-      <RouterLink to="/resource-access">Add a location</RouterLink> before registering a companion.
+      <RouterLink to="/resource-access">{{ $t('companions.addALocation') }}</RouterLink>
+      {{ $t('common.beforeRegisteringACompanion') }}
     </p>
-    <p v-else-if="!items.length" class="muted">No companions registered.</p>
+    <p v-else-if="!items.length" class="muted">{{ $t('companions.noCompanionsRegistered') }}</p>
     <div v-for="item in items" :key="item.id" class="companion-row">
       <div class="companion-details">
         <div class="companion-heading">
@@ -233,37 +236,38 @@ function removeGrant(index: number) {
             item.bound_user_id
               ? (catalog?.users.find((u) => u.id === item.bound_user_id)?.name ??
                 'Unavailable user')
-              : 'User picker'
+              : $t('common.userPicker')
           }}
         </p>
         <div class="companion-telemetry muted">
           <span>{{ item.software_version ? `v${item.software_version}` : 'Version unknown' }}</span>
           <span v-if="item.last_seen_at !== null">
-            Last seen
+            {{ $t('common.lastSeen') }}
             <time :datetime="new Date(item.last_seen_at * 1000).toISOString()">
-              {{ new Date(item.last_seen_at * 1000).toLocaleString() }}
+              {{ new Date(item.last_seen_at * 1000).toLocaleString(locale) }}
             </time>
           </span>
         </div>
         <ExpandableContent :open="versionMismatch(item)">
           <p class="inline-warning companion-version-warning">
-            Version mismatch · Main server v{{ item.server_version }}
+            {{ $t('common.versionMismatchMainServerV') }}{{ item.server_version }}
           </p>
         </ExpandableContent>
       </div>
       <div class="row wrap">
-        <button class="secondary" :disabled="busy" @click="edit(item)">Settings</button
+        <button class="secondary" :disabled="busy" @click="edit(item)">
+          {{ $t('common.settings') }}</button
         ><button class="secondary" :disabled="busy" @click="keyAction(item, false)">
           {{ item.enabled ? 'Replace key' : 'Generate key' }}</button
         ><button v-if="item.enabled" class="danger" :disabled="busy" @click="keyAction(item, true)">
-          Revoke key
+          {{ $t('companions.revokeKey') }}
         </button>
       </div>
     </div>
   </section>
   <AdminDialog
     :open="!!form"
-    :title="selected ? selected.name : 'Add companion'"
+    :title="selected ? selected.name : $t('companions.addCompanion')"
     :busy="busy"
     @close="form = undefined"
   >
@@ -275,45 +279,52 @@ function removeGrant(index: number) {
       @input="preview = undefined"
     >
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <label>Name<input v-model="form.name" required maxlength="100" :disabled="busy" /></label>
       <label
-        >Location<select v-model="form.location_id" required :disabled="busy">
+        >{{ $t('common.name')
+        }}<input v-model="form.name" required maxlength="100" :disabled="busy"
+      /></label>
+      <label
+        >{{ $t('common.location')
+        }}<select v-model="form.location_id" required :disabled="busy">
           <option v-for="location in catalog?.locations" :key="location.id" :value="location.id">
             {{ location.name }}
           </option>
         </select></label
       >
       <label
-        >Station user<select
+        >{{ $t('common.stationUser')
+        }}<select
           v-model="form.bound_user_id"
           :disabled="busy"
           @change="form.bound_user_id && grant(`user:${form.bound_user_id}`)"
         >
-          <option :value="null">User picker</option>
+          <option :value="null">{{ $t('common.userPicker') }}</option>
           <option v-for="user in catalog?.users" :key="user.id" :value="user.id">
             {{ user.name }}
           </option>
         </select></label
       >
       <ExpandableContent :open="!!form.bound_user_id"
-        ><label>Deployment user ID<input :value="form.bound_user_id ?? ''" readonly /></label>
+        ><label
+          >{{ $t('companions.deploymentUserId') }}<input :value="form.bound_user_id ?? ''" readonly
+        /></label>
         <p class="alert warning">
-          Anyone with the shared deployment PIN can use the selected account’s permissions at this
-          companion.
+          {{ $t('companions.anyoneWithTheSharedDeploymentPinCanUseThe') }}
         </p></ExpandableContent
       >
       <fieldset>
-        <legend>Companion access</legend>
+        <legend>{{ $t('companions.companionAccess') }}</legend>
         <div class="row">
           <label class="grow"
-            >User or role<select v-model="principal" :disabled="busy">
-              <option value="">Choose a user or role</option>
+            >{{ $t('common.userOrRole')
+            }}<select v-model="principal" :disabled="busy">
+              <option value="">{{ $t('common.chooseAUserOrRole') }}</option>
               <option v-for="person in people" :key="person.id" :value="person.id">
                 {{ person.name }}
               </option>
             </select></label
           ><button type="button" class="secondary" :disabled="busy || !principal" @click="grant()">
-            Add
+            {{ $t('companions.add') }}
           </button>
         </div>
         <div
@@ -332,7 +343,7 @@ function removeGrant(index: number) {
             :aria-label="`Remove ${entry.principal_id}`"
             @click="removeGrant(index)"
           >
-            Remove
+            {{ $t('common.remove') }}
           </button>
         </div>
       </fieldset>
@@ -342,18 +353,27 @@ function removeGrant(index: number) {
           :changes="preview.affected_users"
           :resources="catalog?.resources ?? []"
         />
-        <p>Saving locks existing companion sessions.</p></ExpandableContent
+        <p>{{ $t('common.savingLocksExistingCompanionSessions') }}</p></ExpandableContent
       >
       <button class="primary" :disabled="busy">
-        {{ selected ? (preview ? 'Confirm changes' : 'Review changes') : 'Create companion' }}
+        {{
+          selected
+            ? preview
+              ? 'Confirm changes'
+              : $t('resourceAccess.reviewChanges')
+            : 'Create companion'
+        }}
       </button>
     </form>
   </AdminDialog>
-  <AdminDialog :open="!!key" title="Companion API key" @close="key = ''">
+  <AdminDialog :open="!!key" :title="$t('companions.companionApiKey')" @close="key = ''">
     <div class="form-stack">
-      <p>Copy this key now. It is shown only once.</p>
+      <p>{{ $t('companions.copyThisKeyNowItIsShownOnlyOnce') }}</p>
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <label>API key<input :value="key" readonly autocomplete="off" spellcheck="false" /></label>
+      <label
+        >{{ $t('companions.apiKey')
+        }}<input :value="key" readonly autocomplete="off" spellcheck="false"
+      /></label>
       <button type="button" class="primary" @click="copyKey">
         {{ copied ? 'Copied' : 'Copy key' }}
       </button>

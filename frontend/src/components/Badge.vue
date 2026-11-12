@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { stateLabel } from '../workspace'
+import { stateLabel } from '../shared/workspace'
 defineProps<{ state: string }>()
 </script>
 <template>

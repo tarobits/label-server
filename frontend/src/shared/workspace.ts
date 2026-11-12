@@ -1,10 +1,11 @@
+import { locale } from './i18n'
 import { computed, ref, watch, toRaw, type Ref } from 'vue'
 import { defineStore } from 'pinia'
-import { useResourceStore } from './stores/resources'
+import { useResourceStore } from '../stores/resources'
 import { errorMessage } from './api'
-import { useAuthStore } from './auth'
+import { useAuthStore } from '../auth/auth'
 import { ActionCancelled, ActionDeferred, resolveConfirmation } from './confirmation'
-import { requestPrinting } from './printing'
+import { requestPrinting } from '../printing/printing'
 import type {
   Batch,
   Destination,
@@ -41,6 +42,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const batches = ref<Batch[]>([])
   const notices = ref<Notice[]>([])
   const templates = ref<Template[]>([])
+  const archivedTemplates = ref<Template[]>([])
   const fonts = ref<FontAsset[]>([])
   const images = ref<ImageAsset[]>([])
   const accessHolds = ref<AccessHold[]>([])
@@ -64,6 +66,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     batches.value = []
     notices.value = []
     templates.value = []
+    archivedTemplates.value = []
     fonts.value = []
     images.value = []
     accessHolds.value = []
@@ -127,6 +130,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           path.startsWith('/runs')
         )
           tasks.push(read<Template[]>('/templates', 60000).then((value) => apply(templates, value)))
+        if (path === '/templates')
+          tasks.push(
+            read<Template[]>('/templates?archived=true', 60000).then((value) =>
+              apply(archivedTemplates, value),
+            ),
+          )
         if (path === '/fonts' || path.startsWith('/templates/'))
           tasks.push(read<FontAsset[]>('/font-assets', 60000).then((value) => apply(fonts, value)))
         if (
@@ -260,6 +269,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     batches,
     notices,
     templates,
+    archivedTemplates,
     fonts,
     images,
     loaded,
@@ -281,6 +291,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 })
 export const date = (seconds: number) =>
-  new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  new Date(seconds * 1000).toLocaleString(locale.value, { dateStyle: 'medium', timeStyle: 'short' })
 export const metres = (mm: number) => `${(mm / 1000).toFixed(2)} m`
 export const stateLabel = (value: string) => value.replaceAll('_', ' ')

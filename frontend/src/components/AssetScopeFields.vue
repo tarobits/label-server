@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useAuthStore } from '../auth'
+import { useAuthStore } from '../auth/auth'
 import { useResourceStore } from '../stores/resources'
-import { useLiveRefresh } from '../live'
-import { errorMessage } from '../api'
-import type { AssetSharing } from '../types'
+import { useLiveRefresh } from '../shared/live'
+import { errorMessage } from '../shared/api'
+import type { AssetSharing } from '../shared/types'
 
 const props = defineProps<{
   kind: 'images' | 'fonts'
@@ -68,19 +68,23 @@ function setScope(event: Event) {
 <template>
   <div class="field-row">
     <label
-      >Visibility<select
-        :value="model.scope"
-        :disabled="disabled || !scopes.length"
-        @change="setScope"
-      >
+      >{{ $t('common.visibility')
+      }}<select :value="model.scope" :disabled="disabled || !scopes.length" @change="setScope">
         <option v-for="scope in scopes" :key="scope" :value="scope">
-          {{ scope === 'personal' ? 'Personal' : scope === 'global' ? 'Global' : 'Group' }}
+          {{
+            scope === 'personal'
+              ? $t('common.personal')
+              : scope === 'global'
+                ? $t('common.global')
+                : $t('assetScopeFields.group')
+          }}
         </option>
       </select></label
     >
     <Transition name="panel-expand">
       <label v-if="model.scope === 'group'"
-        >Group<select v-model="model.group_id" required :disabled="disabled">
+        >{{ $t('assetScopeFields.group')
+        }}<select v-model="model.group_id" required :disabled="disabled">
           <option v-for="group in options" :key="group.id" :value="group.id">
             {{ group.name }}
           </option>

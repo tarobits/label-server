@@ -7,9 +7,9 @@ import type {
   ValueType,
   VariableValue,
 } from './editor'
-import { randomUUID } from './uuid'
+import { randomUUID } from '../shared/uuid'
 import { automaticDimension } from './editor'
-import { validVariableName } from './variableInputs'
+import { validVariableName } from './variableNames'
 export type SocketType = ValueType | 'null' | 'any'
 export function logicTargetLabel(document: TemplateDocument, alias: string, property?: string) {
   const element = document.elements.find((item) => item.logic_name === alias)

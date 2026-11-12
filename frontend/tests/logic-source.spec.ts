@@ -162,7 +162,10 @@ test('invalid source retains the preview, reports locations, and blocks saving u
 test('source completion, reference search, contextual help, and narrow-screen disclosures', async ({
   page,
   request,
+  context,
+  baseURL,
 }, info) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL })
   const { workspace } = await openEditor(page, request)
   await edit(workspace, 'text1.')
   const editor = workspace.getByRole('textbox', { name: 'Logic source' })
@@ -183,6 +186,7 @@ test('source completion, reference search, contextual help, and narrow-screen di
   await expect(reference.getByRole('heading', { level: 3 })).toContainText('Conditional subtitle')
   await reference.getByRole('button', { name: 'Copy example', exact: true }).click()
   await expect(reference.getByRole('status')).toContainText('copied')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('filled(subtitle)')
   await workspace.screenshot({ path: info.outputPath('reference-desktop.png') })
   await workspace.getByRole('button', { name: 'Reference', exact: true }).click()
   await expect(reference).toBeHidden()

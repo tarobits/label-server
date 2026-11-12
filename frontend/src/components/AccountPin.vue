@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { confirmAction } from '../confirmation'
-import { resetFormValidation, vValidateForm } from '../formValidation'
+import { api, errorMessage } from '../shared/api'
+import { confirmAction } from '../shared/confirmation'
+import { resetFormValidation, vValidateForm } from '../shared/formValidation'
 import ExpandableContent from './ExpandableContent.vue'
 
 const configured = ref<boolean | null>(null)
@@ -76,7 +76,7 @@ function toggleEditing() {
 </script>
 
 <template>
-  <h2>Companion PIN</h2>
+  <h2>{{ $t('common.companionPin') }}</h2>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <p v-if="success" class="alert success" role="status">{{ success }}</p>
   <button
@@ -87,15 +87,16 @@ function toggleEditing() {
     :disabled="busy"
     @click="toggleEditing"
   >
-    {{ editing ? 'Cancel' : configured ? 'Change PIN' : 'Set PIN' }}
+    {{ editing ? $t('common.cancel') : configured ? 'Change PIN' : 'Set PIN' }}
   </button>
   <ExpandableContent :open="editing" @closed="clear">
     <form ref="pinForm" v-validate-form class="form-stack pin-form" @submit.prevent="save()">
       <p class="muted">
-        Use this PIN at companions you can access. Changing it locks your companion sessions.
+        {{ $t('common.useThisPinAtCompanionsYouCanAccessChanging') }}
       </p>
       <label
-        >Current password<input
+        >{{ $t('common.currentPassword')
+        }}<input
           ref="passwordInput"
           v-model="password"
           type="password"
@@ -105,7 +106,8 @@ function toggleEditing() {
           :disabled="busy"
       /></label>
       <label
-        >New PIN<input
+        >{{ $t('accountPin.newPin')
+        }}<input
           v-model="pin"
           type="password"
           inputmode="numeric"
@@ -117,7 +119,8 @@ function toggleEditing() {
           :disabled="busy"
       /></label>
       <label
-        >Confirm PIN<input
+        >{{ $t('accountPin.confirmPin')
+        }}<input
           v-model="confirmation"
           type="password"
           inputmode="numeric"
@@ -129,7 +132,8 @@ function toggleEditing() {
           :disabled="busy"
       /></label>
       <div class="row wrap">
-        <button type="submit" class="primary" :disabled="busy">Save PIN</button
+        <button type="submit" class="primary" :disabled="busy">
+          {{ $t('accountPin.savePin') }}</button
         ><button
           v-if="configured"
           type="button"
@@ -137,7 +141,7 @@ function toggleEditing() {
           :disabled="busy"
           @click="save(true)"
         >
-          Remove PIN
+          {{ $t('accountPin.removePin') }}
         </button>
       </div>
     </form>

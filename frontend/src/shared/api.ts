@@ -1,4 +1,5 @@
 import { checkServer, serverUnavailable, serverUnavailableMessage } from './serverConnection'
+import { browserLanguage, locale } from './i18n'
 
 let csrfToken: string | null = null
 let unauthorized: (() => void) | undefined
@@ -82,6 +83,8 @@ export async function api<T>(
     method,
     credentials: 'same-origin',
     headers: {
+      'Accept-Language': locale.value,
+      'X-Browser-Language': browserLanguage.value,
       ...(!readOnly && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
       ...(body === undefined
         ? {}

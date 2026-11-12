@@ -1,5 +1,5 @@
-import { randomUUID } from './uuid'
-import type { CostEstimate, PrintPlan } from './types'
+import { randomUUID } from '../shared/uuid'
+import type { CostEstimate, PrintPlan } from '../shared/types'
 
 export type ValueType = 'text' | 'number' | 'boolean' | 'image'
 export interface ImageValue {
@@ -101,7 +101,7 @@ export interface PreviewExample {
 }
 export interface TemplateDocument {
   preview_examples?: PreviewExample[]
-  media?: import('./media').MediaProperties
+  media?: import('../printing/media').MediaProperties
   version: 1 | 2
   logic?: LogicProgram | null
   logic_editor?: LogicEditorState | null

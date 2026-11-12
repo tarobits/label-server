@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
+
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api'
-import { useLiveRefresh } from '../live'
-import { useWorkspaceStore, date, metres } from '../workspace'
+import { api } from '../shared/api'
+import { useLiveRefresh } from '../shared/live'
+import { useWorkspaceStore, date, metres } from '../shared/workspace'
 import Badge from '../components/Badge.vue'
-import { useAuthStore } from '../auth'
+import { useAuthStore } from '../auth/auth'
 import PrintAttribution from '../components/PrintAttribution.vue'
 import PaymentAttribution from '../components/PaymentAttribution.vue'
 import BatchTrigger from '../components/BatchTrigger.vue'
@@ -13,17 +15,35 @@ import ActivityLabels from '../components/ActivityLabels.vue'
 import ActivityCleanup from '../components/ActivityCleanup.vue'
 import HistoryPagination from '../components/HistoryPagination.vue'
 import MotionSurface from '../components/MotionSurface.vue'
-import { useHistoryPage } from '../history'
-import type { Batch } from '../types'
+import { useHistoryPage } from '../printing/history'
+import type { Batch } from '../shared/types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const personalOnly = computed(() => !auth.anyPrinter('view_activity'))
 const route = useRoute(),
   router = useRouter()
 const filterFields = [
-  { key: 'printer_id', title: 'Printer', options: 'printers' },
-  { key: 'cartridge_id', title: 'Cartridge', options: 'cartridges' },
-  { key: 'requester_id', title: 'Requester', options: 'requesters' },
+  {
+    key: 'printer_id',
+    get title() {
+      return t('common.printer')
+    },
+    options: 'printers',
+  },
+  {
+    key: 'cartridge_id',
+    get title() {
+      return t('common.cartridge')
+    },
+    options: 'cartridges',
+  },
+  {
+    key: 'requester_id',
+    get title() {
+      return t('common.requester')
+    },
+    options: 'requesters',
+  },
   { key: 'authorizer_id', title: 'Authorizer', options: 'authorizers' },
 ]
 const choices = ref<Record<string, { id: string; name: string }[]>>({})
@@ -72,17 +92,17 @@ function setFilter(key: string, event: Event) {
 }
 const cleanupMessage = ref('')
 async function purged(count: number) {
-  cleanupMessage.value = `Permanently deleted ${count} duplicate ${count === 1 ? 'attempt' : 'attempts'}.`
+  cleanupMessage.value = `Permanently deleted ${count} duplicate ${count === 1 ? 'attempt' : t('common.attempts')}.`
   await batches.retry()
 }
 </script>
 <template>
   <section class="panel" aria-labelledby="batch-history-title" :aria-busy="batches.loading">
     <div class="section-heading">
-      <h2 id="batch-history-title">Print batches</h2>
+      <h2 id="batch-history-title">{{ $t('activity.printBatches') }}</h2>
       <div class="row wrap">
-        <RouterLink to="/printer-changes">Printer changes</RouterLink>
-        <span class="muted">{{ batches.total }} attempts</span>
+        <RouterLink to="/printer-changes">{{ $t('common.printerChanges') }}</RouterLink>
+        <span class="muted">{{ batches.total }} {{ $t('common.attempts') }}</span>
         <ActivityCleanup v-if="auth.user?.is_admin" @purged="purged" />
       </div>
     </div>
@@ -102,7 +122,7 @@ async function purged(count: number) {
             {{ auth.user?.username }}
           </option>
           <template v-else>
-            <option value="">All</option>
+            <option value="">{{ $t('common.all') }}</option>
             <option
               v-for="option in choices[field.options] ?? []"
               :key="option.id"
@@ -121,24 +141,24 @@ async function purged(count: number) {
     >
     <HistoryPagination
       v-bind="batches.pagination"
-      label="Print batch pages"
+      :label="$t('activity.printBatchPages')"
       @change="batches.go($event)"
     />
     <Transition name="notice"
       ><div v-if="batches.error" class="alert danger motion-reveal" role="alert">
         {{ batches.error }}
         <button class="secondary small" :disabled="batches.loading" @click="batches.retry()">
-          Retry
+          {{ $t('common.retry') }}
         </button>
       </div></Transition
     >
     <Transition name="notice"
       ><p v-if="batches.loading" role="status" class="muted motion-reveal">
-        Loading page {{ batches.page }}…
+        {{ $t('common.loadingPage') }} {{ batches.page }}…
       </p></Transition
     >
     <div v-if="!batches.items.length && !batches.loading && !batches.error" class="empty compact">
-      No batches yet.
+      {{ $t('activity.noBatchesYet') }}
     </div>
     <MotionSurface
       :identity="String(batches.loadedPage)"
@@ -174,20 +194,22 @@ async function purged(count: number) {
                 }}
                 {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</template
               ></small
-            ><small v-if="batch.shortage_warning" class="danger-text"
-              >Batch estimate exceeded remaining tape.</small
-            >
+            ><small v-if="batch.shortage_warning" class="danger-text">{{
+              $t('activity.batchEstimateExceededRemainingTape')
+            }}</small>
           </div>
           <Badge :state="batch.state" /><RouterLink :to="`/batches/${batch.id}`">{{
-            batch.state === 'needs_review' && !batch.redacted ? 'Review batch →' : 'Details →'
+            batch.state === 'needs_review' && !batch.redacted
+              ? $t('common.reviewBatch')
+              : 'Details →'
           }}</RouterLink>
           <RouterLink
             v-if="!['printing', 'needs_review'].includes(batch.state)"
             :to="`/batches/${batch.id}/packing`"
-            >Pack labels →</RouterLink
+            >{{ $t('activity.packLabels') }}</RouterLink
           >
         </div>
-        <p v-if="batch.redacted" class="muted">Your labels</p>
+        <p v-if="batch.redacted" class="muted">{{ $t('common.yourLabels') }}</p>
         <BatchTrigger v-else :trigger="batch.trigger" />
         <PaymentAttribution :payers="batch.payers" />
         <div class="batch-attributions">
@@ -197,7 +219,7 @@ async function purged(count: number) {
             class="batch-attribution"
           >
             <p class="attribution-count">
-              {{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}
+              {{ entry.copies }} {{ entry.copies === 1 ? 'copy' : $t('common.copies2') }}
             </p>
             <PrintAttribution :attribution="entry.attribution" queue />
           </section>
@@ -208,7 +230,7 @@ async function purged(count: number) {
     <HistoryPagination
       v-if="batches.items.length"
       v-bind="batches.pagination"
-      label="Print batch pages, bottom"
+      :label="$t('activity.printBatchPagesBottom')"
       @change="batches.go($event)"
     />
   </section>

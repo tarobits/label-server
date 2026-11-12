@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useAuthStore } from '../auth'
-import { installCartridge } from '../cartridges'
-import { useWorkspaceStore } from '../workspace'
-import type { Status } from '../types'
+import { useAuthStore } from '../auth/auth'
+import { installCartridge } from '../printing/cartridges'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { Status } from '../shared/types'
 import { useRouter } from 'vue-router'
 
 const props = defineProps<{ status?: Status }>()
@@ -45,7 +45,9 @@ async function confirm() {
               : status?.media_warning
         }}
       </p>
-      <p v-if="status?.detected_media" class="help">Detected: {{ status.detected_media }}</p>
+      <p v-if="status?.detected_media" class="help">
+        {{ $t('cartridgeDetection.detected') }} {{ status.detected_media }}
+      </p>
       <button
         v-if="!status?.media_confirmed || status?.cartridge_check_pending"
         class="secondary"
@@ -56,7 +58,7 @@ async function confirm() {
         "
         @click="confirm"
       >
-        Confirm cartridge
+        {{ $t('cartridgeDetection.confirmCartridge') }}
       </button>
     </div>
   </Transition>

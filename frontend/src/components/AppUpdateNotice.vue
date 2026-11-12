@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLiveRefresh } from '../live'
+import { useLiveRefresh } from '../shared/live'
 import {
   applyingAppUpdate,
   appUpdateError,
@@ -7,7 +7,7 @@ import {
   dismissAppUpdate,
   reloadForAppUpdate,
   showAppUpdate,
-} from '../pwa'
+} from '../shared/pwa'
 
 useLiveRefresh(async () => checkForAppUpdate(), 60000)
 </script>
@@ -18,13 +18,15 @@ useLiveRefresh(async () => checkForAppUpdate(), 60000)
       v-if="showAppUpdate"
       class="app-update-notice motion-reveal"
       role="status"
-      aria-label="App update"
+      :aria-label="$t('appUpdateNotice.appUpdate')"
     >
-      <strong>App update ready</strong>
-      <p>Reloading discards unsaved changes.</p>
+      <strong>{{ $t('appUpdateNotice.appUpdateReady') }}</strong>
+      <p>{{ $t('appUpdateNotice.reloadingDiscardsUnsavedChanges') }}</p>
       <p v-if="appUpdateError" class="danger-text" role="alert">{{ appUpdateError }}</p>
       <div class="update-actions">
-        <button type="button" :disabled="applyingAppUpdate" @click="dismissAppUpdate">Later</button>
+        <button type="button" :disabled="applyingAppUpdate" @click="dismissAppUpdate">
+          {{ $t('appUpdateNotice.later') }}
+        </button>
         <button
           type="button"
           class="primary"
@@ -32,7 +34,7 @@ useLiveRefresh(async () => checkForAppUpdate(), 60000)
           :aria-busy="applyingAppUpdate"
           @click="reloadForAppUpdate"
         >
-          Reload
+          {{ $t('appUpdateNotice.reload') }}
         </button>
       </div>
     </aside>

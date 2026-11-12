@@ -5,15 +5,18 @@ async function cardLayout(page: Page) {
   return page.locator('.cartridge-card').evaluateAll((cards) =>
     cards.map((card) => {
       const box = card.getBoundingClientRect()
+      const children = [...card.children]
+        .map((child) => child.getBoundingClientRect())
+        .filter((rect) => rect.height > 0)
       return {
         x: box.x,
         y: box.y,
         width: box.width,
         height: box.height,
-        heading: card.querySelector('h2')!.getBoundingClientRect().y,
-        remaining: card.querySelector('.remaining')!.getBoundingClientRect().y,
-        progress: card.querySelector('progress')!.getBoundingClientRect().y,
-        actions: card.querySelector('.card-actions')!.getBoundingClientRect().y,
+        clearance: children.slice(1).map((rect, index) => rect.top - children[index]!.bottom),
+        contained: children.every(
+          (rect) => rect.left >= box.left && rect.right <= box.right && rect.bottom <= box.bottom,
+        ),
       }
     }),
   )
@@ -21,14 +24,17 @@ async function cardLayout(page: Page) {
 function alignedRows(cards: Awaited<ReturnType<typeof cardLayout>>) {
   const rows = new Map<number, typeof cards>()
   for (const card of cards) {
+    // Optional notes, badges and forms grow naturally (DESIGN.md). Check
+    // clearance and containment rather than imposing fixed internal rows.
+    expect(card.contained).toBe(true)
+    for (const gap of card.clearance) expect(gap).toBeGreaterThanOrEqual(11.5)
     const y = Math.round(card.y)
     rows.set(y, [...(rows.get(y) ?? []), card])
   }
   for (const row of rows.values()) {
-    for (const property of ['height', 'heading', 'remaining', 'progress', 'actions'] as const) {
-      const values = row.map((card) => card[property])
-      expect(Math.max(...values) - Math.min(...values)).toBeLessThan(1)
-    }
+    // Optional removal explanations below the actions have different heights.
+    const heights = row.map((card) => card.height)
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1)
   }
   return [...rows.values()]
 }

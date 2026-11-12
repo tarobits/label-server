@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, errorMessage } from '../api'
-import type { BatchDetail } from '../types'
-import { useWorkspaceStore, date, metres } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import type { BatchDetail } from '../shared/types'
+import { useWorkspaceStore, date, metres } from '../shared/workspace'
 import Badge from '../components/Badge.vue'
 import JobPreview from '../components/JobPreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
@@ -17,9 +17,9 @@ import RetryControls from '../components/RetryControls.vue'
 import ReviewEvidence from '../components/ReviewEvidence.vue'
 import MisprintReport from '../components/MisprintReport.vue'
 import AdminDialog from '../components/AdminDialog.vue'
-import { randomUUID } from '../uuid'
-import { useAuthStore } from '../auth'
-import { useLiveRefresh } from '../live'
+import { randomUUID } from '../shared/uuid'
+import { useAuthStore } from '../auth/auth'
+import { useLiveRefresh } from '../shared/live'
 import { useResourceStore } from '../stores/resources'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
@@ -141,7 +141,7 @@ async function resolve() {
 }
 </script>
 <template>
-  <RouterLink class="back-link" to="/activity">← Back to activity</RouterLink>
+  <RouterLink class="back-link" to="/activity">{{ $t('common.backToActivity') }}</RouterLink>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <section v-if="batch" class="panel">
     <div class="section-heading">
@@ -153,35 +153,32 @@ async function resolve() {
           {{ batch.printer_id ? w.destinationName(batch.printer_id) : 'Restricted printer' }} ·
           {{ date(batch.created_at)
           }}<template v-if="batch.estimated_mm != null">
-            · Estimated {{ metres(batch.estimated_mm) }}</template
+            {{ $t('common.estimated') }} {{ metres(batch.estimated_mm) }}</template
           >
         </p>
       </div>
       <Badge :state="batch.state" />
     </div>
-    <p v-if="batch.redacted" class="muted">Your labels</p>
+    <p v-if="batch.redacted" class="muted">{{ $t('common.yourLabels') }}</p>
     <BatchTrigger v-else :trigger="batch.trigger" />
     <PrintPlanNotice :plan="batch.print_plan" />
     <AnimatedDetails v-if="!batch.redacted" class="batch-tape-details">
-      <template #summary>Tape details</template>
+      <template #summary>{{ $t('common.tapeDetails') }}</template>
       <TapeUsage :plan="batch.print_plan" caption="Saved estimate for this attempt" />
     </AnimatedDetails>
     <p v-if="batch.error" class="alert warning">{{ batch.error }}</p>
     <form v-validate-form @submit.prevent="resolve">
       <p v-if="canReview" class="help">
-        Inspect the output and choose an outcome for each uncertain copy. Select from a row to
-        include that copy and all following uncertain copies.
+        {{ $t('review.inspectTheOutputAndChooseAnOutcomeForEach') }}
       </p>
       <div v-if="canReview" class="review-bulk">
         <label
-          >Action for selected copies<select
-            v-model="bulkDecision"
-            aria-label="Action for selected copies"
-          >
-            <option disabled value="">Choose outcome</option>
-            <option value="printed">Printed</option>
-            <option value="failed">Did not print</option>
-            <option value="cancelled">Cancel</option>
+          >{{ $t('review.actionForSelectedCopies')
+          }}<select v-model="bulkDecision" :aria-label="$t('review.actionForSelectedCopies')">
+            <option disabled value="">{{ $t('review.chooseOutcome') }}</option>
+            <option value="printed">{{ $t('common.printed') }}</option>
+            <option value="failed">{{ $t('review.didNotPrint') }}</option>
+            <option value="cancelled">{{ $t('common.cancel') }}</option>
           </select></label
         >
         <button
@@ -190,9 +187,9 @@ async function resolve() {
           :disabled="!selected.length || !bulkDecision || w.busy"
           @click="applyDecision"
         >
-          Apply to selected
+          {{ $t('review.applyToSelected') }}
         </button>
-        <span class="muted" role="status">{{ selected.length }} selected</span>
+        <span class="muted" role="status">{{ selected.length }} {{ $t('common.selected2') }}</span>
       </div>
       <div class="table-scroll">
         <table>
@@ -204,16 +201,16 @@ async function resolve() {
                     type="checkbox"
                     :checked="allSelected"
                     :indeterminate="selected.length > 0 && !allSelected"
-                    aria-label="Select all uncertain copies"
+                    :aria-label="$t('common.selectAllUncertainCopies')"
                     @change="selectAll"
                   />
                 </label>
               </th>
-              <th>Label</th>
-              <th>People</th>
-              <th>Copy</th>
-              <th>Outcome</th>
-              <th v-if="canReview">Your decision</th>
+              <th>{{ $t('common.label') }}</th>
+              <th>{{ $t('review.people') }}</th>
+              <th>{{ $t('review.copy') }}</th>
+              <th>{{ $t('review.outcome') }}</th>
+              <th v-if="canReview">{{ $t('common.yourDecision') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -237,14 +234,15 @@ async function resolve() {
                   "
                   class="help"
                 >
-                  Estimated cut length {{ item.output_plan.output_length_mm.toFixed(1) }} mm ·
+                  {{ $t('review.estimatedCutLength') }}
+                  {{ item.output_plan.output_length_mm.toFixed(1) }} {{ $t('common.mm2') }}
                   {{
                     (
                       item.output_plan.minimum_padding_mm +
                       (item.output_plan.template_padding_mm ?? 0)
                     ).toFixed(1)
                   }}
-                  mm extra unused tape · Hand trimming required
+                  {{ $t('common.mmExtraUnusedTapeHandTrimmingRequired') }}
                 </p>
                 <JobPreview
                   :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
@@ -266,10 +264,10 @@ async function resolve() {
                     required
                     :aria-label="`Decision for label ${item.position + 1}`"
                   >
-                    <option disabled value="">Choose outcome</option>
-                    <option value="printed">It printed</option>
-                    <option value="failed">It did not print</option>
-                    <option value="cancelled">Cancel this copy</option>
+                    <option disabled value="">{{ $t('review.chooseOutcome') }}</option>
+                    <option value="printed">{{ $t('review.itPrinted') }}</option>
+                    <option value="failed">{{ $t('review.itDidNotPrint') }}</option>
+                    <option value="cancelled">{{ $t('review.cancelThisCopy') }}</option>
                   </select>
                   <button
                     type="button"
@@ -277,10 +275,10 @@ async function resolve() {
                     :aria-label="`Select label ${item.position + 1} and following uncertain labels`"
                     @click="selectFollowing(item.copy_id)"
                   >
-                    Select from here
+                    {{ $t('common.selectFromHere') }}
                   </button>
                 </div>
-                <span v-else class="muted">Confirmed — no action needed</span>
+                <span v-else class="muted">{{ $t('review.confirmedNoActionNeeded') }}</span>
               </td>
             </tr>
           </tbody>
@@ -288,7 +286,8 @@ async function resolve() {
       </div>
       <div v-if="canReview" class="review-resolution">
         <label
-          >Cartridge used for this attempt<select v-model="cartridgeId" :disabled="w.busy" required>
+          >{{ $t('review.cartridgeUsedForThisAttempt')
+          }}<select v-model="cartridgeId" :disabled="w.busy" required>
             <option v-for="cartridge in w.cartridges" :key="cartridge.id" :value="cartridge.id">
               {{ cartridge.name }} · {{ w.profileName(cartridge.profile_id) }}
               {{ cartridge.archived ? '(Archived)' : '' }}
@@ -296,16 +295,11 @@ async function resolve() {
           </select></label
         >
         <label
-          >Total tape consumed by this attempt (mm)<input
-            v-model.number="consumed"
-            type="number"
-            min="0"
-            step="0.1"
-            required
+          >{{ $t('common.totalTapeConsumedByThisAttemptMm')
+          }}<input v-model.number="consumed" type="number" min="0" step="0.1" required
         /></label>
         <p class="help">
-          Include confirmed labels, partial labels, and feed waste. This total is deducted once from
-          the selected cartridge. The installed cartridge stays unchanged.
+          {{ $t('review.includeConfirmedLabelsPartialLabelsAndFeedWasteThis') }}
         </p>
         <ReviewEvidence
           v-model="photo"
@@ -322,12 +316,12 @@ async function resolve() {
             (batch.evidence_policy === 'required' && !photo)
           "
         >
-          Save review
+          {{ $t('common.saveReview') }}
         </button>
       </div>
       <p v-else-if="batch.consumed_mm !== null" class="help">
         {{ batch.consumption_source === 'estimated' ? 'Tape use estimated' : 'Tape consumed' }}:
-        {{ metres(batch.consumed_mm) }}. This attempt has been accounted for.
+        {{ metres(batch.consumed_mm) }}{{ $t('review.thisAttemptHasBeenAccountedFor') }}
       </p>
     </form>
     <div class="batch-actions">
@@ -335,7 +329,7 @@ async function resolve() {
       <RetryControls :batch="batch" />
     </div>
     <AnimatedDetails v-if="batch.reviews?.length" class="review-history">
-      <template #summary>Review history</template>
+      <template #summary>{{ $t('review.reviewHistory') }}</template>
       <div class="form-stack">
         <article v-for="review in batch.reviews" :key="review.id" class="form-stack">
           <strong
@@ -343,7 +337,8 @@ async function resolve() {
             {{ review.actor_name }}</strong
           >
           <span class="muted"
-            >{{ date(review.created_at) }} · {{ Object.keys(review.decisions).length }} copies</span
+            >{{ date(review.created_at) }} · {{ Object.keys(review.decisions).length }}
+            {{ $t('common.copies2') }}</span
           >
           <p v-if="review.reason">{{ review.reason }}</p>
           <button
@@ -352,16 +347,25 @@ async function resolve() {
             class="secondary"
             @click="evidenceUrl = review.photo_url"
           >
-            View evidence photo
+            {{ $t('common.viewEvidencePhoto') }}
           </button>
         </article>
       </div>
     </AnimatedDetails>
-    <AdminDialog :open="!!evidenceUrl" title="Evidence photo" @close="evidenceUrl = ''">
-      <img v-if="evidenceUrl" :src="evidenceUrl" alt="Batch review evidence" class="review-photo" />
+    <AdminDialog
+      :open="!!evidenceUrl"
+      :title="$t('common.evidencePhoto')"
+      @close="evidenceUrl = ''"
+    >
+      <img
+        v-if="evidenceUrl"
+        :src="evidenceUrl"
+        :alt="$t('common.batchReviewEvidence')"
+        class="review-photo"
+      />
     </AdminDialog>
   </section>
-  <div v-else-if="!error" class="panel empty">Loading batch…</div>
+  <div v-else-if="!error" class="panel empty">{{ $t('review.loadingBatch') }}</div>
 </template>
 
 <style scoped>

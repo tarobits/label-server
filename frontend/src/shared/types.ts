@@ -1,4 +1,4 @@
-import type { TemplateDocument } from './editor'
+import type { TemplateDocument } from '../templates/editor'
 export type CopyState = 'queued' | 'printing' | 'printed' | 'needs_review' | 'cancelled' | 'failed'
 export interface PrinterConfig {
   usb_serial?: string | null
@@ -84,7 +84,7 @@ export interface Destination {
   available?: boolean
   member_names?: Record<string, string>
   capabilities?: Printer['capabilities'] | null
-  access_level?: import('./auth').AccessLevel
+  access_level?: import('../auth/auth').AccessLevel
   queues: { profile_id: string; queued_copies: number; threshold: number }[]
   id: string
   name: string
@@ -287,12 +287,28 @@ export interface Notice {
   path: string
   deliveries?: {
     endpoint_name: string
+    account_name?: string
     attempts: number
     next_attempt_at: number
     delivered_at: number | null
     cancelled: boolean
     last_error: string | null
   }[]
+}
+
+export interface PaymentReport {
+  id: string
+  user_id: string
+  username: string
+  recipient_id: string
+  recipient_name: string
+  amount_minor: number
+  currency: string
+  note: string
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
+  created_at: number
+  can_review: boolean
+  can_cancel: boolean
 }
 
 export interface TemplateDimensions {

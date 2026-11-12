@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
 import type {
   AccessCatalog,
   AccessPreview,
@@ -10,7 +10,7 @@ import type {
   PairBalance,
   ResourceChange,
   ResourceEntry,
-} from '../resourceAccess'
+} from '../shared/resourceAccess'
 import ResourceGrants from '../components/ResourceGrants.vue'
 import ResourceImpact from '../components/ResourceImpact.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
@@ -173,23 +173,23 @@ async function act(action: 'save' | 'review' | 'complete') {
 </script>
 <template>
   <section class="panel migration">
-    <h2>Set up ownership</h2>
+    <h2>{{ $t('common.setUpOwnership') }}</h2>
     <p v-if="required" class="alert warning">
-      Printing is paused until these assignments are confirmed. Existing printer holds remain in
-      place.
+      {{ $t('migration.printingIsPausedUntilTheseAssignmentsAreConfirmedExisting') }}
     </p>
-    <p v-else>The ownership migration is complete.</p>
+    <p v-else>{{ $t('common.theOwnershipMigrationIsComplete') }}</p>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <template v-if="catalog && required">
       <template v-if="!preview">
         <div class="row wrap spread">
-          <h3>Printers & cartridges</h3>
-          <RouterLink to="/resource-access">Manage locations</RouterLink>
+          <h3>{{ $t('migration.printersCartridges') }}</h3>
+          <RouterLink to="/resource-access">{{ $t('migration.manageLocations') }}</RouterLink>
         </div>
         <div class="row wrap migration-bulk">
           <label
-            >Owner for selected<select v-model="bulkOwner">
-              <option value="" disabled>Choose an owner</option>
+            >{{ $t('migration.ownerForSelected')
+            }}<select v-model="bulkOwner">
+              <option value="" disabled>{{ $t('migration.chooseAnOwner') }}</option>
               <option v-for="user in catalog.users" :key="user.id" :value="user.id">
                 {{ user.name }}
               </option>
@@ -199,17 +199,18 @@ async function act(action: 'save' | 'review' | 'complete') {
             :disabled="!selected.length || !bulkOwner"
             @click="assignOwners"
           >
-            Assign owner
+            {{ $t('migration.assignOwner') }}
           </button>
           <label
-            >Location for selected<select v-model="bulkLocation">
-              <option :value="null">Unassigned</option>
+            >{{ $t('migration.locationForSelected')
+            }}<select v-model="bulkLocation">
+              <option :value="null">{{ $t('common.unassigned') }}</option>
               <option v-for="location in catalog.locations" :key="location.id" :value="location.id">
                 {{ location.name }}
               </option>
             </select></label
           ><button class="secondary" :disabled="!selected.length" @click="assignLocations">
-            Assign location
+            {{ $t('migration.assignLocation') }}
           </button>
         </div>
         <div class="table-scroll">
@@ -219,7 +220,7 @@ async function act(action: 'save' | 'review' | 'complete') {
                 <th>
                   <input
                     type="checkbox"
-                    aria-label="Select all inventory"
+                    :aria-label="$t('common.selectAllInventory')"
                     :checked="!!resources.length && selected.length === resources.length"
                     @change="
                       selected = ($event.target as HTMLInputElement).checked
@@ -228,9 +229,9 @@ async function act(action: 'save' | 'review' | 'complete') {
                     "
                   />
                 </th>
-                <th>Name</th>
-                <th>Owner</th>
-                <th>Location</th>
+                <th>{{ $t('common.name') }}</th>
+                <th>{{ $t('common.owner') }}</th>
+                <th>{{ $t('common.location') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +249,7 @@ async function act(action: 'save' | 'review' | 'complete') {
                 </td>
                 <td>
                   <select v-model="change(item).owner_id" :aria-label="`Owner of ${item.name}`">
-                    <option :value="null" disabled>Choose an owner</option>
+                    <option :value="null" disabled>{{ $t('migration.chooseAnOwner') }}</option>
                     <option v-for="user in catalog.users" :key="user.id" :value="user.id">
                       {{ user.name }}
                     </option>
@@ -259,7 +260,7 @@ async function act(action: 'save' | 'review' | 'complete') {
                     v-model="change(item).location_id"
                     :aria-label="`Location of ${item.name}`"
                   >
-                    <option :value="null">Unassigned</option>
+                    <option :value="null">{{ $t('common.unassigned') }}</option>
                     <option
                       v-for="location in catalog.locations"
                       :key="location.id"
@@ -274,21 +275,21 @@ async function act(action: 'save' | 'review' | 'complete') {
           </table>
         </div>
         <AnimatedDetails class="settings-details"
-          ><template #summary>Initial cartridge permissions</template>
+          ><template #summary>{{ $t('migration.initialCartridgePermissions') }}</template>
           <ResourceGrants v-model="bulkGrants" :catalog="catalog" kind="cartridge" :roles="true" />
           <button
             class="secondary"
             :disabled="!selected.some((id) => id.startsWith('cartridge:')) || !bulkGrants.length"
             @click="assignGrants"
           >
-            Grant to selected cartridges
+            {{ $t('migration.grantToSelectedCartridges') }}
           </button>
         </AnimatedDetails>
         <AnimatedDetails
           v-for="item in resources.filter((item) => item.kind === 'cartridge')"
           :key="item.id"
           class="settings-details"
-          ><template #summary>{{ item.name }} permissions</template
+          ><template #summary>{{ item.name }} {{ $t('common.permissions2') }}</template
           ><ResourceGrants
             v-model="change(item).grants!"
             :catalog="catalog"
@@ -296,15 +297,15 @@ async function act(action: 'save' | 'review' | 'complete') {
             :roles="true"
         /></AnimatedDetails>
         <template v-if="adjustments.length">
-          <h3>Historical repayments & adjustments</h3>
+          <h3>{{ $t('migration.historicalRepaymentsAdjustments') }}</h3>
           <p>
-            Choose who received each payment or adjustment. The recording operator is shown
-            separately in the existing ledger.
+            {{ $t('migration.chooseWhoReceivedEachPaymentOrAdjustmentTheRecording') }}
           </p>
           <div class="row wrap migration-bulk">
             <label
-              >Recipient for all<select v-model="bulkRecipient">
-                <option value="" disabled>Choose a recipient</option>
+              >{{ $t('migration.recipientForAll')
+              }}<select v-model="bulkRecipient">
+                <option value="" disabled>{{ $t('common.chooseARecipient') }}</option>
                 <option v-for="user in catalog.users" :key="user.id" :value="user.id">
                   {{ user.name }}
                 </option>
@@ -318,17 +319,17 @@ async function act(action: 'save' | 'review' | 'complete') {
                 )
               "
             >
-              Assign recipient
+              {{ $t('migration.assignRecipient') }}
             </button>
           </div>
           <div class="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Payer</th>
-                  <th>Amount</th>
-                  <th>Reason</th>
-                  <th>Recipient</th>
+                  <th>{{ $t('common.payer') }}</th>
+                  <th>{{ $t('common.amount') }}</th>
+                  <th>{{ $t('common.reason') }}</th>
+                  <th>{{ $t('common.recipient') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -341,7 +342,9 @@ async function act(action: 'save' | 'review' | 'complete') {
                       v-model="draft.adjustment_recipients[item.id]"
                       :aria-label="`Recipient for ${item.note}`"
                     >
-                      <option :value="undefined" disabled>Choose a recipient</option>
+                      <option :value="undefined" disabled>
+                        {{ $t('common.chooseARecipient') }}
+                      </option>
                       <option v-for="user in catalog.users" :key="user.id" :value="user.id">
                         {{ user.name }}
                       </option>
@@ -353,28 +356,30 @@ async function act(action: 'save' | 'review' | 'complete') {
           </div>
         </template>
         <label v-if="lossWarning" class="checkbox alert warning"
-          ><input v-model="draft.accept_owner_loss" type="checkbox" />Approve use can reduce
-          cartridge owners' income. I accept this permission's effect.</label
+          ><input v-model="draft.accept_owner_loss" type="checkbox" />{{
+            $t('migration.approveUseCanReduceCartridgeOwnersIncomeIAccept')
+          }}</label
         >
         <div class="row wrap">
-          <button class="secondary" :disabled="busy" @click="act('save')">Save progress</button
+          <button class="secondary" :disabled="busy" @click="act('save')">
+            {{ $t('common.saveProgress') }}</button
           ><button
             :disabled="busy || (lossWarning && !draft.accept_owner_loss)"
             @click="act('review')"
           >
-            Review migration</button
-          ><span v-if="saved" role="status">Progress saved.</span>
+            {{ $t('migration.reviewMigration') }}</button
+          ><span v-if="saved" role="status">{{ $t('migration.progressSaved') }}</span>
         </div>
       </template>
       <template v-else>
-        <h3>Resulting balances</h3>
+        <h3>{{ $t('migration.resultingBalances') }}</h3>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Payer</th>
-                <th>Recipient</th>
-                <th>Owed</th>
+                <th>{{ $t('common.payer') }}</th>
+                <th>{{ $t('common.recipient') }}</th>
+                <th>{{ $t('common.owed') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -389,7 +394,7 @@ async function act(action: 'save' | 'review' | 'complete') {
             </tbody>
           </table>
         </div>
-        <p v-if="!preview.balances.length">No debts between users.</p>
+        <p v-if="!preview.balances.length">{{ $t('migration.noDebtsBetweenUsers') }}</p>
         <AnimatedDetails v-for="adjustment in preview.adjustments" :key="adjustment.id">
           <template #summary
             >{{ adjustment.note }} · {{ (adjustment.amount_minor / 100).toFixed(2) }}
@@ -413,18 +418,20 @@ async function act(action: 'save' | 'review' | 'complete') {
             />
           </label>
           <p v-if="!allocationOptions(adjustment).length">
-            No matching cartridge debts. This adjustment remains unallocated.
+            {{ $t('migration.noMatchingCartridgeDebtsThisAdjustmentRemainsUnallocated') }}
           </p>
         </AnimatedDetails>
-        <h3>Permission changes</h3>
+        <h3>{{ $t('migration.permissionChanges') }}</h3>
         <ResourceImpact :changes="preview.affected_users" :resources="catalog.resources" />
         <div class="row wrap">
           <button v-if="allocationsChanged" :disabled="busy" @click="act('review')">
-            Review allocations
+            {{ $t('migration.reviewAllocations') }}
           </button>
           <button :disabled="busy || allocationsChanged" @click="act('complete')">
-            Complete migration</button
-          ><button class="secondary" :disabled="busy" @click="preview = undefined">Back</button>
+            {{ $t('migration.completeMigration') }}</button
+          ><button class="secondary" :disabled="busy" @click="preview = undefined">
+            {{ $t('common.back') }}
+          </button>
         </div>
       </template>
     </template>

@@ -45,7 +45,8 @@ async function choose(event: Event) {
 <template>
   <div v-if="policy !== 'disabled'" class="form-stack">
     <label
-      >Evidence photo{{ policy === 'required' ? ' (required)' : ' (optional)' }}
+      >{{ $t('common.evidencePhoto')
+      }}{{ policy === 'required' ? ' (required)' : $t('common.optional') }}
       <input
         ref="input"
         type="file"
@@ -59,9 +60,13 @@ async function choose(event: Event) {
     >
     <ExpandableContent :open="!!model">
       <div class="evidence-preview">
-        <img v-if="model" :src="`data:${mime};base64,${model}`" alt="Selected evidence photo" />
+        <img
+          v-if="model"
+          :src="`data:${mime};base64,${model}`"
+          :alt="$t('common.selectedEvidencePhoto')"
+        />
         <button type="button" class="secondary" :disabled="disabled" @click="clear">
-          Remove photo
+          {{ $t('reviewEvidence.removePhoto') }}
         </button>
       </div>
     </ExpandableContent>

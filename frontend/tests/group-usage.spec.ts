@@ -34,7 +34,10 @@ test('group balances, current payers and historical previews stay connected', as
   await expect(page.locator('.activity-batch .payment-attribution')).toHaveText(
     'Payer: owner (user)',
   )
-  await page.goto(`/#/group-accounts?account=${account.id}&section=transfers`)
+  await page.goto(`/#/group-accounts?account=${account.id}`)
+  await page.getByRole('button', { name: 'Transfer previous print costs', exact: true }).click()
+  const transferDialog = page.getByRole('dialog', { name: 'Previous print costs', exact: true })
+  await expect(transferDialog).toBeVisible()
   const historical = page.locator('.historical-charge').first()
   await expect(historical).toContainText('Historic workshop label')
   await expect(historical).toContainText('2 copies')
@@ -53,6 +56,7 @@ test('group balances, current payers and historical previews stay connected', as
   await expect(modal).toBeVisible()
   await modal.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(modal).toBeHidden()
+  await historical.getByRole('checkbox', { name: 'Historic workshop label', exact: true }).check()
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 })
     await page.screenshot({
@@ -66,6 +70,11 @@ test('group balances, current payers and historical previews stay connected', as
   }
   await historical.getByRole('button', { name: 'Charge group directly', exact: true }).click()
   await expect(historical).toHaveCount(0)
+  await transferDialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(transferDialog).toBeHidden()
+  await expect(
+    page.getByRole('button', { name: 'Transfer previous print costs', exact: true }),
+  ).toBeFocused()
   await page.goto('/#/activity')
   await expect(page.locator('.activity-batch .payment-attribution')).toHaveText(
     'Payer: Workshop fund (group account)',

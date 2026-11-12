@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reducedMotion } from '../preferences'
+import { reducedMotion } from '../shared/preferences'
 import { onBeforeUnmount, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{ identity: string; order?: number }>(), { order: 0 })

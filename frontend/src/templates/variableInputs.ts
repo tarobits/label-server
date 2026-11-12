@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import type {
   Expression,
   TemplateDocument,
@@ -5,28 +6,10 @@ import type {
   VariableValue,
   ValueType,
 } from './editor'
-import { randomUUID } from './uuid'
+import { randomUUID } from '../shared/uuid'
 
-const reserved = new Set([
-  'let',
-  'true',
-  'false',
-  'null',
-  'and',
-  'or',
-  'not',
-  'if',
-  'image',
-  'filled',
-  'min',
-  'max',
-  'abs',
-  'round',
-  'label',
-])
-export function validVariableName(name: string) {
-  return /^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(name) && !reserved.has(name)
-}
+import { validVariableName } from './variableNames'
+export { validVariableName } from './variableNames'
 export function initialValue(field: TemplateField): VariableValue {
   return (
     field.default ??
@@ -59,7 +42,13 @@ export function setFieldType(doc: TemplateDocument, field: TemplateField, type: 
   field.type = type
   field.default = type === 'text' ? '' : null
   field.sample =
-    type === 'text' ? 'Example' : type === 'number' ? 0 : type === 'boolean' ? false : null
+    type === 'text'
+      ? t('templatePreviewInputs.example')
+      : type === 'number'
+        ? 0
+        : type === 'boolean'
+          ? false
+          : null
   delete field.minimum
   delete field.maximum
   delete field.min_length

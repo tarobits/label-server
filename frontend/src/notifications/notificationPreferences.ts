@@ -1,4 +1,5 @@
-import type { Destination } from './types'
+import { t } from '../shared/i18n'
+import type { Destination } from '../shared/types'
 
 export type PrinterKinds = Record<string, string[]>
 export type PrinterPriorities = Record<string, Record<string, number>>
@@ -6,8 +7,18 @@ export type PrinterPriorities = Record<string, Record<string, number>>
 export const priorityOptions = [
   { value: 1, label: 'Min' },
   { value: 2, label: 'Low' },
-  { value: 3, label: 'Normal' },
-  { value: 4, label: 'High' },
+  {
+    value: 3,
+    get label() {
+      return t('companionApp.normal')
+    },
+  },
+  {
+    value: 4,
+    get label() {
+      return t('companionApp.high')
+    },
+  },
   { value: 5, label: 'Urgent' },
 ]
 

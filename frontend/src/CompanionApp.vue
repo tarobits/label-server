@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import { t } from './shared/i18n'
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { api, configureSession, errorMessage } from './api'
-import { ActionCancelled, ActionDeferred, confirmAction } from './confirmation'
-import { installCartridge } from './cartridges'
-import { requestPrinting } from './printing'
-import { resolveCartridgeConsent } from './cartridgeConsent'
-import { vValidateForm } from './formValidation'
-import { freezeLeavingItem } from './collectionMotion'
-import type { Cartridge, Job, Printer, Profile, Status } from './types'
+import { api, configureSession, errorMessage } from './shared/api'
+import { ActionCancelled, ActionDeferred, confirmAction } from './shared/confirmation'
+import { installCartridge } from './printing/cartridges'
+import { requestPrinting } from './printing/printing'
+import { resolveCartridgeConsent } from './accounts/cartridgeConsent'
+import { vValidateForm } from './shared/formValidation'
+import { freezeLeavingItem } from './shared/collectionMotion'
+import type { Cartridge, Job, Printer, Profile, Status } from './shared/types'
 import AdminDialog from './components/AdminDialog.vue'
 import ExpandableContent from './components/ExpandableContent.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -29,9 +31,11 @@ import {
   SignalSlashIcon,
   CheckCircleIcon,
 } from '@heroicons/vue/24/outline'
-import { checkServer, serverUnavailable } from './serverConnection'
-import { mediaLabel, compatibleProfile } from './media'
-import { reloadUpdatedCompanion } from './companionUpdates'
+import { checkServer, serverUnavailable } from './shared/serverConnection'
+import { mediaLabel, compatibleProfile } from './printing/media'
+import { reloadUpdatedCompanion } from './companion/companionUpdates'
+import { accountLanguage, validPreference, type LanguagePreference } from './shared/i18n'
+import LanguagePicker from './components/LanguagePicker.vue'
 
 interface LocalPrinter {
   no_automatic_printing?: boolean | null
@@ -46,6 +50,7 @@ interface LocalPrinter {
   status: { connected: boolean; tape_width_mm?: number | null; error?: string | null }
 }
 interface Operator {
+  language?: LanguagePreference
   id: string
   username: string
   permissions: string[]
@@ -84,10 +89,10 @@ const stationReachable = ref(false),
 const selectedUser = computed(() => station.value?.users.find((user) => user.id === userId.value))
 const connectionLabel = computed(() =>
   !stationReachable.value || serverUnavailable.value
-    ? 'Reconnecting to companion…'
+    ? t('common.reconnectingToCompanion')
     : station.value?.online
-      ? 'Main server connected'
-      : 'Main server offline · Reconnecting…',
+      ? t('common.mainServerConnected')
+      : t('common.mainServerOfflineReconnecting'),
 )
 const unlockPanel = ref<HTMLElement>()
 const error = ref(''),
@@ -226,7 +231,14 @@ function printerState(printer: LocalPrinter) {
     return { label: 'Investigation required', tone: 'danger', icon: ExclamationTriangleIcon }
   if (printer.status.error)
     return { label: 'Printer error', tone: 'danger', icon: ExclamationTriangleIcon }
-  if (printer.printing) return { label: 'Printing', tone: 'printing', icon: PrinterIcon }
+  if (printer.printing)
+    return {
+      get label() {
+        return t('dashboard.printing')
+      },
+      tone: 'printing',
+      icon: PrinterIcon,
+    }
   if (!printer.status.connected)
     return { label: 'Disconnected', tone: 'muted', icon: SignalSlashIcon }
   if (printer.dashboard?.cartridge_check_pending)
@@ -292,6 +304,7 @@ async function refresh() {
     if (disposed || ticket !== generation) return
     const changed = state.user?.id !== station.value?.user?.id
     station.value = state
+    accountLanguage.value = state.user ? validPreference(state.user.language) : null
     stationReachable.value = true
     refreshError.value = ''
     if (
@@ -652,16 +665,18 @@ function changePage(delta: number) {
   <main id="main-content" class="station-shell" tabindex="-1">
     <header class="station-heading">
       <div class="station-title">
-        <h1>{{ station?.name ?? 'Companion' }}</h1>
+        <h1>{{ station?.name ?? $t('common.companion') }}</h1>
         <p class="muted">
           {{
-            stationReachable && !serverUnavailable ? fleetSummary : 'Waiting for station status…'
+            stationReachable && !serverUnavailable
+              ? fleetSummary
+              : $t('common.waitingForStationStatus')
           }}
           <Transition name="notice">
             <span v-if="station?.update" class="station-update" role="status">
               ·
               <a :href="station.update.url" target="_blank" rel="noopener noreferrer"
-                >Update available: {{ station.update.version }}</a
+                >{{ $t('common.updateAvailable2') }} {{ station.update.version }}</a
               >
             </span>
           </Transition>
@@ -673,18 +688,26 @@ function changePage(delta: number) {
           :disabled="!stationReachable || serverUnavailable || !station?.online || busy"
           @click="openUnlock"
         >
-          Unlock
+          {{ $t('common.unlock') }}
         </button>
       </div>
       <div v-if="station && !station.locked" class="station-lock">
         <span class="station-operator">{{ station.user?.username }}</span>
-        <span class="muted lock-countdown" role="timer" aria-label="Time until station locks"
-          >Locks in {{ lockCountdown }}</span
+        <span
+          class="muted lock-countdown"
+          role="timer"
+          :aria-label="$t('common.timeUntilStationLocks')"
+          >{{ $t('companionApp.locksIn') }} {{ lockCountdown }}</span
         >
-        <button class="secondary" :disabled="busy" @click="lock">Lock</button>
+        <button class="secondary" :disabled="busy" @click="lock">
+          {{ $t('companionApp.lock') }}
+        </button>
       </div>
-      <span v-else class="station-locked"><LockClosedIcon aria-hidden="true" />Locked</span>
+      <span v-else class="station-locked"
+        ><LockClosedIcon aria-hidden="true" />{{ $t('companionApp.locked') }}</span
+      >
     </header>
+    <Transition name="notice"><LanguagePicker v-if="!station?.user" /></Transition>
     <Transition name="notice"
       ><p
         v-if="refreshError && stationReachable && station?.online && !serverUnavailable"
@@ -708,20 +731,20 @@ function changePage(delta: number) {
         :printer-name="packingPrinter.name"
         @close="closePacking"
       />
-      <section v-else class="station-fleet" aria-label="Connected printers">
+      <section v-else class="station-fleet" :aria-label="$t('common.connectedPrinters')">
         <div class="fleet-toolbar">
-          <h2>Printers</h2>
+          <h2>{{ $t('common.printers') }}</h2>
           <button
             v-if="!station?.locked && station?.user?.permissions.includes('printers.manage')"
             class="secondary"
             :disabled="busy || !operational"
             @click="addPrinter"
           >
-            Add printer
+            {{ $t('common.addPrinter') }}
           </button>
         </div>
         <p v-if="station && !station.printers.length" class="panel muted">
-          No local printers configured.
+          {{ $t('companionApp.noLocalPrintersConfigured') }}
         </p>
         <TransitionGroup
           tag="div"
@@ -743,7 +766,7 @@ function changePage(delta: number) {
                   <div class="row wrap printer-name-mode">
                     <h2>{{ printer.name }}</h2>
                     <span v-if="printer.no_automatic_printing != null" class="muted printer-mode">{{
-                      printer.no_automatic_printing ? 'Manual only' : 'Automatic'
+                      printer.no_automatic_printing ? $t('printers.manualOnly') : 'Automatic'
                     }}</span>
                   </div>
                   <p class="muted">
@@ -791,7 +814,7 @@ function changePage(delta: number) {
                   :disabled="!operational || busy"
                   @click="openPacking(printer)"
                 >
-                  Pack labels
+                  {{ $t('companionApp.packLabels') }}
                 </button>
                 <button
                   v-if="allowStop(printer, 'after_current')"
@@ -799,14 +822,14 @@ function changePage(delta: number) {
                   :disabled="busy"
                   @click="stop(printer, 'after_current')"
                 >
-                  Stop after label</button
+                  {{ $t('common.stopAfterLabel') }}</button
                 ><button
                   v-if="allowStop(printer, 'emergency')"
                   class="danger"
                   :disabled="busy"
                   @click="stop(printer, 'emergency')"
                 >
-                  Emergency stop
+                  {{ $t('common.emergencyStop') }}
                 </button>
               </div>
             </div>
@@ -817,7 +840,7 @@ function changePage(delta: number) {
               <Transition name="notice">
                 <div class="station-controls" v-if="selected === printer.local_id">
                   <p v-if="status?.needs_review.length" class="alert warning">
-                    Review the interrupted batch on the main server before continuing.
+                    {{ $t('companionApp.reviewTheInterruptedBatchOnTheMainServerBefore') }}
                   </p>
                   <p
                     v-else-if="status?.media_warning || status?.cartridge_check_pending"
@@ -845,7 +868,7 @@ function changePage(delta: number) {
                       :disabled="!operational || busy"
                       @click="editConfig"
                     >
-                      Configure printer</button
+                      {{ $t('companionApp.configurePrinter') }}</button
                     ><button
                       v-if="station?.user?.permissions.includes('printers.manage')"
                       class="secondary"
@@ -854,23 +877,24 @@ function changePage(delta: number) {
                       "
                       @click="setPrinterEnabled(printer, false)"
                     >
-                      Remove printer</button
+                      {{ $t('companionApp.removePrinter') }}</button
                     ><button
                       v-if="printer.blocked && can(printer.id, 'review')"
                       class="secondary"
                       :disabled="!operational || busy || !!status?.needs_review.length"
                       @click="clearBlock"
                     >
-                      Clear block
+                      {{ $t('common.clearBlock') }}
                     </button>
                   </div>
                   <div v-if="can(printer.id, 'swap_cartridges')" class="station-cartridge">
                     <label
-                      >Cartridge<select
+                      >{{ $t('common.cartridge')
+                      }}<select
                         v-model="cartridgeId"
                         :disabled="!operational || busy || !!status?.printing"
                       >
-                        <option value="">Choose cartridge</option>
+                        <option value="">{{ $t('companionApp.chooseCartridge') }}</option>
                         <option
                           v-for="cartridge in choices"
                           :key="cartridge.id"
@@ -891,8 +915,9 @@ function changePage(delta: number) {
                         </option>
                       </select></label
                     ><label class="checkbox"
-                      ><input v-model="allLocations" type="checkbox" />All accessible
-                      locations</label
+                      ><input v-model="allLocations" type="checkbox" />{{
+                        $t('companionApp.allAccessibleLocations')
+                      }}</label
                     >
                     <div class="row wrap">
                       <button
@@ -900,22 +925,23 @@ function changePage(delta: number) {
                         :disabled="!operational || busy || !cartridgeId || !!status?.printing"
                         @click="swap"
                       >
-                        Install cartridge</button
+                        {{ $t('common.installCartridge') }}</button
                       ><button
                         v-if="station?.user?.permissions.includes('inventory.manage')"
                         class="secondary"
                         :disabled="!operational || busy || !!status?.printing"
                         @click="openAdding"
                       >
-                        Add cartridge
+                        {{ $t('companionApp.addCartridge') }}
                       </button>
                     </div>
                   </div>
-                  <section class="station-queue" aria-label="Printer queue">
+                  <section class="station-queue" :aria-label="$t('companionApp.printerQueue')">
                     <div class="row wrap spread">
-                      <h3>Queue</h3>
+                      <h3>{{ $t('companionApp.queue') }}</h3>
                       <label v-if="destinations.length > 1"
-                        >Destination<select v-model="destination" @change="changeDestination">
+                        >{{ $t('common.destination')
+                        }}<select v-model="destination" @change="changeDestination">
                           <option
                             v-for="choice in destinations"
                             :key="choice.id"
@@ -926,7 +952,7 @@ function changePage(delta: number) {
                         </select></label
                       >
                     </div>
-                    <p v-if="!jobs.length" class="muted">No queued labels.</p>
+                    <p v-if="!jobs.length" class="muted">{{ $t('companionApp.noQueuedLabels') }}</p>
                     <article
                       v-for="group in queueGroups"
                       :key="group.id"
@@ -952,7 +978,7 @@ function changePage(delta: number) {
                             >{{ group.name ?? group.jobs[0]?.process_name }}
                             <small
                               >{{ group.run_id ? `${group.jobs.length} rows · ` : ''
-                              }}{{ groupCopies(group).length }} copies ·
+                              }}{{ groupCopies(group).length }} {{ $t('common.copies3') }}
                               {{
                                 group.jobs[0]?.attribution?.requested_by?.name ??
                                 group.jobs[0]?.owner_id
@@ -974,7 +1000,7 @@ function changePage(delta: number) {
                       </div>
                       <PaymentAttribution :payers="group.jobs.flatMap((job) => job.payers ?? [])" />
                       <AnimatedDetails v-if="group.run_id" class="station-run-rows">
-                        <template #summary>Labels in this run</template>
+                        <template #summary>{{ $t('companionApp.labelsInThisRun') }}</template>
                         <div v-for="job in group.jobs" :key="job.id" class="station-job">
                           <label class="checkbox"
                             ><input
@@ -987,7 +1013,7 @@ function changePage(delta: number) {
                               >{{
                                 job.source_row == null ? job.process_name : `Row ${job.source_row}`
                               }}<small
-                                >{{ queuedCopies(job).length }} copies ·
+                                >{{ queuedCopies(job).length }} {{ $t('common.copies3') }}
                                 {{ jobProfileName(job) }}</small
                               ></span
                             >
@@ -1002,21 +1028,25 @@ function changePage(delta: number) {
                         </div>
                       </AnimatedDetails>
                     </article>
-                    <nav v-if="queuePage || hasNextPage" class="row wrap" aria-label="Queue pages">
+                    <nav
+                      v-if="queuePage || hasNextPage"
+                      class="row wrap"
+                      :aria-label="$t('companionApp.queuePages')"
+                    >
                       <button
                         class="secondary"
                         :disabled="!operational || busy || !queuePage"
                         @click="changePage(-1)"
                       >
-                        Previous
+                        {{ $t('common.previous') }}
                       </button>
-                      <span>Page {{ queuePage + 1 }}</span>
+                      <span>{{ $t('common.page') }} {{ queuePage + 1 }}</span>
                       <button
                         class="secondary"
                         :disabled="!operational || busy || !hasNextPage"
                         @click="changePage(1)"
                       >
-                        Next
+                        {{ $t('common.next') }}
                       </button>
                     </nav>
                     <div
@@ -1034,7 +1064,7 @@ function changePage(delta: number) {
                         "
                         @click="start"
                       >
-                        Print selected ({{ copyIds.length }})
+                        {{ $t('common.printSelected') }}{{ copyIds.length }})
                       </button>
                       <button
                         class="secondary"
@@ -1047,7 +1077,7 @@ function changePage(delta: number) {
                         "
                         @click="printProfileQueue"
                       >
-                        Print current tape queue
+                        {{ $t('companionApp.printCurrentTapeQueue') }}
                       </button>
                       <span v-if="installedProfile" class="muted">{{ installedProfile.name }}</span>
                     </div>
@@ -1058,8 +1088,12 @@ function changePage(delta: number) {
           </article>
         </TransitionGroup>
         <ExpandableContent :open="!station?.locked && !!station?.removed_printers.length">
-          <section v-if="!station?.locked" class="station-removed" aria-label="Removed printers">
-            <h3>Removed printers</h3>
+          <section
+            v-if="!station?.locked"
+            class="station-removed"
+            :aria-label="$t('companionApp.removedPrinters')"
+          >
+            <h3>{{ $t('companionApp.removedPrinters') }}</h3>
             <div
               v-for="printer in station?.removed_printers"
               :key="printer.local_id"
@@ -1071,7 +1105,7 @@ function changePage(delta: number) {
                 :disabled="!operational || busy"
                 @click="setPrinterEnabled(printer, true)"
               >
-                Restore printer
+                {{ $t('companionApp.restorePrinter') }}
               </button>
             </div>
           </section>
@@ -1089,11 +1123,14 @@ function changePage(delta: number) {
         {{ connectionLabel }}
       </span>
       <span class="station-meta">
-        <span v-if="station?.version" class="station-version">v{{ station.version }}</span>
+        <span v-if="station?.version" class="station-version"
+          >{{ $t('common.v') }}{{ station.version }}</span
+        >
         <span class="station-credit"
-          >Made with ♥ by
-          <a href="https://github.com/tarobits" target="_blank" rel="noopener noreferrer"
-            >tarobits</a
+          >{{ $t('common.madeWithBy') }}
+          <a href="https://github.com/tarobits" target="_blank" rel="noopener noreferrer">{{
+            $t('common.tarobits')
+          }}</a
           >.</span
         >
       </span>
@@ -1102,7 +1139,7 @@ function changePage(delta: number) {
   <AdminDialog
     class="station-unlock-dialog"
     :open="unlocking"
-    title="Unlock station"
+    :title="$t('common.unlockStation')"
     :busy="busy"
     @close="closeUnlock"
     ><div ref="unlockPanel">
@@ -1118,7 +1155,7 @@ function changePage(delta: number) {
           key="users"
           class="station-users motion-reveal"
           role="group"
-          aria-label="Choose user"
+          :aria-label="$t('companionApp.chooseUser')"
         >
           <button
             v-for="user in station?.users"
@@ -1138,7 +1175,9 @@ function changePage(delta: number) {
             />
             <span>{{ user.username }}</span>
           </button>
-          <p v-if="!station?.users.length" class="muted">No users available.</p>
+          <p v-if="!station?.users.length" class="muted">
+            {{ $t('companionApp.noUsersAvailable') }}
+          </p>
         </div>
         <form
           v-else
@@ -1165,7 +1204,7 @@ function changePage(delta: number) {
               :disabled="busy"
               @click="chooseUser('')"
             >
-              Change user
+              {{ $t('companionApp.changeUser') }}
             </button>
           </div>
           <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
@@ -1181,7 +1220,7 @@ function changePage(delta: number) {
             class="primary unlock-submit"
             :disabled="busy || !stationReachable || serverUnavailable || !station?.online"
           >
-            Unlock
+            {{ $t('common.unlock') }}
           </button>
         </form>
       </Transition>
@@ -1189,20 +1228,23 @@ function changePage(delta: number) {
   >
   <AdminDialog
     :open="!!config && !station?.locked"
-    :title="newPrinterId ? 'Add printer' : 'Printer configuration'"
+    :title="newPrinterId ? $t('common.addPrinter') : 'Printer configuration'"
     :busy="busy"
     @close="config = undefined"
     ><form v-if="config" v-validate-form class="form-stack" @submit.prevent="saveConfig">
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <label>Name<input v-model="config.name" required maxlength="100" /></label
-      ><label>USB serial<input v-model="config.usb_serial" maxlength="128" /></label
+      <label>{{ $t('common.name') }}<input v-model="config.name" required maxlength="100" /></label
       ><label
-        >Resolution<select v-model="config.resolution">
-          <option value="normal">Normal</option>
-          <option value="high">High</option>
+        >{{ $t('common.usbSerial') }}<input v-model="config.usb_serial" maxlength="128" /></label
+      ><label
+        >{{ $t('companionApp.resolution')
+        }}<select v-model="config.resolution">
+          <option value="normal">{{ $t('companionApp.normal') }}</option>
+          <option value="high">{{ $t('companionApp.high') }}</option>
         </select></label
       ><label
-        >Feed (mm)<input
+        >{{ $t('common.feedMm')
+        }}<input
           v-model.number="config.feed_mm"
           type="number"
           min="2"
@@ -1210,7 +1252,8 @@ function changePage(delta: number) {
           step="0.1"
           required /></label
       ><label
-        >Leader (mm)<input
+        >{{ $t('companionApp.leaderMm')
+        }}<input
           v-model.number="config.leader_mm"
           type="number"
           min="0"
@@ -1218,46 +1261,49 @@ function changePage(delta: number) {
           step="0.1"
           required /></label
       ><label class="checkbox"
-        ><input v-model="config.cut_each" type="checkbox" />Cut each label</label
+        ><input v-model="config.cut_each" type="checkbox" />{{ $t('common.cutEachLabel') }}</label
       ><label v-if="!newPrinterId" class="checkbox"
-        ><input v-model="config.no_automatic_printing" type="checkbox" />No automatic
-        printing</label
+        ><input v-model="config.no_automatic_printing" type="checkbox" />{{
+          $t('common.noAutomaticPrinting')
+        }}</label
       >
       <button class="primary" :disabled="busy || !operational">
-        {{ newPrinterId ? 'Add printer' : 'Save configuration' }}
+        {{ newPrinterId ? $t('common.addPrinter') : 'Save configuration' }}
       </button>
     </form></AdminDialog
   >
   <AdminDialog
     :open="adding && !station?.locked"
-    title="Add cartridge"
+    :title="$t('companionApp.addCartridge')"
     :busy="busy"
     @close="adding = false"
     ><form v-validate-form class="form-stack" @submit.prevent="createCartridge">
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-      <label>Name<input v-model="newName" required maxlength="100" /></label
+      <label>{{ $t('common.name') }}<input v-model="newName" required maxlength="100" /></label
       ><label
-        >Tape profile<select v-model="newProfile" required>
+        >{{ $t('common.tapeProfile')
+        }}<select v-model="newProfile" required>
           <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
             {{ profile.name }}
           </option>
         </select></label
       ><label
-        >Length (mm)<input
-          v-model.number="newLength"
-          type="number"
-          min="1"
-          max="1000000"
-          required /></label
-      ><label>Price<input v-model="newPrice" type="number" min="0" step="0.01" /></label
+        >{{ $t('companionApp.lengthMm')
+        }}<input v-model.number="newLength" type="number" min="1" max="1000000" required /></label
       ><label
-        >Currency<input
+        >{{ $t('companionApp.price')
+        }}<input v-model="newPrice" type="number" min="0" step="0.01" /></label
+      ><label
+        >{{ $t('common.currency')
+        }}<input
           v-model="newCurrency"
           pattern="[A-Z]{3}"
           minlength="3"
           maxlength="3"
           required /></label
-      ><button class="primary" :disabled="busy || !operational">Add and install</button>
+      ><button class="primary" :disabled="busy || !operational">
+        {{ $t('companionApp.addAndInstall') }}
+      </button>
     </form></AdminDialog
   >
   <ConfirmDialog /><CartridgeConsent />

@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { locale, t } from '../shared/i18n'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { api, errorMessage } from '../api'
-import type { Batch, BatchDetail } from '../types'
-import { useLiveRefresh } from '../live'
+import { api, errorMessage } from '../shared/api'
+import type { Batch, BatchDetail } from '../shared/types'
+import { useLiveRefresh } from '../shared/live'
 import PackingLabels from './PackingLabels.vue'
 import MotionSurface from './MotionSurface.vue'
 
@@ -87,21 +89,24 @@ watch(page, () => {
 })
 useLiveRefresh(load, 10000)
 const title = (item: Batch) =>
-  `${new Date(item.created_at * 1000).toLocaleString()} · ${item.process_names?.join(', ') || 'Batch'}`
+  `${new Date(item.created_at * 1000).toLocaleString(locale.value)} · ${item.process_names?.join(', ') || t('companionPacking.batch')}`
 </script>
 
 <template>
-  <section class="station-packing" aria-label="Batch packing">
+  <section class="station-packing" :aria-label="$t('companionPacking.batchPacking')">
     <div class="row wrap spread">
-      <h2 tabindex="-1">Pack labels · {{ printerName }}</h2>
-      <button class="secondary" @click="$emit('close')">Back to printers</button>
+      <h2 tabindex="-1">{{ $t('companionPacking.packLabels') }} {{ printerName }}</h2>
+      <button class="secondary" @click="$emit('close')">
+        {{ $t('companionPacking.backToPrinters') }}
+      </button>
     </div>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
-    <p v-if="loading" class="muted" role="status">Loading batches…</p>
+    <p v-if="loading" class="muted" role="status">{{ $t('companionPacking.loadingBatches') }}</p>
     <div v-if="batches.length || page" class="packing-batches">
       <label
-        >Batch<select v-model="selected">
-          <option value="" disabled>Choose a completed batch</option>
+        >{{ $t('companionPacking.batch')
+        }}<select v-model="selected">
+          <option value="" disabled>{{ $t('companionPacking.chooseACompletedBatch') }}</option>
           <option
             v-for="item in batches"
             :key="item.id"
@@ -112,16 +117,18 @@ const title = (item: Batch) =>
           </option>
         </select></label
       >
-      <nav v-if="pages > 1" class="row" aria-label="Batch pages">
-        <button class="secondary" :disabled="loading || !page" @click="page--">Previous</button>
+      <nav v-if="pages > 1" class="row" :aria-label="$t('companionPacking.batchPages')">
+        <button class="secondary" :disabled="loading || !page" @click="page--">
+          {{ $t('common.previous') }}
+        </button>
         <span>{{ page + 1 }} / {{ pages }}</span>
         <button class="secondary" :disabled="loading || page + 1 >= pages" @click="page++">
-          Next
+          {{ $t('common.next') }}
         </button>
       </nav>
     </div>
     <p v-if="!loading && !error && !selected" class="empty compact">
-      No completed batches on this page.
+      {{ $t('companionPacking.noCompletedBatchesOnThisPage') }}
     </p>
     <MotionSurface :identity="selected">
       <PackingLabels

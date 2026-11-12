@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import { randomUUID } from '../uuid'
-import type { BatchDetail } from '../types'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import { randomUUID } from '../shared/uuid'
+import type { BatchDetail } from '../shared/types'
 import AdminDialog from './AdminDialog.vue'
 import ExpandableContent from './ExpandableContent.vue'
 const props = defineProps<{ batch: BatchDetail }>()
@@ -85,45 +85,54 @@ async function save() {
     class="secondary"
     @click="open"
   >
-    Retry labels
+    {{ $t('retryControls.retryLabels') }}
   </button>
-  <AdminDialog :open="opened" title="Retry labels" :busy="w.busy" @close="opened = false">
+  <AdminDialog
+    :open="opened"
+    :title="$t('retryControls.retryLabels')"
+    :busy="w.busy"
+    @close="opened = false"
+  >
     <form class="form-stack" @submit.prevent="save">
       <Transition name="notice"
         ><p v-if="error" role="alert" class="alert danger">{{ error }}</p></Transition
       >
       <label class="checkbox"
-        ><input v-model="includePrinted" type="checkbox" />Include confirmed printed copies</label
+        ><input v-model="includePrinted" type="checkbox" />{{
+          $t('retryControls.includeConfirmedPrintedCopies')
+        }}</label
       >
       <div class="retry-copies">
         <label v-for="item in visible" :key="item.copy_id" class="checkbox">
           <input v-model="selected" type="checkbox" :value="item.copy_id" />
           {{ item.process_name }} ·
-          {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }} · Copy
+          {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }} {{ $t('common.copy') }}
           {{ item.copy_number }}
         </label>
       </div>
-      <p v-if="!visible.length" class="muted">No unprinted copies.</p>
+      <p v-if="!visible.length" class="muted">{{ $t('retryControls.noUnprintedCopies') }}</p>
       <label
-        >Funding<select v-model="mode">
-          <option value="paid">Ask requester to pay</option>
+        >{{ $t('common.funding')
+        }}<select v-model="mode">
+          <option value="paid">{{ $t('retryControls.askRequesterToPay') }}</option>
           <option value="free" :disabled="!cartridges.length">
-            No additional charge to requester
+            {{ $t('retryControls.noAdditionalChargeToRequester') }}
           </option>
         </select></label
       >
       <ExpandableContent :open="mode === 'free'">
         <div class="form-stack">
           <label
-            >Retry cartridge<select v-model="cartridge" :required="mode === 'free'">
-              <option disabled value="">Choose a cartridge</option>
+            >{{ $t('retryControls.retryCartridge')
+            }}<select v-model="cartridge" :required="mode === 'free'">
+              <option disabled value="">{{ $t('retryControls.chooseACartridge') }}</option>
               <option v-for="item in cartridges" :key="item.id" :value="item.id">
                 {{ item.name }}
               </option>
             </select></label
           >
           <p class="alert warning">
-            The cartridge owner covers this retry’s cost. Previous charges remain unchanged.
+            {{ $t('common.theCartridgeOwnerCoversThisRetrySCostPrevious') }}
           </p>
         </div>
       </ExpandableContent>

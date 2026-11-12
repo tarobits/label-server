@@ -1,9 +1,9 @@
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from './auth'
-import { errorMessage } from './api'
-import { useLiveRefresh } from './live'
-import { useResourceStore } from './stores/resources'
+import { useAuthStore } from '../auth/auth'
+import { errorMessage } from '../shared/api'
+import { useLiveRefresh } from '../shared/live'
+import { useResourceStore } from '../stores/resources'
 
 interface HistoryPage<T> {
   items: T[]

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
+import { api, errorMessage } from '../shared/api'
 import ExpandableContent from './ExpandableContent.vue'
 
 export interface BillingSelection {
@@ -35,9 +35,9 @@ function select(event: Event) {
     <div class="billing-fields">
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <label
-        >Paying account
+        >{{ $t('billingPicker.payingAccount') }}
         <select :value="model?.account_id ?? ''" @change="select">
-          <option value="">My personal account</option>
+          <option value="">{{ $t('billingPicker.myPersonalAccount') }}</option>
           <option v-for="account in accounts" :key="account.id" :value="account.id">
             {{ account.name }}
           </option>
@@ -46,22 +46,24 @@ function select(event: Event) {
       <ExpandableContent :open="!!model">
         <div v-if="model" class="billing-fields">
           <label
-            >Funding
+            >{{ $t('common.funding') }}
             <select v-model="model.mode">
               <option v-if="selected?.permissions.includes('request')" value="wait">
-                Wait for approval
+                {{ $t('common.waitForApproval') }}
               </option>
               <option v-if="selected?.permissions.includes('request')" value="risk">
-                Print at my expense pending approval
+                {{ $t('billingPicker.printAtMyExpensePendingApproval') }}
               </option>
               <option v-if="selected?.permissions.includes('direct')" value="direct">
-                Charge the group directly
+                {{ $t('billingPicker.chargeTheGroupDirectly') }}
               </option>
             </select>
           </label>
-          <label>Purpose (optional)<input v-model="model.note" maxlength="500" /></label>
+          <label
+            >{{ $t('billingPicker.purposeOptional') }}<input v-model="model.note" maxlength="500"
+          /></label>
           <p v-if="model.mode === 'risk'" class="muted">
-            You remain responsible for payment unless the group approves.
+            {{ $t('common.youRemainResponsibleForPaymentUnlessTheGroupApproves') }}
           </p>
         </div>
       </ExpandableContent>

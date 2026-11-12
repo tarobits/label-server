@@ -429,7 +429,12 @@ test('group-only moderators reach scoped queue controls without physical configu
     await member.getByRole('link', { name: 'Printers & groups', exact: true }).click()
     await expect(member.getByRole('button', { name: 'Configure', exact: true })).toHaveCount(0)
     await expect(member.getByRole('button', { name: 'Edit group', exact: true })).toHaveCount(0)
-    await expect(member.getByRole('link', { name: 'Print Activity', exact: true })).toHaveCount(0)
+    // The moderator preset includes scoped activity access, but does not
+    // grant physical printer configuration or group editing.
+    await member.getByRole('link', { name: 'Print Activity', exact: true }).click()
+    await expect(member.getByRole('heading', { name: 'Print Activity', exact: true })).toBeVisible()
+    await expect(member.getByRole('combobox', { name: 'Requester', exact: true })).toBeEnabled()
+    await member.getByRole('link', { name: 'Printers & groups', exact: true }).click()
     await member.getByRole('button', { name: 'Hold group', exact: true }).click()
     await expect(member.getByRole('button', { name: 'Resume group', exact: true })).toBeVisible()
     await member.getByRole('button', { name: 'Resume group', exact: true }).click()

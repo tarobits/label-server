@@ -1,7 +1,7 @@
 import { chooseTapeProfile, tapeProfileControl } from './tape-profile-picker-helpers'
 import { test, expect } from './fixtures'
 import { chooseTemplate, templateControl } from './template-picker-helpers'
-import type { Profile } from '../src/types'
+import type { Profile } from '../src/shared/types'
 
 for (const path of ['/new', '/runs']) {
   test(`${path} selects saved template profiles and preserves explicit overrides`, async ({

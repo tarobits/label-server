@@ -1,5 +1,6 @@
-import { api, ApiError } from './api'
-import { ActionCancelled, confirmAction, chooseAction } from './confirmation'
+import { t } from '../shared/i18n'
+import { api, ApiError } from '../shared/api'
+import { ActionCancelled, confirmAction, chooseAction } from '../shared/confirmation'
 
 export async function installCartridge(
   printerId: string,
@@ -83,7 +84,9 @@ export async function installCartridge(
         throw new Error('Cartridge detection keeps changing. Check the cartridge and try again.')
       if (detail.reason === 'cartridge_check' && options.chooseCartridge) {
         const choice = await chooseAction(detail.message, {
-          title: 'Confirm cartridge',
+          get title() {
+            return t('cartridgeDetection.confirmCartridge')
+          },
           confirmLabel: 'Yes, it is',
           cancelLabel: 'No, I will change it later',
           alternateLabel: 'No, take me to cartridges',

@@ -1,34 +1,36 @@
 <script setup lang="ts">
-import type { PrintPlan } from '../types'
+import type { PrintPlan } from '../shared/types'
 withDefaults(defineProps<{ plan?: PrintPlan | null; caption?: string }>(), {
   caption: 'Estimated tape use',
 })
 </script>
 
 <template>
-  <section class="tape-usage" aria-label="Tape usage">
+  <section class="tape-usage" :aria-label="$t('common.tapeUsage')">
     <template v-if="plan?.breakdown">
-      <p class="help">{{ caption }} · {{ plan.estimated_mm.toFixed(2) }} mm total</p>
-      <dl aria-label="Tape usage breakdown">
+      <p class="help">
+        {{ caption }} · {{ plan.estimated_mm.toFixed(2) }} {{ $t('common.mmTotal') }}
+      </p>
+      <dl :aria-label="$t('common.tapeUsageBreakdown')">
         <div>
-          <dt>Design</dt>
-          <dd>{{ plan.breakdown.design_mm.toFixed(2) }} mm</dd>
+          <dt>{{ $t('tapeUsage.design') }}</dt>
+          <dd>{{ plan.breakdown.design_mm.toFixed(2) }} {{ $t('common.mm') }}</dd>
         </div>
         <div>
-          <dt>Feed</dt>
-          <dd>{{ plan.breakdown.feed_mm.toFixed(2) }} mm</dd>
+          <dt>{{ $t('tapeUsage.feed') }}</dt>
+          <dd>{{ plan.breakdown.feed_mm.toFixed(2) }} {{ $t('common.mm') }}</dd>
         </div>
         <div>
-          <dt>Leader</dt>
-          <dd>{{ plan.breakdown.leader_mm.toFixed(2) }} mm</dd>
+          <dt>{{ $t('tapeUsage.leader') }}</dt>
+          <dd>{{ plan.breakdown.leader_mm.toFixed(2) }} {{ $t('common.mm') }}</dd>
         </div>
         <div>
-          <dt>Unused</dt>
-          <dd>{{ plan.breakdown.unused_mm.toFixed(2) }} mm</dd>
+          <dt>{{ $t('common.unused') }}</dt>
+          <dd>{{ plan.breakdown.unused_mm.toFixed(2) }} {{ $t('common.mm') }}</dd>
         </div>
       </dl>
     </template>
-    <p v-else class="help">Tape breakdown not recorded.</p>
+    <p v-else class="help">{{ $t('common.tapeBreakdownNotRecorded') }}</p>
   </section>
 </template>
 

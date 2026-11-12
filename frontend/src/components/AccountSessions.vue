@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { locale, t } from '../shared/i18n'
+
 import { computed, nextTick, onMounted, ref, useId, watch } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { confirmAction } from '../confirmation'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { confirmAction } from '../shared/confirmation'
 import ExpandableContent from './ExpandableContent.vue'
 
 const props = defineProps<{ refreshKey: number }>()
@@ -29,7 +31,7 @@ const refreshButton = ref<HTMLButtonElement | null>(null)
 const prefix = useId()
 const hasOthers = computed(() => sessions.value.some((session) => !session.current))
 const date = (value: number | null) =>
-  value === null ? 'Not recorded' : new Date(value * 1000).toLocaleString()
+  value === null ? 'Not recorded' : new Date(value * 1000).toLocaleString(locale.value)
 async function load() {
   sessions.value = await api<LoginSession[]>('/auth/sessions')
   loaded.value = true
@@ -51,7 +53,13 @@ async function revoke(session?: LoginSession) {
   const message = session
     ? `Sign out ${session.current ? 'this session' : `${session.browser} on ${session.device}`}? Its push notifications will also stop.`
     : 'Sign out all other sessions? Their push notifications will also stop.'
-  if (!(await confirmAction(message, session ? 'Sign out' : 'Sign out other sessions'))) return
+  if (
+    !(await confirmAction(
+      message,
+      session ? t('common.signOut') : t('common.signOutOtherSessions'),
+    ))
+  )
+    return
   busy.value = true
   error.value = ''
   success.value = ''
@@ -83,9 +91,9 @@ watch(() => props.refreshKey, refresh)
 <template>
   <div class="account-sessions">
     <div class="row wrap session-heading">
-      <h2>Logged-in sessions</h2>
+      <h2>{{ $t('common.loggedInSessions') }}</h2>
       <button ref="refreshButton" class="text-button" :disabled="busy" @click="refresh">
-        Refresh sessions
+        {{ $t('accountSessions.refreshSessions') }}
       </button>
     </div>
     <Transition name="notice"
@@ -96,49 +104,58 @@ watch(() => props.refreshKey, refresh)
         {{ success }}
       </p></Transition
     >
-    <p v-if="!loaded && !error" class="help" role="status">Loading sessions…</p>
-    <TransitionGroup name="notice" tag="ul" class="session-list" aria-label="Logged-in sessions">
+    <p v-if="!loaded && !error" class="help" role="status">
+      {{ $t('accountSessions.loadingSessions') }}
+    </p>
+    <TransitionGroup
+      name="notice"
+      tag="ul"
+      class="session-list"
+      :aria-label="$t('common.loggedInSessions')"
+    >
       <li v-for="session in sessions" :key="session.id" class="motion-reveal">
         <div class="row wrap session-summary">
           <div class="session-name">
             <strong>{{ session.browser }} · {{ session.device }}</strong
-            ><span v-if="session.current" class="badge">This session</span>
+            ><span v-if="session.current" class="badge">{{ $t('common.thisSession') }}</span>
           </div>
-          <button class="danger-text" :disabled="busy" @click="revoke(session)">Sign out</button>
+          <button class="danger-text" :disabled="busy" @click="revoke(session)">
+            {{ $t('common.signOut') }}
+          </button>
         </div>
-        <p class="session-seen">Last seen {{ date(session.last_seen_at) }}</p>
+        <p class="session-seen">{{ $t('common.lastSeen') }} {{ date(session.last_seen_at) }}</p>
         <button
           class="text-button"
           :aria-expanded="expanded.includes(session.id)"
           :aria-controls="`${prefix}-${session.id}`"
           @click="toggle(session.id)"
         >
-          Session details
+          {{ $t('common.sessionDetails') }}
         </button>
         <ExpandableContent :id="`${prefix}-${session.id}`" :open="expanded.includes(session.id)">
           <dl class="session-details">
-            <dt>IP address</dt>
+            <dt>{{ $t('accountSessions.ipAddress') }}</dt>
             <dd>{{ session.ip_address || 'Not recorded' }}</dd>
-            <dt>Approximate location</dt>
-            <dd>{{ session.location || 'Unavailable' }}</dd>
-            <dt>Browser</dt>
+            <dt>{{ $t('accountSessions.approximateLocation') }}</dt>
+            <dd>{{ session.location || $t('common.unavailable') }}</dd>
+            <dt>{{ $t('common.browser') }}</dt>
             <dd>{{ session.browser }}</dd>
-            <dt>Operating system</dt>
+            <dt>{{ $t('accountSessions.operatingSystem') }}</dt>
             <dd>{{ session.os }}</dd>
-            <dt>Device</dt>
+            <dt>{{ $t('accountSessions.device') }}</dt>
             <dd>{{ session.device }}</dd>
-            <dt>First signed in</dt>
+            <dt>{{ $t('accountSessions.firstSignedIn') }}</dt>
             <dd>{{ date(session.created_at) }}</dd>
-            <dt>Last seen</dt>
+            <dt>{{ $t('common.lastSeen') }}</dt>
             <dd>{{ date(session.last_seen_at) }}</dd>
-            <dt>User agent</dt>
+            <dt>{{ $t('common.userAgent') }}</dt>
             <dd>{{ session.user_agent || 'Not recorded' }}</dd>
           </dl>
         </ExpandableContent>
       </li>
     </TransitionGroup>
     <button v-if="loaded" class="danger-text" :disabled="busy || !hasOthers" @click="revoke()">
-      Sign out other sessions
+      {{ $t('common.signOutOtherSessions') }}
     </button>
   </div>
 </template>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount } from 'vue'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import type { ImageValue } from '../editor'
-import type { ImageAsset } from '../types'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { ImageValue } from '../templates/editor'
+import type { ImageAsset } from '../shared/types'
 
 const props = defineProps<{
   modelValue: ImageValue | null
@@ -64,12 +64,12 @@ async function upload(event: Event) {
         :disabled="disabled || w.busy"
         @change="select"
       >
-        <option value="">No image</option>
+        <option value="">{{ $t('imageValueInput.noImage') }}</option>
         <option
           v-if="modelValue && !w.images.some((asset) => asset.id === modelValue?.image_asset)"
           :value="modelValue.image_asset"
         >
-          Selected image
+          {{ $t('common.selectedImage') }}
         </option>
         <option v-for="asset in w.images" :key="asset.id" :value="asset.id">
           {{ asset.name }}
@@ -77,7 +77,7 @@ async function upload(event: Event) {
       </select></label
     >
     <label v-if="auth.can('images.create_personal')"
-      >Upload {{ label.toLowerCase()
+      >{{ $t('common.upload') }} {{ label.toLowerCase()
       }}<input
         type="file"
         accept=".png,.jpg,.jpeg,.webp,.gif,.bmp,.svg"

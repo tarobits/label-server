@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { confirmAction } from '../confirmation'
-import { useWorkspaceStore } from '../workspace'
-import type { FontAsset } from '../types'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { confirmAction } from '../shared/confirmation'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { FontAsset } from '../shared/types'
 import AssetUpload from '../components/AssetUpload.vue'
 import AssetSharingEditor from '../components/AssetSharingEditor.vue'
 const w = useWorkspaceStore()
@@ -35,29 +35,29 @@ async function remove(font: FontAsset) {
 <template>
   <AssetUpload kind="fonts" />
   <section class="panel">
-    <h2>Font library</h2>
-    <p class="help">Hidden fonts remain available to saved labels.</p>
+    <h2>{{ $t('fonts.fontLibrary') }}</h2>
+    <p class="help">{{ $t('fonts.hiddenFontsRemainAvailableToSavedLabels') }}</p>
     <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>Family</th>
-            <th v-if="auth.user?.is_admin">Owner</th>
-            <th>Face</th>
-            <th>Size</th>
-            <th>Visibility</th>
-            <th>Status</th>
-            <th>Actions</th>
+            <th>{{ $t('fonts.family') }}</th>
+            <th v-if="auth.user?.is_admin">{{ $t('common.owner') }}</th>
+            <th>{{ $t('fonts.face') }}</th>
+            <th>{{ $t('common.size') }}</th>
+            <th>{{ $t('common.visibility') }}</th>
+            <th>{{ $t('common.status') }}</th>
+            <th>{{ $t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Noto Sans</td>
-            <td v-if="auth.user?.is_admin">System</td>
-            <td>Thin–Black (100–900)</td>
-            <td>Bundled</td>
-            <td>Global</td>
-            <td>Available</td>
+            <td>{{ $t('common.notoSans') }}</td>
+            <td v-if="auth.user?.is_admin">{{ $t('common.system') }}</td>
+            <td>{{ $t('common.thinBlack100900') }}</td>
+            <td>{{ $t('fonts.bundled') }}</td>
+            <td>{{ $t('common.global') }}</td>
+            <td>{{ $t('fonts.available') }}</td>
             <td>—</td>
           </tr>
           <tr v-for="font in w.fonts" :key="font.id">
@@ -68,17 +68,17 @@ async function remove(font: FontAsset) {
               {{ font.owner_name ?? 'Unknown owner' }}
             </td>
             <td>{{ font.variable ? 'Variable' : font.style }}</td>
-            <td>{{ (font.size_bytes / 1024).toFixed(0) }} KB</td>
+            <td>{{ (font.size_bytes / 1024).toFixed(0) }} {{ $t('fonts.kb') }}</td>
             <td>
               {{
                 font.scope === 'group'
                   ? font.group_name
                   : font.scope === 'global'
-                    ? 'Global'
-                    : 'Personal'
+                    ? $t('common.global')
+                    : $t('common.personal')
               }}
             </td>
-            <td>{{ font.archived ? 'Hidden' : 'Available' }}</td>
+            <td>{{ font.archived ? 'Hidden' : $t('fonts.available') }}</td>
             <td>
               <button
                 v-if="font.archived ? font.can_edit : font.can_delete"
@@ -86,7 +86,7 @@ async function remove(font: FontAsset) {
                 :disabled="w.busy"
                 @click="visibility(font)"
               >
-                {{ font.archived ? 'Restore' : 'Hide' }}
+                {{ font.archived ? $t('administration.restore') : 'Hide' }}
               </button>
               <button
                 v-if="font.can_delete"
@@ -94,7 +94,7 @@ async function remove(font: FontAsset) {
                 :disabled="w.busy"
                 @click="remove(font)"
               >
-                Delete font
+                {{ $t('fonts.deleteFont') }}
               </button>
               <AssetSharingEditor v-if="font.can_share" kind="fonts" :asset="font" />
             </td>
@@ -102,7 +102,9 @@ async function remove(font: FontAsset) {
         </tbody>
       </table>
     </div>
-    <RouterLink class="button secondary open-templates" to="/templates">Open templates</RouterLink>
+    <RouterLink class="button secondary open-templates" to="/templates">{{
+      $t('common.openTemplates')
+    }}</RouterLink>
   </section>
 </template>
 

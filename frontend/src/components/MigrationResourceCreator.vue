@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
+import { api, errorMessage } from '../shared/api'
 
 interface Field {
   key: string
@@ -145,7 +145,7 @@ function entered(element: Element) {
 
 <template>
   <form class="form-stack" @submit.prevent="submit">
-    <h3>Create {{ spec.label.toLowerCase() }}</h3>
+    <h3>{{ $t('migrationResourceCreator.create') }} {{ spec.label.toLowerCase() }}</h3>
     <p v-if="spec.note" class="alert warning">{{ spec.note }}</p>
     <Transition
       name="panel-expand"
@@ -155,7 +155,7 @@ function entered(element: Element) {
     >
       <div v-if="receipt" key="review" class="form-stack">
         <p>
-          Create <strong>{{ receipt.name }}</strong
+          {{ $t('migrationResourceCreator.create') }} <strong>{{ receipt.name }}</strong
           >?
         </p>
         <dl>
@@ -172,7 +172,7 @@ function entered(element: Element) {
               }}
             </dd>
           </template>
-          <dt>Reason</dt>
+          <dt>{{ $t('common.reason') }}</dt>
           <dd>{{ draft.reason }}</dd>
         </dl>
       </div>
@@ -186,7 +186,7 @@ function entered(element: Element) {
           <template v-else-if="field.resource">
             <div class="row wrap">
               <label
-                >Find {{ field.label.toLowerCase()
+                >{{ $t('migrationResourceCreator.find') }} {{ field.label.toLowerCase()
                 }}<input v-model="searches[field.key]" maxlength="128" :disabled="busy"
               /></label>
               <button
@@ -195,7 +195,7 @@ function entered(element: Element) {
                 :disabled="busy"
                 @click="action(() => search(field))"
               >
-                Search
+                {{ $t('common.search') }}
               </button>
             </div>
             <label
@@ -205,17 +205,19 @@ function entered(element: Element) {
                 :required="field.required"
                 :disabled="busy"
               >
-                <option value="" disabled>Choose {{ field.label.toLowerCase() }}</option>
+                <option value="" disabled>
+                  {{ $t('common.choose') }} {{ field.label.toLowerCase() }}
+                </option>
                 <option v-for="item in choices[field.key] || []" :key="item.id" :value="item.id">
                   {{ item.name }} · {{ item.id }}
                 </option>
               </select></label
             >
             <p v-if="choices[field.key]?.length === 50">
-              Showing 50 matches. Refine the search to find another record.
+              {{ $t('common.showing50MatchesRefineTheSearchToFindAnother') }}
             </p>
             <button type="button" class="secondary" :disabled="busy" @click="nested(field)">
-              Create {{ field.label.toLowerCase() }}
+              {{ $t('migrationResourceCreator.create') }} {{ field.label.toLowerCase() }}
             </button>
           </template>
           <label v-else-if="field.type === 'select'"
@@ -251,12 +253,8 @@ function entered(element: Element) {
           </label>
         </div>
         <label
-          >Creation reason<textarea
-            v-model="draft.reason"
-            required
-            maxlength="500"
-            :disabled="busy"
-          />
+          >{{ $t('migrationResourceCreator.creationReason')
+          }}<textarea v-model="draft.reason" required maxlength="500" :disabled="busy" />
         </label>
       </div>
     </Transition>
@@ -274,10 +272,10 @@ function entered(element: Element) {
         :disabled="busy || transitioning"
         @click="receipt = undefined"
       >
-        Edit details
+        {{ $t('migrationResourceCreator.editDetails') }}
       </button>
       <button type="button" class="secondary" :disabled="busy || transitioning" @click="back">
-        Back
+        {{ $t('common.back') }}
       </button>
     </div>
   </form>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { Destination } from '../types'
+import type { Destination } from '../shared/types'
 import {
   printerEventKinds,
   priorityOptions,
   type PrinterKinds,
   type PrinterPriorities,
-} from '../notificationPreferences'
+} from '../notifications/notificationPreferences'
 import ExpandableContent from './ExpandableContent.vue'
 
 const props = defineProps<{
@@ -53,9 +53,9 @@ function customize(id: string, event: Event) {
 <template>
   <ExpandableContent :open="printers.length > 0">
     <fieldset class="printer-event-settings choice-list">
-      <legend>Per-printer event types</legend>
+      <legend>{{ $t('printerNotificationKinds.perPrinterEventTypes') }}</legend>
       <p class="help">
-        Printers use the defaults unless customized. Clear every event to silence a printer.
+        {{ $t('printerNotificationKinds.printersUseTheDefaultsUnlessCustomizedClearEveryEvent') }}
       </p>
       <div v-for="printer in printers" :key="printer.id" class="printer-event-row">
         <label class="checkbox">
@@ -65,7 +65,7 @@ function customize(id: string, event: Event) {
             :disabled="disabled"
             :aria-label="`Customize events for ${printer.name}`"
             @change="customize(printer.id, $event)"
-          />Customize events for {{ printer.name }}
+          />{{ $t('printerNotificationKinds.customizeEventsFor') }} {{ printer.name }}
         </label>
         <ExpandableContent :open="printer.id in rules">
           <fieldset
@@ -88,14 +88,16 @@ function customize(id: string, event: Event) {
               </label>
               <ExpandableContent :open="!!showPriorities">
                 <label class="event-priority"
-                  >Priority
+                  >{{ $t('common.priority') }}
                   <select
                     :value="priorities[printer.id]?.[kind.value] ?? ''"
                     :aria-label="`Priority for ${kind.label} on ${printer.name}`"
                     :disabled="disabled || !rules[printer.id]?.includes(kind.value)"
                     @change="setPriority(printer.id, kind.value, $event)"
                   >
-                    <option value="">Default ({{ defaultPriority(kind.value) }})</option>
+                    <option value="">
+                      {{ $t('printerNotificationKinds.default') }}{{ defaultPriority(kind.value) }})
+                    </option>
                     <option
                       v-for="priority in priorityOptions"
                       :key="priority.value"

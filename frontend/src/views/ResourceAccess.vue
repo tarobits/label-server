@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import type { AccessCatalog, AccessPreview, ResourceChange, ResourceEntry } from '../resourceAccess'
-import { exclusiveGrantModes } from '../resourceAccess'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import type {
+  AccessCatalog,
+  AccessPreview,
+  ResourceChange,
+  ResourceEntry,
+} from '../shared/resourceAccess'
+import { exclusiveGrantModes } from '../shared/resourceAccess'
 import AdminDialog from '../components/AdminDialog.vue'
 import ResourceGrants from '../components/ResourceGrants.vue'
 import ResourceImpact from '../components/ResourceImpact.vue'
@@ -132,36 +137,41 @@ async function confirm() {
 <template>
   <section class="panel">
     <div class="row wrap spread">
-      <h2>Resources</h2>
+      <h2>{{ $t('resourceAccess.resources') }}</h2>
       <div class="row wrap">
-        <button class="secondary" @click="openGraph()">Permissions graph</button
-        ><button v-if="catalog?.manage_locations" @click="createLocation">New location</button>
+        <button class="secondary" @click="openGraph()">{{ $t('common.permissionsGraph') }}</button
+        ><button v-if="catalog?.manage_locations" @click="createLocation">
+          {{ $t('resourceAccess.newLocation') }}
+        </button>
       </div>
     </div>
     <p v-if="error && !form" class="alert danger" role="alert">{{ error }}</p>
     <p v-if="saved" class="alert success" role="status">{{ saved }}</p>
     <div class="resource-filters">
       <label
-        >Show<select v-model="filter">
-          <option value="">All resources</option>
-          <option value="location">Locations</option>
-          <option value="printer">Printers</option>
-          <option value="cartridge">Cartridges</option>
+        >{{ $t('common.show')
+        }}<select v-model="filter">
+          <option value="">{{ $t('resourceAccess.allResources') }}</option>
+          <option value="location">{{ $t('common.locations') }}</option>
+          <option value="printer">{{ $t('common.printers') }}</option>
+          <option value="cartridge">{{ $t('resourceAccess.cartridges') }}</option>
         </select></label
       >
       <label
-        >Filter by location<select v-model="locationFilter">
-          <option value="">All locations</option>
-          <option value="unassigned">Unassigned</option>
+        >{{ $t('resourceAccess.filterByLocation')
+        }}<select v-model="locationFilter">
+          <option value="">{{ $t('resourceAccess.allLocations') }}</option>
+          <option value="unassigned">{{ $t('common.unassigned') }}</option>
           <option v-for="location in catalog?.locations" :key="location.id" :value="location.id">
             {{ location.name }}
           </option>
         </select></label
       >
       <label
-        >Filter by owner<select v-model="ownerFilter">
-          <option value="">All owners</option>
-          <option value="unowned">No owner</option>
+        >{{ $t('resourceAccess.filterByOwner')
+        }}<select v-model="ownerFilter">
+          <option value="">{{ $t('resourceAccess.allOwners') }}</option>
+          <option value="unowned">{{ $t('common.noOwner') }}</option>
           <option v-for="user in catalog?.users" :key="user.id" :value="user.id">
             {{ user.name }}
           </option>
@@ -172,10 +182,10 @@ async function confirm() {
       <table>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Owner</th>
-            <th>Location</th>
+            <th>{{ $t('common.name') }}</th>
+            <th>{{ $t('common.type') }}</th>
+            <th>{{ $t('common.owner') }}</th>
+            <th>{{ $t('common.location') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -184,7 +194,10 @@ async function confirm() {
             <td>{{ item.name }}</td>
             <td>{{ item.kind }}</td>
             <td>
-              {{ catalog?.users.find((user) => user.id === item.owner_id)?.name ?? 'No owner' }}
+              {{
+                catalog?.users.find((user) => user.id === item.owner_id)?.name ??
+                $t('common.noOwner')
+              }}
             </td>
             <td>
               {{
@@ -197,13 +210,13 @@ async function confirm() {
             <td>
               <div class="row wrap">
                 <button class="secondary" :aria-label="`Manage ${item.name}`" @click="edit(item)">
-                  Manage</button
+                  {{ $t('resourceAccess.manage') }}</button
                 ><button
                   class="secondary"
                   :aria-label="`Permissions graph for ${item.name}`"
                   @click="openGraph(item)"
                 >
-                  Permissions graph
+                  {{ $t('common.permissionsGraph') }}
                 </button>
               </div>
             </td>
@@ -211,9 +224,16 @@ async function confirm() {
         </tbody>
       </table>
     </div>
-    <p v-if="catalog && !resources.length" class="empty">No resources to manage.</p>
+    <p v-if="catalog && !resources.length" class="empty">
+      {{ $t('resourceAccess.noResourcesToManage') }}
+    </p>
   </section>
-  <AdminDialog :open="graphOpen" title="Permissions graph" wide @close="graphOpen = false">
+  <AdminDialog
+    :open="graphOpen"
+    :title="$t('common.permissionsGraph')"
+    wide
+    @close="graphOpen = false"
+  >
     <AccessGraph
       v-if="graphOpen && catalog"
       :catalog="catalog"
@@ -223,7 +243,7 @@ async function confirm() {
   </AdminDialog>
   <AdminDialog
     :open="!!form"
-    :title="preview ? 'Review access changes' : selected?.name || 'New location'"
+    :title="preview ? 'Review access changes' : selected?.name || $t('resourceAccess.newLocation')"
     :busy="busy"
     @close="form = undefined"
   >
@@ -231,10 +251,13 @@ async function confirm() {
       <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
       <form v-if="!preview" class="form-stack" @submit.prevent="review">
         <template v-if="form.kind === 'location'"
-          ><label>Location name<input v-model="form.name" required maxlength="100" /></label
           ><label
-            >Parent location<select v-model="form.parent_id">
-              <option :value="null">None</option>
+            >{{ $t('resourceAccess.locationName')
+            }}<input v-model="form.name" required maxlength="100" /></label
+          ><label
+            >{{ $t('resourceAccess.parentLocation')
+            }}<select v-model="form.parent_id">
+              <option :value="null">{{ $t('resourceAccess.none') }}</option>
               <option
                 v-for="location in catalog.locations.filter((item) => item.id !== form!.identifier)"
                 :key="location.id"
@@ -246,12 +269,13 @@ async function confirm() {
           ></template
         >
         <label v-if="selected.abilities.transfer"
-          >Owner<select v-model="form.owner_id">
+          >{{ $t('common.owner')
+          }}<select v-model="form.owner_id">
             <option
               :value="form.kind === 'location' ? null : undefined"
               :disabled="form.kind !== 'location'"
             >
-              No owner
+              {{ $t('common.noOwner') }}
             </option>
             <option v-for="user in catalog.users" :key="user.id" :value="user.id">
               {{ user.name }}
@@ -259,11 +283,12 @@ async function confirm() {
           </select></label
         >
         <p v-if="selected.inherited_location" class="muted">
-          Location is inherited from the companion.
+          {{ $t('resourceAccess.locationIsInheritedFromTheCompanion') }}
         </p>
         <label v-if="selected.abilities.locate && form.kind !== 'location'"
-          >Location<select v-model="form.location_id">
-            <option :value="null">Unassigned</option>
+          >{{ $t('common.location')
+          }}<select v-model="form.location_id">
+            <option :value="null">{{ $t('common.unassigned') }}</option>
             <option v-for="location in catalog.locations" :key="location.id" :value="location.id">
               {{ location.name }}
             </option>
@@ -277,21 +302,24 @@ async function confirm() {
           :identifier="form.identifier"
           :roles="selected.abilities.roles"
         />
-        <button :disabled="busy">Review changes</button>
+        <button :disabled="busy">{{ $t('resourceAccess.reviewChanges') }}</button>
       </form>
       <template v-else>
         <p v-if="preview.claims_unassigned_debts" class="alert warning">
-          Unassigned debts for this cartridge will belong to the selected owner.
+          {{ $t('common.unassignedDebtsForThisCartridgeWillBelongToThe') }}
         </p>
         <ResourceImpact :changes="preview.affected_users" :resources="catalog.resources" />
         <label v-if="preview.owner_loss_warning" class="checkbox alert warning"
-          ><input v-model="accepted" type="checkbox" />Approve use can reduce the cartridge owner's
-          income. I accept this permission's effect.</label
+          ><input v-model="accepted" type="checkbox" />{{
+            $t('resourceAccess.approveUseCanReduceTheCartridgeOwnerSIncome')
+          }}</label
         >
         <div class="row wrap">
           <button :disabled="busy || (preview.owner_loss_warning && !accepted)" @click="confirm">
-            Confirm access changes</button
-          ><button class="secondary" :disabled="busy" @click="preview = undefined">Back</button>
+            {{ $t('resourceAccess.confirmAccessChanges') }}</button
+          ><button class="secondary" :disabled="busy" @click="preview = undefined">
+            {{ $t('common.back') }}
+          </button>
         </div>
       </template>
     </template>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { api } from '../api'
-import { useWorkspaceStore, date } from '../workspace'
+import { api } from '../shared/api'
+import { useWorkspaceStore, date } from '../shared/workspace'
 const w = useWorkspaceStore()
-import { confirmAction } from '../confirmation'
+import { confirmAction } from '../shared/confirmation'
 import JobPreview from '../components/JobPreview.vue'
-import type { AccessHold } from '../types'
+import type { AccessHold } from '../shared/types'
 async function resolve(hold: AccessHold, release: boolean) {
   if (
     !(await confirmAction(
@@ -23,21 +23,22 @@ async function resolve(hold: AccessHold, release: boolean) {
 <template>
   <div class="panel">
     <p>
-      These queued labels were paused because an account lost access or required content was
-      deleted. Restore deleted content before releasing affected labels. Restoring access or content
-      alone does not release a hold.
+      {{ $t('common.theseQueuedLabelsWerePausedBecauseAnAccountLost') }}
     </p>
   </div>
-  <p v-if="!w.accessHolds.length" class="panel empty">No labels are paused for access review.</p>
+  <p v-if="!w.accessHolds.length" class="panel empty">
+    {{ $t('accessHolds.noLabelsArePausedForAccessReview') }}
+  </p>
   <article v-for="hold in w.accessHolds" :key="hold.job_id" class="panel">
     <div class="section-heading">
       <h2>{{ hold.owner_name }}</h2>
-      <span class="badge">Paused</span>
+      <span class="badge">{{ $t('accessHolds.paused') }}</span>
     </div>
     <p>{{ hold.reason }} · {{ date(hold.held_at) }}</p>
     <p class="help">
       {{ w.destinationName(hold.job.destination_id) }} ·
-      {{ hold.job.labels.filter((copy) => copy.state === 'queued').length }} queued copies
+      {{ hold.job.labels.filter((copy) => copy.state === 'queued').length }}
+      {{ $t('common.queuedCopies') }}
     </p>
     <JobPreview
       :job-id="hold.job_id"
@@ -51,9 +52,9 @@ async function resolve(hold: AccessHold, release: boolean) {
         :disabled="w.busy || hold.can_release === false"
         @click="resolve(hold, true)"
       >
-        Release copies</button
+        {{ $t('accessHolds.releaseCopies') }}</button
       ><button class="secondary danger-text" :disabled="w.busy" @click="resolve(hold, false)">
-        Cancel copies
+        {{ $t('accessHolds.cancelCopies') }}
       </button>
     </div>
   </article>

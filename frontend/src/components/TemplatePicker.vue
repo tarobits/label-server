@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
+
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import type { Template } from '../types'
-import { useAuthStore } from '../auth'
+import type { Template } from '../shared/types'
+import { useAuthStore } from '../auth/auth'
 import {
   compareTemplateNames,
   matchesTemplateSearch,
   recentTemplates,
   rememberTemplate,
-} from '../templateBrowser'
-import { templateLength } from '../templateDimensions'
+} from '../templates/templateBrowser'
+import { templateLength } from '../templates/templateDimensions'
 import AdminDialog from './AdminDialog.vue'
 import TemplatePreview from './TemplatePreview.vue'
 import MotionSurface from './MotionSurface.vue'
@@ -104,15 +106,15 @@ function clearFilters() {
 }
 const scopeName = (item: Template) =>
   item.scope === 'group'
-    ? (item.group_name ?? 'Group')
+    ? (item.group_name ?? t('assetScopeFields.group'))
     : item.scope === 'personal'
-      ? 'Personal'
-      : 'Global'
+      ? t('common.personal')
+      : t('common.global')
 </script>
 
 <template>
   <div class="template-choice">
-    <span class="template-choice-label">Template</span>
+    <span class="template-choice-label">{{ $t('common.template') }}</span>
     <div class="template-choice-summary">
       <TemplatePreview v-if="selected" :template="selected" />
       <div class="template-choice-description">
@@ -121,8 +123,8 @@ const scopeName = (item: Template) =>
           selected.owner_username || 'Unavailable user'
         }}</span>
         <span v-if="selected" class="muted"
-          >{{ selected.document.width_mm }} mm · {{ templateLength(selected) }} · revision
-          {{ selected.revision }}</span
+          >{{ selected.document.width_mm }} {{ $t('common.mm2') }} {{ templateLength(selected) }}
+          {{ $t('common.revision3') }} {{ selected.revision }}</span
         >
         <button
           type="button"
@@ -131,7 +133,7 @@ const scopeName = (item: Template) =>
           aria-haspopup="dialog"
           @click="show"
         >
-          Change template
+          {{ $t('templatePicker.changeTemplate') }}
         </button>
       </div>
     </div>
@@ -139,7 +141,7 @@ const scopeName = (item: Template) =>
   <Teleport to="body">
     <AdminDialog
       :open="open"
-      title="Choose template"
+      :title="$t('templatePicker.chooseTemplate')"
       wide
       class="template-picker"
       @close="open = false"
@@ -147,33 +149,37 @@ const scopeName = (item: Template) =>
       <div class="picker-body">
         <div class="picker-filters">
           <label class="picker-search"
-            >Search templates<input
+            >{{ $t('common.searchTemplates')
+            }}<input
               v-model="filters.search"
               type="search"
-              placeholder="Name, field, or group"
+              :placeholder="$t('common.nameFieldOrGroup')"
               @keydown.esc.prevent.stop="open = false"
           /></label>
           <label
-            >Visibility<select v-model="filters.scope">
-              <option value="">All</option>
-              <option value="personal">Personal</option>
-              <option value="group">Groups</option>
-              <option value="global">Global</option>
+            >{{ $t('common.visibility')
+            }}<select v-model="filters.scope">
+              <option value="">{{ $t('common.all') }}</option>
+              <option value="personal">{{ $t('common.personal') }}</option>
+              <option value="group">{{ $t('templatePicker.groups') }}</option>
+              <option value="global">{{ $t('common.global') }}</option>
             </select></label
           >
           <label
-            >Tape width<select v-model="filters.width">
-              <option value="">All widths</option>
+            >{{ $t('common.tapeWidth')
+            }}<select v-model="filters.width">
+              <option value="">{{ $t('common.allWidths') }}</option>
               <option v-for="width in widths" :key="width" :value="String(width)">
-                {{ width }} mm
+                {{ width }} {{ $t('common.mm') }}
               </option>
             </select></label
           >
           <label
-            >Media<select v-model="filters.media">
-              <option value="">All media</option>
-              <option value="tze">Continuous TZe</option>
-              <option value="fixed_label">Fixed labels</option>
+            >{{ $t('common.media')
+            }}<select v-model="filters.media">
+              <option value="">{{ $t('common.allMedia') }}</option>
+              <option value="tze">{{ $t('common.continuousTze') }}</option>
+              <option value="fixed_label">{{ $t('common.fixedLabels') }}</option>
             </select></label
           >
         </div>
@@ -185,11 +191,12 @@ const scopeName = (item: Template) =>
             :aria-pressed="filters.others"
             @click="filters.others = !filters.others"
           >
-            Show others’ personal templates
+            {{ $t('common.showOthersPersonalTemplates') }}
           </button>
           <label class="checkbox"
-            ><input v-model="filters.compatible" type="checkbox" />Compatible with
-            destination</label
+            ><input v-model="filters.compatible" type="checkbox" />{{
+              $t('templatePicker.compatibleWithDestination')
+            }}</label
           >
           <button
             type="button"
@@ -197,7 +204,7 @@ const scopeName = (item: Template) =>
             :disabled="!activeFilters"
             @click="clearFilters"
           >
-            Clear filters
+            {{ $t('common.clearFilters') }}
           </button>
         </div>
         <div class="picker-meta" role="status" aria-live="polite" aria-atomic="true">
@@ -207,7 +214,7 @@ const scopeName = (item: Template) =>
           ref="results"
           class="picker-results"
           role="region"
-          aria-label="Template results"
+          :aria-label="$t('common.templateResults')"
           tabindex="0"
         >
           <MotionSurface :identity="identity" :order="page">
@@ -233,28 +240,33 @@ const scopeName = (item: Template) =>
                   item.owner_username || 'Unavailable user'
                 }}</span>
                 <span class="muted"
-                  >{{ item.document.width_mm }} mm · {{ templateLength(item) }}</span
+                  >{{ item.document.width_mm }} {{ $t('common.mm2') }}
+                  {{ templateLength(item) }}</span
                 >
                 <div class="picker-card-meta">
                   <span
                     >{{ scopeName(item) }} ·
                     {{
-                      item.document.media?.media_family === 'fixed_label' ? 'Fixed labels' : 'TZe'
+                      item.document.media?.media_family === 'fixed_label'
+                        ? $t('common.fixedLabels')
+                        : 'TZe'
                     }}</span
-                  ><span v-if="recent.includes(item.id)" class="picker-recent">Recent</span>
+                  ><span v-if="recent.includes(item.id)" class="picker-recent">{{
+                    $t('templatePicker.recent')
+                  }}</span>
                 </div>
               </article>
             </div>
-            <p v-else class="picker-empty">No matching templates.</p>
+            <p v-else class="picker-empty">{{ $t('templatePicker.noMatchingTemplates') }}</p>
           </MotionSurface>
         </div>
-        <nav class="picker-pagination" aria-label="Template pages">
+        <nav class="picker-pagination" :aria-label="$t('common.templatePages')">
           <button type="button" class="secondary" :disabled="page === 0" @click="page--">
-            Previous
+            {{ $t('common.previous') }}
           </button>
-          <span>Page {{ page + 1 }} of {{ pages }}</span>
+          <span>{{ $t('common.page') }} {{ page + 1 }} {{ $t('common.of') }} {{ pages }}</span>
           <button type="button" class="secondary" :disabled="page + 1 >= pages" @click="page++">
-            Next
+            {{ $t('common.next') }}
           </button>
         </nav>
       </div>

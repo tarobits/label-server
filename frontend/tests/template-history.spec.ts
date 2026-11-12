@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
-import type { Template } from '../src/types'
+import type { Template } from '../src/shared/types'
 
 async function seedHistory(request: APIRequestContext, scope: 'personal' | 'global' = 'personal') {
   const [profile] = await (await request.get('/api/tape-profiles')).json()

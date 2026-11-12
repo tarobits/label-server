@@ -1,24 +1,38 @@
 <script setup lang="ts">
+import { locale } from '../shared/i18n'
+
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import AnimatedDetails from './AnimatedDetails.vue'
-import { api, errorMessage } from '../api'
-import { resetFormValidation, vValidateForm } from '../formValidation'
-import { randomUUID } from '../uuid'
-import type { UsageAdjustment, UsageUser } from '../types'
-import { useAuthStore } from '../auth'
+import { api, errorMessage } from '../shared/api'
+import { resetFormValidation, vValidateForm } from '../shared/formValidation'
+import { randomUUID } from '../shared/uuid'
+import type { UsageAdjustment, UsageUser } from '../shared/types'
+import { useAuthStore } from '../auth/auth'
 const auth = useAuthStore()
 
-const props = defineProps<{ users: UsageUser[]; userId: string }>()
+const props = defineProps<{ users: UsageUser[]; userId: string; report?: boolean }>()
 const emit = defineEmits<{ saved: []; busy: [value: boolean] }>()
 const form = reactive({
-  userId: props.userId,
-  recipientId: auth.user?.id ?? '',
+  userId: props.report
+    ? (auth.user?.id ?? '')
+    : !auth.can('usage.edit_accounts') && props.userId === auth.user?.id
+      ? ''
+      : props.userId,
+  recipientId: props.report ? '' : (auth.user?.id ?? ''),
   direction: 'add',
   amount: '',
   currency: 'EUR',
   note: '',
 })
 const busy = ref(false)
+const payers = computed(() =>
+  auth.can('usage.edit_accounts')
+    ? props.users
+    : props.users.filter((user) => user.user_id !== auth.user?.id),
+)
+const recipients = computed(() =>
+  props.report ? props.users.filter((user) => user.user_id !== auth.user?.id) : props.users,
+)
 watch(busy, (value) => emit('busy', value), { flush: 'sync' })
 const formElement = ref<HTMLFormElement | null>(null)
 const error = ref('')
@@ -39,6 +53,7 @@ watch(
     allocating.value = false
     allocationReady.value = false
     allocationEdited.value = false
+    if (props.report) return
     if (
       !form.userId ||
       !form.recipientId ||
@@ -90,14 +105,15 @@ const canSave = computed(
     !!form.userId &&
     !!form.recipientId &&
     form.userId !== form.recipientId &&
-    allocationReady.value &&
+    (props.report || allocationReady.value) &&
     Number(form.amount) > 0 &&
     !!form.note.trim(),
 )
 watch(
   () => props.userId,
   (value) => {
-    if (!busy.value) form.userId = value
+    if (!busy.value && !props.report)
+      form.userId = !auth.can('usage.edit_accounts') && value === auth.user?.id ? '' : value
   },
 )
 watch(form, () => {
@@ -113,7 +129,9 @@ async function save() {
   const body = {
     user_id: form.userId,
     recipient_id: form.recipientId,
-    amount_minor: Math.round(Number(form.amount) * 100) * (form.direction === 'add' ? 1 : -1),
+    amount_minor:
+      Math.round(Number(form.amount) * 100) *
+      (auth.can('usage.edit_accounts') && !props.report && form.direction === 'subtract' ? -1 : 1),
     currency: form.currency,
     note: form.note.trim(),
     cartridge_allocations: allocationEdited.value
@@ -132,17 +150,31 @@ async function save() {
     requestId = randomUUID()
   }
   try {
-    const result = await api<UsageAdjustment>('/accounts/repayments', 'POST', {
-      ...body,
-      request_id: requestId,
-    })
+    const payload = props.report
+      ? {
+          recipient_id: body.recipient_id,
+          amount_minor: body.amount_minor,
+          currency: body.currency,
+          note: body.note,
+        }
+      : body
+    const result = await api<UsageAdjustment>(
+      props.report ? '/accounts/payment-reports' : '/accounts/repayments',
+      'POST',
+      {
+        ...payload,
+        request_id: requestId,
+      },
+    )
     resetFormValidation(formElement.value)
     form.amount = ''
     form.note = ''
     signature = ''
     // Flush form watchers before showing the saved receipt.
     await nextTick()
-    saved.value = `${new Intl.NumberFormat(undefined, { style: 'currency', currency: result.currency, signDisplay: 'always' }).format(result.amount_minor / 100)} recorded for ${result.username}.`
+    saved.value = props.report
+      ? 'Payment reported. Awaiting confirmation; your balance has not changed.'
+      : `${new Intl.NumberFormat(locale.value, { style: 'currency', currency: result.currency, signDisplay: 'always' }).format(result.amount_minor / 100)} recorded for ${result.username}.`
     emit('saved')
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -156,32 +188,39 @@ async function save() {
   <form ref="formElement" v-validate-form class="form-stack inset" @submit.prevent="save">
     <fieldset :disabled="busy" class="adjustment-fields form-stack">
       <div class="field-row">
-        <label
-          >User<select v-model="form.userId" required>
-            <option disabled value="">Select a user</option>
-            <option v-for="user in users" :key="user.user_id" :value="user.user_id">
+        <label v-if="!report"
+          >{{ $t('common.user')
+          }}<select v-model="form.userId" required>
+            <option disabled value="">{{ $t('common.selectAUser') }}</option>
+            <option v-for="user in payers" :key="user.user_id" :value="user.user_id">
               {{ user.username }}
             </option>
           </select></label
         >
-        <label v-if="auth.can('usage.edit_accounts')"
-          >Recipient<select v-model="form.recipientId" required>
-            <option disabled value="">Choose a recipient</option>
-            <option v-for="user in users" :key="user.user_id" :value="user.user_id">
+        <label v-if="report || auth.can('usage.edit_accounts')"
+          >{{ $t('common.recipient')
+          }}<select v-model="form.recipientId" required>
+            <option disabled value="">{{ $t('common.chooseARecipient') }}</option>
+            <option v-for="user in recipients" :key="user.user_id" :value="user.user_id">
               {{ user.username }}
             </option>
           </select></label
         >
-        <label
-          >Adjustment<select v-model="form.direction">
-            <option value="add">Add credit / payment</option>
-            <option value="subtract">Subtract from balance</option>
+        <label v-else
+          >{{ $t('common.recipient') }}<input :value="auth.user?.username" readonly
+        /></label>
+        <label v-if="!report && auth.can('usage.edit_accounts')"
+          >{{ $t('accountAdjustment.adjustment')
+          }}<select v-model="form.direction">
+            <option value="add">{{ $t('accountAdjustment.addCreditPayment') }}</option>
+            <option value="subtract">{{ $t('common.subtractFromBalance') }}</option>
           </select></label
         >
       </div>
       <div class="field-row">
         <label
-          >Amount<input
+          >{{ $t('common.amount')
+          }}<input
             v-model="form.amount"
             type="number"
             min="0.01"
@@ -190,14 +229,16 @@ async function save() {
             required
         /></label>
         <label
-          >Currency<input v-model="form.currency" required pattern="[A-Z]{3}" maxlength="3"
+          >{{ $t('common.currency')
+          }}<input v-model="form.currency" required pattern="[A-Z]{3}" maxlength="3"
         /></label>
       </div>
-      <label>Reason<input v-model="form.note" required maxlength="500" /></label>
+      <label>{{ $t('common.reason') }}<input v-model="form.note" required maxlength="500" /></label>
       <AnimatedDetails v-if="allocationRows.length">
-        <template #summary>Cartridge allocations</template>
+        <template #summary>{{ $t('accountAdjustment.cartridgeAllocations') }}</template>
         <label v-for="row in allocationRows" :key="row.cartridge_id"
-          >{{ row.cartridge_name }} · {{ row.owed }} {{ form.currency }} owed<input
+          >{{ row.cartridge_name }} · {{ row.owed }} {{ form.currency }} {{ $t('common.owed2')
+          }}<input
             v-model="allocations[row.cartridge_id]"
             @input="allocationEdited = true"
             type="number"
@@ -208,7 +249,15 @@ async function save() {
       </AnimatedDetails>
       <div class="row">
         <button class="primary" :disabled="!canSave || allocating">
-          {{ busy ? 'Recording…' : 'Record adjustment' }}
+          {{
+            busy
+              ? 'Recording…'
+              : report
+                ? 'Report payment'
+                : auth.can('usage.edit_accounts')
+                  ? 'Record adjustment'
+                  : 'Confirm received payment'
+          }}
         </button>
       </div>
     </fieldset>

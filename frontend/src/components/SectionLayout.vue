@@ -34,7 +34,7 @@ const sections = computed(() => props.groups.flatMap((group) => group.sections))
       </div>
     </MotionTrack>
     <label class="administration-mobile-nav section-mobile-nav"
-      ><span class="sr-only">{{ label }} section</span
+      ><span class="sr-only">{{ label }} {{ $t('common.section') }}</span
       ><select
         :value="active"
         @change="$emit('select', ($event.target as HTMLSelectElement).value)"

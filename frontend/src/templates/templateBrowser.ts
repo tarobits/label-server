@@ -1,4 +1,4 @@
-import type { Template } from './types'
+import type { Template } from '../shared/types'
 
 export const normalizeTemplateSearch = (value: string) =>
   value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase()

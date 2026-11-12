@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { mediaLabel, compatibleProfile } from '../media'
+import { mediaLabel, compatibleProfile } from '../printing/media'
 import CartridgePrice from '../components/CartridgePrice.vue'
 import CartridgeNotes from '../components/CartridgeNotes.vue'
 import CartridgeDetection from '../components/CartridgeDetection.vue'
-import { installCartridge } from '../cartridges'
-import { freezeLeavingItem } from '../collectionMotion'
-import { vValidateForm } from '../formValidation'
+import { installCartridge } from '../printing/cartridges'
+import { freezeLeavingItem } from '../shared/collectionMotion'
+import { vValidateForm } from '../shared/formValidation'
 import { storeToRefs } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api } from '../api'
-import { confirmAction } from '../confirmation'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore, metres } from '../workspace'
-import type { Cartridge, Status } from '../types'
+import { api } from '../shared/api'
+import { confirmAction } from '../shared/confirmation'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore, metres } from '../shared/workspace'
+import type { Cartridge, Status } from '../shared/types'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
@@ -196,16 +196,18 @@ async function correct(id: string) {
   <div class="section-heading">
     <div class="row wrap cartridge-filters">
       <label v-if="w.printers.length" class="cartridge-printer"
-        >Printer<select v-model="printerId" :disabled="busy">
+        >{{ $t('common.printer')
+        }}<select v-model="printerId" :disabled="busy">
           <option v-for="printer in w.printers" :key="printer.id" :value="printer.id">
             {{ printer.name }}
           </option>
         </select></label
       >
       <label class="cartridge-view"
-        >Inventory<select v-model="inventoryView" :disabled="busy">
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
+        >{{ $t('cartridges.inventory')
+        }}<select v-model="inventoryView" :disabled="busy">
+          <option value="active">{{ $t('common.active') }}</option>
+          <option value="archived">{{ $t('common.archived') }}</option>
         </select></label
       >
     </div>
@@ -215,7 +217,7 @@ async function correct(id: string) {
       :disabled="!profiles.length"
       @click="showForm = !showForm"
     >
-      Register cartridge
+      {{ $t('cartridges.registerCartridge') }}
     </button>
   </div>
   <p class="muted">
@@ -226,22 +228,24 @@ async function correct(id: string) {
     }}
   </p>
   <p v-if="locked" class="alert warning">
-    Finish printing, resolve the pending review, or cancel the pending flush on
-    {{ selectedPrinter?.name }} before swapping cartridges.
+    {{ $t('cartridges.finishPrintingResolveThePendingReviewOrCancelThe') }}
+    {{ selectedPrinter?.name }} {{ $t('common.beforeSwappingCartridges') }}
   </p>
   <Transition name="panel-expand">
     <form v-validate-form v-if="showForm" class="panel form-stack" @submit.prevent="save">
-      <h2>Register a cartridge</h2>
+      <h2>{{ $t('cartridges.registerACartridge') }}</h2>
       <div class="field-row">
         <label
-          >Cartridge name<input
+          >{{ $t('cartridges.cartridgeName')
+          }}<input
             v-model="form.name"
             required
             maxlength="100"
-            placeholder="Yellow cassette 1" /></label
+            :placeholder="$t('common.yellowCassette1')" /></label
         ><label
-          >Tape profile<select v-model="form.profile_id" required>
-            <option disabled value="">Select a tape</option>
+          >{{ $t('common.tapeProfile')
+          }}<select v-model="form.profile_id" required>
+            <option disabled value="">{{ $t('common.selectATape') }}</option>
             <option v-for="profile in profiles" :key="profile.id" :value="profile.id">
               {{ profile.name }}
             </option>
@@ -250,7 +254,8 @@ async function correct(id: string) {
       </div>
       <div class="field-row">
         <label
-          >Length on packaging (m)<input
+          >{{ $t('cartridges.lengthOnPackagingM')
+          }}<input
             v-model.number="form.nominal"
             type="number"
             min="0.001"
@@ -258,7 +263,8 @@ async function correct(id: string) {
             step="0.001"
             required /></label
         ><label
-          >Estimated remaining (m)<input
+          >{{ $t('cartridges.estimatedRemainingM')
+          }}<input
             v-model.number="form.remaining"
             type="number"
             min="0"
@@ -269,20 +275,17 @@ async function correct(id: string) {
       </div>
       <div class="field-row">
         <label
-          >Cartridge price<input
-            v-model="form.price"
-            type="number"
-            min="0"
-            max="10000000"
-            step="0.01"
+          >{{ $t('common.cartridgePrice')
+          }}<input v-model="form.price" type="number" min="0" max="10000000" step="0.01"
         /></label>
         <label
-          >Currency<input v-model="form.currency" required pattern="[A-Z]{3}" maxlength="3"
+          >{{ $t('common.currency')
+          }}<input v-model="form.currency" required pattern="[A-Z]{3}" maxlength="3"
         /></label>
       </div>
       <div class="row">
-        <button class="primary" :disabled="busy">Register cartridge</button
-        ><button type="button" @click="showForm = false">Cancel</button>
+        <button class="primary" :disabled="busy">{{ $t('cartridges.registerCartridge') }}</button
+        ><button type="button" @click="showForm = false">{{ $t('common.cancel') }}</button>
       </div>
     </form>
   </Transition>
@@ -296,7 +299,7 @@ async function correct(id: string) {
         v-if="!profiles.length && inventoryView === 'active'"
         class="button primary"
         to="/profiles"
-        >Create a tape profile first</RouterLink
+        >{{ $t('cartridges.createATapeProfileFirst') }}</RouterLink
       >
     </div></Transition
   >
@@ -313,8 +316,8 @@ async function correct(id: string) {
     >
       <div class="section-heading">
         <span class="eyebrow">{{ w.profileName(cartridge.profile_id) }}</span
-        ><span v-if="cartridge.owner_id === null" class="badge">No owner</span
-        ><span v-if="cartridge.archived" class="badge">Archived</span
+        ><span v-if="cartridge.owner_id === null" class="badge">{{ $t('common.noOwner') }}</span
+        ><span v-if="cartridge.archived" class="badge">{{ $t('common.archived') }}</span
         ><span v-else-if="isInstalled(cartridge)" class="badge printed">{{
           installedIn(cartridge.id)
             ? `Installed in ${installedIn(cartridge.id)?.printer_name}`
@@ -333,7 +336,8 @@ async function correct(id: string) {
           @keydown.esc.prevent="editing = null"
         >
           <label
-            >Cartridge name<input
+            >{{ $t('cartridges.cartridgeName')
+            }}<input
               ref="nameInput"
               v-model="cartridgeName"
               required
@@ -342,10 +346,10 @@ async function correct(id: string) {
           /></label>
           <div class="row wrap">
             <button class="small primary" :disabled="busy || !cartridgeName.trim()">
-              Save name
+              {{ $t('common.saveName') }}
             </button>
             <button type="button" class="small secondary" :disabled="busy" @click="editing = null">
-              Cancel
+              {{ $t('common.cancel') }}
             </button>
           </div>
         </form>
@@ -357,13 +361,13 @@ async function correct(id: string) {
             :disabled="busy"
             @click="startRename(cartridge)"
           >
-            Rename
+            {{ $t('common.rename') }}
           </button>
         </div></Transition
       >
       <p class="remaining">
         ≈ {{ metres(cartridge.remaining_mm)
-        }}<small>of {{ metres(cartridge.nominal_length_mm) }}</small>
+        }}<small>{{ $t('common.of') }} {{ metres(cartridge.nominal_length_mm) }}</small>
       </p>
       <progress
         :value="cartridge.remaining_mm"
@@ -371,7 +375,7 @@ async function correct(id: string) {
         :aria-label="`${cartridge.name} remaining tape`"
       ></progress>
       <p v-if="cartridge.consumption_uncertain" class="inline-warning">
-        Consumption uncertain. Reconcile it during batch review.
+        {{ $t('cartridges.consumptionUncertainReconcileItDuringBatchReview') }}
       </p>
       <form
         v-validate-form
@@ -380,7 +384,8 @@ async function correct(id: string) {
         @submit.prevent="correct(cartridge.id)"
       >
         <label
-          >Remaining tape (m)<input
+          >{{ $t('cartridges.remainingTapeM')
+          }}<input
             v-model.number="correction"
             type="number"
             min="0"
@@ -390,8 +395,8 @@ async function correct(id: string) {
         /></label>
         <div class="row">
           <button :disabled="busy || correctionLocked(cartridge.id)" class="secondary">
-            Save estimate</button
-          ><button type="button" @click="correcting = null">Cancel</button>
+            {{ $t('common.saveEstimate') }}</button
+          ><button type="button" @click="correcting = null">{{ $t('common.cancel') }}</button>
         </div>
       </form>
       <div v-else aria-hidden="true"></div>
@@ -400,10 +405,10 @@ async function correct(id: string) {
         :cartridge="cartridge"
       />
       <p v-else class="help">
-        Price:
+        {{ $t('common.price') }}
         {{
           cartridge.price_minor === null
-            ? 'Not set'
+            ? $t('variableInput.notSet')
             : `${(cartridge.price_minor / 100).toFixed(2)} ${cartridge.currency}`
         }}
       </p>
@@ -424,20 +429,20 @@ async function correct(id: string) {
             "
             @click="install(cartridge.id)"
           >
-            Install cartridge</button
+            {{ $t('common.installCartridge') }}</button
           ><button
             v-else-if="installedIn(cartridge.id)?.printer_id === printerId && canSwap"
             :disabled="busy || locked"
             @click="install(null)"
           >
-            Remove from printer</button
+            {{ $t('cartridges.removeFromPrinter') }}</button
           ><button
             v-if="auth.cartridge(cartridge.id, 'edit_details')"
             class="text-button"
             :disabled="busy || correctionLocked(cartridge.id)"
             @click="startCorrection(cartridge)"
           >
-            Correct estimate
+            {{ $t('cartridges.correctEstimate') }}
           </button>
           <button
             v-if="auth.cartridge(cartridge.id, 'edit_details')"
@@ -449,7 +454,7 @@ async function correct(id: string) {
             "
             @click="archive(cartridge)"
           >
-            Archive cartridge
+            {{ $t('cartridges.archiveCartridge') }}
           </button>
         </template>
         <button
@@ -458,7 +463,7 @@ async function correct(id: string) {
           :disabled="busy"
           @click="restore(cartridge)"
         >
-          Restore cartridge
+          {{ $t('cartridges.restoreCartridge') }}
         </button>
         <button
           v-if="auth.cartridge(cartridge.id, 'edit_details')"
@@ -470,7 +475,7 @@ async function correct(id: string) {
           "
           @click="remove(cartridge)"
         >
-          Delete permanently
+          {{ $t('cartridges.deletePermanently') }}
         </button>
       </div>
       <div>

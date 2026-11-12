@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
-import { api, ApiError, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import type { AssetSharing } from '../types'
+import { api, ApiError, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { AssetSharing } from '../shared/types'
 import AssetScopeFields from './AssetScopeFields.vue'
 
 const props = defineProps<{ kind: 'images' | 'fonts' }>()
@@ -69,19 +69,16 @@ onUnmounted(() => {
 </script>
 <template>
   <section v-if="auth.canUpload(kind)" class="panel form-stack">
-    <h2>Upload {{ kind }}</h2>
+    <h2>{{ $t('common.upload') }} {{ kind }}</h2>
     <p v-if="kind === 'fonts'" class="help">
-      Static or variable TTF and OTF files, up to 5 MB each. Font collections and color fonts are
-      not supported.
+      {{ $t('common.staticOrVariableTtfAndOtfFilesUpTo') }}
     </p>
     <template v-else>
       <p class="help">
-        PNG, JPEG, WebP, BMP, still GIF or simple SVG, up to 5 MB each. Bitmaps are limited to 16
-        megapixels and 8192 pixels per side.
+        {{ $t('assetUpload.pngJpegWebpBmpStillGifOrSimpleSvg') }}
       </p>
       <p class="help">
-        SVG supports paths and basic shapes. Convert text to paths and remove styles, embedded
-        images, filters and external references before uploading.
+        {{ $t('assetUpload.svgSupportsPathsAndBasicShapesConvertTextTo') }}
       </p>
     </template>
     <AssetScopeFields v-model="sharing" :kind="kind" :disabled="uploading" />
@@ -95,7 +92,12 @@ onUnmounted(() => {
         @change="choose"
     /></label>
     <Transition name="panel-expand">
-      <ul v-if="files.length" class="upload-results" aria-live="polite" aria-label="Upload results">
+      <ul
+        v-if="files.length"
+        class="upload-results"
+        aria-live="polite"
+        :aria-label="$t('common.uploadResults')"
+      >
         <li v-for="(item, index) in files" :key="index" class="list-row">
           <div class="grow">
             <strong>{{ item.file.name }}</strong
@@ -126,7 +128,7 @@ onUnmounted(() => {
           :disabled="cancelled"
           @click="cancelled = true"
         >
-          Cancel remaining
+          {{ $t('assetUpload.cancelRemaining') }}
         </button>
       </Transition>
     </div>

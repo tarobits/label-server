@@ -17,7 +17,7 @@ function toggle(open: boolean) {
 
 <template>
   <AnimatedDetails class="queue-preview" @toggle="toggle">
-    <template #summary>Preview</template>
+    <template #summary>{{ $t('common.preview') }}</template>
     <JobPreview
       v-if="requested"
       :job-id="jobId"

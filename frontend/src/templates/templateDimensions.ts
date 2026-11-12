@@ -1,4 +1,4 @@
-import type { TemplateDimensions } from './types'
+import type { TemplateDimensions } from '../shared/types'
 
 export function templateLength(dimensions: TemplateDimensions): string {
   if (dimensions.variable_length) return 'Variable length'

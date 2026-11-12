@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import { randomUUID } from '../uuid'
-import type { BatchDetail } from '../types'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import { randomUUID } from '../shared/uuid'
+import type { BatchDetail } from '../shared/types'
 import AdminDialog from './AdminDialog.vue'
 import ReviewEvidence from './ReviewEvidence.vue'
 import JobPreview from './JobPreview.vue'
@@ -70,9 +70,14 @@ async function save() {
     class="secondary"
     @click="open"
   >
-    Report misprint
+    {{ $t('misprintReport.reportMisprint') }}
   </button>
-  <AdminDialog :open="opened" title="Report misprint" :busy="w.busy" @close="opened = false">
+  <AdminDialog
+    :open="opened"
+    :title="$t('misprintReport.reportMisprint')"
+    :busy="w.busy"
+    @close="opened = false"
+  >
     <form class="form-stack" @submit.prevent="save">
       <Transition name="notice"
         ><p v-if="error" role="alert" class="alert danger">{{ error }}</p></Transition
@@ -83,8 +88,8 @@ async function save() {
             ><input v-model="selected" type="checkbox" :value="item.copy_id" />{{
               item.process_name
             }}
-            · {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }} · Copy
-            {{ item.copy_number }}</label
+            · {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }}
+            {{ $t('common.copy') }} {{ item.copy_number }}</label
           >
           <JobPreview
             :preview-url="`/api/batches/${batch.id}/items/${item.copy_id}/preview`"
@@ -95,15 +100,16 @@ async function save() {
           />
         </div>
       </div>
-      <label>Reason<textarea v-model="reason" required maxlength="1000" rows="3" /></label>
+      <label
+        >{{ $t('common.reason') }}<textarea v-model="reason" required maxlength="1000" rows="3" />
+      </label>
       <ReviewEvidence
         v-model="photo"
         :policy="batch.evidence_policy ?? 'optional'"
         :disabled="w.busy"
       />
       <p class="alert warning">
-        Selected copies will be marked as failed. Recorded tape use and previous charges remain
-        unchanged.
+        {{ $t('common.selectedCopiesWillBeMarkedAsFailedRecordedTape') }}
       </p>
       <div class="admin-actions">
         <button
@@ -114,7 +120,7 @@ async function save() {
             (batch.evidence_policy === 'required' && !photo)
           "
         >
-          Save misprint report
+          {{ $t('common.saveMisprintReport') }}
         </button>
       </div>
     </form>

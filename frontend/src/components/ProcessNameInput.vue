@@ -25,16 +25,11 @@ function revert() {
 <template>
   <div class="process-name-input">
     <label
-      >Process name<input
-        ref="input"
-        :value="name"
-        name="process_name"
-        required
-        maxlength="100"
-        @input="edit"
+      >{{ $t('processNameInput.processName')
+      }}<input ref="input" :value="name" name="process_name" required maxlength="100" @input="edit"
     /></label>
     <button v-if="customized" type="button" class="secondary" @click="revert">
-      Revert to original
+      {{ $t('processNameInput.revertToOriginal') }}
     </button>
   </div>
 </template>

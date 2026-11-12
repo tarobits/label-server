@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { canConnect, inputType, validateGraphTypes, type LogicCatalog } from '../src/logicGraph'
-import type { LogicNode, TemplateDocument, VariableValue } from '../src/editor'
+import {
+  canConnect,
+  inputType,
+  validateGraphTypes,
+  type LogicCatalog,
+} from '../src/templates/logicGraph'
+import type { LogicNode, TemplateDocument, VariableValue } from '../src/templates/editor'
 
 const catalog: LogicCatalog = {
   source: '',

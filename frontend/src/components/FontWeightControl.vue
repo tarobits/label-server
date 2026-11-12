@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Element } from '../editor'
-import type { FontAsset } from '../types'
+import type { Element } from '../templates/editor'
+import type { FontAsset } from '../shared/types'
 
 const props = defineProps<{ element: Element; fonts: FontAsset[]; disabled?: boolean }>()
 const emit = defineEmits<{ change: [number] }>()
@@ -40,19 +40,23 @@ function numeric(event: Event) {
 <template>
   <div class="field-row">
     <label
-      >Weight<select
+      >{{ $t('common.weight')
+      }}<select
         :value="weight"
         :disabled="disabled || !axis"
         @change="emit('change', Number(($event.target as HTMLSelectElement).value))"
       >
-        <option v-if="!options.some(([value]) => value === weight)" :value="weight">Custom</option>
+        <option v-if="!options.some(([value]) => value === weight)" :value="weight">
+          {{ $t('common.custom') }}
+        </option>
         <option v-for="[value, name] in options" :key="value" :value="value">
           {{ name }}
         </option>
       </select></label
     >
     <label
-      >Numeric weight<input
+      >{{ $t('fontWeightControl.numericWeight')
+      }}<input
         type="number"
         :value="weight"
         :min="axis?.min"

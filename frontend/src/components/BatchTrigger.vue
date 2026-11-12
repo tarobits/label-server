@@ -1,23 +1,29 @@
 <script setup lang="ts">
-import type { BatchTrigger } from '../types'
-import { date } from '../workspace'
+import type { BatchTrigger } from '../shared/types'
+import { date } from '../shared/workspace'
 defineProps<{ trigger?: BatchTrigger | null }>()
 </script>
 
 <template>
   <p class="batch-trigger">
     <template v-if="trigger?.kind === 'manual'">
-      <span>Manually started by </span><strong>{{ trigger.actor?.name ?? 'Not recorded' }}</strong>
+      <span>{{ $t('batchTrigger.manuallyStartedBy') + ' ' }}</span
+      ><strong>{{ trigger.actor?.name ?? 'Not recorded' }}</strong>
       <span v-if="trigger.at != null"> · {{ date(trigger.at) }}</span>
     </template>
-    <template v-else-if="trigger?.kind === 'automatic'"
-      >Started automatically by the queue</template
-    >
-    <template v-else>Batch starter not recorded</template>
+    <template v-else-if="trigger?.kind === 'automatic'">{{
+      $t('common.startedAutomaticallyByTheQueue')
+    }}</template>
+    <template v-else>{{ $t('batchTrigger.batchStarterNotRecorded') }}</template>
   </p>
   <p v-if="trigger?.stop_request" class="batch-trigger">
-    {{ trigger.stop_request.mode === 'emergency' ? 'Emergency stop' : 'Stop after current label' }}
-    requested by <strong>{{ trigger.stop_request.actor?.name ?? 'Not recorded' }}</strong> ·
+    {{
+      trigger.stop_request.mode === 'emergency'
+        ? $t('common.emergencyStop')
+        : $t('common.stopAfterCurrentLabel')
+    }}
+    {{ $t('common.requestedBy') }}
+    <strong>{{ trigger.stop_request.actor?.name ?? 'Not recorded' }}</strong> ·
     {{ date(trigger.stop_request.at) }}
   </p>
 </template>

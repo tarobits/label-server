@@ -32,9 +32,11 @@ import AccountSettings from './views/AccountSettings.vue'
 import AccountRecovery from './views/AccountRecovery.vue'
 import './style.css'
 import './motion.css'
-import './focusVisibility'
+import './shared/focusVisibility'
 import { pinia } from './stores'
-import { registerAppWorker } from './pwa'
+import { registerAppWorker } from './shared/pwa'
+import { i18n, locale, t } from './shared/i18n'
+import { watch } from 'vue'
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -42,136 +44,148 @@ const router = createRouter({
     {
       path: '/cartridge-quotes/:id',
       component: CartridgeQuote,
-      meta: { title: 'Printing price approval' },
+      meta: { title: 'common.printingPriceApproval' },
     },
-    { path: '/companions', component: Companions, meta: { title: 'Companions' } },
-    { path: '/resource-access', component: ResourceAccess, meta: { title: 'Locations & access' } },
-    { path: '/migration', component: Migration, meta: { title: 'Ownership migration' } },
-    { path: '/forgot-password', component: AccountRecovery, meta: { title: 'Forgot password' } },
-    { path: '/reset-password', component: AccountRecovery, meta: { title: 'Reset password' } },
-    { path: '/verify-email', component: AccountRecovery, meta: { title: 'Verify email' } },
-    { path: '/usage', component: Usage, meta: { title: 'Tape usage' } },
-    { path: '/group-accounts', component: GroupAccounts, meta: { title: 'Group accounts' } },
-    { path: '/account', component: AccountSettings, meta: { title: 'Account settings' } },
+    { path: '/companions', component: Companions, meta: { title: 'companions.companions' } },
+    {
+      path: '/resource-access',
+      component: ResourceAccess,
+      meta: { title: 'common.locationsAccess' },
+    },
+    { path: '/migration', component: Migration, meta: { title: 'common.ownershipMigration' } },
+    {
+      path: '/forgot-password',
+      component: AccountRecovery,
+      meta: { title: 'common.forgotPassword' },
+    },
+    {
+      path: '/reset-password',
+      component: AccountRecovery,
+      meta: { title: 'common.resetPassword' },
+    },
+    { path: '/verify-email', component: AccountRecovery, meta: { title: 'common.verifyEmail' } },
+    { path: '/usage', component: Usage, meta: { title: 'common.tapeUsage' } },
+    { path: '/group-accounts', component: GroupAccounts, meta: { title: 'common.groupAccounts' } },
+    { path: '/account', component: AccountSettings, meta: { title: 'navigation.account' } },
     {
       path: '/access-holds',
       component: AccessHolds,
       meta: {
-        title: 'Paused labels',
+        title: 'common.pausedLabels',
       },
     },
     {
       path: '/admin',
       component: Administration,
       meta: {
-        title: 'Administration',
+        title: 'common.administration',
       },
     },
     {
       path: '/requests/:id?',
       component: Requests,
       meta: {
-        title: 'Print requests',
+        title: 'common.printRequests',
       },
     },
     {
       path: '/printers',
       component: Printers,
       meta: {
-        title: 'Printers & groups',
+        title: 'common.printersGroups',
       },
     },
     {
       path: '/images',
       component: Images,
-      meta: { title: 'Images' },
+      meta: { title: 'common.images' },
     },
     {
       path: '/fonts',
       component: Fonts,
-      meta: { title: 'Fonts' },
+      meta: { title: 'common.fonts' },
     },
     {
       path: '/runs/:id?',
       component: CsvRuns,
       meta: {
-        title: 'CSV runs',
+        title: 'common.csvRuns',
       },
     },
     {
       path: '/templates/new',
       component: TemplateEditor,
-      meta: { title: 'New template' },
+      meta: { title: 'common.newTemplate' },
     },
     {
       path: '/templates/:id/edit',
       component: TemplateEditor,
       meta: {
-        title: 'Template editor',
+        title: 'common.templateEditor',
       },
     },
     {
       path: '/',
       component: Dashboard,
-      meta: { title: 'Overview' },
+      meta: { title: 'common.overview' },
     },
     {
       path: '/queue',
       component: Jobs,
-      meta: { title: 'Print queue' },
+      meta: { title: 'common.printQueue' },
     },
     {
       path: '/new',
       component: NewLabel,
-      meta: { title: 'New label' },
+      meta: { title: 'app.newLabel' },
     },
     {
       path: '/profiles',
       component: Profiles,
       meta: {
-        title: 'Tape profiles',
+        title: 'common.tapeProfiles',
       },
     },
     {
       path: '/cartridges',
       component: Cartridges,
-      meta: { title: 'Cartridges' },
+      meta: { title: 'resourceAccess.cartridges' },
     },
     {
       path: '/templates',
       component: Templates,
-      meta: { title: 'Templates' },
+      meta: { title: 'common.templates' },
     },
     {
       path: '/activity',
       component: Activity,
-      meta: { title: 'Print Activity' },
+      meta: { title: 'common.printActivity' },
     },
     {
       path: '/audit',
       component: AuditLog,
-      meta: { title: 'Audit log' },
+      meta: { title: 'common.auditLog' },
     },
-    { path: '/retries/:id', component: RetryOffer, meta: { title: 'Retry approval' } },
+    { path: '/retries/:id', component: RetryOffer, meta: { title: 'retryOffer.retryApproval' } },
     {
       path: '/notification-history',
       component: DeliveryHistory,
-      meta: { title: 'Notification delivery' },
+      meta: { title: 'common.notificationDelivery' },
     },
     {
       path: '/printer-changes',
       component: PrinterChangeHistory,
-      meta: { title: 'Printer changes' },
+      meta: { title: 'common.printerChanges' },
     },
     {
       path: '/batches/:id/packing',
       component: Packing,
-      meta: { title: 'Batch packing' },
+      meta: { title: 'companionPacking.batchPacking' },
     },
     {
       path: '/batches/:id',
       component: Review,
-      meta: { title: 'Batch details' },
+      meta: { title: 'packing.batchDetails' },
     },
     {
       path: '/settings',
@@ -181,8 +195,11 @@ const router = createRouter({
   ],
 })
 router.afterEach((to) => {
-  document.title = `${String(to.meta.title)} · Taro's Label Room`
+  document.title = `${t(String(to.meta.title))} · Taro's Label Room`
 })
-createApp(App).use(pinia).use(router).mount('#app')
+watch(locale, () => {
+  document.title = `${t(String(router.currentRoute.value.meta.title ?? 'common.overview'))} · Taro's Label Room`
+})
+createApp(App).use(pinia).use(router).use(i18n).mount('#app')
 
 registerAppWorker()

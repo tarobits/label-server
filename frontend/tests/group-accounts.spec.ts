@@ -95,7 +95,7 @@ for (const width of [1280, 390]) {
     const decisionDialog = page.getByRole('dialog', { name: 'Print funding', exact: true })
     await expect(decisionDialog).toBeVisible()
     await expect(
-      decisionDialog.getByRole('img', { name: 'Label preview: Funding request', exact: true }),
+      decisionDialog.getByRole('img', { name: 'Label preview: Group print', exact: true }),
     ).toBeVisible()
     await expect
       .poll(() =>

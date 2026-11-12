@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { useAuthStore } from '../auth'
-import { confirmAction } from '../confirmation'
+import { t } from '../shared/i18n'
+
+import { useAuthStore } from '../auth/auth'
+import { confirmAction } from '../shared/confirmation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { requestPrinting } from '../printing'
-import { useLiveRefresh } from '../live'
+import { api, errorMessage } from '../shared/api'
+import { requestPrinting } from '../printing/printing'
+import { useLiveRefresh } from '../shared/live'
 import { useResourceStore } from '../stores/resources'
-import type { CostEstimate as CostEstimateData, Job, PrintPlan } from '../types'
-import { useWorkspaceStore, date } from '../workspace'
+import type { CostEstimate as CostEstimateData, Job, PrintPlan } from '../shared/types'
+import { useWorkspaceStore, date } from '../shared/workspace'
 import Badge from '../components/Badge.vue'
 import QueuePreview from '../components/QueuePreview.vue'
 import LabelDetails from '../components/LabelDetails.vue'
@@ -35,7 +37,7 @@ const route = useRoute(),
 const groups = ref<QueueGroup[]>([]),
   selectedIds = ref<string[]>([]),
   expanded = ref<string[]>([]),
-  filter = ref(route.query.state === 'printed' ? 'printed' : 'queued'),
+  filter = ref(route.query.state === 'printed' ? 'printed' : t('common.queued')),
   profileFilter = ref(''),
   destinationFilter = ref(
     typeof route.query.destination === 'string' ? route.query.destination : '',
@@ -93,7 +95,7 @@ watch(
 watch(
   () => route.query.state,
   (state) => {
-    filter.value = state === 'printed' ? 'printed' : 'queued'
+    filter.value = state === 'printed' ? 'printed' : t('common.queued')
   },
 )
 watch(page, () => {
@@ -105,7 +107,7 @@ onUnmounted(() => {
   generation++
 })
 const jobs = computed(() => groups.value.flatMap((group) => group.jobs))
-const labelName = (job: Job) => job.process_name || job.template_name || 'Label'
+const labelName = (job: Job) => job.process_name || job.template_name || t('common.label')
 async function changeCompletionNotification(job: Job, event: Event) {
   const input = event.target as HTMLInputElement
   const enabled = input.checked
@@ -264,27 +266,28 @@ async function cancel(job: Job) {
     <div class="queue-toolbar">
       <div class="queue-filters">
         <label for="queue-filter"
-          >Job status
+          >{{ $t('jobs.jobStatus') }}
           <select id="queue-filter" v-model="filter">
-            <option value="queued">Queued</option>
-            <option value="needs_review">Needs review</option>
-            <option value="printed">Printed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="">All jobs</option>
+            <option value="queued">{{ $t('jobs.queued') }}</option>
+            <option value="needs_review">{{ $t('jobs.needsReview') }}</option>
+            <option value="printed">{{ $t('common.printed') }}</option>
+            <option value="cancelled">{{ $t('jobs.cancelled') }}</option>
+            <option value="">{{ $t('jobs.allJobs') }}</option>
           </select>
         </label>
         <label for="queue-profile-filter"
-          >Tape profile
+          >{{ $t('common.tapeProfile') }}
           <select id="queue-profile-filter" v-model="profileFilter">
-            <option value="">All tape profiles</option>
+            <option value="">{{ $t('jobs.allTapeProfiles') }}</option>
             <option v-for="profile in w.profiles" :key="profile.id" :value="profile.id">
-              {{ profile.name }} · {{ profile.width_mm }} mm
+              {{ profile.name }} · {{ profile.width_mm }} {{ $t('common.mm') }}
             </option>
           </select>
         </label>
         <label class="queue-destination-filter"
-          >Destination<select v-model="destinationFilter">
-            <option value="">All destinations</option>
+          >{{ $t('common.destination')
+          }}<select v-model="destinationFilter">
+            <option value="">{{ $t('jobs.allDestinations') }}</option>
             <option v-for="target in w.destinations" :key="target.id" :value="target.id">
               {{ target.name }}
             </option>
@@ -305,14 +308,14 @@ async function cancel(job: Job) {
           :disabled="!canPrintSelection || loading"
           @click="printSelected"
         >
-          Print selected ({{ selectedIds.length }})
+          {{ $t('common.printSelected') }}{{ selectedIds.length }})
         </button>
         <button
           class="secondary danger-text"
           :disabled="!selectedIds.length || !selectedJobs.every(canCancel) || w.busy || loading"
           @click="removeSelected"
         >
-          Remove selected ({{ selectedIds.length }})
+          {{ $t('jobs.removeSelected') }}{{ selectedIds.length }})
         </button>
       </div>
     </div>
@@ -324,8 +327,7 @@ async function cancel(job: Job) {
       "
       class="help"
     >
-      Printing requires the installed tape. Printing a selection holds automatic printing so
-      unselected items stay queued. Each item selects its remaining queued copies.
+      {{ $t('jobs.printingRequiresTheInstalledTapePrintingASelectionHolds') }}
     </p>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <div class="table-scroll">
@@ -344,18 +346,20 @@ async function cancel(job: Job) {
               <label class="checkbox-target"
                 ><input
                   type="checkbox"
-                  aria-label="Select all queued items on this page"
+                  :aria-label="$t('common.selectAllQueuedItemsOnThisPage')"
                   :checked="checked(jobs)"
                   :indeterminate="partial(jobs)"
                   :disabled="!selectable(jobs).length || loading"
                   @change="toggle(jobs, $event)"
               /></label>
             </th>
-            <th>Process</th>
-            <th>Tape</th>
-            <th>Copies</th>
-            <th>Status</th>
-            <th><span class="sr-only">Actions</span></th>
+            <th>{{ $t('jobs.process') }}</th>
+            <th>{{ $t('common.tape') }}</th>
+            <th>{{ $t('common.copies') }}</th>
+            <th>{{ $t('common.status') }}</th>
+            <th>
+              <span class="sr-only">{{ $t('common.actions') }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -393,11 +397,11 @@ async function cancel(job: Job) {
               </td>
               <td>
                 <strong>{{ group.name }}</strong
-                ><small>{{ group.jobs.length }} matching labels</small>
+                ><small>{{ group.jobs.length }} {{ $t('common.matchingLabels') }}</small>
                 <PaymentAttribution :payers="group.jobs.flatMap((job) => job.payers ?? [])" />
                 <CostEstimate :estimate="group.cost_estimate" />
                 <AnimatedDetails class="queue-label-details">
-                  <template #summary>Details</template>
+                  <template #summary>{{ $t('common.details') }}</template>
                   <TapeUsage
                     :plan="group.print_plan"
                     :caption="
@@ -417,7 +421,7 @@ async function cancel(job: Job) {
                     0,
                   )
                 }}
-                queued
+                {{ $t('common.queued') }}
               </td>
               <td>
                 <Badge
@@ -429,7 +433,7 @@ async function cancel(job: Job) {
                 />
               </td>
               <td class="queue-run-actions">
-                <RouterLink :to="`/runs/${group.run_id}`">View run</RouterLink>
+                <RouterLink :to="`/runs/${group.run_id}`">{{ $t('common.viewRun') }}</RouterLink>
               </td>
             </tr>
             <Transition v-for="job in group.jobs" :key="job.id" name="queue-expand">
@@ -456,7 +460,9 @@ async function cancel(job: Job) {
                   <div class="queue-cell">
                     <div class="queue-cell-content">
                       <strong class="queue-label-name">{{ labelName(job) }}</strong
-                      ><small>{{ date(job.created_at) }} · {{ job.length_mm }} mm</small
+                      ><small
+                        >{{ date(job.created_at) }} · {{ job.length_mm }}
+                        {{ $t('common.mm') }}</small
                       ><small>{{ routing(job) }}</small>
                       <PaymentAttribution :payers="job.payers" />
                       <RouterLink
@@ -468,14 +474,14 @@ async function cancel(job: Job) {
                             request: job.billing_request.id,
                           },
                         }"
-                        >Group funding</RouterLink
+                        >{{ $t('jobs.groupFunding') }}</RouterLink
                       >
                       <CostEstimate v-if="!group.run_id" :estimate="group.cost_estimate" />
                       <RouterLink v-if="job.run_id" :to="`/runs/${job.run_id}`"
-                        >CSV record {{ job.source_row }}</RouterLink
+                        >{{ $t('common.csvRecord') }} {{ job.source_row }}</RouterLink
                       >
                       <AnimatedDetails class="queue-label-details">
-                        <template #summary>Details</template>
+                        <template #summary>{{ $t('common.details') }}</template>
                         <LabelDetails :label="job" :attribution="job.attribution" />
                         <label v-if="job.owner_id === auth.user?.id" class="checkbox">
                           <input
@@ -483,7 +489,7 @@ async function cancel(job: Job) {
                             :checked="job.notify_on_completion"
                             :disabled="w.busy"
                             @change="changeCompletionNotification(job, $event)"
-                          />Notify when printed
+                          />{{ $t('common.notifyWhenPrinted') }}
                         </label>
                         <TapeUsage
                           v-if="!group.run_id"
@@ -507,7 +513,8 @@ async function cancel(job: Job) {
                 <td>
                   <div class="queue-cell">
                     <div class="queue-cell-content">
-                      {{ w.profileName(job.profile_id) }}<small>{{ job.width_mm }} mm</small>
+                      {{ w.profileName(job.profile_id)
+                      }}<small>{{ job.width_mm }} {{ $t('common.mm') }}</small>
                     </div>
                   </div>
                 </td>
@@ -516,7 +523,8 @@ async function cancel(job: Job) {
                     <div class="queue-cell-content">
                       {{ job.copies
                       }}<small
-                        >{{ job.labels.filter((l) => l.state === 'queued').length }} queued</small
+                        >{{ job.labels.filter((l) => l.state === 'queued').length }}
+                        {{ $t('common.queued') }}</small
                       >
                       <ChangeCopies
                         v-if="job.can_change_copies"
@@ -542,14 +550,14 @@ async function cancel(job: Job) {
                         :disabled="w.busy"
                         @click="cancel(job)"
                       >
-                        Remove</button
+                        {{ $t('common.remove') }}</button
                       ><RouterLink
                         v-else-if="
                           job.status === 'needs_review' &&
                           w.printers.some((p) => auth.printer(p.id, 'manage_queue'))
                         "
                         to="/activity"
-                        >Review batch →</RouterLink
+                        >{{ $t('common.reviewBatch') }}</RouterLink
                       >
                     </div>
                   </div>
@@ -561,13 +569,18 @@ async function cancel(job: Job) {
       </table>
     </div>
     <div v-if="!jobs.length && !loading" class="empty">
-      <h3>No {{ filter ? filter.replaceAll('_', ' ') : '' }} labels here.</h3>
-      <RouterLink class="button secondary" to="/new">Create a label</RouterLink>
+      <h3>
+        {{ $t('common.no') }} {{ filter ? filter.replaceAll('_', ' ') : '' }}
+        {{ $t('common.labelsHere') }}
+      </h3>
+      <RouterLink class="button secondary" to="/new">{{ $t('jobs.createALabel') }}</RouterLink>
     </div>
     <div class="pagination">
-      <span>Page {{ page + 1 }} · Up to 25 items or runs per page</span
-      ><button :disabled="page === 0 || loading" @click="page--">Previous</button
-      ><button :disabled="groups.length < 25 || loading" @click="page++">Next</button>
+      <span>{{ $t('common.page') }} {{ page + 1 }} {{ $t('common.upTo25ItemsOrRunsPerPage') }}</span
+      ><button :disabled="page === 0 || loading" @click="page--">{{ $t('common.previous') }}</button
+      ><button :disabled="groups.length < 25 || loading" @click="page++">
+        {{ $t('common.next') }}
+      </button>
     </div>
   </section>
 </template>

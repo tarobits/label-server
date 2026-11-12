@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
+
 import SourceLink from '../components/SourceLink.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, ApiError, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { vValidateForm, apiFieldErrors, focusFormErrors, type FieldErrors } from '../formValidation'
+import { api, ApiError, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import {
+  vValidateForm,
+  apiFieldErrors,
+  focusFormErrors,
+  type FieldErrors,
+} from '../shared/formValidation'
 import BrandLogo from '../components/BrandLogo.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 
@@ -26,10 +33,10 @@ const fields = ref<FieldErrors>({})
 const invalidLink = ref(false)
 const title = computed(() =>
   mode.value === 'verify'
-    ? 'Verify email'
+    ? t('common.verifyEmail')
     : mode.value === 'reset'
-      ? 'Reset password'
-      : 'Forgot password?',
+      ? t('common.resetPassword')
+      : t('signIn.forgotPassword'),
 )
 watch(
   () => route.query.token,
@@ -126,7 +133,8 @@ function clearField(event: Event) {
           <p v-if="success" class="alert success" role="status">{{ success }}</p>
           <template v-if="!success">
             <label v-if="mode === 'forgot'"
-              >Username<input
+              >{{ $t('common.username')
+              }}<input
                 v-model="username"
                 name="username"
                 autocomplete="username"
@@ -136,7 +144,8 @@ function clearField(event: Event) {
             /></label>
             <template v-if="mode === 'reset'">
               <label
-                >New password<input
+                >{{ $t('common.newPassword')
+                }}<input
                   v-model="password"
                   name="new_password"
                   type="password"
@@ -147,7 +156,8 @@ function clearField(event: Event) {
                   :disabled="busy"
               /></label>
               <label
-                >Confirm new password<input
+                >{{ $t('common.confirmNewPassword')
+                }}<input
                   v-model="confirmation"
                   name="confirmation"
                   type="password"
@@ -159,23 +169,23 @@ function clearField(event: Event) {
               /></label>
             </template>
             <p v-if="mode !== 'forgot' && !token" class="alert warning">
-              This link is missing its verification token. Open the link from your email again.
+              {{ $t('common.thisLinkIsMissingItsVerificationTokenOpenThe') }}
             </p>
             <button class="primary" :disabled="busy || (mode !== 'forgot' && !token)">
               {{
                 mode === 'forgot'
                   ? 'Send reset link'
                   : mode === 'verify'
-                    ? 'Verify email'
-                    : 'Reset password'
+                    ? $t('common.verifyEmail')
+                    : $t('common.resetPassword')
               }}
             </button>
           </template>
-          <RouterLink v-if="mode === 'reset' && invalidLink" to="/forgot-password"
-            >Request a new reset link</RouterLink
-          >
+          <RouterLink v-if="mode === 'reset' && invalidLink" to="/forgot-password">{{
+            $t('accountRecovery.requestANewResetLink')
+          }}</RouterLink>
           <RouterLink :to="auth.user ? '/account' : '/'" class="button">{{
-            auth.user ? 'Account settings' : 'Back to sign in'
+            auth.user ? $t('navigation.account') : $t('common.backToSignIn')
           }}</RouterLink>
         </form>
       </MotionSurface>

@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { vValidateForm, apiFieldErrors, focusFormErrors, type FieldErrors } from '../formValidation'
+import { t } from '../shared/i18n'
+
+import {
+  vValidateForm,
+  apiFieldErrors,
+  focusFormErrors,
+  type FieldErrors,
+} from '../shared/formValidation'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
 import { useResourceStore } from '../stores/resources'
-import { randomUUID } from '../uuid'
-import type { Preview, VariableValue } from '../editor'
-import { initialValue, missingValue } from '../variableInputs'
+import { randomUUID } from '../shared/uuid'
+import type { Preview, VariableValue } from '../templates/editor'
+import { initialValue, missingValue } from '../templates/variableInputs'
 import VariableInput from '../components/VariableInput.vue'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
@@ -18,11 +25,11 @@ import BillingPicker, { type BillingSelection } from '../components/BillingPicke
 import ExpandableContent from '../components/ExpandableContent.vue'
 import TemplatePicker from '../components/TemplatePicker.vue'
 import TapeProfilePicker from '../components/TapeProfilePicker.vue'
-import { rememberTemplate } from '../templateBrowser'
-import type { Template } from '../types'
-import { decodeLabel } from '../labelPreview'
-import { templateLength } from '../templateDimensions'
-import { compatibleProfile } from '../media'
+import { rememberTemplate } from '../templates/templateBrowser'
+import type { Template } from '../shared/types'
+import { decodeLabel } from '../printing/labelPreview'
+import { templateLength } from '../templates/templateDimensions'
+import { compatibleProfile } from '../printing/media'
 const w = useWorkspaceStore()
 const resources = useResourceStore()
 const auth = useAuthStore()
@@ -367,7 +374,7 @@ async function submit() {
           throw issue
         }),
       direct
-        ? `${body.copies} ${body.copies === 1 ? 'copy' : 'copies'} added to the queue.`
+        ? `${body.copies} ${body.copies === 1 ? 'copy' : t('common.copies2')} added to the queue.`
         : 'Label sent for approval. Nothing has been queued yet.',
     )
   ) {
@@ -380,15 +387,17 @@ async function submit() {
 </script>
 <template>
   <div v-if="!profiles.length" class="panel empty">
-    <h2>No tape profiles</h2>
-    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles"
-      >Create tape profile</RouterLink
-    >
-    <p v-else class="help">Ask an administrator to create a tape profile.</p>
+    <h2>{{ $t('common.noTapeProfiles') }}</h2>
+    <RouterLink v-if="auth.can('inventory.manage')" class="button primary" to="/profiles">{{
+      $t('common.createTapeProfile')
+    }}</RouterLink>
+    <p v-else class="help">{{ $t('common.askAnAdministratorToCreateATapeProfile') }}</p>
   </div>
   <div v-else-if="!templates.length" class="panel empty">
-    <h2>No templates</h2>
-    <RouterLink class="button primary" to="/templates/new">Open visual editor</RouterLink>
+    <h2>{{ $t('newLabel.noTemplates') }}</h2>
+    <RouterLink class="button primary" to="/templates/new">{{
+      $t('newLabel.openVisualEditor')
+    }}</RouterLink>
   </div>
   <div v-else class="two-column">
     <form
@@ -399,9 +408,10 @@ async function submit() {
       @change="clearSubmissionError"
       @submit.prevent="submit"
     >
-      <h2>Label details</h2>
+      <h2>{{ $t('newLabel.labelDetails') }}</h2>
       <label
-        >Print destination<select v-model="form.destination_id" name="destination_id">
+        >{{ $t('common.printDestination')
+        }}<select v-model="form.destination_id" name="destination_id">
           <option
             v-for="destination in w.destinations"
             :key="destination.id"
@@ -446,7 +456,8 @@ async function submit() {
       />
       <div class="field-row">
         <label
-          >Copies<input
+          >{{ $t('common.copies')
+          }}<input
             v-model.number="form.copies"
             name="copies"
             type="number"
@@ -456,21 +467,25 @@ async function submit() {
         /></label>
       </div>
       <label class="checkbox"
-        ><input v-model="form.notify_on_completion" type="checkbox" />Notify when printed</label
+        ><input v-model="form.notify_on_completion" type="checkbox" />{{
+          $t('common.notifyWhenPrinted')
+        }}</label
       >
       <CostEstimate :estimate="preview?.cost_estimate" :pending="rendering && !error" />
       <ExpandableContent :open="!!preview?.cost_estimate?.quotes.length"
         ><div class="row wrap">
           <label
-            >Maximum total price<input
+            >{{ $t('common.maximumTotalPrice')
+            }}<input
               v-model="maximumPrice"
               type="number"
               min="0"
               step="0.01"
-              placeholder="No maximum"
+              :placeholder="$t('common.noMaximum')"
           /></label>
           <label v-if="(preview?.cost_estimate?.quotes.length ?? 0) > 1"
-            >Currency<select v-model="maximumCurrency">
+            >{{ $t('common.currency')
+            }}<select v-model="maximumCurrency">
               <option
                 v-for="quote in preview?.cost_estimate?.quotes ?? []"
                 :key="quote.currency"
@@ -485,8 +500,7 @@ async function submit() {
       >
       <ExpandableContent :open="maximumPrice !== ''"
         ><p class="muted">
-          This maximum covers all copies and tape overhead. Printing waits for an affordable
-          cartridge. Any unexpected excess is covered by its owner.
+          {{ $t('common.thisMaximumCoversAllCopiesAndTapeOverheadPrinting') }}
         </p></ExpandableContent
       >
       <p class="help">{{ routingHint }}</p>
@@ -520,11 +534,13 @@ async function submit() {
       }"
     >
       <div class="section-heading">
-        <h2>Print preview</h2>
+        <h2>{{ $t('newLabel.printPreview') }}</h2>
         <span class="badge">{{ showPrintPixels ? '1-bit raster' : 'Smooth design' }}</span>
       </div>
       <label class="checkbox"
-        ><input v-model="showPrintPixels" type="checkbox" />Show print pixels</label
+        ><input v-model="showPrintPixels" type="checkbox" />{{
+          $t('common.showPrintPixels')
+        }}</label
       >
       <div class="preview-feedback">
         <TransitionGroup name="notice">
@@ -549,12 +565,12 @@ async function submit() {
             aspectRatio: `${preview.length_mm} / ${preview.width_mm}`,
             '--label-aspect': preview.length_mm / preview.width_mm,
           }"
-          alt="Rendered label preview"
+          :alt="$t('newLabel.renderedLabelPreview')"
         />
-        <p v-else-if="rendering" class="help">Rendering…</p>
+        <p v-else-if="rendering" class="help">{{ $t('newLabel.rendering') }}</p>
         <span
-          >{{ selected?.width_mm }} mm tape ·
-          <template v-if="preview">{{ preview.length_mm }} mm label</template>
+          >{{ selected?.width_mm }} {{ $t('common.mmTape') }}
+          <template v-if="preview">{{ preview.length_mm }} {{ $t('common.mmLabel') }}</template>
           <template v-else-if="template">{{ templateLength(template) }}</template></span
         >
       </div>

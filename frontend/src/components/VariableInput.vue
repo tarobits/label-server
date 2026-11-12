@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TemplateField, VariableValue } from '../editor'
+import type { TemplateField, VariableValue } from '../templates/editor'
 import ImageValueInput from './ImageValueInput.vue'
 import { ref, watchEffect } from 'vue'
 
@@ -79,9 +79,9 @@ function booleanChanged(event: Event) {
       :disabled="disabled"
       @change="booleanChanged"
     >
-      <option value="">Not set</option>
-      <option value="false">False</option>
-      <option value="true">True</option>
+      <option value="">{{ $t('variableInput.notSet') }}</option>
+      <option value="false">{{ $t('variableInput.false') }}</option>
+      <option value="true">{{ $t('common.true') }}</option>
     </select></label
   >
   <label v-else-if="field.type === 'boolean'" class="checkbox"

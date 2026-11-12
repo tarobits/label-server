@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { vValidateForm } from '../formValidation'
+import { vValidateForm } from '../shared/formValidation'
 import { nextTick, ref } from 'vue'
-import { api } from '../api'
-import { useAuthStore } from '../auth'
-import { confirmAction } from '../confirmation'
-import { useWorkspaceStore } from '../workspace'
-import type { ImageAsset } from '../types'
+import { api } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { confirmAction } from '../shared/confirmation'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { ImageAsset } from '../shared/types'
 import AssetUpload from '../components/AssetUpload.vue'
 import AssetSharingEditor from '../components/AssetSharingEditor.vue'
 import ImageAssetPreview from '../components/ImageAssetPreview.vue'
@@ -71,21 +71,21 @@ async function visibility(asset: ImageAsset) {
 <template>
   <AssetUpload kind="images" />
   <section class="panel">
-    <h2>Image library</h2>
-    <p class="help">Hidden images remain available to saved labels.</p>
-    <p v-if="!w.images.length" class="empty">No images uploaded.</p>
+    <h2>{{ $t('images.imageLibrary') }}</h2>
+    <p class="help">{{ $t('images.hiddenImagesRemainAvailableToSavedLabels') }}</p>
+    <p v-if="!w.images.length" class="empty">{{ $t('images.noImagesUploaded') }}</p>
     <div v-else class="table-scroll">
       <table class="image-library-table">
         <thead>
           <tr>
-            <th>Preview</th>
-            <th>Name</th>
-            <th v-if="auth.user?.is_admin">Owner</th>
-            <th>Format</th>
-            <th>Dimensions</th>
-            <th>Visibility</th>
-            <th>Status</th>
-            <th>Actions</th>
+            <th>{{ $t('common.preview') }}</th>
+            <th>{{ $t('common.name') }}</th>
+            <th v-if="auth.user?.is_admin">{{ $t('common.owner') }}</th>
+            <th>{{ $t('images.format') }}</th>
+            <th>{{ $t('images.dimensions') }}</th>
+            <th>{{ $t('common.visibility') }}</th>
+            <th>{{ $t('common.status') }}</th>
+            <th>{{ $t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -102,7 +102,8 @@ async function visibility(asset: ImageAsset) {
                 @keydown.esc.prevent="editing = null"
               >
                 <label
-                  >Image name<input
+                  >{{ $t('images.imageName')
+                  }}<input
                     ref="renameInput"
                     v-model="imageName"
                     maxlength="120"
@@ -111,7 +112,7 @@ async function visibility(asset: ImageAsset) {
                 /></label>
                 <div class="row wrap">
                   <button class="small primary" :disabled="w.busy || !imageName.trim()">
-                    Save name
+                    {{ $t('common.saveName') }}
                   </button>
                   <button
                     type="button"
@@ -119,7 +120,7 @@ async function visibility(asset: ImageAsset) {
                     :disabled="w.busy"
                     @click="editing = null"
                   >
-                    Cancel
+                    {{ $t('common.cancel') }}
                   </button>
                 </div>
               </form>
@@ -136,11 +137,11 @@ async function visibility(asset: ImageAsset) {
                 asset.scope === 'group'
                   ? asset.group_name
                   : asset.scope === 'global'
-                    ? 'Global'
-                    : 'Personal'
+                    ? $t('common.global')
+                    : $t('common.personal')
               }}
             </td>
-            <td>{{ asset.archived ? 'Hidden' : 'Available' }}</td>
+            <td>{{ asset.archived ? 'Hidden' : $t('fonts.available') }}</td>
             <td>
               <div class="image-library-actions">
                 <button
@@ -149,7 +150,7 @@ async function visibility(asset: ImageAsset) {
                   :disabled="w.busy || editing === asset.id"
                   @click="startRename(asset)"
                 >
-                  Rename
+                  {{ $t('common.rename') }}
                 </button>
                 <button
                   v-if="asset.archived ? asset.can_edit : asset.can_delete"
@@ -157,7 +158,7 @@ async function visibility(asset: ImageAsset) {
                   :disabled="w.busy"
                   @click="visibility(asset)"
                 >
-                  {{ asset.archived ? 'Restore' : 'Hide' }}
+                  {{ asset.archived ? $t('administration.restore') : 'Hide' }}
                 </button>
                 <button
                   v-if="asset.can_delete"
@@ -165,7 +166,7 @@ async function visibility(asset: ImageAsset) {
                   :disabled="w.busy"
                   @click="remove(asset)"
                 >
-                  Delete
+                  {{ $t('common.delete') }}
                 </button>
               </div>
               <AssetSharingEditor v-if="asset.can_share" kind="images" :asset="asset" />
@@ -174,7 +175,9 @@ async function visibility(asset: ImageAsset) {
         </tbody>
       </table>
     </div>
-    <RouterLink class="button secondary open-templates" to="/templates">Open templates</RouterLink>
+    <RouterLink class="button secondary open-templates" to="/templates">{{
+      $t('common.openTemplates')
+    }}</RouterLink>
   </section>
   <Teleport to="body">
     <dialog
@@ -186,10 +189,12 @@ async function visibility(asset: ImageAsset) {
       <template v-if="preview">
         <div class="section-heading">
           <h2 id="image-preview-title">{{ preview.name }}</h2>
-          <button class="secondary" autofocus @click="previewDialog?.close()">Close</button>
+          <button class="secondary" autofocus @click="previewDialog?.close()">
+            {{ $t('common.close') }}
+          </button>
         </div>
         <ImageAssetPreview :asset="preview" large />
-        <p class="help">{{ preview.width }} × {{ preview.height }} px</p>
+        <p class="help">{{ preview.width }} × {{ preview.height }} {{ $t('common.px') }}</p>
       </template>
     </dialog>
   </Teleport>

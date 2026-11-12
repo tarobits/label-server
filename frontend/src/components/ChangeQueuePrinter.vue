@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import type { Job } from '../types'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { Job } from '../shared/types'
 import AdminDialog from './AdminDialog.vue'
 const props = defineProps<{ jobs: Job[]; copyIds: string[]; loading: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -60,36 +60,41 @@ async function save() {
 </script>
 <template>
   <button class="secondary" :disabled="!allowed || loading || w.busy" @click="show">
-    Change printer
+    {{ $t('changeQueuePrinter.changePrinter') }}
   </button>
-  <AdminDialog :open="open" title="Change printer" :busy="busy" @close="open = false">
+  <AdminDialog
+    :open="open"
+    :title="$t('changeQueuePrinter.changePrinter')"
+    :busy="busy"
+    @close="open = false"
+  >
     <form v-validate-form class="form-stack" @submit.prevent="save">
-      <p>{{ selection.length }} queued copies · {{ origins.join(', ') }}</p>
+      <p>{{ selection.length }} {{ $t('common.queuedCopies2') }} {{ origins.join(', ') }}</p>
       <label
-        >Replacement printer
+        >{{ $t('changeQueuePrinter.replacementPrinter') }}
         <select v-model="printer" required :disabled="busy">
-          <option disabled value="">Choose a printer</option>
+          <option disabled value="">{{ $t('changeQueuePrinter.chooseAPrinter') }}</option>
           <option v-for="target in targets" :key="target.id" :value="target.id">
             {{ target.name }}
           </option>
         </select>
       </label>
       <label
-        >Reason (optional)<textarea v-model="reason" maxlength="1000" rows="2" :disabled="busy" />
+        >{{ $t('changeQueuePrinter.reasonOptional')
+        }}<textarea v-model="reason" maxlength="1000" rows="2" :disabled="busy" />
       </label>
       <p class="help">
-        Queued copies may print automatically on the replacement printer. Tape requirements and
-        saved layouts stay the same.
+        {{ $t('changeQueuePrinter.queuedCopiesMayPrintAutomaticallyOnTheReplacementPrinter') }}
       </p>
       <Transition name="notice"
         ><p v-if="error" class="alert danger motion-reveal" role="alert">{{ error }}</p></Transition
       >
       <div class="admin-actions">
         <button type="button" class="secondary" :disabled="busy" @click="open = false">
-          Cancel
+          {{ $t('common.cancel') }}
         </button>
         <button type="submit" class="primary" :disabled="busy || !printer">
-          {{ busy ? 'Changing…' : 'Change printer' }}
+          {{ busy ? 'Changing…' : $t('changeQueuePrinter.changePrinter') }}
         </button>
       </div>
     </form>

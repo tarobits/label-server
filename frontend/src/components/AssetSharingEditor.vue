@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { api } from '../api'
-import { useWorkspaceStore } from '../workspace'
-import type { AssetSharing } from '../types'
+import { api } from '../shared/api'
+import { useWorkspaceStore } from '../shared/workspace'
+import type { AssetSharing } from '../shared/types'
 import AnimatedDetails from './AnimatedDetails.vue'
 import AssetScopeFields from './AssetScopeFields.vue'
 const props = defineProps<{ kind: 'images' | 'fonts'; asset: AssetSharing & { id: string } }>()
@@ -28,7 +28,7 @@ async function save() {
 </script>
 <template>
   <AnimatedDetails class="asset-sharing">
-    <template #summary>Sharing</template>
+    <template #summary>{{ $t('common.sharing') }}</template>
     <form class="form-stack inset" @submit.prevent="save">
       <AssetScopeFields v-model="sharing" :original="asset" :kind="kind" :disabled="w.busy" />
       <button
@@ -39,7 +39,7 @@ async function save() {
           (sharing.scope === 'group' && !sharing.group_id)
         "
       >
-        Save sharing
+        {{ $t('common.saveSharing') }}
       </button>
     </form>
   </AnimatedDetails>

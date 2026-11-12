@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { api, errorMessage } from '../api'
-import type { AccessCatalog, Grant, ResourceKind, AccessExplanation } from '../resourceAccess'
-import { permissionLabel, decisionSummary } from '../resourceAccess'
+import { api, errorMessage } from '../shared/api'
+import type {
+  AccessCatalog,
+  Grant,
+  ResourceKind,
+  AccessExplanation,
+} from '../shared/resourceAccess'
+import { permissionLabel, decisionSummary } from '../shared/resourceAccess'
 import PermissionRules from './PermissionRules.vue'
 import ExpandableContent from './ExpandableContent.vue'
 const props = defineProps<{
@@ -95,10 +100,11 @@ watch(
 </script>
 <template>
   <fieldset class="resource-grants form-stack">
-    <legend>Permissions</legend>
+    <legend>{{ $t('common.permissions') }}</legend>
     <label
-      >User or role<select v-model="principal">
-        <option value="">Choose a user or role</option>
+      >{{ $t('common.userOrRole')
+      }}<select v-model="principal">
+        <option value="">{{ $t('common.chooseAUserOrRole') }}</option>
         <option v-for="person in people" :key="person.value" :value="person.value">
           {{ person.label }}
         </option>

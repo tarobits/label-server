@@ -29,10 +29,10 @@ import {
 import { lintGutter, setDiagnostics, lintKeymap } from '@codemirror/lint'
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { tags } from '@lezer/highlight'
-import type { TemplateDocument } from '../editor'
-import type { LogicCatalog, SourceDiagnostic } from '../logicGraph'
-import { logicTargetLabel } from '../logicGraph'
-import { referenceEntries } from '../logicReference'
+import type { TemplateDocument } from '../templates/editor'
+import type { LogicCatalog, SourceDiagnostic } from '../templates/logicGraph'
+import { logicTargetLabel } from '../templates/logicGraph'
+import { referenceEntries } from '../templates/logicReference'
 
 const props = defineProps<{
   source: string
@@ -355,7 +355,7 @@ function focusIssue(issue: SourceDiagnostic) {
     <div ref="host" class="code-host" />
     <div class="source-status">
       <span>{{ status }}</span
-      ><span v-if="disabled">Read-only</span>
+      ><span v-if="disabled">{{ $t('logicSourceEditor.readOnly') }}</span>
     </div>
     <p v-if="limit" class="alert warning" role="status">{{ limit }}</p>
     <div v-if="diagnostics.length" class="source-diagnostics" role="alert">
@@ -365,7 +365,8 @@ function focusIssue(issue: SourceDiagnostic) {
         class="text-button"
         @click="focusIssue(issue)"
       >
-        Line {{ issue.line }}, column {{ issue.column }}: {{ issue.message }}
+        {{ $t('logicSourceEditor.line') }} {{ issue.line }}{{ $t('logicSourceEditor.column') }}
+        {{ issue.column }}: {{ issue.message }}
       </button>
     </div>
   </div>

@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, useId } from 'vue'
-import { api, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore } from '../workspace'
-import { vValidateForm } from '../formValidation'
+import { api, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore } from '../shared/workspace'
+import { vValidateForm } from '../shared/formValidation'
 import ExpandableContent from './ExpandableContent.vue'
 import PrinterNotificationKinds from './PrinterNotificationKinds.vue'
-import { scopedPrinters, selectedPrinterKinds, type PrinterKinds } from '../notificationPreferences'
+import {
+  scopedPrinters,
+  selectedPrinterKinds,
+  type PrinterKinds,
+} from '../notifications/notificationPreferences'
 
 const auth = useAuthStore(),
   w = useWorkspaceStore()
@@ -150,13 +154,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="account-email">
-    <h2>Account email</h2>
+    <h2>{{ $t('accountEmail.accountEmail') }}</h2>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <p v-if="success" class="alert success" role="status">{{ success }}</p>
-    <p v-if="!settings && !error" class="help" role="status">Loading email settings…</p>
+    <p v-if="!settings && !error" class="help" role="status">
+      {{ $t('accountEmail.loadingEmailSettings') }}
+    </p>
     <template v-if="settings">
       <p v-if="!settings.available" class="alert warning">
-        Email delivery has not been configured by your administrator.
+        {{ $t('accountEmail.emailDeliveryHasNotBeenConfiguredByYourAdministrator') }}
       </p>
       <div class="row wrap">
         <span>{{ settings.email || 'No verified email address' }}</span>
@@ -171,12 +177,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p v-if="settings.pending_email" class="help">
-        Verification pending: {{ settings.pending_email }}
+        {{ $t('common.verificationPending') }} {{ settings.pending_email }}
       </p>
       <ExpandableContent :id="emailFormId" :open="editing">
         <form v-validate-form class="form-stack email-form" @submit.prevent="saveEmail()">
           <label
-            >Email address<input
+            >{{ $t('accountEmail.emailAddress')
+            }}<input
               ref="emailInput"
               v-model="email"
               type="email"
@@ -186,7 +193,8 @@ onBeforeUnmount(() => {
               :disabled="busy"
           /></label>
           <label
-            >Account password<input
+            >{{ $t('accountEmail.accountPassword')
+            }}<input
               v-model="password"
               type="password"
               autocomplete="current-password"
@@ -196,9 +204,11 @@ onBeforeUnmount(() => {
           /></label>
           <div class="row wrap">
             <button class="primary" :disabled="busy || !settings.available">
-              Send verification link
+              {{ $t('common.sendVerificationLink') }}
             </button>
-            <button type="button" :disabled="busy" @click="cancel">Cancel</button>
+            <button type="button" :disabled="busy" @click="cancel">
+              {{ $t('common.cancel') }}
+            </button>
             <button
               v-if="settings.email || settings.pending_email"
               type="button"
@@ -206,27 +216,28 @@ onBeforeUnmount(() => {
               :disabled="busy || !password"
               @click="saveEmail(true)"
             >
-              Remove email
+              {{ $t('accountEmail.removeEmail') }}
             </button>
           </div>
         </form>
       </ExpandableContent>
-      <h2 class="notifications-heading">Email notifications</h2>
+      <h2 class="notifications-heading">{{ $t('accountEmail.emailNotifications') }}</h2>
       <form v-validate-form class="form-stack" @submit.prevent="saveSubscription">
         <label class="checkbox"
           ><input
             v-model="subscription.enabled"
             type="checkbox"
             :disabled="busy || !settings.email || (!settings.available && !subscription.enabled)"
-          />Receive email notifications</label
+          />{{ $t('accountEmail.receiveEmailNotifications') }}</label
         >
         <ExpandableContent :open="subscription.enabled">
           <div class="form-stack subscription-options">
             <fieldset v-if="destinations.length" class="choice-list">
-              <legend>Print destinations</legend>
+              <legend>{{ $t('common.printDestinations') }}</legend>
               <label class="checkbox"
-                ><input v-model="subscription.all_printers" type="checkbox" :disabled="busy" />All
-                printers I can moderate</label
+                ><input v-model="subscription.all_printers" type="checkbox" :disabled="busy" />{{
+                  $t('common.allPrintersICanModerate')
+                }}</label
               >
               <label v-for="destination in destinations" :key="destination.id" class="checkbox"
                 ><input
@@ -238,7 +249,7 @@ onBeforeUnmount(() => {
               >
             </fieldset>
             <fieldset class="choice-list">
-              <legend>Default event types</legend>
+              <legend>{{ $t('common.defaultEventTypes') }}</legend>
               <label v-for="kind in kinds" :key="kind.value" class="checkbox"
                 ><input
                   v-model="subscription.kinds"
@@ -267,7 +278,7 @@ onBeforeUnmount(() => {
             busy || !settings.email || (subscription.enabled && (!settings.available || !hasEvents))
           "
         >
-          Save email notifications
+          {{ $t('common.saveEmailNotifications') }}
         </button>
       </form>
     </template>

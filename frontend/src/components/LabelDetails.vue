@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LabelInformation, PrintAttribution } from '../types'
+import type { LabelInformation, PrintAttribution } from '../shared/types'
 import PrintAttributionDisplay from './PrintAttribution.vue'
 defineProps<{ label: LabelInformation; attribution?: PrintAttribution | null }>()
 </script>
@@ -8,24 +8,24 @@ defineProps<{ label: LabelInformation; attribution?: PrintAttribution | null }>(
   <div class="label-details">
     <dl>
       <div>
-        <dt>Template</dt>
+        <dt>{{ $t('common.template') }}</dt>
         <dd>
           {{ label.template_name
           }}<span v-if="label.template_revision != null">
-            · revision {{ label.template_revision }}</span
+            {{ $t('common.revision3') }} {{ label.template_revision }}</span
           >
         </dd>
       </div>
       <div>
-        <dt>Printer</dt>
+        <dt>{{ $t('common.printer') }}</dt>
         <dd>{{ label.printer_name ?? 'Not assigned' }}</dd>
       </div>
       <div v-if="label.destination_name !== label.printer_name">
-        <dt>Destination</dt>
+        <dt>{{ $t('common.destination') }}</dt>
         <dd>{{ label.destination_name }}</dd>
       </div>
       <div>
-        <dt>Tape profile</dt>
+        <dt>{{ $t('common.tapeProfile') }}</dt>
         <dd>{{ label.profile_name }}</dd>
       </div>
     </dl>

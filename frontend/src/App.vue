@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from './shared/i18n'
+
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
@@ -7,7 +9,7 @@ import BrandLogo from './components/BrandLogo.vue'
 import AccountMenu from './components/AccountMenu.vue'
 import NotificationBell from './components/NotificationBell.vue'
 import CartridgeConsent from './components/CartridgeConsent.vue'
-import { reducedMotion } from './preferences'
+import { reducedMotion } from './shared/preferences'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeCheckPrompt from './components/CartridgeCheckPrompt.vue'
 import MotionTrack from './components/MotionTrack.vue'
@@ -17,13 +19,13 @@ import SourceLink from './components/SourceLink.vue'
 import ChangelogNotice from './components/ChangelogNotice.vue'
 import ServerUnavailable from './components/ServerUnavailable.vue'
 import AppUpdateNotice from './components/AppUpdateNotice.vue'
-import { serverUnavailable } from './serverConnection'
+import { serverUnavailable } from './shared/serverConnection'
 import SignIn from './views/SignIn.vue'
 import AccountRecovery from './views/AccountRecovery.vue'
 import RelationshipMigration from './views/RelationshipMigration.vue'
-import { useAuthStore } from './auth'
-import { useWorkspaceStore } from './workspace'
-import { useLiveRefresh } from './live'
+import { useAuthStore } from './auth/auth'
+import { useWorkspaceStore } from './shared/workspace'
+import { useLiveRefresh } from './shared/live'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const route = useRoute()
@@ -143,10 +145,10 @@ const connectedPrinters = computed(
 )
 const fleetSummary = computed(() =>
   w.printers.length
-    ? `${connectedPrinters.value} of ${w.printers.length} printers connected`
+    ? t('app.printersConnected', { connected: connectedPrinters.value, total: w.printers.length })
     : w.destinations.some((destination) => destination.kind === 'group')
-      ? 'Distribution groups available'
-      : 'No printers assigned',
+      ? t('common.distributionGroupsAvailable')
+      : t('common.noPrintersAssigned'),
 )
 const reviewPrinters = computed(() =>
   w.printerStatuses.filter(
@@ -167,25 +169,25 @@ const navCounts = computed<Record<string, number>>(() => ({
 }))
 const links = computed(() =>
   [
-    ['/', 'Overview', 'overview'],
-    ['/queue', 'Print queue', 'queue'],
-    ['/requests', 'Print requests', 'requests'],
-    ['/runs', 'CSV runs', 'csv'],
-    ['/templates', 'Templates', 'template'],
-    ['/fonts', 'Fonts', 'font'],
-    ['/images', 'Images', 'image'],
-    ['/profiles', 'Tape profiles', 'tape'],
-    ['/cartridges', 'Cartridges', 'cartridge'],
-    ['/activity', 'Print Activity', 'activity'],
-    ['/audit', 'Audit log', 'activity'],
-    ['/notification-history', 'Notification delivery', 'bell'],
-    ['/usage', 'Tape usage', 'tape'],
-    ['/group-accounts', 'Group accounts', 'users'],
-    ['/printers', 'Printers & groups', 'printer'],
-    ['/companions', 'Companions', 'printer'],
-    ['/resource-access', 'Locations & access', 'users'],
-    ['/migration', 'Ownership migration', 'users'],
-    ['/admin', 'Administration', 'users'],
+    ['/', 'common.overview', 'overview'],
+    ['/queue', 'common.printQueue', 'queue'],
+    ['/requests', 'common.printRequests', 'requests'],
+    ['/runs', 'common.csvRuns', 'csv'],
+    ['/templates', 'common.templates', 'template'],
+    ['/fonts', 'common.fonts', 'font'],
+    ['/images', 'common.images', 'image'],
+    ['/profiles', 'common.tapeProfiles', 'tape'],
+    ['/cartridges', 'resourceAccess.cartridges', 'cartridge'],
+    ['/activity', 'common.printActivity', 'activity'],
+    ['/audit', 'common.auditLog', 'activity'],
+    ['/notification-history', 'common.notificationDelivery', 'bell'],
+    ['/usage', 'common.tapeUsage', 'tape'],
+    ['/group-accounts', 'common.groupAccounts', 'users'],
+    ['/printers', 'common.printersGroups', 'printer'],
+    ['/companions', 'companions.companions', 'printer'],
+    ['/resource-access', 'common.locationsAccess', 'users'],
+    ['/migration', 'common.ownershipMigration', 'users'],
+    ['/admin', 'common.administration', 'users'],
   ].filter(([path]) => {
     if (path === '/audit')
       return (
@@ -290,7 +292,7 @@ onMounted(auth.refresh)
   <AppUpdateNotice />
   <main v-if="!auth.ready" class="panel empty">
     <p>{{ auth.error || 'Opening your workspace…' }}</p>
-    <button v-if="auth.error" @click="auth.refresh(true)">Retry</button>
+    <button v-if="auth.error" @click="auth.refresh(true)">{{ $t('common.retry') }}</button>
   </main>
   <AccountRecovery
     v-else-if="['/forgot-password', '/reset-password', '/verify-email'].includes(route.path)"
@@ -304,19 +306,23 @@ onMounted(auth.refresh)
     tabindex="-1"
   >
     <header class="row wrap spread">
-      <BrandLogo /><button class="secondary" @click="auth.logout()">Sign out</button>
+      <BrandLogo /><button class="secondary" @click="auth.logout()">
+        {{ $t('common.signOut') }}
+      </button>
     </header>
     <RelationshipMigration v-if="auth.user.is_admin" />
     <section v-else class="panel">
-      <h1>Maintenance in progress</h1>
-      <p>An administrator is repairing database relationships. Printing is paused.</p>
+      <h1>{{ $t('app.maintenanceInProgress') }}</h1>
+      <p>{{ $t('app.anAdministratorIsRepairingDatabaseRelationshipsPrintingIsPaused') }}</p>
     </section>
     <footer class="page-footer"><VersionStatus /><SourceLink /></footer>
   </main>
   <template v-else>
     <ChangelogNotice v-if="loaded" :key="auth.user.id" />
     <CartridgeCheckPrompt v-if="loaded" :key="auth.user.id" />
-    <a class="skip" href="#main-content" @click.prevent="skipToContent">Skip to content</a>
+    <a class="skip" href="#main-content" @click.prevent="skipToContent">{{
+      $t('common.skipToContent')
+    }}</a>
     <div class="app-shell">
       <aside class="sidebar">
         <RouterLink class="brand-link" to="/"><BrandLogo /></RouterLink>
@@ -325,7 +331,7 @@ onMounted(auth.refresh)
           tag="nav"
           :identity="activeSection"
           selector="a.selected"
-          aria-label="Main navigation"
+          :aria-label="$t('app.mainNavigation')"
         >
           <RouterLink
             v-for="[path, label, icon] in links"
@@ -335,7 +341,7 @@ onMounted(auth.refresh)
             :aria-current="
               route.path === path ? 'page' : activeSection === path ? 'location' : undefined
             "
-            ><Icon :name="icon!" />{{ label
+            ><Icon :name="icon!" />{{ $t(label!)
             }}<Transition name="notice"
               ><span v-if="navCounts[path!]" class="nav-count motion-reveal">{{
                 navCounts[path!]
@@ -353,7 +359,7 @@ onMounted(auth.refresh)
               off: connectionError || !connectedPrinters,
             }"
           ></span
-          >{{ connectionError ? 'Server unavailable' : fleetSummary }}
+          >{{ connectionError ? $t('common.serverUnavailable') : fleetSummary }}
         </div>
       </aside>
       <div class="main-wrap">
@@ -362,11 +368,9 @@ onMounted(auth.refresh)
             v-if="auth.session?.migration_required && route.path !== '/migration'"
             class="alert warning"
           >
-            Printing is paused for the ownership migration.<RouterLink
-              v-if="auth.user?.is_admin"
-              to="/migration"
-            >
-              Continue setup</RouterLink
+            {{ $t('app.printingIsPausedForTheOwnershipMigration')
+            }}<RouterLink v-if="auth.user?.is_admin" to="/migration">
+              {{ $t('app.continueSetup') }}</RouterLink
             >
           </p>
           <Transition name="notice">
@@ -374,7 +378,7 @@ onMounted(auth.refresh)
               v-if="navigationPending"
               class="navigation-progress"
               role="progressbar"
-              aria-label="Loading page"
+              :aria-label="$t('common.loadingPage')"
             />
           </Transition>
           <header class="page-header">
@@ -383,7 +387,7 @@ onMounted(auth.refresh)
                 name="page-title"
                 @before-leave="(element) => ((element as HTMLElement).inert = true)"
               >
-                <h1 :key="String(route.meta.title)">{{ route.meta.title }}</h1>
+                <h1 :key="String(route.meta.title)">{{ $t(String(route.meta.title)) }}</h1>
               </Transition>
             </div>
             <RouterLink
@@ -393,28 +397,36 @@ onMounted(auth.refresh)
               "
               class="button primary"
               to="/new"
-              ><Icon name="plus" />New label</RouterLink
+              ><Icon name="plus" />{{ $t('app.newLabel') }}</RouterLink
             >
           </header>
           <Transition name="notice">
             <div v-if="connectionError" class="alert danger" role="alert">
               {{ connectionError }}
-              <button class="text-button" @click="w.refresh(true)">Retry</button>
+              <button class="text-button" @click="w.refresh(true)">{{ $t('common.retry') }}</button>
             </div>
           </Transition>
           <Transition name="notice">
             <div v-if="actionError" class="alert danger" role="alert">
               {{ actionError
-              }}<button class="text-button" aria-label="Dismiss error" @click="actionError = ''">
-                Dismiss
+              }}<button
+                class="text-button"
+                :aria-label="$t('app.dismissError')"
+                @click="actionError = ''"
+              >
+                {{ $t('app.dismiss') }}
               </button>
             </div>
           </Transition>
           <Transition name="notice">
             <div v-if="success" class="alert success" role="status">
               {{ success
-              }}<button class="text-button" aria-label="Dismiss message" @click="success = ''">
-                Dismiss
+              }}<button
+                class="text-button"
+                :aria-label="$t('app.dismissMessage')"
+                @click="success = ''"
+              >
+                {{ $t('app.dismiss') }}
               </button>
             </div>
           </Transition>
@@ -424,9 +436,11 @@ onMounted(auth.refresh)
             class="alert warning"
           >
             <span
-              ><strong>Printing is paused on {{ printer.printer_name }}.</strong> An interrupted
-              batch needs your review.</span
-            ><RouterLink :to="`/batches/${printer.needs_review[0]}`">Review batch →</RouterLink>
+              ><strong>{{ $t('app.printingIsPausedOn') }} {{ printer.printer_name }}.</strong>
+              {{ $t('app.anInterruptedBatchNeedsYourReview') }}</span
+            ><RouterLink :to="`/batches/${printer.needs_review[0]}`">{{
+              $t('common.reviewBatch')
+            }}</RouterLink>
           </div>
           <div v-if="!loaded" class="empty panel">
             {{ connectionError ? 'Waiting for the server…' : 'Loading your workspace…' }}
@@ -437,9 +451,12 @@ onMounted(auth.refresh)
             role="status"
           >
             <span
-              ><strong>{{ w.accessHolds.length }} labels paused after an access change.</strong>
+              ><strong
+                >{{ w.accessHolds.length }}
+                {{ $t('common.labelsPausedAfterAnAccessChange') }}</strong
+              >
             </span>
-            <RouterLink to="/access-holds">Review paused labels</RouterLink>
+            <RouterLink to="/access-holds">{{ $t('app.reviewPausedLabels') }}</RouterLink>
           </div>
           <div v-if="loaded && !w.destinations.length && needsPrinter" class="panel empty">
             <h2>
@@ -448,16 +465,15 @@ onMounted(auth.refresh)
               }}
             </h2>
             <p v-if="!auth.can('printers.manage')">
-              Ask your administrator to assign you a role with access to a printer or distribution
-              group.
+              {{ $t('common.askYourAdministratorToAssignYouARoleWith') }}
             </p>
-            <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers"
-              >Set up printers</RouterLink
-            >
+            <RouterLink v-if="auth.can('printers.manage')" class="button primary" to="/printers">{{
+              $t('common.setUpPrinters')
+            }}</RouterLink>
           </div>
           <div v-if="!allowed" class="panel empty">
-            <h2>Access restricted</h2>
-            <RouterLink to="/">Back to overview</RouterLink>
+            <h2>{{ $t('app.accessRestricted') }}</h2>
+            <RouterLink to="/">{{ $t('app.backToOverview') }}</RouterLink>
           </div>
           <div
             v-else-if="loaded && (w.destinations.length || !needsPrinter)"
@@ -488,8 +504,9 @@ onMounted(auth.refresh)
           <footer class="page-footer">
             <span class="row wrap"><VersionStatus /><SourceLink /></span>
             <span
-              >Made with ♥ by
-              <a href="https://github.com/tarobits" target="_blank">tarobits</a>.</span
+              >{{ $t('common.madeWithBy') }}
+              <a href="https://github.com/tarobits" target="_blank">{{ $t('common.tarobits') }}</a
+              >.</span
             >
           </footer>
         </main>

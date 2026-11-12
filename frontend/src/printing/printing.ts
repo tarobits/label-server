@@ -1,6 +1,6 @@
-import { api, ApiError } from './api'
-import { ActionCancelled, ActionDeferred, confirmAction } from './confirmation'
-import { askCartridgeConsent, type CartridgeConsent } from './cartridgeConsent'
+import { api, ApiError } from '../shared/api'
+import { ActionCancelled, ActionDeferred, confirmAction } from '../shared/confirmation'
+import { askCartridgeConsent, type CartridgeConsent } from '../accounts/cartridgeConsent'
 
 interface TapeShortage {
   code: 'tape_shortage'

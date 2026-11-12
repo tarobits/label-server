@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { confirmAction } from '../confirmation'
+import { confirmAction } from '../shared/confirmation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, ApiError, errorMessage } from '../api'
-import { useAuthStore } from '../auth'
-import { useWorkspaceStore, date } from '../workspace'
-import { useLiveRefresh } from '../live'
+import { api, ApiError, errorMessage } from '../shared/api'
+import { useAuthStore } from '../auth/auth'
+import { useWorkspaceStore, date } from '../shared/workspace'
+import { useLiveRefresh } from '../shared/live'
 import { useResourceStore } from '../stores/resources'
-import { randomUUID } from '../uuid'
+import { randomUUID } from '../shared/uuid'
 import ProcessNameInput from '../components/ProcessNameInput.vue'
 import BillingPicker, { type BillingSelection } from '../components/BillingPicker.vue'
 import PrintPlanNotice from '../components/PrintPlanNotice.vue'
-import type { CostEstimate as CostEstimateData, PrintPlan, Template } from '../types'
+import type { CostEstimate as CostEstimateData, PrintPlan, Template } from '../shared/types'
 import TapeUsage from '../components/TapeUsage.vue'
 import CostEstimate from '../components/CostEstimate.vue'
 import AnimatedDetails from '../components/AnimatedDetails.vue'
@@ -19,9 +19,9 @@ import ExpandableContent from '../components/ExpandableContent.vue'
 import ImageValueInput from '../components/ImageValueInput.vue'
 import TemplatePicker from '../components/TemplatePicker.vue'
 import TapeProfilePicker from '../components/TapeProfilePicker.vue'
-import type { ImageValue, VariableValue } from '../editor'
-import { displayValue } from '../variableInputs'
-import { compatibleProfile } from '../media'
+import type { ImageValue, VariableValue } from '../templates/editor'
+import { displayValue } from '../templates/variableInputs'
+import { compatibleProfile } from '../printing/media'
 interface Row {
   source_row: number
   values: string[]
@@ -423,17 +423,17 @@ onUnmounted(() => {
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <template v-if="!route.params.id">
     <p v-if="!w.destinations.length" class="panel help">
-      Your saved runs remain available. A role with destination access is needed to prepare or
-      submit new labels.
+      {{ $t('common.yourSavedRunsRemainAvailableARoleWithDestination') }}
     </p>
     <fieldset
       v-if="w.destinations.length"
       :disabled="busy || w.busy"
       class="panel form-stack csv-form"
     >
-      <h2>Import CSV</h2>
+      <h2>{{ $t('csvRuns.importCsv') }}</h2>
       <label
-        >Print destination<select v-model="destinationId">
+        >{{ $t('common.printDestination')
+        }}<select v-model="destinationId">
           <option
             v-for="destination in w.destinations"
             :key="destination.id"
@@ -446,8 +446,7 @@ onUnmounted(() => {
         </select></label
       >
       <p v-if="destination?.available === false" class="help">
-        This destination has no configured printer available. Update its printers before preparing
-        labels.
+        {{ $t('common.thisDestinationHasNoConfiguredPrinterAvailableUpdateIts') }}
       </p>
       <TemplatePicker
         v-model="templateId"
@@ -467,45 +466,45 @@ onUnmounted(() => {
             )
         "
       />
-      <label>Run name<input v-model="name" maxlength="100" /></label>
+      <label>{{ $t('csvRuns.runName') }}<input v-model="name" maxlength="100" /></label>
       <ProcessNameInput v-model="processName" :template-name="template?.name ?? ''" />
       <BillingPicker v-model="billing" />
       <label
-        >CSV file<input type="file" accept=".csv,text/csv,text/plain" @change="fileChanged"
+        >{{ $t('csvRuns.csvFile')
+        }}<input type="file" accept=".csv,text/csv,text/plain" @change="fileChanged"
       /></label>
       <label
-        >CSV content<textarea
-          v-model="csv"
-          rows="6"
-          placeholder="text,location&#10;Network cable,Office"
-        />
+        >{{ $t('csvRuns.csvContent')
+        }}<textarea v-model="csv" rows="6" placeholder="text,location&#10;Network cable,Office" />
       </label>
       <label
-        >Delimiter<select v-model="delimiter">
-          <option value=",">Comma</option>
-          <option value=";">Semicolon</option>
-          <option :value="'\t'">Tab</option>
+        >{{ $t('csvRuns.delimiter')
+        }}<select v-model="delimiter">
+          <option value=",">{{ $t('csvRuns.comma') }}</option>
+          <option value=";">{{ $t('common.semicolon') }}</option>
+          <option :value="'\t'">{{ $t('common.tab') }}</option>
         </select></label
       >
       <p class="help">
-        UTF-8 CSV with a header, up to 250 data records / 1 MB. Quoted commas and multiline values
-        are supported. Record numbers include the header.
+        {{ $t('common.utf8CsvWithAHeaderUpTo250') }}
       </p>
-      <button :disabled="!csv || !templateId || !profileId" @click="parse">Read CSV</button>
+      <button :disabled="!csv || !templateId || !profileId" @click="parse">
+        {{ $t('csvRuns.readCsv') }}
+      </button>
       <template v-if="headers.length">
-        <h2>Map columns</h2>
+        <h2>{{ $t('csvRuns.mapColumns') }}</h2>
         <div class="field-row">
           <label v-for="field in template?.document.fields" :key="field.name"
             >{{ field.label
             }}<select v-model="mapping[field.name]">
-              <option value="">Use field default</option>
+              <option value="">{{ $t('common.useFieldDefault') }}</option>
               <option v-for="header in headers" :key="header" :value="header">{{ header }}</option>
             </select></label
           >
         </div>
         <ExpandableContent :open="imageCells.length > 0">
           <div class="form-stack">
-            <h2>Map images</h2>
+            <h2>{{ $t('csvRuns.mapImages') }}</h2>
             <ImageValueInput
               v-for="cell in imageCells"
               :key="`${templateId}:${cell.key}`"
@@ -515,26 +514,29 @@ onUnmounted(() => {
             />
           </div>
         </ExpandableContent>
-        <p class="help">Row order below is print order.</p>
+        <p class="help">{{ $t('csvRuns.rowOrderBelowIsPrintOrder') }}</p>
         <div class="row wrap">
-          <button @click="rows.forEach((r) => (r.selected = true))">Select all</button
-          ><button @click="rows.forEach((r) => (r.selected = false))">Select none</button
+          <button @click="rows.forEach((r) => (r.selected = true))">
+            {{ $t('common.selectAll') }}</button
+          ><button @click="rows.forEach((r) => (r.selected = false))">
+            {{ $t('common.selectNone') }}</button
           ><span
-            >{{ selected.length }} records · {{ selected.reduce((n, r) => n + r.copies, 0) }} copies
-            (maximum 1000)</span
+            >{{ selected.length }} {{ $t('common.records') }}
+            {{ selected.reduce((n, r) => n + r.copies, 0) }}
+            {{ $t('common.copiesMaximum1000') }}</span
           >
         </div>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Use</th>
-                <th>Record</th>
-                <th>Maximum total price</th>
-                <th>Values</th>
-                <th>Copies</th>
-                <th>Notify when printed</th>
-                <th>Order</th>
+                <th>{{ $t('common.use') }}</th>
+                <th>{{ $t('common.record') }}</th>
+                <th>{{ $t('common.maximumTotalPrice') }}</th>
+                <th>{{ $t('common.values') }}</th>
+                <th>{{ $t('common.copies') }}</th>
+                <th>{{ $t('common.notifyWhenPrinted') }}</th>
+                <th>{{ $t('csvRuns.order') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -554,7 +556,7 @@ onUnmounted(() => {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="No maximum"
+                    :placeholder="$t('common.noMaximum')"
                     :aria-label="`Maximum for record ${row.source_row}`"
                   /><input
                     v-model="row.currency"
@@ -602,7 +604,7 @@ onUnmounted(() => {
           </table>
         </div>
         <p v-for="issue in rowErrors" :key="issue.source_row" class="alert danger" role="alert">
-          Record {{ issue.source_row }}: {{ issue.message }}
+          {{ $t('common.record') }} {{ issue.source_row }}: {{ issue.message }}
         </p>
         <button
           class="primary"
@@ -614,14 +616,14 @@ onUnmounted(() => {
           "
           @click="prepare"
         >
-          Validate and preview run
+          {{ $t('common.validateAndPreviewRun') }}
         </button>
-        <p class="help">This saves a draft for review. Nothing is queued or printed yet.</p>
+        <p class="help">{{ $t('common.thisSavesADraftForReviewNothingIsQueued') }}</p>
       </template>
     </fieldset>
     <section class="panel">
-      <h2>Recent runs</h2>
-      <p v-if="!runs.length" class="help">No saved runs yet.</p>
+      <h2>{{ $t('csvRuns.recentRuns') }}</h2>
+      <p v-if="!runs.length" class="help">{{ $t('csvRuns.noSavedRunsYet') }}</p>
       <div v-for="item in runs" :key="item.id" class="section-heading">
         <RouterLink :to="`/runs/${item.id}`">{{ item.name }}</RouterLink
         ><span>{{ item.submitted_at ? 'Submitted' : 'Draft' }} · {{ date(item.created_at) }}</span>
@@ -631,7 +633,7 @@ onUnmounted(() => {
           :disabled="busy"
           @click="deleteDraft(item)"
         >
-          Delete draft
+          {{ $t('csvRuns.deleteDraft') }}
         </button>
       </div>
     </section>
@@ -640,35 +642,34 @@ onUnmounted(() => {
     <section class="panel form-stack">
       <div class="section-heading">
         <h2>{{ run.name }}</h2>
-        <RouterLink to="/runs">Import another CSV</RouterLink>
+        <RouterLink to="/runs">{{ $t('csvRuns.importAnotherCsv') }}</RouterLink>
       </div>
       <p>
-        {{ run.template_name }} · Revision {{ run.template_revision }} ·
-        {{ run.rows.length }} records · {{ run.copies }} copies
+        {{ run.template_name }} {{ $t('common.revision2') }} {{ run.template_revision }} ·
+        {{ run.rows.length }} {{ $t('common.records') }} {{ run.copies }} {{ $t('common.copies2') }}
       </p>
       <p>
-        Labels: {{ run.label_length_mm.toFixed(2) }} mm · Estimated tape:
-        {{ run.estimated_mm.toFixed(2) }} mm as one batch. Actual use depends on feed, cuts, and
-        retries.
+        {{ $t('csvRuns.labels') }} {{ run.label_length_mm.toFixed(2) }}
+        {{ $t('common.mmEstimatedTape') }} {{ run.estimated_mm.toFixed(2) }}
+        {{ $t('common.mmAsOneBatchActualUseDependsOnFeed') }}
       </p>
       <CostEstimate v-if="!run.submitted_at" :estimate="run.cost_estimate" />
       <p v-if="run.rows.some((row) => row.maximum_price)" class="muted">
-        Each row's maximum covers its copies and tape overhead. Printing waits for an affordable
-        cartridge; its owner covers unexpected excess.
+        {{ $t('csvRuns.eachRowSMaximumCoversItsCopiesAndTape') }}
       </p>
       <div v-if="run.print_plan" class="inset">
-        <strong>Planned tape sequence</strong>
+        <strong>{{ $t('csvRuns.plannedTapeSequence') }}</strong>
         <p v-for="warning in run.warnings ?? []" :key="warning" class="alert warning" role="status">
           {{ warning }}
         </p>
         <PrintPlanNotice :plan="run.print_plan" />
         <AnimatedDetails>
-          <template #summary>Tape details</template>
+          <template #summary>{{ $t('common.tapeDetails') }}</template>
           <TapeUsage :plan="run.print_plan" caption="Saved estimate for this draft" />
         </AnimatedDetails>
         <p>
-          {{ run.print_plan.leader_mm.toFixed(1) }} mm batch overhead ·
-          {{ run.print_plan.feed_per_label_mm.toFixed(1) }} mm feed per label ·
+          {{ run.print_plan.leader_mm.toFixed(1) }} {{ $t('common.mmBatchOverhead') }}
+          {{ run.print_plan.feed_per_label_mm.toFixed(1) }} {{ $t('common.mmFeedPerLabel') }}
           {{
             run.print_plan.cut_each
               ? 'Cut after each label'
@@ -681,26 +682,27 @@ onUnmounted(() => {
             :key="index"
             class="badge"
           >
-            {{ index + 1 }}: {{ length.toFixed(1) }} mm {{ run.print_plan.cut_each ? '✂' : '→' }}
+            {{ index + 1 }}: {{ length.toFixed(1) }} {{ $t('common.mm') }}
+            {{ run.print_plan.cut_each ? '✂' : '→' }}
           </span>
         </div>
         <p class="help">
-          Plan saved when this draft was prepared. Current printer settings apply when printing.
+          {{ $t('csvRuns.planSavedWhenThisDraftWasPreparedCurrentPrinter') }}
         </p>
       </div>
       <p v-if="run.submitted_at" class="alert success">
-        Run submitted. <RouterLink to="/queue">View print queue</RouterLink>
+        {{ $t('csvRuns.runSubmitted') }}
+        <RouterLink to="/queue">{{ $t('common.viewPrintQueue') }}</RouterLink>
       </p>
       <template v-else
         ><p class="help">
-          The entire run enters the queue together. It may print immediately if the threshold is
-          reached and automatic printing is enabled.
+          {{ $t('common.theEntireRunEntersTheQueueTogetherItMay') }}
         </p>
         <p v-if="!auth.printer(run.destination_id, 'submit_directly')" class="help">
-          The entire run will wait for approval before entering the queue.
+          {{ $t('common.theEntireRunWillWaitForApprovalBeforeEntering') }}
         </p>
         <p v-if="destination?.available === false" class="help">
-          This destination has no configured printer available. Your saved draft remains available.
+          {{ $t('common.thisDestinationHasNoConfiguredPrinterAvailableYourSaved') }}
         </p>
         <button
           class="primary"
@@ -716,25 +718,26 @@ onUnmounted(() => {
           }}
         </button>
         <button class="text-button danger-text" :disabled="busy" @click="deleteDraft(run)">
-          Delete draft
+          {{ $t('csvRuns.deleteDraft') }}
         </button></template
       >
     </section>
     <section class="panel form-stack">
       <div class="section-heading">
-        <h2>Run preview</h2>
+        <h2>{{ $t('csvRuns.runPreview') }}</h2>
         <label class="checkbox"
-          ><span class="checkbox-target"><input v-model="pixels" type="checkbox" /></span>Show print
-          pixels</label
+          ><span class="checkbox-target"><input v-model="pixels" type="checkbox" /></span
+          >{{ $t('common.showPrintPixels') }}</label
         >
       </div>
       <div class="row wrap">
-        <button :disabled="position === 0" @click="position--">Previous label</button
+        <button :disabled="position === 0" @click="position--">
+          {{ $t('common.previousLabel') }}</button
         ><span
-          >Label {{ position + 1 }} of {{ run.rows.length }} · CSV record
-          {{ run.rows[position]?.source_row }}</span
+          >{{ $t('common.label') }} {{ position + 1 }} {{ $t('common.of') }} {{ run.rows.length }}
+          {{ $t('common.csvRecord2') }} {{ run.rows[position]?.source_row }}</span
         ><button :disabled="position === run.rows.length - 1" @click="position++">
-          Next label
+          {{ $t('common.nextLabel') }}
         </button>
       </div>
       <div class="label-stage">
@@ -746,12 +749,12 @@ onUnmounted(() => {
             imageRendering: pixels ? 'pixelated' : 'auto',
             aspectRatio: `${preview.length_mm} / ${preview.width_mm}`,
           }"
-          alt="CSV label preview"
+          :alt="$t('csvRuns.csvLabelPreview')"
         />
-        <p v-else>Loading preview…</p>
+        <p v-else>{{ $t('common.loadingPreview') }}</p>
         <span
-          >{{ run.rows[position]?.length_mm }} × {{ run.rows[position]?.width_mm }} mm ·
-          {{ run.rows[position]?.copies }} copies</span
+          >{{ run.rows[position]?.length_mm }} × {{ run.rows[position]?.width_mm }}
+          {{ $t('common.mm2') }} {{ run.rows[position]?.copies }} {{ $t('common.copies2') }}</span
         >
       </div>
       <p v-for="warning in preview?.warnings ?? []" :key="warning" class="alert warning">
@@ -761,12 +764,12 @@ onUnmounted(() => {
         <table>
           <thead>
             <tr>
-              <th>Print order</th>
-              <th>CSV record</th>
-              <th>Values</th>
-              <th>Length</th>
-              <th>Copies</th>
-              <th>Row price</th>
+              <th>{{ $t('common.printOrder') }}</th>
+              <th>{{ $t('common.csvRecord') }}</th>
+              <th>{{ $t('common.values') }}</th>
+              <th>{{ $t('csvRuns.length') }}</th>
+              <th>{{ $t('common.copies') }}</th>
+              <th>{{ $t('csvRuns.rowPrice') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -780,11 +783,11 @@ onUnmounted(() => {
               <td class="csv-values">
                 {{ Object.values(row.payload).map(displayValue).join(' · ') }}
               </td>
-              <td>{{ row.length_mm }} mm</td>
+              <td>{{ row.length_mm }} {{ $t('common.mm') }}</td>
               <td>{{ row.copies }}</td>
               <td>
                 <CostEstimate :estimate="row.cost_estimate" /><span v-if="row.maximum_price"
-                  >Maximum: {{ (row.maximum_price.micros / 1000000).toFixed(2) }}
+                  >{{ $t('csvRuns.maximum') }} {{ (row.maximum_price.micros / 1000000).toFixed(2) }}
                   {{ row.maximum_price.currency }}</span
                 >
               </td>

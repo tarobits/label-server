@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '../auth'
-import { installCartridge } from '../cartridges'
-import { confirmation } from '../confirmation'
-import { useWorkspaceStore } from '../workspace'
+import { useAuthStore } from '../auth/auth'
+import { installCartridge } from '../printing/cartridges'
+import { confirmation } from '../shared/confirmation'
+import { useWorkspaceStore } from '../shared/workspace'
 
 const w = useWorkspaceStore()
 const auth = useAuthStore()

@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
       <header class="admin-dialog-heading">
         <h2 :id="titleId" tabindex="-1">{{ title }}</h2>
         <button type="button" class="secondary" :disabled="busy" @click="emit('close')">
-          Close
+          {{ $t('common.close') }}
         </button>
       </header>
       <div class="admin-dialog-body"><slot /></div>

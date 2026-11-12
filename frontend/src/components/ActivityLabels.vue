@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useResourceStore } from '../stores/resources'
-import { useAuthStore } from '../auth'
-import { errorMessage } from '../api'
-import type { BatchDetail } from '../types'
+import { useAuthStore } from '../auth/auth'
+import { errorMessage } from '../shared/api'
+import type { BatchDetail } from '../shared/types'
 import LabelDetails from './LabelDetails.vue'
 import QueuePreview from './QueuePreview.vue'
 import AnimatedDetails from './AnimatedDetails.vue'
@@ -80,11 +80,16 @@ onUnmounted(() => {
 
 <template>
   <AnimatedDetails class="activity-labels" @toggle="toggle">
-    <template #summary>Details</template>
+    <template #summary>{{ $t('common.details') }}</template>
     <p v-if="error" class="alert warning" role="status">
-      {{ error }} <button type="button" class="small secondary" @click="load(true)">Retry</button>
+      {{ error }}
+      <button type="button" class="small secondary" @click="load(true)">
+        {{ $t('common.retry') }}
+      </button>
     </p>
-    <p v-else-if="loading && !detail" class="help" role="status">Loading labels…</p>
+    <p v-else-if="loading && !detail" class="help" role="status">
+      {{ $t('activityLabels.loadingLabels') }}
+    </p>
     <template v-if="detail">
       <TapeUsage
         v-if="!detail.redacted"
@@ -98,7 +103,7 @@ onUnmounted(() => {
       <div class="row spread wrap">
         <strong>{{ entry.item.process_name }}</strong>
       </div>
-      <small>{{ entry.copies }} {{ entry.copies === 1 ? 'copy' : 'copies' }}</small>
+      <small>{{ $t('app.copyCount', { count: entry.copies }) }}</small>
       <LabelDetails :label="entry.item" :attribution="entry.item.attribution" />
       <QueuePreview
         :job-id="entry.item.job_id"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, errorMessage } from '../api'
+import { api, errorMessage } from '../shared/api'
 import AdminDialog from '../components/AdminDialog.vue'
 import MigrationResourceCreator from '../components/MigrationResourceCreator.vue'
 
@@ -144,25 +144,28 @@ onMounted(() => action(load))
 <template>
   <section class="panel relationship-migration">
     <div class="row wrap spread">
-      <h1>Repair database relationships</h1>
-      <button class="secondary" :disabled="busy" @click="action(load)">Refresh</button>
+      <h1>{{ $t('relationshipMigration.repairDatabaseRelationships') }}</h1>
+      <button class="secondary" :disabled="busy" @click="action(load)">
+        {{ $t('common.refresh') }}
+      </button>
     </div>
     <p class="alert warning">
-      Printing and normal operations are paused. Review each missing reference before applying
-      database constraints.
+      {{ $t('relationshipMigration.printingAndNormalOperationsArePausedReviewEachMissing') }}
     </p>
     <Transition name="notice"
       ><p v-if="error" class="alert danger" role="alert">{{ error }}</p></Transition
     >
     <Transition name="panel-expand" mode="out-in">
-      <p v-if="!state" key="loading" role="status">Checking relationships…</p>
+      <p v-if="!state" key="loading" role="status">
+        {{ $t('relationshipMigration.checkingRelationships') }}
+      </p>
       <p v-else-if="state.ready" key="ready" class="alert success" role="status">
-        Ready for a maintenance restart. Restart the server service to apply the constraints and
-        resume operations.
+        {{ $t('relationshipMigration.readyForAMaintenanceRestartRestartTheServerService') }}
       </p>
       <div v-else-if="total" key="repairs" class="form-stack">
         <label
-          >Relationship<select v-model="selected" :disabled="busy" @change="changeRelationship">
+          >{{ $t('relationshipMigration.relationship')
+          }}<select v-model="selected" :disabled="busy" @change="changeRelationship">
             <option v-for="item in state.relationships" :key="key(item)" :value="key(item)">
               {{ label(item.table) }} · {{ label(item.column) }} → {{ label(item.parent) }} ({{
                 item.count
@@ -174,9 +177,11 @@ onMounted(() => action(load))
           <table>
             <thead>
               <tr>
-                <th>Record</th>
-                <th>Missing reference</th>
-                <th><span class="sr-only">Action</span></th>
+                <th>{{ $t('common.record') }}</th>
+                <th>{{ $t('relationshipMigration.missingReference') }}</th>
+                <th>
+                  <span class="sr-only">{{ $t('relationshipMigration.action') }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -193,25 +198,30 @@ onMounted(() => action(load))
           </table>
         </div>
         <div class="row wrap spread">
-          <span>{{ total }} {{ total === 1 ? 'reference' : 'references' }} remaining</span>
+          <span
+            >{{ total }} {{ total === 1 ? 'reference' : 'references' }}
+            {{ $t('common.remaining') }}</span
+          >
           <div class="row wrap">
             <button class="secondary" :disabled="busy || !offset" @click="changePage(-50)">
-              Previous</button
-            ><span>{{ offset + 1 }}–{{ Math.min(offset + 50, count) }} of {{ count }}</span
+              {{ $t('common.previous') }}</button
+            ><span
+              >{{ offset + 1 }}–{{ Math.min(offset + 50, count) }} {{ $t('common.of') }}
+              {{ count }}</span
             ><button
               class="secondary"
               :disabled="busy || offset + 50 >= count"
               @click="changePage(50)"
             >
-              Next
+              {{ $t('common.next') }}
             </button>
           </div>
         </div>
       </div>
       <div v-else key="valid" class="form-stack">
-        <p>All references have valid targets.</p>
+        <p>{{ $t('relationshipMigration.allReferencesHaveValidTargets') }}</p>
         <button class="primary" :disabled="busy" @click="action(finish)">
-          Prepare maintenance restart
+          {{ $t('relationshipMigration.prepareMaintenanceRestart') }}
         </button>
       </div>
     </Transition>
@@ -234,35 +244,44 @@ onMounted(() => action(load))
         />
         <form v-else-if="editing" class="form-stack" @submit.prevent="save">
           <p>
-            <strong>{{ editing.name }}</strong> · {{ selected }}<br />Missing: {{ editing.missing }}
+            <strong>{{ editing.name }}</strong> · {{ selected }}<br />{{
+              $t('relationshipMigration.missing')
+            }}
+            {{ editing.missing }}
           </p>
           <p v-if="editing.revoke_only" class="alert warning">
-            This credential or consent will be revoked. It cannot be transferred to another account.
+            {{ $t('common.thisCredentialOrConsentWillBeRevokedItCannot') }}
           </p>
           <template v-else>
             <div class="row wrap">
               <label
-                >Find replacement<input v-model="search" maxlength="128" :disabled="busy" /></label
+                >{{ $t('relationshipMigration.findReplacement')
+                }}<input v-model="search" maxlength="128" :disabled="busy" /></label
               ><button
                 type="button"
                 class="secondary"
                 :disabled="busy"
                 @click="action(findTargets)"
               >
-                Search
+                {{ $t('common.search') }}
               </button>
             </div>
             <label
-              >Replacement<select v-model="target" :disabled="busy" required>
-                <option value="" disabled>Choose a replacement</option>
-                <option v-if="editing.nullable" value="__clear__">Clear reference</option>
+              >{{ $t('relationshipMigration.replacement')
+              }}<select v-model="target" :disabled="busy" required>
+                <option value="" disabled>
+                  {{ $t('relationshipMigration.chooseAReplacement') }}
+                </option>
+                <option v-if="editing.nullable" value="__clear__">
+                  {{ $t('relationshipMigration.clearReference') }}
+                </option>
                 <option v-for="item in targets" :key="item.id" :value="item.id">
                   {{ item.name }} · {{ item.id }}
                 </option>
               </select></label
             >
             <p v-if="targets.length === 50">
-              Showing 50 matches. Refine the search to find another record.
+              {{ $t('common.showing50MatchesRefineTheSearchToFindAnother') }}
             </p>
             <button
               v-if="creation?.resources?.[creation.parent]"
@@ -271,18 +290,18 @@ onMounted(() => action(load))
               :disabled="busy"
               @click="creating = true"
             >
-              Create replacement
+              {{ $t('relationshipMigration.createReplacement') }}
             </button>
             <p v-else class="help">
-              Choose an existing record or restore the missing history from a backup.
+              {{ $t('relationshipMigration.chooseAnExistingRecordOrRestoreTheMissingHistory') }}
             </p>
             <p class="alert warning">
-              This changes the record's assignment. Check the replacement carefully, especially for
-              ownership and accounting records.
+              {{ $t('common.thisChangesTheRecordSAssignmentCheckTheReplacement') }}
             </p>
           </template>
           <label
-            >Reason<textarea v-model="reason" required maxlength="500" :disabled="busy" />
+            >{{ $t('common.reason')
+            }}<textarea v-model="reason" required maxlength="500" :disabled="busy" />
           </label>
           <Transition name="notice"
             ><p v-if="modalError" class="alert danger" role="alert">{{ modalError }}</p></Transition
@@ -294,7 +313,7 @@ onMounted(() => action(load))
             >
               {{ editing.revoke_only ? 'Revoke credential' : 'Save assignment' }}</button
             ><button type="button" class="secondary" :disabled="busy" @click="editing = undefined">
-              Cancel
+              {{ $t('common.cancel') }}
             </button>
           </div>
         </form>
