@@ -10,7 +10,7 @@ from sqlalchemy.pool import QueuePool
 from test_access import Policy
 from test_image_jobs import upload
 
-from app.access import Action
+from app.authn.access import Action
 from app.models import PrintJob
 
 

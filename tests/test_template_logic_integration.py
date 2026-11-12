@@ -7,13 +7,13 @@ from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_image_jobs import upload
 
-from app.logic_source import compile_source
 from app.models import LabelCopy, PrintJob, Role
+from app.printing.submissions import input_fingerprint
 from app.render import RenderSpec, render_document, render_job
-from app.submissions import input_fingerprint
-from app.template_dimensions import template_dimensions
-from app.template_logic import logic_fields, logic_targets
-from app.template_schema import TemplateDocument
+from app.templates.logic_source import compile_source
+from app.templates.template_dimensions import template_dimensions
+from app.templates.template_logic import logic_fields, logic_targets
+from app.templates.template_schema import TemplateDocument
 
 accounts = account_fixture
 

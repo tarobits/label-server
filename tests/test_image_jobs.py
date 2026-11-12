@@ -14,7 +14,7 @@ from conftest import install, profile
 from PIL import Image, ImageOps
 from test_access import Policy
 
-from app.access import Action
+from app.authn.access import Action
 from app.models import LabelCopy, PrintJob
 from app.render import render_job
 from scripts import submit_image

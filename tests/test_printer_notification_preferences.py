@@ -18,8 +18,8 @@ from app.models import (
     PrinterGroup,
     Role,
 )
-from app.notification_routing import endpoint_message
-from app.notifications import NtfySender
+from app.notifications.notification_routing import endpoint_message
+from app.notifications.notifications import NtfySender
 
 accounts = account_fixture
 
@@ -31,7 +31,7 @@ def capture_ntfy(monkeypatch):
         payloads.append(kwargs["json"])
         return SimpleNamespace(raise_for_status=lambda: None)
 
-    monkeypatch.setattr("app.notifications.httpx.post", post)
+    monkeypatch.setattr("app.notifications.notifications.httpx.post", post)
     return payloads
 
 
@@ -72,7 +72,7 @@ def test_combined_reminder_priority_uses_only_included_printers(client, monkeypa
     payloads = capture_ntfy(monkeypatch)
     tape = profile(client)
     monkeypatch.setattr(
-        "app.notification_routing.waiting_destinations",
+        "app.notifications.notification_routing.waiting_destinations",
         lambda *args: [
             ("main", "Main", 3),
             ("other", "Other", 4),
@@ -214,7 +214,7 @@ def test_per_printer_choices_replace_defaults_and_follow_current_scope(client, t
 def test_waiting_reminder_includes_only_printers_with_the_event_enabled(client, monkeypatch):
     tape = profile(client)
     monkeypatch.setattr(
-        "app.notification_routing.waiting_destinations",
+        "app.notifications.notification_routing.waiting_destinations",
         lambda *args: [
             ("main", "Main", 3),
             ("other", "Other", 5),

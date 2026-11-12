@@ -14,9 +14,9 @@ from test_runs import run_body
 
 from app.config import Settings
 from app.models import Batch, Notification, NotificationDelivery, PrintJob, Role, User
-from app.notification_routing import deliver_routed_pending, endpoint_message
-from app.notifications import enqueue_print_completions
-from app.submissions import input_fingerprint
+from app.notifications.notification_routing import deliver_routed_pending, endpoint_message
+from app.notifications.notifications import enqueue_print_completions
+from app.printing.submissions import input_fingerprint
 
 accounts = account_fixture
 

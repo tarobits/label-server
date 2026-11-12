@@ -13,10 +13,10 @@ from alembic.config import Config
 from app_client import TestClient
 from sqlalchemy import select
 
-from app.access import AccountPolicy, Action, Resource
-from app.auth import COOKIE_NAME, actor_for_user, token_hash
+from app.authn.access import AccountPolicy, Action, Resource
+from app.authn.auth import COOKIE_NAME, actor_for_user, token_hash
+from app.authn.identity import LOCAL_OWNER_ID
 from app.config import Settings
-from app.identity import LOCAL_OWNER_ID
 from app.main import create_app
 from app.models import (
     AccessChangeConfirmation,
@@ -629,7 +629,7 @@ def test_role_grants_combine_by_maximum_without_group_expansion(auth_client, tmp
     ],
 )
 def test_all_five_scope_levels(level, requesting, printing, moderating, configuring):
-    from app.access import Actor
+    from app.authn.access import Actor
 
     actor = Actor(id="member", destination_levels={"printer": level})
     policy = AccountPolicy({"printer": None})

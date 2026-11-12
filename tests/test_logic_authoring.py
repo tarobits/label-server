@@ -4,11 +4,11 @@ from test_image_jobs import upload
 from test_template_logic_integration import accounts as account_fixture
 from test_template_logic_integration import document
 
-from app.logic_authoring import reconcile_program, source_diagnostic
-from app.logic_engine import LogicError
-from app.logic_schema import Program
-from app.logic_source import compile_source
-from app.template_logic import logic_fields, logic_targets
+from app.templates.logic_authoring import reconcile_program, source_diagnostic
+from app.templates.logic_engine import LogicError
+from app.templates.logic_schema import Program
+from app.templates.logic_source import compile_source
+from app.templates.template_logic import logic_fields, logic_targets
 
 accounts = account_fixture
 

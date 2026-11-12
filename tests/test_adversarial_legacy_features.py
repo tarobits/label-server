@@ -23,7 +23,7 @@ from test_personal_activity import shared_batch
 from test_runs import run_body
 from test_template_revisions import create, update
 
-from app.billing_models import BillingCharge, BillingRequest
+from app.accounts.billing_models import BillingCharge, BillingRequest
 from app.models import JobSubmission, LabelCopy, PrintJob, ReleaseMigration, State
 from migrations.relationships_v1 import VERSION
 

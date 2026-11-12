@@ -121,8 +121,8 @@ def test_confirmed_cartridge_is_not_rearmed_by_delayed_companion_status(accounts
     from conftest import profile
     from test_cartridge_confirmation import cartridge
 
-    from app.destinations import printer_state
     from app.models import Cartridge, CompanionPrinter
+    from app.printing.destinations import printer_state
 
     admin, _, _ = accounts
     _, agent = local_station(admin, tmp_path)
@@ -183,9 +183,9 @@ def test_cartridge_confirmation_roundtrip_does_not_latch_investigation(
     from conftest import profile
     from test_cartridge_confirmation import DetectedTapeTransport, cartridge
 
-    from app.destinations import printer_state
     from app.models import Cartridge
     from app.printer.brother import BrotherPTP710BT
+    from app.printing.destinations import printer_state
 
     admin, _, _ = accounts
     settings, agent = local_station(admin, tmp_path)

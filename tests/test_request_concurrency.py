@@ -15,8 +15,8 @@ from fastapi.routing import APIRoute
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import access
-from app.auth import token_hash
+from app.authn import access  # noqa: F401
+from app.authn.auth import token_hash
 from app.http import db
 from app.models import Companion, Location, TapeProfile
 from app.transaction_routes import TransactionRouter
@@ -66,7 +66,7 @@ def test_mutations_complete_with_one_worker(client, request, kind):
                 request.node.nodeid,
                 "-q",
                 "--tb=short",
-                "--log-disable=app.auth",
+                "--log-disable=app.authn.auth",
             ],
             env={**os.environ, "LABEL_CONCURRENCY_TEST_CHILD": "1"},
             capture_output=True,

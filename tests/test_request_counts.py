@@ -3,7 +3,7 @@
 from test_access_security import accounts as account_fixture
 
 from app.models import Role
-from app.request_models import PrintRequest
+from app.printing.request_models import PrintRequest
 
 accounts = account_fixture
 

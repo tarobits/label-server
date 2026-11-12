@@ -6,8 +6,8 @@ from PIL import Image
 from test_access import Policy
 from test_images import SVG, document, upload
 
-from app.access import Action
-from app.image_assets import ImageStore
+from app.assets.image_assets import ImageStore
+from app.authn.access import Action
 from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision
 
 

@@ -4,11 +4,11 @@ from typing import Literal
 
 import pytest
 
-from app.element_geometry import element_geometry, local_geometry
-from app.logic_source import compile_source
 from app.render import RenderSpec, element_bounds, render_document
-from app.template_logic import logic_fields, logic_property_values, logic_targets
-from app.template_schema import Element, TemplateDocument
+from app.templates.element_geometry import element_geometry, local_geometry
+from app.templates.logic_source import compile_source
+from app.templates.template_logic import logic_fields, logic_property_values, logic_targets
+from app.templates.template_schema import Element, TemplateDocument
 
 
 def document(

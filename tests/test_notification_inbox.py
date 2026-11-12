@@ -1,7 +1,7 @@
 from test_access_security import accounts as accounts
 
 from app.models import Notification
-from app.notifications import enqueue
+from app.notifications.notifications import enqueue
 
 
 def test_private_inbox_survives_absent_delivery_and_read_state_is_per_user(accounts):

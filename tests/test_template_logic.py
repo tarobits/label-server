@@ -5,9 +5,14 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from app.asset_access import asset_references
-from app.logic_engine import LogicError, evaluate_program, resolve_inputs, validate_program
-from app.logic_schema import (
+from app.assets.asset_access import asset_references
+from app.templates.logic_engine import (
+    LogicError,
+    evaluate_program,
+    resolve_inputs,
+    validate_program,
+)
+from app.templates.logic_schema import (
     MAX_NODES,
     Binding,
     CallExpression,
@@ -18,7 +23,7 @@ from app.logic_schema import (
     ReferenceExpression,
     Target,
 )
-from app.logic_source import compile_source, format_source
+from app.templates.logic_source import compile_source, format_source
 
 TARGETS = {
     "text1": Target(

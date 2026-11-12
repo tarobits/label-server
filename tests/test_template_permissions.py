@@ -180,3 +180,31 @@ def test_template_owner_names_follow_existing_visibility(accounts):
         assert visible[shared["id"]]["owner_username"] == "alice"
         assert client.get(f"/api/templates/{shared['id']}").json()["owner_username"] == "alice"
     assert admin_private["id"] not in {item["id"] for item in alice.get("/api/templates").json()}
+
+
+def test_archived_library_and_restore_preserve_scope_and_revision(accounts):
+    admin, alice, bob = accounts
+    grants(admin, "templates.create_personal")
+    own = template(alice, "Archived personal").json()
+    shared = template(admin, "Archived global", "global").json()
+    for client, item in ((alice, own), (admin, shared)):
+        assert client.delete(f"/api/templates/{item['id']}").status_code == 200
+    assert own["id"] not in {t["id"] for t in alice.get("/api/templates").json()}
+    assert {t["id"] for t in alice.get("/api/templates?archived=true").json()} == {
+        own["id"],
+        shared["id"],
+    }
+    assert {t["id"] for t in bob.get("/api/templates?archived=true").json()} == {shared["id"]}
+    assert bob.post(f"/api/templates/{own['id']}/unarchive").status_code == 403
+    assert alice.post(f"/api/templates/{shared['id']}/unarchive").status_code == 403
+    for _ in range(2):
+        assert alice.post(f"/api/templates/{own['id']}/unarchive").status_code == 200
+    restored = alice.get(f"/api/templates/{own['id']}").json()
+    assert not restored["archived"]
+    assert restored["document"] == own["document"]
+    assert restored["revision"] == own["revision"]
+    assert admin.delete(f"/api/templates/{shared['id']}/permanent").status_code == 200
+    assert not admin.get("/api/templates?archived=true").json()
+    assert admin.post(f"/api/templates/{shared['id']}/unarchive").status_code == 410
+    assert shared["id"] not in {t["id"] for t in admin.get("/api/templates").json()}
+    assert not admin.get("/api/templates?archived=true").json()

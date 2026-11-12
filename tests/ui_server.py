@@ -12,13 +12,17 @@ from fastapi import Body, Request
 from fastapi.responses import HTMLResponse
 from printer_factory import browser_printer
 
-from app import notification_routing, push_api, recovery_api
-from app.admin_api import DB
-from app.auth import hash_password
+from app.authn.admin_api import DB
+from app.authn.auth import hash_password
+from app.authn.identity import LOCAL_OWNER_ID
 from app.config import Settings
-from app.identity import LOCAL_OWNER_ID
+from app.maintenance import recovery_api  # noqa: F401
 from app.models import ReleaseMigration, User
-from app.push_delivery import generate_key
+from app.notifications import (
+    notification_routing,  # noqa: F401
+    push_api,  # noqa: F401
+)
+from app.notifications.push_delivery import generate_key
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
@@ -105,7 +109,7 @@ if __name__ == "__main__":
 
         @application.post("/api/test/inbox")
         def seed_inbox(session: DB):
-            from app.notifications import enqueue
+            from app.notifications.notifications import enqueue
 
             enqueue(
                 session,

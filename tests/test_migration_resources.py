@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from test_auth import setup_admin
 from test_relationship_migration import database
 
-from app.billing_models import BillingGrant
+from app.accounts.billing_models import BillingGrant
 from app.config import Settings
 from app.db import make_engine
 from app.main import create_app

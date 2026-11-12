@@ -8,7 +8,7 @@ from mock_backend import MockPrinterBackend
 
 from app.models import Batch, BatchItem, LabelCopy, State
 from app.printer.base import PrintNotStarted, PrintResult
-from app.queue import QueueWorker
+from app.printing.queue import QueueWorker
 
 
 def test_nine_wait_tenth_prints_one_batch(client: TestClient) -> None:

@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from test_access_security import accounts as accounts
 
 from app import __version__
-from app.auth import hash_password
+from app.authn.auth import hash_password
 from app.models import Companion, CompanionPin, CompanionSession, Location, ResourceGrant, User
 
 

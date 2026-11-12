@@ -4,7 +4,7 @@ import pytest
 from app_client import TestClient
 from conftest import install, profile
 
-from app.font_assets import MAX_FONT_BYTES, FontStore
+from app.assets.font_assets import MAX_FONT_BYTES, FontStore
 
 FONT = Path("app/fonts/NotoSans-Bold.ttf")
 

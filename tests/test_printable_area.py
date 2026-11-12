@@ -12,7 +12,7 @@ from app.models import LabelCopy, PrintJob
 from app.printer.base import RenderedLabel
 from app.printer.brother import PRINT_PINS, capabilities, encode_raster
 from app.render import RenderSpec, render_document, render_job
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 @pytest.mark.parametrize("width", PRINT_PINS)

@@ -9,7 +9,7 @@ from app.printer.base import PrintControl, PrintInterrupted, PrintNotStarted, Re
 from app.printer.brother import BrotherPTP710BT, capabilities, decode_status, encode_raster
 from app.printer.usb import UsbTransport
 from app.render import RenderSpec, render_document
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 def packet(kind: int = 0, phase: int = 0, width: int = 24, error: int = 0) -> bytes:

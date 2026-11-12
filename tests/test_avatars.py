@@ -12,7 +12,7 @@ from test_access_security import accounts as accounts
 from test_companion_auth import station
 from test_companion_station import local_station
 
-from app.avatars import avatar_version, normalize_avatar
+from app.authn.avatars import avatar_version, normalize_avatar
 from app.models import ResourceGrant, User
 from companion.web import create_app
 
@@ -26,7 +26,7 @@ def picture():
 
 @pytest.mark.parametrize("blocked_stage", ["normalize", "lock"])
 def test_avatar_upload_keeps_event_loop_responsive(accounts, monkeypatch, blocked_stage):
-    import app.avatar_api as api
+    import app.authn.avatar_api as api
 
     admin, alice, _ = accounts
     entered, release = Event(), Event()
@@ -167,7 +167,7 @@ def test_picture_requires_station_key_and_picker_eligibility(accounts):
 def test_account_purge_removes_picture(accounts):
     import time
 
-    from app.deletion import delete_account, purge_expired
+    from app.maintenance.deletion import delete_account, purge_expired
 
     admin, alice, _ = accounts
     alice.put("/api/auth/avatar", content=picture())

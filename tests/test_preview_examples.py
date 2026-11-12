@@ -6,10 +6,10 @@ from pydantic import ValidationError
 from test_access_security import SVG
 from test_access_security import accounts as accounts
 
-from app.logic_engine import resolve_inputs
-from app.logic_schema import LogicInput
 from app.render import resolve_values
-from app.template_schema import TemplateDocument
+from app.templates.logic_engine import resolve_inputs
+from app.templates.logic_schema import LogicInput
+from app.templates.template_schema import TemplateDocument
 
 
 def document(version=1):

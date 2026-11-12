@@ -10,8 +10,8 @@ from conftest import create_test_app, profile, seed_test_printer
 from sqlalchemy import select
 from test_fleet import device, fit, submit
 
+from app.authn.identity import LOCAL_OWNER_ID
 from app.config import Settings
-from app.identity import LOCAL_OWNER_ID
 from app.models import (
     Notification,
     NotificationDelivery,
@@ -22,9 +22,18 @@ from app.models import (
     TapeProfile,
     User,
 )
-from app.notification_routing import deliver_routed_pending, endpoint_message, scope_matches
-from app.notifications import NtfySender, enqueue, schedule_reminders, waiting_destinations
-from app.request_models import PrintRequest
+from app.notifications.notification_routing import (
+    deliver_routed_pending,
+    endpoint_message,
+    scope_matches,
+)
+from app.notifications.notifications import (
+    NtfySender,
+    enqueue,
+    schedule_reminders,
+    waiting_destinations,
+)
+from app.printing.request_models import PrintRequest
 
 
 def endpoint(session, identifier, **filters):

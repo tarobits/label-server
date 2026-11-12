@@ -23,8 +23,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.deployment import require_role
+from app.maintenance.releases import REPOSITORY, release_version, stable_version
 from app.printer.base import ControlledPrinterBackend, StopMode
-from app.releases import REPOSITORY, release_version, stable_version
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 from companion.journal import Journal
@@ -195,20 +195,30 @@ def create_app(
             raise HTTPException(403, "Invalid station CSRF token")
 
     def current(request: Request, *, touch: bool = False) -> str:
+        expired = False
         with station.lock:
             if (
                 station.browser_token
                 and time.monotonic() - station.last_activity >= settings.lock_timeout_seconds
             ):
+                # Persist revocation before forgetting the credential, even
+                # when the server is offline. Never perform network I/O under
+                # the station lock: a newer unlock must remain responsive.
+                journal.revoke_session(station.remote_token)
                 station.clear()
+                expired = True
             cookie = request.cookies.get(COOKIE, "")
-            if not station.browser_token or not hmac.compare_digest(
+            valid = bool(station.browser_token) and hmac.compare_digest(
                 cookie.encode(), station.browser_token.encode()
-            ):
-                raise HTTPException(401, "Unlock the station to continue")
-            if touch:
+            )
+            if valid and touch:
                 station.last_activity = time.monotonic()
-            return station.remote_token
+            token = station.remote_token
+        if expired:
+            agent.flush_revocations()
+        if not valid:
+            raise HTTPException(401, "Unlock the station to continue")
+        return token
 
     @app.get("/api/health")
     def health() -> dict[str, bool]:

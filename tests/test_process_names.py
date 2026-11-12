@@ -2,7 +2,7 @@ from conftest import install, profile
 from test_access_security import accounts as accounts
 from test_runs import run_body
 
-from app.submissions import input_fingerprint
+from app.printing.submissions import input_fingerprint
 
 
 def test_process_name_and_populated_fields_survive_into_queue_and_history(client):

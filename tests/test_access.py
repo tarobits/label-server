@@ -8,10 +8,10 @@ from conftest import create_test_app as create_app
 from conftest import install, job, profile
 from sqlalchemy import select
 
-from app.access import Action, Actor, Resource
-from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
+from app.authn.access import Action, Actor, Resource
+from app.authn.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
 from app.models import LabelTemplate, Notification, PrintJob, PrintRun
-from app.notifications import RoutedNotificationSender
+from app.notifications.notifications import RoutedNotificationSender
 
 
 class Policy:

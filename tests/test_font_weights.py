@@ -7,12 +7,12 @@ from conftest import install, profile
 from fontTools.ttLib import TTFont
 from sqlalchemy import select
 
-from app.asset_cache import expire
-from app.font_assets import FontStore
-from app.font_variations import InvalidFontWeight, static_instance
+from app.assets.asset_cache import expire
+from app.assets.font_assets import FontStore
+from app.assets.font_variations import InvalidFontWeight, static_instance
 from app.models import PrintJob
 from app.render import RenderSpec, font_path, render_document
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 VARIABLE = Path("app/fonts/NotoSans-Variable.ttf")
 

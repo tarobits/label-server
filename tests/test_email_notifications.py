@@ -11,10 +11,10 @@ from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 
 from app.config import Settings
-from app.email_delivery import normalize_email, send_email
 from app.models import Notification, NotificationDelivery, NotificationEndpoint, Role, User
-from app.notification_routing import deliver_routed_pending, endpoint_message
-from app.notifications import enqueue
+from app.notifications.email_delivery import normalize_email, send_email
+from app.notifications.notification_routing import deliver_routed_pending, endpoint_message
+from app.notifications.notifications import enqueue
 
 accounts = account_fixture
 
@@ -163,7 +163,7 @@ def test_admin_email_endpoint_uses_existing_routing_and_retries(accounts, monkey
         if len(sent) == 1:
             raise OSError("smtp-private-secret")
 
-    monkeypatch.setattr("app.notification_routing.send_email", email)
+    monkeypatch.setattr("app.notifications.notification_routing.send_email", email)
     now = time.time()
     with admin.app.state.factory.begin() as session:
         enqueue(session, "Alert", "Message", "/#/printers", now=now)

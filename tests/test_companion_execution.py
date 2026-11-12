@@ -6,7 +6,7 @@ from mock_backend import MockPrinterBackend
 from test_access_security import accounts as accounts
 from test_companion_auth import station
 
-from app.companion_protocol import ExecutionResult
+from app.companion.companion_protocol import ExecutionResult
 from app.models import Batch, CompanionPrinter, State
 from companion.executor import Executor
 from companion.journal import Journal

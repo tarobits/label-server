@@ -12,7 +12,7 @@ from sqlalchemy import select
 from test_auth import PASSWORD, change, login, setup_admin
 from test_auth import auth_client as auth_client_fixture
 
-from app.auth import token_hash
+from app.authn.auth import token_hash
 from app.models import AuthSession, RecoveryToken, User
 
 auth_client = auth_client_fixture
@@ -27,7 +27,7 @@ def mailbox(auth_client, monkeypatch):
     auth_client.base_url = "https://testserver"
     messages = []
     monkeypatch.setattr(
-        "app.recovery_api.send_email",
+        "app.maintenance.recovery_api.send_email",
         lambda settings, to, subject, body: messages.append((to, subject, body)),
     )
     return messages
@@ -316,7 +316,7 @@ def test_failed_mail_is_generic_and_never_logs_credentials(
     def fail(*args):
         raise OSError("private-smtp-secret")
 
-    monkeypatch.setattr("app.recovery_api.send_email", fail)
+    monkeypatch.setattr("app.maintenance.recovery_api.send_email", fail)
     response = client.post("/api/auth/password/forgot", json={"username": "admin"})
     assert response.status_code == 202
     assert "private-smtp-secret" not in caplog.text + response.text

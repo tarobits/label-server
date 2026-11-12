@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 
 from app.models import LabelCopy, PrintJob
 from app.render import RenderSpec, render_document, render_job
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 def test_clipping_preserves_source_but_excludes_ink_outside_printable_area(

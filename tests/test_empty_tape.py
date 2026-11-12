@@ -4,7 +4,7 @@ from sqlalchemy import select
 from test_fleet import device, fit, group, job_state, submit
 
 from app.models import Batch, Cartridge, LabelCopy, Notification, PrinterState, PrintRun, State
-from app.queue import EMPTY_TAPE_BLOCKER, QueueWorker
+from app.printing.queue import EMPTY_TAPE_BLOCKER, QueueWorker
 
 
 def notices(client):
@@ -29,7 +29,7 @@ def test_empty_tape_blocks_automatic_before_rendering_and_survives_worker_restar
     def no_render(*args, **kwargs):
         pytest.fail("Empty tape must prevent automatic raster preparation")
 
-    monkeypatch.setattr("app.queue.render_job", no_render)
+    monkeypatch.setattr("app.printing.queue.render_job", no_render)
     worker = client.app.state.fleet.workers["main"]
     worker.tick()
     worker.tick()

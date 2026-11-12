@@ -17,7 +17,7 @@ from test_group_billing import (
 from test_mariadb import maria_engine as maria_engine
 from test_mariadb import upgrade
 
-from app.auth import COOKIE_NAME, token_hash
+from app.authn.auth import COOKIE_NAME, token_hash
 from app.config import Settings
 from app.main import create_app
 from app.models import AuthSession, LabelTemplate, Role, User

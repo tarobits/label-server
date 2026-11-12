@@ -7,7 +7,7 @@ from PIL import Image
 from pydantic import ValidationError
 
 from app.render import RenderSpec, element_bounds, render_document
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 def cable_document():

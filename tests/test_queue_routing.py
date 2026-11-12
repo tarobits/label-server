@@ -11,9 +11,9 @@ from test_access_security import accounts as account_fixture
 from test_fleet import device, group
 from test_print_audit import direct
 
-from app.job_access import job_eligible, reconcile_access_holds
 from app.models import LabelCopy, PrinterDevice, PrintJob, PrintRun, Role, State, User
-from app.queue_routing_models import QueueDestinationChange
+from app.printing.job_access import job_eligible, reconcile_access_holds
+from app.printing.queue_routing_models import QueueDestinationChange
 
 accounts = account_fixture
 

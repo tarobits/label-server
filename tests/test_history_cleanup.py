@@ -7,6 +7,7 @@ from conftest import install, job, profile
 from sqlalchemy import event, func, select, text
 from test_access_security import accounts as account_fixture
 
+from app.accounts.usage import usage_report
 from app.http import record
 from app.models import (
     Batch,
@@ -21,7 +22,6 @@ from app.models import (
     TapeAllocation,
 )
 from app.printer.base import PrintNotStarted
-from app.usage import usage_report
 
 accounts = account_fixture
 PREVIEW = "/api/admin/history/duplicates"

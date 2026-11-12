@@ -17,16 +17,16 @@ import resvg_py
 from fontTools.ttLib import TTFont  # type: ignore[import-untyped]
 from PIL import Image, ImageFont, ImageOps
 
-from app.asset_cache import using_cache
+from app.assets.asset_cache import using_cache
+from app.assets.font_assets import FontStore
+from app.assets.font_variations import InvalidFontWeight, static_instance
+from app.assets.image_assets import ImageStore, image_svg
 from app.barcodes import encode_barcode, encode_matrix
-from app.element_geometry import element_geometry
-from app.font_assets import FontStore
-from app.font_variations import InvalidFontWeight, static_instance
-from app.image_assets import ImageStore, image_svg
-from app.logic_schema import Value, check_text_length
 from app.models import LabelCopy, PrintJob
 from app.printer.base import RenderedLabel
-from app.template_schema import TOKEN, Element, TemplateDocument, TemplateField
+from app.templates.element_geometry import element_geometry
+from app.templates.logic_schema import Value, check_text_length
+from app.templates.template_schema import TOKEN, Element, TemplateDocument, TemplateField
 
 FONT_DIR = Path(__file__).parent / "fonts"
 
@@ -598,9 +598,9 @@ def measure_logic_layout(
     warnings: list[str] | None = None,
 ) -> TemplateDocument:
     """Measure resolved text before evaluating geometry-dependent logic."""
-    from app.logic_engine import resolve_inputs
-    from app.logic_schema import ImageValue
-    from app.template_logic import display_value, logic_fields, sizing_source
+    from app.templates.logic_engine import resolve_inputs
+    from app.templates.logic_schema import ImageValue
+    from app.templates.template_logic import display_value, logic_fields, sizing_source
 
     inputs = resolve_inputs(logic_fields(document), data, samples=samples)
     values = {
@@ -642,7 +642,7 @@ def render_document(
     automatic_length = document.auto_length
     template_padding = 0.0
     if document.version == 2:
-        from app.template_logic import resolve_logic
+        from app.templates.template_logic import resolve_logic
 
         measured = measure_logic_layout(
             document,

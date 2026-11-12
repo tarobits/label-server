@@ -7,9 +7,9 @@ from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 from test_print_audit import direct, grant, prepare_printer
 
+from app.accounts.usage import distribute, settle_usage
 from app.models import Batch, Cartridge, TapeAllocation
 from app.printer.base import PrintNotStarted, PrintResult
-from app.usage import distribute, settle_usage
 
 accounts = account_fixture
 

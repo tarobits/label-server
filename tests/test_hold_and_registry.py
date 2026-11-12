@@ -11,7 +11,7 @@ from app.printer.registry import (
     PrinterDefinition,
     PrinterRegistry,
 )
-from app.queue import QueueWorker
+from app.printing.queue import QueueWorker
 
 
 def test_hold_survives_new_worker_and_allows_manual_flush(client: TestClient) -> None:

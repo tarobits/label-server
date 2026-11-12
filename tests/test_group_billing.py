@@ -8,7 +8,7 @@ from test_granular_printer_permissions import set_permissions
 from test_price_consent import submission
 from test_resource_management import apply
 
-from app.billing_models import BillingCharge
+from app.accounts.billing_models import BillingCharge
 from app.models import LabelCopy, Notification, PrintJob, State, TapeAllocation
 
 ROOT = "/api/accounts/groups"
@@ -59,7 +59,7 @@ def decision(client, identifier, approve):
     )
 
 
-def test_funding_preview_is_scoped_to_pending_approval_and_rechecks_access(accounts):
+def test_funding_preview_is_scoped_to_current_approvers_and_rechecks_access(accounts):
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)
     set_permissions(admin, "bob")
@@ -79,6 +79,8 @@ def test_funding_preview_is_scoped_to_pending_approval_and_rechecks_access(accou
     assert bob.get(url).status_code == 404
     grant(admin, account, "bob", "approve")
     assert decision(bob, funding, False).status_code == 200
+    assert bob.get(url).status_code == 200
+    grant(admin, account, "bob", "approve", "deny")
     assert bob.get(url).status_code == 404
     assert alice.get(url).status_code == 200
     assert bob.get(f"{ROOT}/requests/not-a-request/preview").status_code == 404
@@ -264,10 +266,10 @@ def test_tape_usage_group_balances_follow_user_filter_and_account_access(account
 
 
 def test_notifications_recheck_access_and_never_route_to_shared_channels(accounts):
-    from app.auth import actor_for_user
-    from app.billing_notifications import visible
+    from app.accounts.billing_notifications import visible
+    from app.authn.auth import actor_for_user
     from app.models import NotificationEndpoint, User
-    from app.notification_routing import endpoint_message
+    from app.notifications.notification_routing import endpoint_message
 
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)

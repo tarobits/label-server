@@ -9,9 +9,9 @@ from test_group_billing import ROOT, decision, grant, setup, submit_group
 from test_price_consent import submission
 from test_resource_management import apply
 
-from app.access import Actor
-from app.billing import permissions
-from app.billing_models import BillingCharge, BillingGrant, BillingRequest
+from app.accounts.billing import permissions
+from app.accounts.billing_models import BillingCharge, BillingGrant, BillingRequest
+from app.authn.access import Actor
 from app.models import LabelCopy, State, TapeAllocation, UsageAdjustment
 
 
@@ -203,8 +203,8 @@ def test_csv_funding_is_frozen_for_each_row(accounts):
 
 
 def test_later_personal_price_consent_cannot_raise_the_group_authorization(accounts):
+    from app.accounts.pricing import remaining_allowance
     from app.models import PrintJob
-    from app.pricing import remaining_allowance
 
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)

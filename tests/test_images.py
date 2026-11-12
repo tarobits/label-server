@@ -8,10 +8,10 @@ from app_client import TestClient
 from conftest import install, profile
 from PIL import Image, ImageOps
 
-from app.image_assets import MAX_IMAGE_BYTES, ImageStore
-from app.logic_source import compile_source
-from app.template_logic import logic_fields, logic_targets
-from app.template_schema import Element, TemplateDocument
+from app.assets.image_assets import MAX_IMAGE_BYTES, ImageStore
+from app.templates.logic_source import compile_source
+from app.templates.template_logic import logic_fields, logic_targets
+from app.templates.template_schema import Element, TemplateDocument
 
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><path d="M0 0H50V50H0Z" fill="black"/><rect x="50" width="50" height="50" fill="#999999"/></svg>'
 
@@ -69,7 +69,7 @@ def test_dither_density_survives_placement_in_print_raster(client, x, y):
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
 def test_high_resolution_svg_uses_rectangular_pixels_without_letterboxing(client, rotation):
     from app.render import RenderSpec, render_document
-    from app.template_schema import TemplateDocument
+    from app.templates.template_schema import TemplateDocument
 
     identifier = upload(client, b'<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="16"/></svg>')
     doc = TemplateDocument.model_validate(

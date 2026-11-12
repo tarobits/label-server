@@ -9,9 +9,9 @@ from test_access_security import accounts as accounts
 from test_image_jobs import upload
 from test_runs import run_body
 
-from app import submissions
 from app.db import make_engine, session_factory
 from app.models import TapeProfile
+from app.printing import submissions  # noqa: F401
 
 
 def availability(client, identifier, available):

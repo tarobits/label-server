@@ -12,7 +12,7 @@ from test_access_security import accounts as account_fixture
 
 from app import __version__
 from app.config import Settings
-from app.releases import ReleaseChecker, fetch_release, release_version, stable_version
+from app.maintenance.releases import ReleaseChecker, fetch_release, release_version, stable_version
 
 accounts = account_fixture
 CURRENT = release_version(__version__)[:3]
@@ -122,7 +122,7 @@ def test_private_release_request_uses_server_token(monkeypatch, tmp_path, use_fi
         assert "github_pat" not in request.full_url
         return io.BytesIO(json.dumps({"tag_name": "v0.1.1"}).encode())
 
-    monkeypatch.setattr("app.releases.urlopen", open_request)
+    monkeypatch.setattr("app.maintenance.releases.urlopen", open_request)
     assert fetch_release(Settings.model_validate(config)) == "v0.1.1"
 
 
@@ -160,7 +160,7 @@ def test_prerelease_precedence(earlier, later):
 
 
 def test_stable_update_check_accepts_installed_prerelease(monkeypatch):
-    monkeypatch.setattr("app.releases.__version__", "0.12.0-pre1")
+    monkeypatch.setattr("app.maintenance.releases.__version__", "0.12.0-pre1")
     assert not complete(ReleaseChecker(Settings(), lambda: "v0.11.0"))["update_available"]
     assert complete(ReleaseChecker(Settings(), lambda: "v0.12.0"))["update_available"]
     assert (

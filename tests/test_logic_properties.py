@@ -7,12 +7,12 @@ from conftest import profile
 from test_template_logic import TARGETS
 from test_template_logic_integration import document, save_template
 
-from app.logic_engine import LogicError, evaluate_program
-from app.logic_schema import Target
-from app.logic_source import compile_source, format_source
 from app.render import RenderSpec, render_document
-from app.template_logic import logic_fields, logic_targets
-from app.template_schema import TemplateDocument
+from app.templates.logic_engine import LogicError, evaluate_program
+from app.templates.logic_schema import Target
+from app.templates.logic_source import compile_source, format_source
+from app.templates.template_logic import logic_fields, logic_targets
+from app.templates.template_schema import TemplateDocument
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -161,7 +161,7 @@ def test_hidden_text_is_measured_before_logic_makes_it_visible():
     ],
 )
 def test_bound_text_auto_sizes_between_logic_positioned_images(text, bold, left, right):
-    from app.logic_schema import ImageValue, LogicInput
+    from app.templates.logic_schema import ImageValue, LogicInput
 
     source = TemplateDocument.model_validate(
         {

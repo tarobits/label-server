@@ -8,7 +8,7 @@ from app.media import MediaProperties
 from app.models import PrintJob
 from app.printer.registry import MediaKind
 from app.render import RenderSpec, render_document
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 def fixed_profile(client, length=40):

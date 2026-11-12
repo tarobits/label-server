@@ -10,10 +10,13 @@ from PIL import Image, ImageOps
 from sqlalchemy import Select, false, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import Action, Resource, access_context
-from app.action_audit import record_action, record_swap
-from app.asset_access import require_document_assets
-from app.authorization import (
+from app.accounts.cost_estimates import estimate_cost
+from app.accounts.usage_accounts import AdjustmentInput, account_names
+from app.assets.asset_access import require_document_assets
+from app.audit.action_audit import record_action, record_swap
+from app.audit.print_audit import batch_audit, unknown_attribution
+from app.authn.access import Action, Resource, access_context
+from app.authn.authorization import (
     require_record,
     template_access,
     template_scope,
@@ -21,13 +24,6 @@ from app.authorization import (
     visible_jobs,
     visible_requests,
 )
-from app.cartridge_confirmation import check_cartridge, configure_media, lock_media_configuration
-from app.cartridge_inventory import archive_blockers, deletion_blockers
-from app.copy_counts import copy_count_blocker
-from app.cost_estimates import estimate_cost
-from app.deletion import document_notices, retain
-from app.destinations import automatic_printing_disabled, printer_state, resolve_destination
-from app.element_geometry import element_geometry
 from app.http import (
     db,
     get,
@@ -38,11 +34,7 @@ from app.http import (
     job_template_name,
     record,
 )
-from app.image_jobs import image_document
-from app.logic_authoring import reconcile_program, same_program, source_diagnostic
-from app.logic_engine import OPERATIONS, LogicError, validate_program
-from app.logic_schema import Program
-from app.logic_source import compile_source, format_source
+from app.maintenance.deletion import document_notices, retain
 from app.models import (
     Batch,
     BatchItem,
@@ -52,24 +44,46 @@ from app.models import (
     LabelTemplate,
     Notification,
     NotificationDelivery,
+    NotificationEndpoint,
     PrinterState,
     PrintJob,
     PrintRun,
     State,
     TapeProfile,
     TemplateRevision,
+    User,
 )
-from app.notification_routing import notifications_enabled
-from app.notifications import clear_empty_cartridge_alert
-from app.preparation import rendering
-from app.print_audit import batch_audit, unknown_attribution
-from app.print_planning import geometry_plan, planning_backend, queued_plan
+from app.notifications.notification_routing import notifications_enabled
+from app.notifications.notifications import clear_empty_cartridge_alert
 from app.printer.base import ConfirmableMediaBackend, LabelGeometry
-from app.printer_status import status_record
-from app.queue import EMPTY_TAPE_BLOCKER, resolve_batch
+from app.printing.cartridge_confirmation import (
+    check_cartridge,
+    configure_media,
+    lock_media_configuration,
+)
+from app.printing.cartridge_inventory import archive_blockers, deletion_blockers
+from app.printing.copy_counts import copy_count_blocker
+from app.printing.destinations import (
+    automatic_printing_disabled,
+    printer_state,
+    resolve_destination,
+)
+from app.printing.image_jobs import image_document
+from app.printing.preparation import rendering
+from app.printing.print_planning import geometry_plan, planning_backend, queued_plan
+from app.printing.printer_status import status_record
+from app.printing.queue import EMPTY_TAPE_BLOCKER, resolve_batch
+from app.printing.request_models import PrintRequest
+from app.printing.reservations import reserve_flush
+from app.printing.submissions import (
+    build_job,
+    input_fingerprint,
+    rendering_spec,
+    save_submission,
+    submission_destination,
+    submitted_job,
+)
 from app.render import RenderSpec, measure_logic_layout, render_document, render_job
-from app.request_models import PrintRequest
-from app.reservations import reserve_flush
 from app.schemas import (
     ActiveTapeInput,
     AutomaticPrintingInput,
@@ -89,26 +103,27 @@ from app.schemas import (
     ReminderInput,
     ReviewInput,
 )
-from app.submissions import (
-    build_job,
-    input_fingerprint,
-    rendering_spec,
-    save_submission,
-    submission_destination,
-    submitted_job,
+from app.templates.element_geometry import element_geometry
+from app.templates.logic_authoring import reconcile_program, same_program, source_diagnostic
+from app.templates.logic_engine import OPERATIONS, LogicError, validate_program
+from app.templates.logic_schema import Program
+from app.templates.logic_source import compile_source, format_source
+from app.templates.template_dimensions import template_dimensions
+from app.templates.template_logic import (
+    logic_fields,
+    logic_property_values,
+    logic_targets,
+    resolve_logic,
 )
-from app.template_dimensions import template_dimensions
-from app.template_logic import logic_fields, logic_property_values, logic_targets, resolve_logic
-from app.template_schema import (
+from app.templates.template_schema import (
     LogicCompileInput,
     PreviewInput,
     RevisionRestoreInput,
     TemplateDocument,
     TemplateInput,
 )
-from app.templates import save_revision, template_record
+from app.templates.templates import save_revision, template_record
 from app.transaction_routes import TransactionRouter
-from app.usage_accounts import AdjustmentInput, account_names
 
 router = TransactionRouter(prefix="/api")
 
@@ -187,7 +202,7 @@ def delete_profile(
     identifier: str, session: Session = Depends(db, scope="function")
 ) -> dict[str, bool]:
     profile = get(session, TapeProfile, identifier)
-    from app.request_models import PrintRequest
+    from app.printing.request_models import PrintRequest
 
     if any(
         label["profile_id"] == identifier
@@ -269,7 +284,7 @@ def create_cartridge(
     cartridge = Cartridge(**values, owner_id=access_context(request).actor.id)
     session.add(cartridge)
     session.flush()
-    from app.ownership import record_ownership
+    from app.authn.ownership import record_ownership
 
     record_ownership(session, "cartridge", cartridge)
     record_action(
@@ -363,7 +378,7 @@ def tape_usage(
     cartridge_id: str | None = Query(default=None, min_length=1, max_length=100),
     session: Session = Depends(db, scope="function"),
 ) -> dict[str, Any]:
-    from app.usage import usage_report
+    from app.accounts.usage import usage_report
 
     context = access_context(request)
     if (all_users or user_id not in (None, context.actor.id)) and not context.has_permission(
@@ -399,7 +414,7 @@ def usage_adjustment(
     context = access_context(request)
     if not context.has_permission("usage.edit_accounts"):
         raise HTTPException(403, "Editing usage accounts is not permitted")
-    from app.accounting_api import record_repayment
+    from app.accounts.accounting_api import record_repayment
 
     return record(record_repayment(request, session, body))
 
@@ -523,7 +538,7 @@ def active_tape(
         else (None, None)
     )
     if cartridge is not None:
-        from app.cartridge_location import installation_location
+        from app.printing.cartridge_location import installation_location
 
         location_preview = installation_location(
             session, request, printer_id, cartridge, body.move_location, body.location_confirmation
@@ -713,7 +728,7 @@ def automatic_printing(
 
 @router.get("/templates")
 def templates(
-    request: Request, session: Session = Depends(db, scope="function")
+    request: Request, session: Session = Depends(db, scope="function"), archived: bool = False
 ) -> list[dict[str, Any]]:
     return [
         {
@@ -724,7 +739,7 @@ def templates(
         }
         for t in session.scalars(
             select(LabelTemplate)
-            .where(LabelTemplate.archived.is_(False))
+            .where(LabelTemplate.archived.is_(archived))
             .order_by(LabelTemplate.name)
         )
         if template_access(request, t)
@@ -843,6 +858,16 @@ def archive_template(
     return {"archived": True}
 
 
+@router.post("/templates/{identifier}/unarchive")
+def unarchive_template(
+    identifier: str, request: Request, session: Session = Depends(db, scope="function")
+) -> dict[str, bool]:
+    value = get(session, LabelTemplate, identifier)
+    require_record(request, value, Action.DELETE)
+    value.archived = False
+    return {"archived": False}
+
+
 @router.delete("/templates/{identifier}/permanent")
 def delete_template(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
@@ -856,7 +881,7 @@ def delete_template(
         raise HTTPException(403, "You cannot delete this template")
     require_record(request, value, Action.DELETE)
     retain(session, "templates", identifier, value.name, value.owner_id, actor.id)
-    from app.job_access import reconcile_access_holds
+    from app.printing.job_access import reconcile_access_holds
 
     reconcile_access_holds(session)
     return {"deleted": True}
@@ -1100,7 +1125,7 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
             require_matching_media(output.document.media, profile)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
-        from app.authorization import rendering_destination
+        from app.authn.authorization import rendering_destination
 
         destination = rendering_destination(
             request, session, body.destination_id, allow_unassigned=True
@@ -1177,7 +1202,7 @@ def create_job(
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
         return existing
-    from app.pricing import accept_quote
+    from app.accounts.pricing import accept_quote
 
     accept_quote(
         request,
@@ -1272,7 +1297,7 @@ def create_image_job(
     existing = submitted_job(request, session, fingerprint)
     if existing is not None:
         return existing
-    from app.pricing import accept_quote
+    from app.accounts.pricing import accept_quote
 
     accept_quote(
         request,
@@ -1362,7 +1387,7 @@ def queue_groups(
         saved_plan = (run.manifest if run else jobs[0].template_snapshot).get("print_plan")
         cost = None
         if has_queued:
-            from app.print_planning import queued_geometry
+            from app.printing.print_planning import queued_geometry
 
             cost = estimate_cost(
                 request,
@@ -1454,7 +1479,7 @@ def update_completion_notification(
         raise HTTPException(403, "Only the owner can change this notification preference")
     item.notify_on_completion = body.notify_on_completion
     if not body.notify_on_completion:
-        from app.notification_routing import refresh_summary
+        from app.notifications.notification_routing import refresh_summary
 
         for notice in session.scalars(
             select(Notification).where(
@@ -1587,7 +1612,7 @@ def batch_process_names(session: Session, batch: Batch) -> list[str]:
 
 
 def visible_batches(request: Request, session: Session) -> Select[Batch]:
-    from app.print_activity import visible_items
+    from app.printing.print_activity import visible_items
 
     query = select(Batch)
     if not access_context(request).actor.is_admin:
@@ -1603,7 +1628,7 @@ def visible_batches(request: Request, session: Session) -> Select[Batch]:
 def batch_history_records(
     request: Request, session: Session, query: Select[Batch]
 ) -> list[dict[str, Any]]:
-    from app.print_activity import activity_record
+    from app.printing.print_activity import activity_record
 
     return [activity_record(request, session, batch) for batch in session.scalars(query)]
 
@@ -1633,7 +1658,7 @@ def batch_page(
 ) -> dict[str, Any]:
     stamp = time.time() if before is None else before
     query = visible_batches(request, session).where(Batch.created_at <= stamp)
-    from app.print_activity import filter_batches, visible_items
+    from app.printing.print_activity import filter_batches, visible_items
 
     context = access_context(request)
     if (
@@ -1665,7 +1690,7 @@ def batch_page(
 def batch_filters(
     request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    from app.print_activity import filter_options, visible_items
+    from app.printing.print_activity import filter_options, visible_items
 
     result = filter_options(
         session, visible_batches(request, session), visible_items(request, session)
@@ -1687,13 +1712,13 @@ def batch_filters(
 def batch_detail(
     identifier: str, request: Request, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
-    from app.activity_redaction import personal_attribution
-    from app.print_activity import activity_record, full_activity, readable_batch
+    from app.audit.activity_redaction import personal_attribution
+    from app.printing.print_activity import activity_record, full_activity, readable_batch
 
     batch = readable_batch(request, session, identifier)
     full = full_activity(request, batch, review=True)
     context = access_context(request)
-    from app.batch_reviews import evidence_policy, review_records
+    from app.printing.batch_reviews import evidence_policy, review_records
 
     output_plans = {
         item["copy_id"]: item for item in (batch.print_plan or {}).get("label_output", [])
@@ -1748,8 +1773,8 @@ def review(
 ) -> dict[str, Any]:
     batch = get(session, Batch, identifier)
     access_context(request).require_printer(batch.printer_id, "review")
-    from app.batch_reviews import normalize_photo, repeated_review, save_review
-    from app.submissions import input_fingerprint
+    from app.printing.batch_reviews import normalize_photo, repeated_review, save_review
+    from app.printing.submissions import input_fingerprint
 
     fingerprint = input_fingerprint(
         {"batch_id": identifier, "kind": "review", **body.model_dump(mode="json")}
@@ -1800,7 +1825,7 @@ def batch_item_preview(
     request: Request,
     session: Session = Depends(db, scope="function"),
 ) -> Response:
-    from app.print_activity import full_activity, readable_batch
+    from app.printing.print_activity import full_activity, readable_batch
 
     batch = readable_batch(request, session, identifier)
     if session.get(BatchItem, (identifier, copy_id)) is None:
@@ -1839,18 +1864,28 @@ def notification_history_records(
             **record(n),
             "deliveries": [
                 {
-                    key: getattr(delivery, key)
-                    for key in (
-                        "endpoint_name",
-                        "attempts",
-                        "next_attempt_at",
-                        "delivered_at",
-                        "cancelled",
-                        "last_error",
-                    )
+                    "account_name": username
+                    or ("Deleted account" if owner_id else "Shared endpoint"),
+                    **{
+                        key: getattr(delivery, key)
+                        for key in (
+                            "endpoint_name",
+                            "attempts",
+                            "next_attempt_at",
+                            "delivered_at",
+                            "cancelled",
+                            "last_error",
+                        )
+                    },
                 }
-                for delivery in session.scalars(
-                    select(NotificationDelivery).where(NotificationDelivery.notification_id == n.id)
+                for delivery, owner_id, username in session.execute(
+                    select(NotificationDelivery, NotificationEndpoint.owner_id, User.username)
+                    .join(
+                        NotificationEndpoint,
+                        NotificationEndpoint.id == NotificationDelivery.endpoint_id,
+                    )
+                    .outerjoin(User, User.id == NotificationEndpoint.owner_id)
+                    .where(NotificationDelivery.notification_id == n.id)
                 )
             ],
         }

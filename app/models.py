@@ -17,8 +17,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.mysql import LONGBLOB, LONGTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
-from app.notification_types import DEFAULT_NOTIFICATION_PRIORITIES
+from app.authn.identity import DEFAULT_PRINTER_ID, LOCAL_OWNER_ID
+from app.notifications.notification_types import DEFAULT_NOTIFICATION_PRIORITIES
 
 
 def new_id() -> str:
@@ -130,6 +130,8 @@ class User(Base):
     created_at: Mapped[float] = mapped_column(default=time.time)
     last_seen_version: Mapped[str | None]
     email: Mapped[str | None]
+    language: Mapped[str] = mapped_column(String(16), default="browser", server_default="browser")
+    browser_language: Mapped[str] = mapped_column(String(16), default="en", server_default="en")
 
 
 class RecoveryToken(Base):
@@ -698,3 +700,22 @@ class UsageAdjustment(Base):
         JSON, default=dict, server_default="{}"
     )
     requested_allocations: Mapped[dict[str, str] | None] = mapped_column(JSON)
+
+
+class PaymentReport(Base):
+    """Payment claims, separate from the ledger until approved; historical identities survive deletion."""
+
+    __tablename__ = "payment_reports"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    username: Mapped[str]
+    recipient_id: Mapped[str] = mapped_column(String(128), index=True)
+    recipient_name: Mapped[str]
+    amount_minor: Mapped[int]
+    currency: Mapped[str] = mapped_column(String(3))
+    note: Mapped[str]
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    created_at: Mapped[float] = mapped_column(default=time.time)
+    reviewed_at: Mapped[float | None]
+    reviewer_id: Mapped[str | None] = mapped_column(String(128))
+    reviewer_name: Mapped[str | None]

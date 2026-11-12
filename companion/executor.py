@@ -3,7 +3,7 @@
 from threading import Lock
 from typing import Any
 
-from app.companion_protocol import BatchEnvelope, ExecutionResult, payload_digest
+from app.companion.companion_protocol import BatchEnvelope, ExecutionResult, payload_digest
 from app.printer.base import (
     ControlledPrinterBackend,
     PrintControl,

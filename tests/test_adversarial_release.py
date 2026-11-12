@@ -24,11 +24,11 @@ from test_companion_station import local_station, unlock
 from test_profile_availability import availability
 from test_runs import run_body
 
-from app import submissions
-from app.auth import token_hash
+from app.authn.auth import token_hash
 from app.http import db
 from app.http_security import HttpSecurity
 from app.models import CompanionSession, StoredAsset, TapeProfile, UserGroup
+from app.printing import submissions  # noqa: F401
 from app.transaction_routes import TransactionRouter
 from companion.journal import Journal
 from companion.web import create_app

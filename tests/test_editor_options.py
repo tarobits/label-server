@@ -7,7 +7,7 @@ from conftest import profile
 from PIL import Image
 
 from app.render import RenderSpec, render_document
-from app.template_schema import TemplateDocument
+from app.templates.template_schema import TemplateDocument
 
 
 def document(**options):

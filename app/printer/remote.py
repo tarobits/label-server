@@ -6,7 +6,12 @@ from dataclasses import asdict
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.companion_protocol import BatchEnvelope, ExecutionResult, WireLabel, payload_digest
+from app.companion.companion_protocol import (
+    BatchEnvelope,
+    ExecutionResult,
+    WireLabel,
+    payload_digest,
+)
 from app.models import Companion, CompanionBatch, CompanionPrinter, PrinterDevice
 from app.printer.base import (
     BatchPlan,

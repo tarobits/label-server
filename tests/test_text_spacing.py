@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 
 from app.models import LabelCopy, PrintJob
 from app.render import FONT_DIR, RenderSpec, render_document, render_job
-from app.template_schema import DistanceHolder, Element, TemplateDocument, TemplateField
+from app.templates.template_schema import DistanceHolder, Element, TemplateDocument, TemplateField
 
 
 def document(**changes):

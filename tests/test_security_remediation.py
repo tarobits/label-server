@@ -17,11 +17,11 @@ from test_auth import PASSWORD, change, setup_admin
 from test_auth import auth_client as auth_client
 from test_companion_station import local_station, unlock
 
-from app import auth_api
-from app.billing_models import BillingAccount, BillingGrant
+from app.accounts.billing_models import BillingAccount, BillingGrant
+from app.authn import auth_api  # noqa: F401
 from app.http_security import HttpSecurity
 from app.models import Role, StoredAsset, User
-from app.template_previews import TemplatePreviews
+from app.templates.template_previews import TemplatePreviews
 from companion.config import Settings
 from companion.journal import Journal
 from companion.web import create_app
@@ -317,15 +317,16 @@ def test_lock_during_pending_unlock_revokes_late_remote_session(accounts, tmp_pa
         )
         assert response.status_code == 409
         assert not app.state.station.remote_token
-        from app.auth import token_hash
+        from app.authn.auth import token_hash
         from app.models import CompanionSession
 
         with admin.app.state.factory() as session:
             assert session.get(CompanionSession, token_hash(remote[0])) is None
 
 
-def test_session_revocation_survives_offline_journal_reopen(accounts, tmp_path, monkeypatch):
-    from app.auth import token_hash
+@pytest.mark.parametrize("idle", [False, True], ids=["explicit-lock", "idle-expiry"])
+def test_session_revocation_survives_offline_journal_reopen(accounts, tmp_path, monkeypatch, idle):
+    from app.authn.auth import token_hash
     from app.models import CompanionSession
 
     admin, _, _ = accounts
@@ -340,7 +341,12 @@ def test_session_revocation_survives_offline_journal_reopen(accounts, tmp_path, 
             raise httpx.ConnectError("offline")
 
         monkeypatch.setattr(agent, "request", offline)
-        assert client.post("/api/station/lock").status_code == 200
+        if idle:
+            with app.state.station.lock:
+                app.state.station.last_activity -= settings.lock_timeout_seconds + 1
+            assert client.get("/api/station").json()["locked"] is True
+        else:
+            assert client.post("/api/station/lock").status_code == 200
         assert not app.state.station.remote_token
         agent.journal = Journal(settings.data_dir / "journal.db")
         assert agent.journal.pending_revocations() == [token]
@@ -349,6 +355,57 @@ def test_session_revocation_survives_offline_journal_reopen(accounts, tmp_path, 
         assert not agent.journal.pending_revocations()
         with admin.app.state.factory() as session:
             assert session.get(CompanionSession, token_hash(token)) is None
+        unlock(client)
+        assert client.get("/api/station").json()["locked"] is False
+
+
+def test_cancelled_expensive_request_retains_capacity_through_late_failure():
+    async def exercise():
+        entered, resume = asyncio.Event(), asyncio.Event()
+        calls = 0
+        sent = []
+
+        async def endpoint(scope, receive, send):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                entered.set()
+                await resume.wait()
+                raise RuntimeError("late failure after cancellation")
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        middleware = HttpSecurity(endpoint, expensive_limit=1)
+        scope = {"type": "http", "method": "POST", "path": "/api/preview", "headers": []}
+        first = asyncio.create_task(middleware(scope, receive, send))
+        try:
+            with anyio.fail_after(2):
+                await entered.wait()
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            assert not sent
+            await middleware(scope, receive, send)
+            assert sent[0]["status"] == 503
+            assert calls == 1
+        finally:
+            resume.set()
+            await asyncio.gather(first, return_exceptions=True)
+            with anyio.fail_after(2):
+                while middleware.in_flight:
+                    await asyncio.sleep(0)
+        sent.clear()
+        await middleware(scope, receive, send)
+        assert sent[0]["status"] == 200
+        assert calls == 2
+
+    anyio.run(exercise)
 
 
 def test_companion_embedding_env_and_cookie_policy(accounts, tmp_path, monkeypatch):

@@ -3,10 +3,10 @@ import zxingcpp
 from PIL import Image
 
 from app.barcodes import encode_barcode
-from app.logic_source import compile_source
 from app.render import RenderSpec, render_document
-from app.template_logic import logic_fields, logic_targets
-from app.template_schema import TemplateDocument
+from app.templates.logic_source import compile_source
+from app.templates.template_logic import logic_fields, logic_targets
+from app.templates.template_schema import TemplateDocument
 
 
 @pytest.mark.parametrize(

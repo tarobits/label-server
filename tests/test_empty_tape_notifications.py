@@ -7,10 +7,10 @@ from conftest import install, profile
 from sqlalchemy import select, text
 from test_notifications import Sender
 
+from app.authn.identity import LOCAL_OWNER_ID
 from app.db import make_engine, session_factory
-from app.identity import LOCAL_OWNER_ID
 from app.models import AuthSettings, Notification, User
-from app.notifications import deliver_pending, enqueue
+from app.notifications.notifications import deliver_pending, enqueue
 
 
 def empty_alert(client, *, administrator=True):

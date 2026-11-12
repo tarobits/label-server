@@ -7,7 +7,7 @@ from test_access_security import accounts as accounts
 from test_companion_execution import queued_remote
 from test_companion_station import local_station, unlock
 
-from app.companion_dashboard import printer_dashboard
+from app.companion.companion_dashboard import printer_dashboard
 from app.models import Batch, BatchItem, LabelCopy, PrinterGroup, PrintJob, ResourceGrant, State
 from companion.web import create_app
 
@@ -16,8 +16,8 @@ from companion.web import create_app
 def test_manual_only_mode_reaches_locked_station_and_survives_sync(
     accounts, tmp_path, monkeypatch, enabled
 ):
-    from app.destinations import printer_state
     from app.models import PrinterDevice
+    from app.printing.destinations import printer_state
 
     monkeypatch.setenv("LABEL_COMPANION_SHOW_LOCKED_DASHBOARD_DETAILS", str(enabled).lower())
     admin = accounts[0]

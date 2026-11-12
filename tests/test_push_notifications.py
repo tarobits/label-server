@@ -23,9 +23,9 @@ from app.models import (
     Role,
     User,
 )
-from app.notification_routing import deliver_routed_pending, endpoint_message
-from app.notifications import enqueue
-from app.push_delivery import (
+from app.notifications.notification_routing import deliver_routed_pending, endpoint_message
+from app.notifications.notifications import enqueue
+from app.notifications.push_delivery import (
     ExpiredSubscription,
     PushSession,
     generate_key,
@@ -309,14 +309,14 @@ def test_multiple_devices_retry_independently_and_expired_endpoints_are_disabled
         if endpoint.id == first["id"]:
             raise OSError("private-subscription-url")
 
-    monkeypatch.setattr("app.notification_routing.send_push", send)
+    monkeypatch.setattr("app.notifications.notification_routing.send_push", send)
     deliver_routed_pending(factory, settings, now)
     assert sorted(sent) == sorted([first["id"], second["id"]])
 
     def expired(*args):
         raise ExpiredSubscription()
 
-    monkeypatch.setattr("app.notification_routing.send_push", expired)
+    monkeypatch.setattr("app.notifications.notification_routing.send_push", expired)
     deliver_routed_pending(factory, settings, now + 31)
     with factory() as session:
         assert not session.get(NotificationEndpoint, first["id"]).enabled
@@ -380,7 +380,7 @@ def test_permanent_vs_transient_delivery_errors(push_accounts, monkeypatch, stat
         response.status_code = status
         raise WebPushException("secret-endpoint", response=response)
 
-    monkeypatch.setattr("app.push_delivery.webpush", reject)
+    monkeypatch.setattr("app.notifications.push_delivery.webpush", reject)
     with pytest.raises(ExpiredSubscription if status in (404, 410) else ValueError) as error:
         send_push(
             settings,
@@ -395,7 +395,7 @@ def test_test_notification_only_targets_selected_owned_device(push_accounts, mon
     device, _ = register(alice)
     sent = []
     monkeypatch.setattr(
-        "app.push_api.send_push",
+        "app.notifications.push_api.send_push",
         lambda settings, endpoint, notice: sent.append((endpoint.id, notice.path)),
     )
     path = "/api/auth/push/" + device["id"] + "/test"

@@ -43,10 +43,10 @@ def create_test_app(settings=None, backends=None, start_worker=True, **kwargs):
         start_worker,
         backend_factory=kwargs.get("backend_factory", test_printer),
     )
-    from app.access import LocalOwnerPolicy
+    from app.authn.access import LocalOwnerPolicy
 
     app.state.access_policy = LocalOwnerPolicy()
-    from app.identity import LOCAL_OWNER_ID
+    from app.authn.identity import LOCAL_OWNER_ID
     from app.models import User
 
     with app.state.factory.begin() as session:

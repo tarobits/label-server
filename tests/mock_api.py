@@ -5,8 +5,8 @@ from mock_backend import MockPrinterBackend
 from pydantic import Field
 from sqlalchemy.orm import Session
 
-from app.destinations import resolve_destination
 from app.http import db
+from app.printing.destinations import resolve_destination
 from app.schemas import Input
 from app.transaction_routes import TransactionRouter
 

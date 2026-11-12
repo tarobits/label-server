@@ -225,7 +225,7 @@ def test_asset_permission_migration_keeps_existing_content_private(tmp_path):
         "fonts.create_personal",
     }
     assert values["viewer"] == []
-    from app.image_assets import ImageStore
+    from app.assets.image_assets import ImageStore
 
     store = ImageStore(tmp_path / "images")
     item = store.add(SVG)

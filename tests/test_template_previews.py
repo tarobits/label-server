@@ -9,9 +9,9 @@ from PIL import Image
 from sqlalchemy import select
 from test_access_security import accounts as accounts
 
-from app.deletion import purge_expired
+from app.maintenance.deletion import purge_expired
 from app.models import DeletedContent
-from app.template_previews import TemplatePreviews
+from app.templates.template_previews import TemplatePreviews
 
 
 def design(tape=None, image=None):
@@ -101,7 +101,7 @@ def test_tape_snapshot_is_saved_in_revisions_but_printing_can_choose_another_pro
 def test_webp_is_generated_once_and_survives_store_recreation_until_template_changes(
     client, monkeypatch
 ):
-    from app import template_previews
+    from app.templates import template_previews  # noqa: F401
 
     calls = []
     original = template_previews.render_document

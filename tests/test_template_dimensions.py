@@ -5,8 +5,8 @@ import copy
 import pytest
 
 from app.render import RenderSpec, render_document
-from app.template_dimensions import template_dimensions
-from app.template_schema import TemplateDocument
+from app.templates.template_dimensions import template_dimensions
+from app.templates.template_schema import TemplateDocument
 
 
 def text(**changes):

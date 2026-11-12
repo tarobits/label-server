@@ -4,7 +4,7 @@ import pytest
 from assertions import require_value
 from sqlalchemy import func, select
 
-from app.audit import (
+from app.audit.audit import (
     AuditField,
     AuditFilters,
     AuditRequirement,
@@ -13,8 +13,8 @@ from app.audit import (
     audit_page,
     project_audit,
 )
+from app.authn.resource_access import ResourceAccess, resolve_resource_access
 from app.models import AuditEvent, Location, PrinterDevice, ResourceGrant, User
-from app.resource_access import ResourceAccess, resolve_resource_access
 
 
 def access(*, admin=False, application=(), resources=None):

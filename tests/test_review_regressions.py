@@ -14,7 +14,7 @@ from test_access import Policy
 from test_brother import Transport
 from test_fleet import device, fit, group, submit
 
-from app.access import Action
+from app.authn.access import Action
 from app.models import LabelCopy, LabelTemplate, PrinterDevice, PrintJob, TapeProfile
 from app.printer.brother import BrotherPTP710BT, encode_raster
 from app.render import render_job
@@ -193,11 +193,11 @@ def test_rendering_does_not_hold_fleet_lock_and_rejects_concurrent_template_edit
     client, monkeypatch, path
 ):
     import app.api
-    import app.submissions
+    import app.printing.submissions
 
     tape = profile(client)
     entered, release = Event(), Event()
-    module = app.api if path == "/api/preview" else app.submissions
+    module = app.api if path == "/api/preview" else app.printing.submissions
     original = module.render_document
 
     def slow(*args, **kwargs):
@@ -230,20 +230,20 @@ def test_rendering_does_not_hold_fleet_lock_and_rejects_concurrent_template_edit
 
 
 def test_queue_renders_without_fleet_lock_but_preserves_reservation(client, monkeypatch):
-    import app.queue
+    import app.printing.queue
 
     tape = profile(client, threshold=1)
     install(client, tape["id"])
     queued = job(client, tape["id"])
     entered, release = Event(), Event()
-    original = app.queue.render_job
+    original = app.printing.queue.render_job
 
     def slow(*args, **kwargs):
         entered.set()
         assert release.wait(5)
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(app.queue, "render_job", slow)
+    monkeypatch.setattr(app.printing.queue, "render_job", slow)
     with ThreadPoolExecutor() as pool:
         future = pool.submit(client.app.state.fleet.workers["main"].tick)
         try:
@@ -319,7 +319,7 @@ def test_cancel_pending_flush_preserves_jobs_and_hold(client):
 
 
 def test_image_deleted_during_preparation_does_not_get_dangling_reference(client, monkeypatch):
-    import app.submissions
+    import app.printing.submissions
 
     tape = profile(client)
     asset = client.post(
@@ -327,7 +327,7 @@ def test_image_deleted_during_preparation_does_not_get_dangling_reference(client
         content=b'<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
     ).json()
     entered, release = Event(), Event()
-    original = app.submissions.render_document
+    original = app.printing.submissions.render_document
 
     def slow(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -335,7 +335,7 @@ def test_image_deleted_during_preparation_does_not_get_dangling_reference(client
         assert release.wait(5)
         return result
 
-    monkeypatch.setattr(app.submissions, "render_document", slow)
+    monkeypatch.setattr(app.printing.submissions, "render_document", slow)
     with ThreadPoolExecutor() as pool:
         future = pool.submit(
             client.post,

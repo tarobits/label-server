@@ -15,7 +15,7 @@ from app.render import render_job
 
 def test_high_resolution_renders_native_geometry_and_keeps_legacy_snapshots():
     from app.render import RenderSpec, render_document
-    from app.template_schema import TemplateDocument
+    from app.templates.template_schema import TemplateDocument
 
     doc = TemplateDocument.model_validate(
         {
@@ -62,7 +62,7 @@ def test_high_resolution_renders_native_geometry_and_keeps_legacy_snapshots():
 
 def test_high_resolution_qr_is_square_in_physical_units_and_decodes():
     from app.render import RenderSpec, render_document
-    from app.template_schema import TemplateDocument
+    from app.templates.template_schema import TemplateDocument
 
     doc = TemplateDocument.model_validate(asset_document())
     data = {"name": "Resolution", "url": "https://example.org/42"}
@@ -257,7 +257,7 @@ def test_qr_fill_box_scales_up_across_versions(client: TestClient, content: str)
     import qrcode.constants
 
     from app.render import RenderSpec, qr_svg
-    from app.template_schema import Element
+    from app.templates.template_schema import Element
 
     element = Element(id="qr", kind="qr", x=2, y=2, width=20, height=20)
     matrix = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=4)
@@ -292,7 +292,7 @@ def test_qr_explicit_margin_fills_box(client: TestClient, margin: float) -> None
     import re
 
     from app.render import RenderSpec, qr_svg
-    from app.template_schema import Element
+    from app.templates.template_schema import Element
 
     element = Element(
         id="qr",
@@ -323,7 +323,7 @@ def test_text_vertical_alignment_positions_whole_block(content: str) -> None:
     import re
 
     from app.render import text_svg
-    from app.template_schema import Element
+    from app.templates.template_schema import Element
 
     element = Element(id="text", kind="text", x=2, y=2, width=40, height=20)
     positions = []
@@ -365,7 +365,7 @@ def test_text_fits_box_without_exceeding_chosen_font_size(
     import re
 
     from app.render import font_for, text_svg
-    from app.template_schema import Element
+    from app.templates.template_schema import Element
 
     element = Element(
         id="fit",

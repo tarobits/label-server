@@ -7,7 +7,7 @@ from conftest import install, job, profile
 from test_access_security import accounts as account_fixture
 from test_print_audit import direct, grant, prepare_printer
 
-from app.deletion import retain
+from app.maintenance.deletion import retain
 from app.models import BatchItem, LabelTemplate, PrinterDevice, PrinterGroup, PrintJob, State
 
 accounts = account_fixture

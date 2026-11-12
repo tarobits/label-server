@@ -9,8 +9,8 @@ from test_access_security import SVG
 from test_access_security import accounts as account_fixture
 from test_auth import PASSWORD, change, login, preview
 
-from app.auth import hash_password, token_hash
-from app.deletion import RETENTION_SECONDS, purge_expired
+from app.authn.auth import hash_password, token_hash
+from app.maintenance.deletion import RETENTION_SECONDS, purge_expired
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,

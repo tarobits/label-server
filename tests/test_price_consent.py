@@ -119,7 +119,7 @@ def test_inventory_price_episodes_continue_without_installed_tape_and_while_held
         == 201
     )
     with admin.app.state.factory.begin() as session:
-        from app.destinations import printer_state
+        from app.printing.destinations import printer_state
 
         state = printer_state(session, "main")
         state.active_cartridge_id = None

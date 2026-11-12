@@ -16,7 +16,7 @@ from mock_backend import MockPrinterBackend
 from printer_factory import test_printer as printer_factory
 from sqlalchemy import func, select
 
-from app.auth import COOKIE_NAME, token_hash
+from app.authn.auth import COOKIE_NAME, token_hash
 from app.config import Settings
 from app.main import create_app
 from app.models import (
@@ -31,7 +31,7 @@ from app.models import (
     User,
     UserGroup,
 )
-from app.request_models import PrintRequest
+from app.printing.request_models import PrintRequest
 
 SVG = b'<svg viewBox="0 0 20 20"><path d="M2 2H18V18H2Z"/></svg>'
 
@@ -378,19 +378,19 @@ def test_group_destination_grant_does_not_grant_direct_printer_access(accounts) 
 
 
 def test_revoking_a_grant_during_rendering_prevents_saved_submission(accounts, monkeypatch) -> None:
-    import app.submissions
+    import app.printing.submissions
 
     admin, alice, _ = accounts
     tape = profile(admin)
     entered, released = Event(), Event()
-    original = app.submissions.render_document
+    original = app.printing.submissions.render_document
 
     def paused_render(*args, **kwargs):
         entered.set()
         assert released.wait(5), "Test did not release rendering"
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(app.submissions, "render_document", paused_render)
+    monkeypatch.setattr(app.printing.submissions, "render_document", paused_render)
     with ThreadPoolExecutor(max_workers=1) as pool:
         pending = pool.submit(
             alice.post,

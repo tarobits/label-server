@@ -11,12 +11,12 @@ from sqlalchemy import delete, select
 from test_access_security import accounts as accounts
 from test_avatars import picture
 
-from app.asset_cache import cache_use, expire
-from app.asset_import import import_assets
-from app.avatars import avatar_path, avatar_version, normalize_avatar, read_avatar
-from app.binary_json import decode_binary
-from app.font_assets import FontStore
-from app.image_assets import ImageStore
+from app.assets.asset_cache import cache_use, expire
+from app.assets.asset_import import import_assets
+from app.assets.binary_json import decode_binary
+from app.assets.font_assets import FontStore
+from app.assets.image_assets import ImageStore
+from app.authn.avatars import avatar_path, avatar_version, normalize_avatar, read_avatar
 from app.models import AssetImport, StoredAsset
 from app.render import FONT_DIR
 from scripts.database_maintenance import encode
@@ -144,7 +144,7 @@ def test_backup_binary_codec_and_migration_digest_are_byte_exact():
 
 
 def test_archive_requires_committed_import_and_moves_all_files_without_overwrite(client, tmp_path):
-    from app.asset_import import archive_legacy_assets
+    from app.assets.asset_import import archive_legacy_assets
 
     root = tmp_path / "assets"
     root.mkdir()
@@ -172,7 +172,7 @@ def test_interrupted_archive_retries_without_touching_database_or_source(
 ):
     from pathlib import Path
 
-    from app.asset_import import archive_legacy_assets
+    from app.assets.asset_import import archive_legacy_assets
 
     root = tmp_path / "assets"
     root.mkdir()
@@ -226,7 +226,7 @@ def test_startup_commits_import_then_archives_assets_once(tmp_path):
 
 def test_retained_smooth_preview_rehydrates_expired_font_cache(client):
     from app.render import RenderSpec, render_document
-    from app.template_schema import TemplateDocument
+    from app.templates.template_schema import TemplateDocument
 
     font = client.post("/api/font-assets", content=(FONT_DIR / "NotoSans.ttf").read_bytes()).json()
     document = TemplateDocument.model_validate(
@@ -253,7 +253,7 @@ def test_retained_smooth_preview_rehydrates_expired_font_cache(client):
 
 
 def test_packet_preflight_rejects_oversized_binary_without_serializing_payload():
-    from app.binary_json import check_packet_size
+    from app.assets.binary_json import check_packet_size
 
     with pytest.raises(ValueError, match="max_allowed_packet") as error:
         check_packet_size([b"private bytes" * 100], 1024)

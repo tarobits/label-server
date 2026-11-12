@@ -7,7 +7,7 @@ from conftest import install, job, profile
 
 from app.config import Settings
 from app.models import Notification, NotificationEndpoint
-from app.notifications import NtfySender, deliver_pending
+from app.notifications.notifications import NtfySender, deliver_pending
 
 
 class Sender:

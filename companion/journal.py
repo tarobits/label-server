@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator
 
-from app.companion_protocol import BatchEnvelope, ExecutionResult, payload_digest
+from app.companion.companion_protocol import BatchEnvelope, ExecutionResult, payload_digest
 
 
 class Journal:

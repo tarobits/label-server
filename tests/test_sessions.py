@@ -11,10 +11,10 @@ from app_client import TestClient
 from sqlalchemy import select, text
 from test_auth import PASSWORD, auth_client, invite, register_member, setup_admin
 
-from app.auth import COOKIE_NAME, token_hash
+from app.authn.auth import COOKIE_NAME, token_hash
+from app.authn.session_details import client_description
 from app.db import make_engine
 from app.models import AuthSession, NotificationEndpoint
-from app.session_details import client_description
 
 __all__ = ["auth_client"]
 UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36"

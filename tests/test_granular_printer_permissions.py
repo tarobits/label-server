@@ -6,8 +6,8 @@ from test_auth import change
 from test_printer_controls import controlled
 from test_runs import run_body
 
-from app.job_access import reconcile_access_holds
 from app.models import AuditEvent, Location, PrinterDevice, PrinterGroup, ResourceGrant, Role
+from app.printing.job_access import reconcile_access_holds
 
 
 def set_permissions(admin, username, *permissions, destination="main"):

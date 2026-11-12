@@ -1,5 +1,6 @@
 """Byte budgets before parsing, bounded expensive requests and explicit framing."""
 
+import asyncio
 from threading import BoundedSemaphore
 from urllib.parse import urlsplit
 
@@ -45,6 +46,7 @@ class HttpSecurity:
         self.app = app
         self.json_limit, self.bulk_limit = json_limit, bulk_limit
         self.slots = BoundedSemaphore(expensive_limit)
+        self.in_flight: set[asyncio.Task[None]] = set()
         self.frames = frame_origins(allowed_frames or [])
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -52,8 +54,11 @@ class HttpSecurity:
             await self.app(scope, receive, send)
             return
         path, method = scope["path"], scope["method"]
+        disconnected = False
 
         async def secure_send(message: Message) -> None:
+            if disconnected:
+                return
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers = [
@@ -146,12 +151,40 @@ class HttpSecurity:
 
             async def replay() -> Message:
                 nonlocal delivered
+                if disconnected:
+                    return {"type": "http.disconnect"}
                 if not delivered:
                     delivered = True
                     return {"type": "http.request", "body": payload, "more_body": False}
                 return await receive()
 
-            await self.app(scope, replay, secure_send)
+            if admitted:
+                # Raw asyncio cancellation can abandon an AnyIO sync worker.
+                # Keep the admitted application task alive until its worker and
+                # transaction cleanup finish; only that task releases the slot.
+                async def run_admitted() -> None:
+                    try:
+                        await self.app(scope, replay, secure_send)
+                    finally:
+                        self.slots.release()
+
+                task = asyncio.create_task(run_admitted())
+                self.in_flight.add(task)
+                admitted = False
+
+                def finished(completed: asyncio.Task[None]) -> None:
+                    self.in_flight.discard(completed)
+                    if not completed.cancelled():
+                        completed.exception()
+
+                task.add_done_callback(finished)
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    disconnected = True
+                    raise
+            else:
+                await self.app(scope, replay, secure_send)
         finally:
             if admitted:
                 self.slots.release()

@@ -3,8 +3,8 @@ from test_access_security import accounts as accounts
 from test_resource_access import seed
 from test_resource_management import apply
 
+from app.authn.resource_access import resolve_resource_access
 from app.models import ResourceGrant, Role, User
-from app.resource_access import resolve_resource_access
 
 
 def grant(

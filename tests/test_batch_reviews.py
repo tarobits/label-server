@@ -192,7 +192,7 @@ def test_settings_policy_preserved_for_older_clients_and_admin_only(accounts):
 def test_photo_limits_and_normalization(client):
     from fastapi import HTTPException
 
-    from app.batch_reviews import normalize_photo
+    from app.printing.batch_reviews import normalize_photo
 
     with client.app.state.factory() as session:
         for size, format in [((8193, 1), "PNG"), ((8, 8), "GIF")]:

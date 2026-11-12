@@ -5,12 +5,12 @@ from types import SimpleNamespace
 from conftest import profile
 from sqlalchemy import func, select
 
+from app.authn.identity import LOCAL_OWNER_ID
 from app.db import make_engine, session_factory
-from app.identity import LOCAL_OWNER_ID
 from app.models import AuthSettings, Notification, PrintJob, User
-from app.notifications import deliver_pending
-from app.request_models import PrintRequest, RequestDigest
-from app.request_notifications import schedule_request_digest
+from app.notifications.notifications import deliver_pending
+from app.printing.request_models import PrintRequest, RequestDigest
+from app.printing.request_notifications import schedule_request_digest
 
 
 class Sender:
@@ -46,7 +46,7 @@ def tick(factory, now):
 def test_fifty_requests_coalesce_into_fixed_persistent_window(client, monkeypatch):
     body = prepare(client)
     now = [1000.0]
-    monkeypatch.setattr("app.request_api.time", SimpleNamespace(time=lambda: now[0]))
+    monkeypatch.setattr("app.printing.request_api.time", SimpleNamespace(time=lambda: now[0]))
     for index in range(50):
         now[0] = 1000 + index
         response = client.post("/api/requests", json=body)
@@ -82,7 +82,7 @@ def test_fifty_requests_coalesce_into_fixed_persistent_window(client, monkeypatc
 
 def test_disabled_notifications_drop_pending_window_and_cancel_unsent_summary(client, monkeypatch):
     body = prepare(client)
-    monkeypatch.setattr("app.request_api.time", SimpleNamespace(time=lambda: 1000))
+    monkeypatch.setattr("app.printing.request_api.time", SimpleNamespace(time=lambda: 1000))
     assert client.post("/api/requests", json=body).status_code == 201
     factory = client.app.state.factory
     with factory.begin() as session:
@@ -105,7 +105,7 @@ def test_disabled_notifications_drop_pending_window_and_cancel_unsent_summary(cl
 
 def test_approval_notification_retry_never_creates_executable_jobs(client, monkeypatch):
     body = prepare(client)
-    monkeypatch.setattr("app.request_api.time", SimpleNamespace(time=lambda: 1000))
+    monkeypatch.setattr("app.printing.request_api.time", SimpleNamespace(time=lambda: 1000))
     response = client.post("/api/requests", json=body)
     assert response.status_code == 201, response.text
     factory = client.app.state.factory
@@ -128,7 +128,7 @@ def test_approval_notification_retry_never_creates_executable_jobs(client, monke
 
 def test_no_summary_when_pending_requests_already_resolved(client, monkeypatch):
     body = prepare(client)
-    monkeypatch.setattr("app.request_api.time", SimpleNamespace(time=lambda: 1000))
+    monkeypatch.setattr("app.printing.request_api.time", SimpleNamespace(time=lambda: 1000))
     value = client.post("/api/requests", json=body).json()
     with client.app.state.factory.begin() as session:
         session.get(PrintRequest, value["id"]).status = "rejected"

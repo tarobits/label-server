@@ -5,10 +5,10 @@ from conftest import install, profile
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 
-from app.job_access import reconcile_access_holds
-from app.job_access_models import JobAccessHold
 from app.models import FlushRequest, LabelCopy, PrintJob, Role, State, TapeProfile, User
-from app.queue import QueueWorker
+from app.printing.job_access import reconcile_access_holds
+from app.printing.job_access_models import JobAccessHold
+from app.printing.queue import QueueWorker
 
 accounts = account_fixture
 
@@ -170,7 +170,7 @@ def test_access_holds_cannot_be_bypassed_by_manual_or_automatic_printing(account
 
 
 def test_access_held_jobs_do_not_trigger_tape_swap_reminders(accounts) -> None:
-    from app.notifications import queued_count, schedule_reminders, waiting_condition
+    from app.notifications.notifications import queued_count, schedule_reminders, waiting_condition
 
     admin, alice, _ = accounts
     tape = profile(admin, threshold=1, reminders=True)

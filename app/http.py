@@ -9,7 +9,6 @@ from fastapi import HTTPException, Request
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
-from app.destinations import resolve_destination
 from app.models import (
     Base,
     LabelCopy,
@@ -22,8 +21,9 @@ from app.models import (
     TapeProfile,
     TemplateRevision,
 )
-from app.notifications import schedule_reminders
-from app.queue import complete_empty_flushes, require_idle
+from app.notifications.notifications import schedule_reminders
+from app.printing.destinations import resolve_destination
+from app.printing.queue import complete_empty_flushes, require_idle
 from app.transaction_routes import transaction_dependency
 
 T = TypeVar("T", bound=Base)
@@ -43,14 +43,14 @@ def db(request: Request) -> Generator[Session, None, None]:
     with nullcontext() if readonly else request.app.state.fleet.lock:
         try:
             with request.app.state.factory() as session:
-                from app.access import access_context, authorize_current_request
+                from app.authn.access import access_context, authorize_current_request
 
                 authorize_current_request(request)
                 actor = access_context(request).actor if not readonly else None
                 session.info["request"] = request
                 yield session
                 if not readonly:
-                    from app.billing import cancel_empty_requests
+                    from app.accounts.billing import cancel_empty_requests
 
                     assert actor is not None
                     cancel_empty_requests(session, actor)
@@ -72,7 +72,7 @@ def get(session: Session, model: type[T], identifier: str | int) -> T:
     if value is None:
         raise HTTPException(404, f"{model.__name__} not found")
     if request := session.info.get("request"):
-        from app.authorization import require_record
+        from app.authn.authorization import require_record
 
         require_record(request, value)
     return value
@@ -118,7 +118,7 @@ def label_record_name(session: Session, model: type[T], identifier: str) -> str 
 
 
 def display_field_value(value: Any) -> str:
-    from app.template_logic import display_value
+    from app.templates.template_logic import display_value
 
     if isinstance(value, dict) and "image_asset" in value:
         return "Uploaded image"
@@ -128,9 +128,24 @@ def display_field_value(value: Any) -> str:
 
 
 def job_summary(job: PrintJob) -> str:
-    text = display_field_value(job.payload.get("text"))
-    return (
-        text or " · ".join(filter(None, map(display_field_value, job.payload.values()))) or "Label"
+    def content(value: Any) -> str:
+        # Image references and boolean switches are settings, not label titles.
+        return display_field_value(value).strip() if type(value) in (str, int, float) else ""
+
+    text = content(job.payload.get("text"))
+    if text:
+        return text
+    values = list(dict.fromkeys(filter(None, map(content, job.payload.values()))))
+    if values:
+        return " · ".join(values)
+    return str(
+        job.template_snapshot.get("process_name")
+        or job.template_snapshot.get("name")
+        or (
+            "Image label"
+            if any(isinstance(v, dict) and "image_asset" in v for v in job.payload.values())
+            else "Label"
+        )
     )
 
 
@@ -174,9 +189,9 @@ def job_information(
 
 
 def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
-    from app.billing import job_eligible as billing_eligible
-    from app.billing import job_payers, job_request
-    from app.print_audit import job_attribution
+    from app.accounts.billing import job_eligible as billing_eligible
+    from app.accounts.billing import job_payers, job_request
+    from app.audit.print_audit import job_attribution
 
     copies = list(
         session.scalars(
@@ -195,14 +210,14 @@ def job_record(session: Session, job: PrintJob) -> dict[str, Any]:
     if status is None:
         status = next(iter(states)).value if len(states) == 1 else "mixed"
     run = session.get(PrintRun, job.run_id) if job.run_id else None
-    from app.job_access_models import JobAccessHold
+    from app.printing.job_access_models import JobAccessHold
 
     hold = session.get(JobAccessHold, job.id)
     held = hold is not None and hold.status == "held" and State.QUEUED in states
     permissions = {}
     if request := session.info.get("request"):
-        from app.access import access_context
-        from app.copy_counts import copy_count_blocker
+        from app.authn.access import access_context
+        from app.printing.copy_counts import copy_count_blocker
 
         context = access_context(request)
         owns = context.actor.id == job.owner_id

@@ -4,9 +4,9 @@ from app_client import TestClient
 from settings_helpers import IsolatedSettings as Settings
 from sqlalchemy import MetaData, Table
 
-from app.access import LocalOwnerPolicy
+from app.authn.access import LocalOwnerPolicy
+from app.authn.identity import LOCAL_OWNER_ID
 from app.db import make_engine
-from app.identity import LOCAL_OWNER_ID
 from app.main import create_app as production_app
 from app.models import PrinterDevice, User
 

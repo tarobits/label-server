@@ -12,24 +12,24 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.access import authorize_request
 from app.api import router
-from app.auth import AuthRateLimiter, initialize_auth, session_user
+from app.assets.font_assets import FontStore
+from app.assets.image_assets import ImageStore
+from app.authn.access import authorize_request
+from app.authn.auth import AuthRateLimiter, initialize_auth, session_user
 from app.config import Settings
 from app.database_lock import database_owner
 from app.db import make_engine, session_factory
-from app.deletion import is_deleted, purge_expired
-from app.fleet import PrinterFleet
-from app.font_assets import FontStore
-from app.image_assets import ImageStore
-from app.notification_routing import deliver_routed_pending
+from app.maintenance.deletion import is_deleted, purge_expired
+from app.maintenance.releases import ReleaseChecker
+from app.notifications.notification_routing import deliver_routed_pending
 from app.printer.base import PrinterBackend
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition, PrinterRegistry
-from app.releases import ReleaseChecker
+from app.printing.fleet import PrinterFleet
 from app.render import FONT_DIR
-from app.template_previews import TemplatePreviews
-from app.templates import seed_templates
+from app.templates.template_previews import TemplatePreviews
+from app.templates.templates import seed_templates
 
 logger = logging.getLogger(__name__)
 # Checked by the updater before relying on the startup/HTTP validation gate.
@@ -76,8 +76,8 @@ def create_app(
         next_cache_cleanup = 0.0
         while not stop.is_set():
             try:
-                from app.asset_cache import expire
-                from app.request_notifications import schedule_request_digest
+                from app.assets.asset_cache import expire
+                from app.printing.request_notifications import schedule_request_digest
 
                 if time.time() >= next_cache_cleanup:
                     expire(
@@ -118,7 +118,7 @@ def create_app(
                     worker.control.request("after_current")
 
             ownership.enter_context(database_owner(engine, enforce=True, on_loss=lost_ownership))
-            from app.relationship_migration import pending as relationships_pending
+            from app.maintenance.relationship_migration import pending as relationships_pending
             from migrations.relationships_v1 import VERSION as RELATIONSHIP_VERSION
             from migrations.relationships_v1 import finalize
 
@@ -150,8 +150,8 @@ def create_app(
             with factory.begin() as session:
                 import time
 
-                from app.asset_cache import expire
-                from app.asset_import import archive_legacy_assets, import_assets
+                from app.assets.asset_cache import expire
+                from app.assets.asset_import import archive_legacy_assets, import_assets
 
                 import_assets(session, settings.state_directory / "assets")
                 purge_expired(session, fonts, images, time.time())
@@ -163,7 +163,7 @@ def create_app(
             initialize_auth(factory, settings.state_directory)
             fleet.enforce_job_access = app.state.access_policy is None
             if fleet.enforce_job_access:
-                from app.job_access import reconcile_access_holds
+                from app.printing.job_access import reconcile_access_holds
 
                 with factory.begin() as session:
                     reconcile_access_holds(session)
@@ -206,7 +206,7 @@ def create_app(
     from app.http_security import HttpSecurity
 
     app.state.relationship_maintenance = False
-    from app.relationship_migration import router as relationship_router
+    from app.maintenance.relationship_migration import router as relationship_router
 
     app.include_router(relationship_router)
 
@@ -240,31 +240,31 @@ def create_app(
     app.state.fleet = fleet
     app.state.engine = engine
     app.state.wake = wake
-    from app.accounting_api import router as accounting_router
-    from app.admin_api import router as admin_router
-    from app.audit_api import router as audit_router
-    from app.auth_api import router as auth_router
-    from app.avatar_api import router as avatar_router
-    from app.batch_reviews import router as batch_reviews_router
-    from app.billing_api import router as billing_router
-    from app.cartridge_quote_api import router as cartridge_quote_router
-    from app.companion_api import router as companion_router
-    from app.companion_transport_api import router as companion_transport_router
-    from app.fleet_api import router as fleet_router
-    from app.font_api import router as font_router
-    from app.image_api import router as image_router
-    from app.inbox_api import router as inbox_router
-    from app.job_access_api import router as access_holds_router
-    from app.migration_api import router as migration_router
-    from app.notification_api import router as notification_endpoints_router
-    from app.printer_lifecycle import router as printer_lifecycle_router
-    from app.push_api import router as push_router
-    from app.queue_routing_api import router as queue_routing_router
-    from app.recovery_api import router as recovery_router
-    from app.request_api import router as requests_router
-    from app.resource_api import router as resource_router
-    from app.retry_api import router as retry_router
-    from app.runs import router as runs_router
+    from app.accounts.accounting_api import router as accounting_router
+    from app.accounts.billing_api import router as billing_router
+    from app.assets.font_api import router as font_router
+    from app.assets.image_api import router as image_router
+    from app.audit.audit_api import router as audit_router
+    from app.authn.admin_api import router as admin_router
+    from app.authn.auth_api import router as auth_router
+    from app.authn.avatar_api import router as avatar_router
+    from app.authn.resource_api import router as resource_router
+    from app.companion.companion_api import router as companion_router
+    from app.companion.companion_transport_api import router as companion_transport_router
+    from app.maintenance.migration_api import router as migration_router
+    from app.maintenance.recovery_api import router as recovery_router
+    from app.notifications.inbox_api import router as inbox_router
+    from app.notifications.notification_api import router as notification_endpoints_router
+    from app.notifications.push_api import router as push_router
+    from app.printing.batch_reviews import router as batch_reviews_router
+    from app.printing.cartridge_quote_api import router as cartridge_quote_router
+    from app.printing.fleet_api import router as fleet_router
+    from app.printing.job_access_api import router as access_holds_router
+    from app.printing.printer_lifecycle import router as printer_lifecycle_router
+    from app.printing.queue_routing_api import router as queue_routing_router
+    from app.printing.request_api import router as requests_router
+    from app.printing.retry_api import router as retry_router
+    from app.printing.runs import router as runs_router
 
     app.include_router(auth_router)
     app.include_router(avatar_router)
@@ -323,14 +323,14 @@ def create_app(
         except Exception:
             from starlette.concurrency import run_in_threadpool
 
-            from app.action_failures import record_failed_action
+            from app.audit.action_failures import record_failed_action
 
             await run_in_threadpool(record_failed_action, request, 500)
             raise
         if response.status_code >= 400:
             from starlette.concurrency import run_in_threadpool
 
-            from app.action_failures import record_failed_action
+            from app.audit.action_failures import record_failed_action
 
             await run_in_threadpool(record_failed_action, request, response.status_code)
         if response.status_code < 400 and getattr(
@@ -338,7 +338,7 @@ def create_app(
         ):
             from starlette.concurrency import run_in_threadpool
 
-            from app.session_details import record_activity
+            from app.authn.session_details import record_activity
 
             await run_in_threadpool(record_activity, request)
         if request.url.path.startswith("/api/"):

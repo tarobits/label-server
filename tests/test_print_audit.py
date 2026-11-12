@@ -10,9 +10,9 @@ from conftest import install, profile
 from sqlalchemy import select
 from test_access_security import accounts as account_fixture
 
-from app.job_access import job_eligible, reconcile_access_holds
-from app.job_access_models import JobAccessHold
 from app.models import Batch, BatchItem, LabelCopy, PrintJob, PrintRun, Role, State, User
+from app.printing.job_access import job_eligible, reconcile_access_holds
+from app.printing.job_access_models import JobAccessHold
 
 accounts = account_fixture
 
@@ -57,11 +57,20 @@ def detail(admin, identifier):
     [
         (
             {"image": {"image_asset": "saved-image"}, "count": 3, "bold": False},
-            "Uploaded image · 3 · false",
+            "3",
         ),
-        ({"text": {"image_asset": "saved-image"}}, "Uploaded image"),
+        ({"text": {"image_asset": "saved-image"}}, "Simple text"),
         ({"text": 0}, "0"),
-        ({"text": "", "unused": None}, "Label"),
+        ({"text": "", "unused": None}, "Simple text"),
+        (
+            {
+                "icon": {"image_asset": "saved-image"},
+                "warm": True,
+                "title": "Arbeitshandschuhe Wärmend",
+                "other_icon": {"image_asset": "other"},
+            },
+            "Arbeitshandschuhe Wärmend",
+        ),
         ({"text": "Normal text", "image": {"image_asset": "saved-image"}}, "Normal text"),
     ],
 )

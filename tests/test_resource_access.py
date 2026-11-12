@@ -1,6 +1,16 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.authn.resource_access import (
+    CARTRIDGE_PERMISSIONS,
+    GROUP_PERMISSIONS,
+    PRINTER_PERMISSIONS,
+    legacy_permissions,
+    location_ancestors,
+    resolve_resource_access,
+    validate_grant,
+    validate_location_parent,
+)
 from app.models import (
     Cartridge,
     Location,
@@ -10,16 +20,6 @@ from app.models import (
     Role,
     TapeProfile,
     User,
-)
-from app.resource_access import (
-    CARTRIDGE_PERMISSIONS,
-    GROUP_PERMISSIONS,
-    PRINTER_PERMISSIONS,
-    legacy_permissions,
-    location_ancestors,
-    resolve_resource_access,
-    validate_grant,
-    validate_location_parent,
 )
 
 
@@ -197,7 +197,7 @@ def test_legacy_mapping_never_invents_audit_or_ownership_rights(level):
 
 
 def test_legacy_levels_remain_available_without_consuming_new_grants(foundation_session):
-    from app.auth import actor_for_user
+    from app.authn.auth import actor_for_user
 
     session = foundation_session
     user = seed(session)
