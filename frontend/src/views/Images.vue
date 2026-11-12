@@ -8,18 +8,17 @@ import { useWorkspaceStore } from '../workspace'
 import type { ImageAsset } from '../types'
 import AssetUpload from '../components/AssetUpload.vue'
 import AssetSharingEditor from '../components/AssetSharingEditor.vue'
+import ImageAssetPreview from '../components/ImageAssetPreview.vue'
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const editing = ref<string | null>(null),
   imageName = ref(''),
   renameInput = ref<HTMLInputElement[]>([]),
   preview = ref<ImageAsset | null>(null),
-  previewDialog = ref<HTMLDialogElement | null>(null),
-  previewFailed = ref(false)
+  previewDialog = ref<HTMLDialogElement | null>(null)
 
 async function showPreview(asset: ImageAsset) {
   preview.value = asset
-  previewFailed.value = false
   await nextTick()
   previewDialog.value?.showModal()
 }
@@ -92,19 +91,7 @@ async function visibility(asset: ImageAsset) {
         <tbody>
           <tr v-for="asset in w.images" :key="asset.id">
             <td>
-              <button
-                class="image-thumbnail"
-                :aria-label="`Preview ${asset.name}`"
-                @click="showPreview(asset)"
-              >
-                <img
-                  :src="`/api/image-assets/${asset.id}/preview`"
-                  alt=""
-                  loading="lazy"
-                  width="120"
-                  height="80"
-                />
-              </button>
+              <ImageAssetPreview :asset="asset" @enlarge="showPreview(asset)" />
             </td>
             <td>
               <form
@@ -201,16 +188,7 @@ async function visibility(asset: ImageAsset) {
           <h2 id="image-preview-title">{{ preview.name }}</h2>
           <button class="secondary" autofocus @click="previewDialog?.close()">Close</button>
         </div>
-        <p v-if="previewFailed" class="alert danger" role="alert">
-          Could not load this image preview.
-        </p>
-        <img
-          v-else
-          class="image-enlarged-preview"
-          :src="`/api/image-assets/${preview.id}/preview?size=large`"
-          :alt="preview.name"
-          @error="previewFailed = true"
-        />
+        <ImageAssetPreview :asset="preview" large />
         <p class="help">{{ preview.width }} × {{ preview.height }} px</p>
       </template>
     </dialog>
@@ -232,21 +210,6 @@ async function visibility(asset: ImageAsset) {
   min-width: 180px;
   max-width: 300px;
   overflow-wrap: anywhere;
-}
-.image-thumbnail,
-.image-enlarged-preview {
-  background-color: #fff;
-  background-image: conic-gradient(#e5e7eb 25%, #fff 0 50%, #e5e7eb 0 75%, #fff 0);
-  background-size: 16px 16px;
-}
-.image-thumbnail {
-  display: block;
-  padding: 0;
-  overflow: hidden;
-}
-.image-thumbnail img {
-  display: block;
-  object-fit: contain;
 }
 .image-library-actions {
   display: flex;
@@ -274,13 +237,6 @@ async function visibility(asset: ImageAsset) {
 .image-preview-dialog h2 {
   overflow-wrap: anywhere;
   min-width: 0;
-}
-.image-enlarged-preview {
-  display: block;
-  width: 100%;
-  height: min(60vh, 600px);
-  object-fit: contain;
-  border-radius: 6px;
 }
 .image-preview-dialog .help {
   margin-top: 16px;
