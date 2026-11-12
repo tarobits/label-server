@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.1] - 2026-11-12
+
+### Fixed
+
+- Template and saved-label previews queue their requests and automatically retry
+  temporary server-busy responses instead of leaving galleries full of failed
+  previews. Pending requests stop when leaving the view; persistent errors retain
+  manual retry controls.
+
+**Upgrade notes:** Install the updated frontend bundles with this release and
+refresh open pages. No new database migration is required when upgrading from
+0.17.0. The expensive-request limit remains unchanged; this fix does not require
+increasing it. Previously documented security limitations remain unresolved.
+
 ## [0.17.0] - 2026-11-12
 
 ### Added
@@ -1208,6 +1222,7 @@ PT-P710BT printing has been verified with one physical printer. Multiple physica
 printers and HomeBox integration remain deferred. Cancellation may finish the
 current label before stopping subsequent labels.
 
+[0.17.1]: https://github.com/tarobits/label-server/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/tarobits/label-server/compare/v0.16.1...v0.17.0
 [0.16.1]: https://github.com/tarobits/label-server/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/tarobits/label-server/compare/v0.15.0...v0.16.0
