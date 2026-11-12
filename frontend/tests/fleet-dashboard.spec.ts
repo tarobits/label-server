@@ -1,6 +1,58 @@
 import { test, expect } from './fixtures'
 import type { APIRequestContext } from '@playwright/test'
 
+test('tape mismatch requires a connected printer and a known unconfirmed width', async ({
+  page,
+  request,
+}) => {
+  const statuses = await (await request.get('/api/printers/status')).json()
+  let reading = {
+    connected: false,
+    detected_width_mm: null as number | null,
+    media_confirmed: false,
+  }
+  await page.route('**/api/printers/status', (route) =>
+    route.fulfill({
+      json: statuses.map((status: object) => ({
+        ...status,
+        ...reading,
+        printer_error: null,
+        blocker: 'Investigation required',
+      })),
+    }),
+  )
+  for (const scenario of [
+    { connected: false, detected_width_mm: null, media_confirmed: false, mismatch: false },
+    { connected: false, detected_width_mm: 12, media_confirmed: false, mismatch: false },
+    { connected: true, detected_width_mm: null, media_confirmed: false, mismatch: false },
+    { connected: true, detected_width_mm: 12, media_confirmed: false, mismatch: true },
+    { connected: true, detected_width_mm: 24, media_confirmed: false, mismatch: false },
+    { connected: true, detected_width_mm: 12, media_confirmed: true, mismatch: false },
+  ]) {
+    reading = scenario
+    await page.goto('/#/')
+    await page.reload()
+    const card = page.getByRole('article', { name: 'Printer Desk printer', exact: true })
+    await expect(
+      card.getByText(scenario.connected ? 'Connected' : 'Disconnected', { exact: true }),
+    ).toBeVisible()
+    await expect(card.getByText('Black on Yellow 24 mm', { exact: true })).toBeVisible()
+    await expect(
+      card.getByText('Detected tape width does not match', { exact: false }),
+    ).toHaveCount(scenario.mismatch ? 1 : 0)
+    await expect(card.getByText('Investigation required', { exact: true })).toHaveCount(
+      scenario.mismatch ? 0 : 1,
+    )
+    if (!scenario.connected && scenario.detected_width_mm === null) {
+      await page.screenshot({
+        path: 'test-results/disconnected-printer-width.png',
+        fullPage: true,
+        animations: 'disabled',
+      })
+    }
+  }
+})
+
 async function create(request: APIRequestContext, path: string, data: unknown) {
   const response = await request.post(`/api/${path}`, { data })
   expect(response.ok(), await response.text()).toBeTruthy()

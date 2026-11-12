@@ -181,6 +181,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         <p
           v-else-if="
             profile(device.id) &&
+            state(device.id)?.connected &&
+            state(device.id)?.detected_width_mm != null &&
             !state(device.id)?.media_confirmed &&
             state(device.id)?.detected_width_mm !== profile(device.id)?.width_mm
           "
