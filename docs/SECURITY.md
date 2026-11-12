@@ -75,6 +75,26 @@ its maintainers. Keep coordinated, tested backups and follow the
 physical printing atomic; uncertain output requires review, as described in
 [printer architecture](PRINTER_ARCHITECTURE.md#concurrency-and-ownership).
 
+## Known adversarial findings
+
+Companion idle auto-lock clears local browser access but currently does not queue
+revocation of the remote operator session. Someone possessing that session token
+and a valid companion installation API key can reuse it until remote expiry.
+This predates 0.17.0; explicit locking uses durable revocation. Do not treat idle
+auto-lock as remote credential revocation.
+
+In an isolated FastAPI application, explicit ASGI task cancellation can release
+the HTTP processing slot while a synchronous worker still runs. The equivalent
+test through the complete main-server stack retains capacity and passes. An
+ordinary client disconnect has not been shown to trigger this failure. Preserve
+that full-stack behavior when changing middleware or route composition.
+
+Both findings have failing regression probes in
+`tests/test_adversarial_release.py`. They remain unresolved; run that file with
+`pytest -q --tb=short --show-capture=no` to reproduce them. Earlier-feature probes
+in `tests/test_adversarial_legacy_features.py` pass on the current code, covering
+selected retry, authorization, recovery, accounting and migration boundaries.
+
 ## Dependency maintenance
 
 Scan the Python lockfile/environment with `pip-audit` and the frontend lockfile
