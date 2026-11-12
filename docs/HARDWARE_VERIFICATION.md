@@ -19,6 +19,25 @@ specification, OS family, print settings, and measured results. Use anonymous de
 labels when comparing units; omit serial numbers, hostnames, local usernames,
 network addresses, and deployment logs containing account information.
 
+## Template logic and mobile checks
+
+Reported checks on 2026-11-06 and 2026-11-07 confirmed conditional subtitle
+printing with filled/empty values and preservation of a saved label's layout
+after editing its template. Rotated objects, property inputs and sizing, numeric
+inputs, cartridge rechecks and Activity requeueing were also confirmed.
+An initial print failure was resolved by fully inserting the cartridge.
+
+Phone editing, iPhone text selection and preview proportions passed. The later
+expansion of node dragging from the header to the body still needs a physical
+iPhone retest. Boolean/image inputs, tablet editing, and CSV/approval print
+scenarios have not received separate physical confirmation. These observations
+do not establish coverage of every logic input or automatic-length combination.
+
+Android installation through the default /e/OS browser was reported successful,
+but notification permission remained blocked. Notifications subsequently worked
+in Chrome after browser permission and microG push-service registration were
+resolved. This is a reported device result, not a guarantee for every browser.
+
 ## Compare high-resolution output
 
 Hold automatic printing before submitting test labels. If updating the software,

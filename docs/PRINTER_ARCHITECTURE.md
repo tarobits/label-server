@@ -203,6 +203,53 @@ rather than blank space inside object bounds (QR quiet zones remain protected).
 Older job snapshots keep their original raster geometry. A job rejected for ink
 outside the print head must be submitted again to use the corrected rendering.
 
+## Concurrency and ownership
+
+Synchronous database authorization runs in a worker, not on the event loop.
+`TransactionRouter` runs marked `db`, `device_db` and `admin_session` providers,
+the endpoint and transaction cleanup in one worker call. Do not hold the fleet
+lock across a FastAPI dependency-to-endpoint worker handoff: waiting requests
+can otherwise occupy every worker before the lock holder's endpoint can run.
+Response validation precedes commit; failure rolls back and releases resources.
+Sensitive mutations recheck authorization under the lock.
+
+Password and PIN verification for normal traffic runs outside the fleet lock,
+with credential fingerprints, session validity, account state and permissions
+rechecked before applying the result. Maintenance-only replacement-user creation
+still hashes within its serialized repair transaction while ordinary work is gated.
+Expensive rendering releases shared locks where supported, then rechecks access,
+revisions and assets. Saved-preview paths load required data and release the read
+transaction before rendering performs asset lookups; holding one connection while
+waiting for another can exhaust even a larger connection pool.
+
+Printer workers acquire the printer lock before the fleet lock. API paths that
+need the reverse order use nonblocking printer acquisition. Preview-cache
+instances sharing a resolved cache root share a publication/purge lock, so
+retention cleanup waits for in-progress publication. Permission and tombstone
+checks remain required independently of cache locking.
+
+One main-server process owns a database. SQLite process locking and MariaDB
+advisory ownership prevent ordinary duplicate workers. MariaDB ownership is
+checked at checkout, statements, commit and immediately before hardware handoff.
+Ownership loss is terminal for that process and stops printing after the current
+label. These checks cannot atomically fence a physical printer between the final
+check and I/O. Commit reservations before printing and retain uncertain attempts
+for review; never infer an exactly-once physical-print guarantee from SQL commits.
+
+Companion station generations and token checks reject stale dashboard/unlock
+responses. Superseded remote sessions are durably queued for revocation and retried
+after reconnect/restart. Journal reads use read-only transactions; writes retain
+`synchronous=FULL` durability. Sync and printer threads share a 30-second shutdown
+deadline. A stuck worker causes process termination without releasing ownership
+while hardware activity survives; durable unfinished attempts require review on
+restart. See [companion operation](COMPANION.md).
+
+These boundaries remove identified scheduling cycles but do not guarantee bounded
+latency under exhausted worker/connection capacity or slow storage. HTTP processing
+budgets and native-parser limits are described in the [security guide](SECURITY.md).
+Production load, physical stuck-driver shutdown and network-partition recovery
+still need deployment-specific testing.
+
 ## Verification
 
 Automated tests cover migration, group matching, concurrent reservations, independent

@@ -22,3 +22,7 @@ test-results-*/
 frontend/dist-companion/
 .label-server-role
 database-migration-backups/
+.impeccable/review
+.impeccable/critique/
+.local-docs/
+.vscode

@@ -105,7 +105,7 @@ Implementation references:
 - [Application shell](frontend/src/App.vue) and
   [companion interface](frontend/src/CompanionApp.vue): navigation and station layout.
 - [Components](frontend/src/components): reusable interaction patterns.
-- [AGENTS.md](AGENTS.md) and [PRODUCT.md](PRODUCT.md): project requirements and product context.
+- [AGENTS.md](AGENTS.md) and [README.md](README.md): project requirements and product context.
 
 Use the existing CSS variables and components in implementation. The frontmatter
 records shared values; its spacing and radius names describe observed usage, not

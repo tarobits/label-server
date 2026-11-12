@@ -36,11 +36,13 @@ npm run build --prefix frontend
 .venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
 ```
 
-Open <http://localhost:8000>. On first launch, use the setup token from the server
-logs or `data/auth-setup-token` to create an administrator account. The token file
+Open <http://localhost:8000>. On first launch, read `data/auth-setup-token` on the
+server to create an administrator account. Logs show only its location. The token file
 is removed after setup. New installations have no printers configured.
 
 Run **one server process per database**. Do not use multiple Uvicorn workers.
+The main application database pool allows up to 25 simultaneous connections
+(five retained connections plus 20 temporary overflow connections).
 
 SQLite is the default; main servers can also use MariaDB 10.11+ (tested with
 11.8.6). See [MariaDB setup and SQLite migration](docs/MARIADB.md) for the verified
@@ -291,11 +293,19 @@ and reused across requests and restarts. Saving a new revision invalidates its
 thumbnail; missing or restored assets also refresh it. Retention cleanup purges
 derived previews with deleted content. Older templates default to black on white.
 
-On **New label**, **Change template** opens a searchable preview picker with
+On **New label** and **CSV runs**, **Change template** opens a searchable preview picker with
 visibility, tape-width, media and destination-compatibility filters. Results are
 paged in groups of 12. The six most recently chosen or submitted templates appear
 first, saved per account in that browser; only currently accessible templates are
-shown. Closing the picker without a selection preserves the label draft.
+shown. Closing the picker without a selection preserves the label draft or CSV import.
+
+The template editor, **New label**, and **CSV runs** share a **Change tape profile**
+picker with color samples, search, width and media filters. Unavailable profiles
+remain visible but cannot be selected. Users with **Manage tape profiles and
+cartridges** can mark profiles unavailable or available again on **Tape profiles**.
+Unavailable profiles cannot be used for new labels, print requests or CSV runs;
+existing queued labels, saved runs and pending requests remain printable.
+Existing templates retain their saved profile. Profile availability changes are audited.
 
 Image controls separate **Keep image proportions** (artwork fitting) from
 **Lock box proportions** (linked width/height edits using the box's current ratio).
@@ -712,15 +722,16 @@ unverified. Automated tests do not establish hardware compatibility.
 ## Development
 
 Database integrity changes use an [administrator repair screen and maintenance
-restart](docs/RELATIONSHIP_MIGRATION.md). Review the
-[relationship inventory](docs/DATABASE_RELATIONSHIP_AUDIT.md),
-[concurrency findings](docs/CONCURRENCY_AUDIT.md), and
-[security report](docs/SECURITY_AUDIT.md) for the scope and remaining audit findings.
+restart](docs/RELATIONSHIP_MIGRATION.md). See the
+[security model and operational limits](docs/SECURITY.md),
+[concurrency and ownership rules](docs/PRINTER_ARCHITECTURE.md#concurrency-and-ownership),
+and [deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) before changing or deploying
+sensitive paths.
 
 The backend uses FastAPI, SQLAlchemy, Alembic, and SQLite or MariaDB; the frontend uses Vue 3, Pinia,
 TypeScript, and Vite. Printer-specific protocols stay in `app/printer`; queue and
-domain code use the generic backend contract. [PLAN.md](PLAN.md) describes the
-implementation constraints and [TODO.md](TODO.md) lists remaining work.
+domain code use the generic backend contract. See [printer architecture](docs/PRINTER_ARCHITECTURE.md)
+for implementation constraints and [DESIGN.md](DESIGN.md) for interface conventions.
 
 Pinia owns shared authentication, workspace, administration and request caches.
 Concurrent reads share a request; catalogs load on relevant pages and remain cached

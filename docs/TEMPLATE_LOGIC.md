@@ -176,3 +176,47 @@ Templates using property-input expressions require a server that supports this
 feature; earlier version 2 implementations cannot read those expressions.
 Automatic text sizing now precedes logic. Review templates that previously relied
 on logic changing text or font settings before automatic width measurement.
+
+## API representation
+
+- Set `document.version` to `2`. Each element has a unique `logic_name`, separate
+  from its stable `id`; `label` is reserved. Version 1 remains the default.
+- Fields accept `type`: `text`, `number`, `boolean`, or `image`. `default` and
+  `sample` use that type; missing optional values are `null`. Number limits are
+  `minimum` and `maximum`. Plain legacy text-field definitions are also accepted
+  in version 2, subject to the logic language's reserved names.
+- `document.logic` stores the validated `Program` expression tree. Binding targets
+  are stable element IDs, or `label` with property `length_mm`. The parser and
+  formatter translate source aliases to/from those IDs. `/api/logic/inspect`
+  validates a document and returns the operation/target catalog, inferred variable
+  types, sample values/errors, and source text. `/api/logic/compile` accepts
+  `{document, source}` and returns either `{valid: true, program, formatted,
+  catalog, diagnostics: []}` or `{valid: false, diagnostics}`. Diagnostics include
+  UTF-16 `from`/`to` offsets and one-based line/column positions. Both endpoints
+  require authentication, enforce image access, and do not save a template.
+- Submission and preview `data` contains JSON strings, numbers, booleans, `null`,
+  or image values shaped as `{"image_asset": "<uploaded asset ID>"}`. Numbers and
+  booleans are not silently converted from strings outside CSV processing.
+- CSV numbers use a decimal point; booleans accept `true`, `false`, `1`, or `0`
+  (case insensitive). Blank non-text cells mean absent values. Unmapped fields
+  use their defaults. `image_mapping` maps variable names to CSV cell values and
+  structured image references, for example
+  `{"photo": {"portrait.png": {"image_asset": "<uploaded asset ID>"}}}`.
+- Submitted version 2 documents have `logic: null` and literal element content.
+  Automatic sizing and distance holders are resolved before saving. The
+  `literal_content` marker ensures user text containing `{{...}}` is not interpreted
+  again during retries. Input values are retained separately for history.
+- Binding results still obey element and media constraints. Visibility hides an
+  element without requiring zero dimensions; dimensions retain their existing
+  positive-value constraints. Hidden anchors have zero extent and no outgoing gap.
+- Template library dimensions report input-dependent lengths when logic can affect
+  label length. Typed values in saved-job details have human-readable text, with
+  image inputs represented as uploaded images.
+
+- Optional `logic_editor` metadata contains a versioned, bounded node graph and
+  viewport, plus optional source text. Source is reused only when it compiles to
+  the saved program; comments and formatting survive source edits and node moves.
+  Changes to executable node logic regenerate canonical source. Only `logic`
+  executes; metadata is excluded from rendering and queued
+  snapshots. Browser loading checks graph/program equivalence before reusing it.
+  Literal image references in metadata still require asset authorization.

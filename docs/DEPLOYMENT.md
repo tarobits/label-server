@@ -592,6 +592,9 @@ source control and restrict the populated `.env` to the service owner.
 | `LABEL_WORKER_INTERVAL_SECONDS` | `2` | Worker polling interval in seconds; must be positive. |
 | `LABEL_PUBLIC_URL` | `http://localhost:8000` | Browser-reachable URL for notification and recovery links; use HTTPS remotely. |
 | `LABEL_FRONTEND_DIST` | `frontend/dist` beside the source tree | Built frontend directory. |
+| `LABEL_JSON_BODY_LIMIT_BYTES` | `16777216` (16 MiB) | Maximum ordinary request body before parsing. Authentication requests other than avatars are additionally capped at 16 KiB. |
+| `LABEL_BULK_BODY_LIMIT_BYTES` | `67108864` (64 MiB) | Body limit for CSV, run and migration requests. |
+| `LABEL_EXPENSIVE_REQUEST_LIMIT` | `2` | Concurrent expensive HTTP render/upload requests per process; excess receives 503 with `Retry-After: 1`. |
 | `LABEL_CHECK_FOR_UPDATES` | `true` | Enable cached GitHub release checks. |
 | `LABEL_GITHUB_TOKEN` | Unset | Optional repository-read token for release checks and updates. |
 | `LABEL_GITHUB_TOKEN_FILE` | Unset | Optional file containing that token; takes precedence over the inline token. |
@@ -607,6 +610,17 @@ Compose also uses `LABEL_BIND_ADDRESS` (default `127.0.0.1`), `LABEL_USB_DEVICE`
 and `LABEL_USB_GID`. The USB override requires the latter two; neither is a printer
 registration. Connections, resolution, feed, cuts, timeout, and cartridge checks
 are stored in the database and configured in the UI.
+
+Body limits count actual bytes, including chunked requests. Render admission starts
+after body receipt so slow uploads cannot monopolize the render slots. Existing 5 MB image
+and font limits still apply. Keep proxy body/time limits in place as an additional
+boundary. HTTP concurrency limits do not count printer workers or cap the runtime
+of an individual native decoder. Clients should retry a busy response using the
+same idempotency key for submissions.
+
+The main interface permits framing only by its own origin. Companion embedding
+has a separate [deployment allowlist](COMPANION.md#web-interface-and-locking),
+which also defaults to same-origin only.
 
 ### Email configuration
 

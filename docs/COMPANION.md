@@ -302,14 +302,32 @@ Locking does not stop printing. Local emergency/stop-after-label controls while
 locked or offline are separate deployment options and default to disabled. A
 locked, offline station requires both relevant options to be enabled.
 
+Embedding is same-origin only by default. To allow specific parent websites, set
+`LABEL_COMPANION_FRAME_ANCESTORS` in the deployment's `.env.companion` to a JSON
+list of exact origins, then restart the companion:
+
+```dotenv
+LABEL_COMPANION_FRAME_ANCESTORS='["http://dashboard.example.internal"]'
+```
+
+Omit this setting, leave it blank, or use `[]` for same-origin only. Origins include scheme, host,
+and any non-default port; paths and wildcards are rejected. This setting applies
+only to the companion. The main interface remains same-origin only. A configured
+allowlist enables `SameSite=None; Secure` session cookies when the companion uses
+HTTPS; browser third-party-cookie restrictions can still prevent embedded login.
+API origin and CSRF checks remain in force.
+
 ## Local database
 
 The companion uses SQLite at `data/companion/journal.db` by default. It uses
 Python's built-in `sqlite3` module, so no database service, SQLAlchemy, or Alembic
 is required. The journal stores local printer registrations and configuration,
 station binding, downloaded batches, execution state, results awaiting upload,
-investigation blocks, and pending local stop audit events. Transactions use
+investigation blocks, pending session revocations, and local stop audit events. Transactions use
 `PRAGMA synchronous=FULL` to make state durable before hardware execution.
+Read-only polling does not reserve a write lock. Superseded sessions are revoked
+on the main server; failed revocations remain in the journal for retry after
+reconnection. Upgrade the main server before the companion for this endpoint.
 
 Users, permissions, accounting, and the authoritative queue remain on the main
 server. The companion database supplies the durable local state needed to finish
@@ -318,6 +336,11 @@ Keep the entire data directory across upgrades and back it up with the service
 stopped. Never delete or reset the journal to clear a printer error.
 
 ## Recovery and updates
+
+Shutdown allows sync and printer workers a combined 30-second grace period. If a
+native driver remains stuck, the companion terminates without releasing ownership
+while that worker is alive. The preserved journal requires investigation of any
+unfinished printing on restart; it does not silently retry uncertain output.
 
 Native installations use the same updater as the main server:
 
