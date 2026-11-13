@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.20.0] - 2026-11-13
+
+### Added
+
+- Compact language menus in both interfaces, with saved account preferences and
+  a configurable default language for signed-out companion stations.
+- English and German installer and updater messages, selected from the terminal
+  locale or with `--language en|de`.
+
+### Changed
+
+- Expanded English and German coverage across forms, editor help, validation,
+  notifications and printer fault messages. Historical printer reasons retain
+  their original wording.
+- Navigation uses distinct section icons and a collapsible menu when links do
+  not fit, without horizontal scrolling.
+- New label and New CSV run shortcuts share a separate rounded panel, keeping
+  them distinct from page-specific actions.
+
+### Fixed
+
+- Delayed language saves and companion status responses cannot restore a previous
+  user's language or overwrite a newer saved preference.
+
 ## [0.19.0] - 2026-11-13
 
 ### Added
@@ -1096,6 +1120,7 @@ Initial release of Label Printer Server.
 **Printing limitation:** Cancellation may finish the current label before stopping
 subsequent labels.
 
+[0.20.0]: https://github.com/tarobits/label-server/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/tarobits/label-server/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/tarobits/label-server/compare/v0.17.2...v0.18.0
 [0.17.2]: https://github.com/tarobits/label-server/compare/v0.17.1...v0.17.2
