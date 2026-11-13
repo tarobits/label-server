@@ -702,7 +702,11 @@ def main() -> None:
             with update.update_lock(Path("/run/lock/label-server-install.lock")):
                 install(args)
     except (update.UpdateError, OSError, ValueError) as error:
-        raise SystemExit(update.tr("progress.installFailed", error=error)) from error
+        raise SystemExit(
+            update.tr("progress.installFailed", error=error)
+            if update._deployment_messages is not None
+            else str(error)
+        ) from None
     except KeyboardInterrupt:
         print(update.tr("messages.installationInterrupted"), file=sys.stderr)
         raise SystemExit(130) from None

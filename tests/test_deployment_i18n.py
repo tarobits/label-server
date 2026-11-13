@@ -1,12 +1,96 @@
 """Localized deployment tools preserve safe handoff and unattended operation."""
 
 import ast
+import io
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from scripts import install, update
+
+
+@pytest.mark.parametrize("failure", [None, "network", "mismatch", "oversized"])
+def test_legacy_handoff_loads_bundle_from_matching_fetched_updater(tmp_path, monkeypatch, failure):
+    root = Path(__file__).resolve().parents[1]
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=checkout, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    git("remote", "add", "origin", "https://github.com/example/labels.git")
+    (checkout / "scripts").mkdir()
+    source = (root / "scripts/update.py").read_text()
+    (checkout / "scripts/update.py").write_text("# old standalone updater\n")
+    git("add", ".")
+    git("commit", "-qm", "Old checkout")
+    old = git("rev-parse", "HEAD")
+    (checkout / "lang").mkdir()
+    (checkout / "scripts/update.py").write_text(source)
+    bundle = root / update.DEPLOYMENT_LANGUAGE_BUNDLE
+    (checkout / update.DEPLOYMENT_LANGUAGE_BUNDLE).write_bytes(bundle.read_bytes())
+    git("add", ".")
+    git("commit", "-qm", "Release bundle")
+    release = git("rev-parse", "HEAD")
+    git("fetch", "--no-tags", ".", release)
+    git("switch", "--detach", old)
+    (checkout / "scripts/update.py").write_text(source)
+    monkeypatch.setattr(update, "_deployment_root", checkout)
+    downloads = []
+
+    def download(request, timeout):
+        downloads.append(request.full_url)
+        assert timeout == 30
+        assert (
+            request.full_url
+            == f"https://raw.githubusercontent.com/example/labels/{release}/lang/deployment.json"
+        )
+        if failure == "network":
+            raise OSError("offline")
+        if failure == "oversized":
+            return io.BytesIO(b"x" * (1024 * 1024 + 1))
+        content = bundle.read_bytes()
+        if failure == "mismatch":
+            content = content.replace(b"Update aborted:", b"Different text:")
+        return io.BytesIO(content)
+
+    monkeypatch.setattr(update.urllib.request, "urlopen", download)
+    if failure:
+        with pytest.raises((OSError, ValueError)):
+            update.configure_language([])
+        assert not (checkout / update.DEPLOYMENT_LANGUAGE_BUNDLE).exists()
+        assert not list(checkout.rglob(".deployment-*"))
+        failure = None
+    assert update.configure_language(["--language", "de"]) == "de"
+    assert update.tr("progress.required") == "Ein Wert ist erforderlich."
+    assert (checkout / update.DEPLOYMENT_LANGUAGE_BUNDLE).read_bytes() == bundle.read_bytes()
+    assert git("rev-parse", "HEAD") == old
+    previous_downloads = len(downloads)
+    monkeypatch.setattr(update, "_deployment_messages", None)
+    update.configure_language([])
+    assert len(downloads) == previous_downloads
+    # A different updater must never borrow translations from an unrelated fetch.
+    (checkout / update.DEPLOYMENT_LANGUAGE_BUNDLE).unlink()
+    monkeypatch.setattr(update, "_deployment_messages", None)
+    (checkout / "scripts/update.py").write_text(source + "\n# different updater\n")
+    with pytest.raises(FileNotFoundError):
+        update.configure_language([])
+    assert len(downloads) == previous_downloads
+
+
+def test_missing_bundle_error_does_not_recursively_translate(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(update, "_deployment_root", tmp_path)
+    assert update.main(["--check"]) == 1
+    assert "deployment.json" in capsys.readouterr().err
+    monkeypatch.setattr("sys.argv", ["install.py", "--check"])
+    with pytest.raises(SystemExit) as stopped:
+        install.main()
+    assert "deployment.json" in str(stopped.value)
 
 
 @pytest.fixture(autouse=True)

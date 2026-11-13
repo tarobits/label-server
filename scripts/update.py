@@ -61,10 +61,88 @@ def configure_language(invocation: list[str]) -> str:
             selected = invocation[index + 1]
     _deployment_language = selected if selected in {"en", "de"} else "en"
     if _deployment_messages is None:
-        _deployment_messages = deployment_catalog(
-            (_deployment_root / DEPLOYMENT_LANGUAGE_BUNDLE).read_text(encoding="utf-8")
-        )
+        _deployment_messages = deployment_catalog(load_deployment_bundle())
     return _deployment_language
+
+
+def load_deployment_bundle() -> str:
+    """Download a missing bundle after an older updater copied only this script.
+
+    The old handoff leaves the selected release in FETCH_HEAD. Read only from a
+    commit whose updater matches the running copy. Validate the download against
+    that Git object before publishing it, without switching the live checkout.
+    """
+    try:
+        return (_deployment_root / DEPLOYMENT_LANGUAGE_BUNDLE).read_text(encoding="utf-8")
+    except FileNotFoundError as missing:
+        source = _deployment_root / "scripts/update.py"
+        if not source.is_file():
+            raise missing
+
+        def git(*arguments: str) -> str:
+            return subprocess.check_output(
+                ["git", *arguments],
+                cwd=_deployment_root,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                timeout=10,
+            ).strip()
+
+        for reference in ("FETCH_HEAD", "HEAD"):
+            try:
+                commit = git("rev-parse", "--verify", reference + "^{commit}")
+                if (
+                    git("show", f"{commit}:scripts/update.py")
+                    != source.read_text(encoding="utf-8").strip()
+                ):
+                    continue
+                expected = git("show", f"{commit}:{DEPLOYMENT_LANGUAGE_BUNDLE}")
+                remote = git("remote", "get-url", "origin")
+            except (OSError, subprocess.SubprocessError):
+                continue
+            match = re.fullmatch(
+                r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([\w.-]+/[\w.-]+?)(?:\.git)?/?",
+                remote,
+            )
+            if not match or not re.fullmatch(r"[0-9a-f]{40,64}", commit):
+                raise missing
+            target = _deployment_root / DEPLOYMENT_LANGUAGE_BUNDLE
+            if target.is_symlink() or target.parent.is_symlink():
+                raise ValueError("Unsafe deployment language bundle path")
+            request = urllib.request.Request(
+                f"https://raw.githubusercontent.com/{match[1]}/{commit}/{DEPLOYMENT_LANGUAGE_BUNDLE}",
+                headers={"User-Agent": "label-server-updater"},
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                downloaded = response.read(1024 * 1024 + 1)
+            if len(downloaded) > 1024 * 1024:
+                raise ValueError("Invalid deployment language bundle")
+            bundle = downloaded.decode("utf-8")
+            deployment_catalog(bundle)
+            if bundle.strip() != expected:
+                raise ValueError("Deployment language bundle does not match the selected release")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(prefix=".deployment-", dir=target.parent)
+            try:
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(downloaded)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.chmod(temporary, 0o644)
+                # Exclusive publication never overwrites a concurrently installed file.
+                try:
+                    os.link(temporary, target)
+                except FileExistsError:
+                    if (
+                        target.is_symlink()
+                        or target.read_text(encoding="utf-8").strip() != expected
+                    ):
+                        raise ValueError("Deployment language bundle changed during download")
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+            return bundle
+        raise missing
 
 
 def tr(message_key: str, **parameters: Any) -> str:
@@ -2212,7 +2290,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         update(options(argv))
     except (UpdateError, OSError, ValueError) as error:
-        print(tr("progress.aborted", error=error), file=sys.stderr)
+        # Bootstrap failures cannot be rendered through an unavailable catalog.
+        print(
+            tr("progress.aborted", error=error) if _deployment_messages is not None else str(error),
+            file=sys.stderr,
+        )
         return 1
     except KeyboardInterrupt:
         print(tr("messages.updateInterrupted"), file=sys.stderr)

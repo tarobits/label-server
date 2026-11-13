@@ -858,3 +858,18 @@ imports leave it untouched, and interrupted archive moves are retried on startup
 The archive is retained for rollback and is separate from the expiring cache.
 Keep private configuration, authentication keys and companion journals backed up
 separately.
+
+## Recovering a 0.20.0 updater handoff
+
+Older updaters copied only the new updater script. If an update to 0.20.0 stopped
+with `FileNotFoundError` for `lang/deployment.json`, restore that missing bundle
+from the release already fetched by the updater. Run from the installation directory:
+
+```sh
+sudo git restore --source=739ecdbacb79d062822319e98fd010cbacf959a2 --worktree -- lang/deployment.json
+sudo ./update.sh
+```
+
+This restores only the translation bundle; it does not switch the application
+version or change the database. Version 0.20.1 handles missing bundles during
+older updater handoffs automatically.

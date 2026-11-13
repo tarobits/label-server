@@ -52,6 +52,12 @@ The updater validates and backs up this bundle during self-update so translation
 remain available before the application checkout is updated. Bootstrap errors
 when the bundle cannot be read cannot use its translations.
 
+When an older updater hands off only the script, the new updater checks for the
+missing deployment bundle before loading translations. It downloads the bundle
+from the matching fetched GitHub commit, validates it against that commit's
+contents, and saves it without switching the application checkout. Download
+failure leaves the installation unchanged and can be retried.
+
 Use `Message` for translated HTTP exception details. The main and companion HTTP
 exception handlers render these in the request language, preserving status codes
 and headers. Plain strings remain unchanged; do not infer translation keys from
