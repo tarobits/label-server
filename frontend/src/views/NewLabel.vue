@@ -36,19 +36,20 @@ const auth = useAuthStore()
 const router = useRouter(),
   route = useRoute()
 const { profiles, defaultProfile, busy, templates } = storeToRefs(w)
+const availableProfileId = (id: string) =>
+  profiles.value.find((profile) => profile.id === id && profile.available !== false)?.id ?? ''
 const form = reactive({
   destination_id:
     typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter,
   tape_profile:
     typeof route.query.profile === 'string'
-      ? route.query.profile
-      : (defaultProfile.value?.id ?? ''),
+      ? availableProfileId(route.query.profile)
+      : w.activeProfile?.available === false
+        ? ''
+        : (defaultProfile.value?.id ?? ''),
   copies: 1,
   notify_on_completion: true,
-  template:
-    typeof route.query.template === 'string'
-      ? route.query.template
-      : (templates.value[0]?.id ?? ''),
+  template: typeof route.query.template === 'string' ? route.query.template : '',
 })
 const template = computed(() => templates.value.find((t) => t.id === form.template))
 const processName = ref('')
@@ -58,7 +59,8 @@ watch(
   (_, previous) => {
     if (previous === undefined && typeof route.query.profile === 'string') return
     const profile = profiles.value.find((p) => p.id === template.value?.document.preview_tape?.id)
-    if (profile) form.tape_profile = profile.id
+    if (template.value?.document.preview_tape?.id)
+      form.tape_profile = profile?.available !== false && profile ? profile.id : ''
   },
   { immediate: true, flush: 'sync' },
 )
@@ -81,7 +83,7 @@ watch(
   (query) => {
     if (typeof query.destination === 'string') form.destination_id = query.destination
     if (typeof query.template === 'string') form.template = query.template
-    if (typeof query.profile === 'string') form.tape_profile = query.profile
+    if (typeof query.profile === 'string') form.tape_profile = availableProfileId(query.profile)
   },
 )
 const data = ref<Record<string, VariableValue>>({}),

@@ -72,14 +72,18 @@ const route = useRoute(),
 const destinationId = ref(
   typeof route.query.destination === 'string' ? route.query.destination : w.selectedPrinter,
 )
+const availableProfileId = (id: string) =>
+  w.profiles.find((profile) => profile.id === id && profile.available !== false)?.id ?? ''
 const csv = ref(''),
   delimiter = ref(','),
   name = ref(t('remainingUi.cSVLabels')),
-  templateId = ref(
-    typeof route.query.template === 'string' ? route.query.template : (w.templates[0]?.id ?? ''),
-  ),
+  templateId = ref(typeof route.query.template === 'string' ? route.query.template : ''),
   profileId = ref(
-    typeof route.query.profile === 'string' ? route.query.profile : (w.defaultProfile?.id ?? ''),
+    typeof route.query.profile === 'string'
+      ? availableProfileId(route.query.profile)
+      : w.activeProfile?.available === false
+        ? ''
+        : (w.defaultProfile?.id ?? ''),
   )
 const template = computed(() => w.templates.find((t) => t.id === templateId.value))
 const processName = ref('')
@@ -89,7 +93,8 @@ watch(
   (_, previous) => {
     if (previous === undefined && typeof route.query.profile === 'string') return
     const profile = w.profiles.find((p) => p.id === template.value?.document.preview_tape?.id)
-    if (profile) profileId.value = profile.id
+    if (template.value?.document.preview_tape?.id)
+      profileId.value = profile?.available !== false && profile ? profile.id : ''
   },
   { immediate: true, flush: 'sync' },
 )
@@ -110,7 +115,7 @@ watch(
     if (!route.params.id) {
       if (typeof query.destination === 'string') destinationId.value = query.destination
       if (typeof query.template === 'string') templateId.value = query.template
-      if (typeof query.profile === 'string') profileId.value = query.profile
+      if (typeof query.profile === 'string') profileId.value = availableProfileId(query.profile)
     } else if (run.value) position.value = rowPosition()
   },
 )

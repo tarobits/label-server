@@ -43,6 +43,8 @@ for (const path of ['/new', '/runs']) {
     const tapeSelect = tapeProfileControl(page)
     const templateSelect = templateControl(page)
 
+    await page.goto(`/#${path}`)
+    await expect(templateSelect).toHaveJSProperty('value', '')
     await page.goto('/#/templates')
     await page
       .locator('article')
@@ -61,7 +63,7 @@ for (const path of ['/new', '/runs']) {
     await chooseTemplate(page, legacy.id)
     await expect(tapeSelect).toHaveJSProperty('value', saved.id)
     await chooseTemplate(page, missing.id)
-    await expect(tapeSelect).toHaveJSProperty('value', saved.id)
+    await expect(tapeSelect).toHaveJSProperty('value', '')
 
     await page.goto(`/#${path}?template=${other.id}&profile=${saved.id}`)
     await expect(templateSelect).toHaveJSProperty('value', other.id)
@@ -69,6 +71,33 @@ for (const path of ['/new', '/runs']) {
     await page.goto(`/#${path}?template=${template.id}`)
     await expect(templateSelect).toHaveJSProperty('value', template.id)
     await expect(tapeSelect).toHaveJSProperty('value', saved.id)
+    const profiles: Profile[] = await (await request.get('/api/tape-profiles')).json()
+    await page.route('**/api/tape-profiles', (route) =>
+      route.fulfill({
+        json: profiles.map((profile) => ({
+          ...profile,
+          available: profile.id !== saved.id,
+        })),
+      }),
+    )
+    // A stale explicit link and an unavailable template suggestion must not select it.
+    await page.goto(`/#${path}?template=${template.id}&profile=${saved.id}`)
+    await page.reload()
+    await expect(tapeSelect).toHaveJSProperty('value', '')
+    await chooseTapeProfile(page, active.id)
+    await chooseTemplate(page, other.id)
+    await chooseTemplate(page, template.id)
+    await expect(tapeSelect).toHaveJSProperty('value', '')
+    await chooseTapeProfile(page, active.id)
+    await expect(tapeSelect).toHaveJSProperty('value', active.id)
+    await page.unroute('**/api/tape-profiles')
+    await page.route('**/api/tape-profiles', (route) =>
+      route.fulfill({ json: profiles.map((profile) => ({ ...profile, available: false })) }),
+    )
+    await page.goto(`/#${path}`)
+    await page.reload()
+    await expect(templateSelect).toHaveJSProperty('value', '')
+    await expect(tapeSelect).toHaveJSProperty('value', '')
   })
 }
 
