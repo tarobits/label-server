@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.1] - 2026-11-13
+
+### Fixed
+
+- Updates from older standalone updaters download and validate a missing
+  deployment translation bundle before loading it.
+- Installer and updater startup errors no longer trigger a second traceback
+  when translations are unavailable.
+
+**Manual repair:** Updates already stopped by 0.20.0's missing
+`lang/deployment.json` need the [one-time bundle repair](https://github.com/tarobits/label-server/blob/v0.20.1/docs/DEPLOYMENT.md#recovering-a-0200-updater-handoff)
+before the updater can continue.
+
 ## [0.20.0] - 2026-11-13
 
 ### Added
@@ -1120,6 +1133,7 @@ Initial release of Label Printer Server.
 **Printing limitation:** Cancellation may finish the current label before stopping
 subsequent labels.
 
+[0.20.1]: https://github.com/tarobits/label-server/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/tarobits/label-server/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/tarobits/label-server/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/tarobits/label-server/compare/v0.17.2...v0.18.0
