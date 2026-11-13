@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.20.2] - 2026-11-13
+
+### Fixed
+
+- The print queue defaults to queued labels correctly in German and English.
+- Consistent spacing separates buttons, headings, text and feedback across
+  account settings, notifications, templates, printer controls and companion PIN entry.
+
 ## [0.20.1] - 2026-11-13
 
 ### Fixed
