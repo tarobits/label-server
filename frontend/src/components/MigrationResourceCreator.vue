@@ -263,7 +263,7 @@ function entered(element: Element) {
     >
     <div class="row wrap">
       <button type="submit" :disabled="busy || transitioning || !draft.reason.trim()">
-        {{ receipt ? 'Confirm creation' : 'Review replacement' }}
+        {{ receipt ? $t('uiMessages.confirmCreation') : $t('uiMessages.reviewReplacement') }}
       </button>
       <button
         v-if="receipt"

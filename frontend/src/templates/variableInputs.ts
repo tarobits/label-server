@@ -24,7 +24,11 @@ export function missingValue(value: VariableValue | undefined) {
   return value == null || (typeof value === 'string' && !value.trim())
 }
 export function displayValue(value: VariableValue) {
-  return value === null ? '' : typeof value === 'object' ? 'Uploaded image' : String(value)
+  return value === null
+    ? ''
+    : typeof value === 'object'
+      ? t('sharedMessages.uploadedImage')
+      : String(value)
 }
 export function nextElementName(doc: TemplateDocument, kind: string) {
   const names = new Set([
@@ -57,10 +61,7 @@ export function setFieldType(doc: TemplateDocument, field: TemplateField, type: 
 }
 export function upgradeDocument(doc: TemplateDocument) {
   const invalid = doc.fields.find((f) => !validVariableName(f.name))
-  if (invalid)
-    throw new Error(
-      `Rename variable “${invalid.name}” before using typed variables. Use up to 40 letters, numbers or underscores, starting with a letter, and avoid reserved names.`,
-    )
+  if (invalid) throw new Error(t('sharedMessages.renameVariable', { name: invalid.name }))
   doc.version = 2
   for (const element of doc.elements) element.logic_name ||= nextElementName(doc, element.kind)
   for (const input of doc.fields) input.type ??= 'text'
@@ -89,9 +90,7 @@ export function renameField(doc: TemplateDocument, field: TemplateField, name: s
     Object.hasOwn(doc.logic?.variables ?? {}, name) ||
     (doc.version === 2 && doc.elements.some((element) => element.logic_name === name))
   )
-    throw new Error(
-      'Choose a unique variable name starting with a letter. Reserved names cannot be used in logic.',
-    )
+    throw new Error(t('sharedMessages.uniqueVariable'))
   const previous = field.name
   for (const example of doc.preview_examples ?? []) {
     if (Object.hasOwn(example.data, previous)) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed } from 'vue'
 import type { Element } from '../templates/editor'
 import type { FontAsset } from '../shared/types'
@@ -14,19 +15,19 @@ const axis = computed(() =>
 const weight = computed(
   () => props.element.font_weight ?? axis.value?.default ?? asset.value?.weight ?? 400,
 )
-const names: [number, string][] = [
-  [100, 'Thin'],
-  [200, 'Extra Light'],
-  [300, 'Light'],
-  [400, 'Regular'],
-  [500, 'Medium'],
-  [600, 'Semi Bold'],
-  [700, 'Bold'],
-  [800, 'Extra Bold'],
-  [900, 'Black'],
-]
+const names = computed<[number, string][]>(() => [
+  [100, t('uiMessages.thin')],
+  [200, t('uiMessages.extraLight')],
+  [300, t('uiMessages.light')],
+  [400, t('uiMessages.regular')],
+  [500, t('uiMessages.medium')],
+  [600, t('uiMessages.semiBold')],
+  [700, t('uiMessages.bold')],
+  [800, t('uiMessages.extraBold')],
+  [900, t('uiMessages.black')],
+])
 const options = computed(() =>
-  names.filter(([value]) =>
+  names.value.filter(([value]) =>
     axis.value ? value >= axis.value.min && value <= axis.value.max : value === weight.value,
   ),
 )

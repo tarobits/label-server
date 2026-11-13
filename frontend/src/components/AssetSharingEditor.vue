@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { ref, watch } from 'vue'
 import { api } from '../shared/api'
 import { useWorkspaceStore } from '../shared/workspace'
@@ -22,7 +23,7 @@ async function save() {
         'PUT',
         sharing.value,
       ),
-    'Sharing updated.',
+    t('uiMessages.sharingUpdated'),
   )
 }
 </script>

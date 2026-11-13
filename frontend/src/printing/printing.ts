@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import { api, ApiError } from '../shared/api'
 import { ActionCancelled, ActionDeferred, confirmAction } from '../shared/confirmation'
 import { askCartridgeConsent, type CartridgeConsent } from '../accounts/cartridgeConsent'
@@ -40,7 +41,7 @@ export async function requestPrinting<T>(path: string, body?: unknown): Promise<
           cartridge_id: string
           job_ids: string[]
         }
-        if (!(await confirmAction(proposal.message, 'Request price approval')))
+        if (!(await confirmAction(proposal.message, t('sharedMessages.requestPrice'))))
           throw new ActionCancelled()
         const prefix = path.startsWith('/proxy/') ? '/proxy' : ''
         await api(
@@ -52,9 +53,7 @@ export async function requestPrinting<T>(path: string, body?: unknown): Promise<
             job_ids: proposal.job_ids,
           },
         )
-        throw new ActionDeferred(
-          'Price approval requested. The labels remain queued until their requesters respond.',
-        )
+        throw new ActionDeferred(t('sharedMessages.priceRequested'))
       }
       if (
         error instanceof ApiError &&
@@ -62,8 +61,7 @@ export async function requestPrinting<T>(path: string, body?: unknown): Promise<
         (error.detail as { code?: string })?.code === 'cartridge_use'
       ) {
         const consent = error.detail as CartridgeConsent
-        if (attempt >= 5)
-          throw new Error('Print authorization keeps changing. Review the queue and try again.')
+        if (attempt >= 5) throw new Error(t('sharedMessages.authorizationChanging'))
         if (path.startsWith('/proxy/'))
           consent.items = consent.items.map((item) => ({
             ...item,
@@ -94,9 +92,9 @@ export async function requestPrinting<T>(path: string, body?: unknown): Promise<
       }
       const shortage = tapeShortage(error)
       if (!shortage) throw error
-      if (attempt >= 3)
-        throw new Error('The tape estimate changed repeatedly. Please try printing again.')
-      if (!(await confirmAction(shortage.message, 'Print anyway'))) throw new ActionCancelled()
+      if (attempt >= 3) throw new Error(t('sharedMessages.estimateChanging'))
+      if (!(await confirmAction(shortage.message, t('sharedMessages.printAnyway'))))
+        throw new ActionCancelled()
       confirmation = shortage.confirmation
     }
   }

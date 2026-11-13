@@ -18,7 +18,7 @@ defineProps<{ label: LabelInformation; attribution?: PrintAttribution | null }>(
       </div>
       <div>
         <dt>{{ $t('common.printer') }}</dt>
-        <dd>{{ label.printer_name ?? 'Not assigned' }}</dd>
+        <dd>{{ label.printer_name ?? $t('uiMessages.notAssigned') }}</dd>
       </div>
       <div v-if="label.destination_name !== label.printer_name">
         <dt>{{ $t('common.destination') }}</dt>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../shared/api'
@@ -92,7 +93,9 @@ async function act(action: 'accept' | 'decline') {
               }
             : {},
         ),
-      action === 'accept' ? 'Retry queued. Printer holds remain in place.' : 'Retry declined.',
+      action === 'accept'
+        ? t('uiMessages.retryQueuedPrinterHoldsRemainInPlace')
+        : t('uiMessages.retryDeclined'),
     )
   )
     await load()
@@ -116,7 +119,9 @@ async function act(action: 'accept' | 'decline') {
         :length-mm="offer.label.length_mm"
       />
       <p v-if="offer.status !== 'pending'" role="status">
-        {{ offer.status === 'queued' ? 'Retry queued.' : 'Retry declined.' }}
+        {{
+          offer.status === 'queued' ? $t('uiMessages.retryQueued') : $t('uiMessages.retryDeclined')
+        }}
       </p>
       <ExpandableContent :open="offer.status === 'pending'">
         <div class="form-stack">

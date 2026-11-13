@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref, watch } from 'vue'
 import { referenceEntries } from '../templates/logicReference'
 import type { TemplateDocument } from '../templates/editor'
@@ -42,9 +43,9 @@ watch(selection, () => {
 async function copy() {
   try {
     await navigator.clipboard.writeText(selected.value?.example ?? '')
-    copied.value = 'Example copied.'
+    copied.value = t('uiMessages.exampleCopied')
   } catch {
-    copied.value = 'Select the example text to copy it.'
+    copied.value = t('uiMessages.selectTheExampleTextToCopyIt')
   }
 }
 </script>

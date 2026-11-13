@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 export function pushSupported() {
   return (
     window.isSecureContext &&
@@ -25,7 +26,7 @@ export async function pushRegistration(): Promise<ServiceWorkerRegistration> {
       navigator.serviceWorker.ready,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
-          () => reject(new Error('The app is not ready yet. Reload and try again.')),
+          () => reject(new Error(t('remainingUi.theAppIsNotReadyYetReloadAndTryAgain'))),
           10000,
         )
       }),

@@ -159,14 +159,18 @@ Fonts selected for printed label artwork are separate from interface typography.
 
 Desktop navigation is a fixed left sidebar (242px); content offsets by the same
 amount. The main content region is centered with a maximum width of 1470px and
-default padding of 36px 42px 20px. A page header places its title and primary
-action on opposite sides with a 20px gap.
+default padding of 36px 42px 20px. A page header separates its title from global
+print shortcuts with a 20px gap. New label and New CSV run use secondary buttons
+inside a rounded surface panel; page-specific create actions remain in the page
+content. At 600px and below, the shortcut panel occupies its own row. Hide the
+shortcut for the creation form already open, and show the panel only to users
+with print-submission permission.
 
 | Breakpoint | Shared adaptation |
 | --- | --- |
 | At least 1600px | Main top padding becomes 48px; panels use 28px padding |
 | At most 1150px | Sidebar narrows to 205px; main padding becomes 28px 24px; panels use 20px |
-| At most 850px | Sidebar becomes a top header with horizontally scrolling navigation; main padding becomes 26px 20px; general two-column content stacks |
+| At most 850px | Sidebar becomes a top header. Navigation shows a row only when its translated links and counts fit; otherwise the current section and Menu button open an animated vertical list. Main padding becomes 26px 20px; general two-column content stacks |
 | At most 600px | Page headers wrap; dashboard statistics stack; compact layouts reduce spacing |
 
 These are shared-shell breakpoints. Editors, dialogs and station components have

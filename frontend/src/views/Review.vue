@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { vValidateForm } from '../shared/formValidation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -132,7 +133,7 @@ async function resolve() {
           consumed_mm: consumed.value,
           cartridge_id: cartridgeId.value,
         }),
-      'Review saved. Choose retry funding separately for any unprinted copies.',
+      t('uiMessages.reviewSavedChooseRetryFundingSeparatelyForAnyUnprintedCopies'),
     )
   ) {
     photo.value = null
@@ -147,11 +148,19 @@ async function resolve() {
     <div class="section-heading">
       <div>
         <h2>
-          {{ batch.cartridge_id ? w.cartridgeName(batch.cartridge_id) : 'Restricted cartridge' }}
+          {{
+            batch.cartridge_id
+              ? w.cartridgeName(batch.cartridge_id)
+              : $t('uiMessages.restrictedCartridge')
+          }}
         </h2>
         <p>
-          {{ batch.printer_id ? w.destinationName(batch.printer_id) : 'Restricted printer' }} ·
-          {{ date(batch.created_at)
+          {{
+            batch.printer_id
+              ? w.destinationName(batch.printer_id)
+              : $t('uiMessages.restrictedPrinter')
+          }}
+          · {{ date(batch.created_at)
           }}<template v-if="batch.estimated_mm != null">
             {{ $t('common.estimated') }} {{ metres(batch.estimated_mm) }}</template
           >
@@ -221,7 +230,9 @@ async function resolve() {
                     v-model="selected"
                     type="checkbox"
                     :value="item.copy_id"
-                    :aria-label="`Select label ${item.position + 1}`"
+                    :aria-label="
+                      $t('uiDetails.selectLabel', { value1: String(item.position + 1) })
+                    "
                 /></label>
               </td>
               <td class="review-text">
@@ -262,7 +273,9 @@ async function resolve() {
                   <select
                     v-model="decisions[item.copy_id]"
                     required
-                    :aria-label="`Decision for label ${item.position + 1}`"
+                    :aria-label="
+                      $t('uiDetails.labelDecision', { value1: String(item.position + 1) })
+                    "
                   >
                     <option disabled value="">{{ $t('review.chooseOutcome') }}</option>
                     <option value="printed">{{ $t('review.itPrinted') }}</option>
@@ -272,7 +285,9 @@ async function resolve() {
                   <button
                     type="button"
                     class="secondary"
-                    :aria-label="`Select label ${item.position + 1} and following uncertain labels`"
+                    :aria-label="
+                      $t('uiDetails.selectUncertain', { value1: String(item.position + 1) })
+                    "
                     @click="selectFollowing(item.copy_id)"
                   >
                     {{ $t('common.selectFromHere') }}
@@ -320,8 +335,11 @@ async function resolve() {
         </button>
       </div>
       <p v-else-if="batch.consumed_mm !== null" class="help">
-        {{ batch.consumption_source === 'estimated' ? 'Tape use estimated' : 'Tape consumed' }}:
-        {{ metres(batch.consumed_mm) }}{{ $t('review.thisAttemptHasBeenAccountedFor') }}
+        {{
+          batch.consumption_source === 'estimated'
+            ? $t('uiMessages.tapeUseEstimated')
+            : $t('uiMessages.tapeConsumed')
+        }}: {{ metres(batch.consumed_mm) }}{{ $t('review.thisAttemptHasBeenAccountedFor') }}
       </p>
     </form>
     <div class="batch-actions">
@@ -333,8 +351,12 @@ async function resolve() {
       <div class="form-stack">
         <article v-for="review in batch.reviews" :key="review.id" class="form-stack">
           <strong
-            >{{ review.kind === 'misprint' ? 'Misprint reported' : 'Batch reviewed' }} ·
-            {{ review.actor_name }}</strong
+            >{{
+              review.kind === 'misprint'
+                ? $t('notificationMessages.misprintTitle')
+                : $t('uiMessages.batchReviewed')
+            }}
+            · {{ review.actor_name }}</strong
           >
           <span class="muted"
             >{{ date(review.created_at) }} · {{ Object.keys(review.decisions).length }}

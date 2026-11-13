@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test'
+import { i18n } from '../src/shared/i18n'
+import { referenceEntries } from '../src/templates/logicReference'
+import { compileGraph } from '../src/templates/logicGraph'
 import {
   canConnect,
   inputType,
@@ -53,6 +56,43 @@ const catalog: LogicCatalog = {
 }
 const doc: TemplateDocument = { version: 2, width_mm: 24, length_mm: 60, fields: [], elements: [] }
 const values: VariableValue[] = ['text', 12, true, { image_asset: 'a'.repeat(64) }]
+test('German graph errors reject bad connections without changing a valid program', () => {
+  const source = node('source', { value: 12 })
+  const destination = node('destination', {
+    kind: 'call',
+    operation: 'add',
+    inputs: [null, null],
+    defaults: [1, 2],
+  })
+  const nodes = [source, destination]
+  const before = JSON.stringify(nodes)
+  const program = JSON.stringify(compileGraph(nodes, doc))
+  const englishReference = referenceEntries(catalog, doc)
+  try {
+    i18n.global.locale.value = 'de'
+    source.value = 'not a number'
+    expect(() => canConnect(source, destination, 0, nodes, catalog, doc)).toThrow(/benötigt Zahl/)
+    expect(destination.inputs).toEqual([null, null])
+    source.value = 12
+    expect(() => canConnect(source, destination, 0, nodes, catalog, doc)).not.toThrow()
+    expect(JSON.stringify(nodes)).toBe(before)
+    expect(JSON.stringify(compileGraph(nodes, doc))).toBe(program)
+    const germanReference = referenceEntries(catalog, doc)
+    expect(germanReference.find((entry) => entry.id === 'type:text')?.title).toBe('Text · Kreis')
+    expect(germanReference.find((entry) => entry.id === 'property:content')?.summary).toContain(
+      '{{tokens}}',
+    )
+    expect(germanReference.find((entry) => entry.id === 'operation:add')?.summary).toBe(
+      'Addiert zwei Zahlen.',
+    )
+    expect(germanReference.map((entry) => [entry.id, entry.example])).toEqual(
+      englishReference.map((entry) => [entry.id, entry.example]),
+    )
+  } finally {
+    i18n.global.locale.value = 'en'
+  }
+  expect(referenceEntries(catalog, doc)).toEqual(englishReference)
+})
 function node(id: string, extra: Partial<LogicNode>): LogicNode {
   return { id, kind: 'literal', type: 'number', x: 0, y: 0, inputs: [], defaults: [], ...extra }
 }

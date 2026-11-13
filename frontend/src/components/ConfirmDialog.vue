@@ -19,7 +19,7 @@ onUnmounted(() => resolveConfirmation(false))
       aria-describedby="confirmation-message"
       @cancel.prevent="resolveConfirmation(false)"
     >
-      <h2 id="confirmation-title">{{ confirmation?.title ?? 'Confirm action' }}</h2>
+      <h2 id="confirmation-title">{{ confirmation?.title ?? $t('uiMessages.confirmAction') }}</h2>
       <p id="confirmation-message">{{ confirmation?.message }}</p>
       <div class="dialog-actions" :class="{ 'dialog-choices': confirmation?.alternateLabel }">
         <button

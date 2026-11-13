@@ -34,7 +34,14 @@ import {
 import { checkServer, serverUnavailable } from './shared/serverConnection'
 import { mediaLabel, compatibleProfile } from './printing/media'
 import { reloadUpdatedCompanion } from './companion/companionUpdates'
-import { accountLanguage, validPreference, type LanguagePreference } from './shared/i18n'
+import {
+  accountLanguage,
+  browserLanguage,
+  deploymentLanguage,
+  validPreference,
+  type Language,
+  type LanguagePreference,
+} from './shared/i18n'
 import LanguagePicker from './components/LanguagePicker.vue'
 
 interface LocalPrinter {
@@ -65,6 +72,7 @@ interface QueueGroup {
   jobs: Job[]
 }
 interface Station {
+  default_language?: Language
   version?: string
   update?: { version: string; url: string } | null
   frontend_build?: string | null
@@ -166,7 +174,8 @@ const installedProfile = computed(() => {
   return profiles.value.find((item) => item.id === cartridge?.profile_id)
 })
 const profileName = (id: string) =>
-  profiles.value.find((profile) => profile.id === id)?.name ?? 'Unavailable tape profile'
+  profiles.value.find((profile) => profile.id === id)?.name ??
+  t('uiMessages.unavailableTapeProfile')
 const jobProfileName = (job: Job) => job.profile_name || profileName(job.profile_id)
 const groupCopies = (group: QueueGroup) => group.jobs.flatMap(queuedCopies)
 const selectableCopies = (group: QueueGroup) =>
@@ -222,15 +231,37 @@ const fleetSummary = computed(() => {
   const printers = station.value?.printers ?? []
   const connected = printers.filter((printer) => printer.status.connected).length
   const attention = printers.filter((printer) => printer.blocked || printer.status.error).length
-  return `${connected} of ${printers.length} connected${attention ? ` · ${attention} need attention` : ''}`
+  return t(attention ? 'actionMessages.connectedAttention' : 'actionMessages.connected', {
+    connected,
+    total: printers.length,
+    attention,
+  })
 })
 function printerState(printer: LocalPrinter) {
   if (!stationReachable.value || serverUnavailable.value)
-    return { label: 'Status unavailable', tone: 'muted', icon: SignalSlashIcon }
+    return {
+      get label() {
+        return t('uiMessages.statusUnavailable')
+      },
+      tone: 'muted',
+      icon: SignalSlashIcon,
+    }
   if (printer.blocked)
-    return { label: 'Investigation required', tone: 'danger', icon: ExclamationTriangleIcon }
+    return {
+      get label() {
+        return t('uiMessages.investigationRequired')
+      },
+      tone: 'danger',
+      icon: ExclamationTriangleIcon,
+    }
   if (printer.status.error)
-    return { label: 'Printer error', tone: 'danger', icon: ExclamationTriangleIcon }
+    return {
+      get label() {
+        return t('uiMessages.printerError')
+      },
+      tone: 'danger',
+      icon: ExclamationTriangleIcon,
+    }
   if (printer.printing)
     return {
       get label() {
@@ -240,13 +271,31 @@ function printerState(printer: LocalPrinter) {
       icon: PrinterIcon,
     }
   if (!printer.status.connected)
-    return { label: 'Disconnected', tone: 'muted', icon: SignalSlashIcon }
+    return {
+      get label() {
+        return t('uiMessages.disconnected')
+      },
+      tone: 'muted',
+      icon: SignalSlashIcon,
+    }
   if (printer.dashboard?.cartridge_check_pending)
-    return { label: 'Check cartridge', tone: 'warning', icon: ExclamationTriangleIcon }
+    return {
+      get label() {
+        return t('uiMessages.checkCartridge')
+      },
+      tone: 'warning',
+      icon: ExclamationTriangleIcon,
+    }
   if (!printer.no_automatic_printing && printer.dashboard?.held)
-    return { label: 'On hold', tone: 'warning', icon: PauseIcon }
+    return {
+      get label() {
+        return t('uiMessages.onHold')
+      },
+      tone: 'warning',
+      icon: PauseIcon,
+    }
   return {
-    label: printer.no_automatic_printing ? 'Ready' : 'Connected',
+    label: printer.no_automatic_printing ? t('uiMessages.ready') : t('uiMessages.connected'),
     tone: 'ready',
     icon: CheckCircleIcon,
   }
@@ -304,6 +353,7 @@ async function refresh() {
     if (disposed || ticket !== generation) return
     const changed = state.user?.id !== station.value?.user?.id
     station.value = state
+    deploymentLanguage.value = state.default_language === 'de' ? 'de' : 'en'
     accountLanguage.value = state.user ? validPreference(state.user.language) : null
     stationReachable.value = true
     refreshError.value = ''
@@ -420,14 +470,24 @@ async function unlock() {
       pinAttempt.value++
     }
     unlocking.value = false
-  }, 'Station unlocked.')
+  }, t('uiMessages.stationUnlocked'))
 }
 async function lock() {
   await perform(async () => {
     await api('/station/lock', 'POST')
     clearPrivate()
     if (station.value) station.value.locked = true
-  }, 'Station locked.')
+  }, t('uiMessages.stationLocked'))
+}
+async function saveLanguage(language: Language) {
+  const user = station.value?.user
+  if (!user) return
+  const ticket = generation
+  await api('/station/language', 'PUT', { language, browser_language: browserLanguage.value })
+  if (disposed || ticket !== generation || station.value?.user?.id !== user.id) return
+  generation++
+  station.value.user = { ...station.value.user, language }
+  accountLanguage.value = language
 }
 async function swap() {
   if (active.value?.id && cartridgeId.value)
@@ -437,7 +497,7 @@ async function swap() {
           explicitSelection: true,
           apiPrefix: '/proxy',
         }),
-      'Cartridge installed.',
+      t('uiMessages.cartridgeInstalled'),
     )
 }
 async function start() {
@@ -448,7 +508,7 @@ async function start() {
           `/proxy/queue/print?printer_id=${encodeURIComponent(active.value!.id!)}&destination_id=${encodeURIComponent(destination.value)}`,
           { copy_ids: copyIds.value },
         ),
-      'Print request queued.',
+      t('uiMessages.printRequestQueued'),
     )
 }
 async function printProfileQueue() {
@@ -458,7 +518,7 @@ async function printProfileQueue() {
         requestPrinting(
           `/proxy/queue/print?printer_id=${encodeURIComponent(active.value!.id!)}&destination_id=${encodeURIComponent(destination.value)}`,
         ),
-      'Print request queued.',
+      t('uiMessages.printRequestQueued'),
     )
 }
 async function hold() {
@@ -470,7 +530,9 @@ async function hold() {
           'PUT',
           { held: !status.value!.automatic_printing_held },
         ),
-      status.value.automatic_printing_held ? 'Printer resumed.' : 'Printer held.',
+      status.value.automatic_printing_held
+        ? t('uiMessages.printerResumed')
+        : t('uiMessages.printerHeld'),
     )
 }
 function allowStop(printer: LocalPrinter, mode: 'emergency' | 'after_current') {
@@ -485,21 +547,21 @@ function allowStop(printer: LocalPrinter, mode: 'emergency' | 'after_current') {
 async function stop(printer: LocalPrinter, mode: 'emergency' | 'after_current') {
   await perform(
     () => api(`/station/printers/${printer.local_id}/stop`, 'POST', { mode }),
-    'Stop requested.',
+    t('uiMessages.stopRequested'),
   )
 }
 async function clearBlock() {
   if (
     !active.value?.id ||
     !(await confirmAction(
-      'Have you investigated the printer and resolved its error?',
-      'Clear printer block',
+      t('uiMessages.haveYouInvestigatedThePrinterAndResolvedItsError'),
+      t('uiMessages.clearPrinterBlock'),
     ))
   )
     return
   await perform(
     () => api(`/proxy/companion/printers/${active.value!.id}/clear`, 'POST'),
-    'Printer cleared.',
+    t('uiMessages.printerCleared'),
   )
 }
 function editConfig() {
@@ -531,8 +593,8 @@ async function setPrinterEnabled(printer: { local_id: string; name: string }, en
   if (
     !enabled &&
     !(await confirmAction(
-      `Remove ${printer.name} from this station? Its history and queued labels remain on the main server.`,
-      'Remove printer',
+      t('uiDetails.removeStationPrinter', { value1: String(printer.name) }),
+      t('companionApp.removePrinter'),
     ))
   )
     return
@@ -541,7 +603,7 @@ async function setPrinterEnabled(printer: { local_id: string; name: string }, en
       await api(`/station/printers/${printer.local_id}/enabled`, 'PUT', { enabled })
       if (selected.value === printer.local_id) selected.value = ''
     },
-    enabled ? 'Printer restored.' : 'Printer removed.',
+    enabled ? t('uiMessages.printerRestored') : t('uiMessages.printerRemoved'),
   )
 }
 async function saveConfig() {
@@ -561,7 +623,7 @@ async function saveConfig() {
       })
     }
     config.value = undefined
-  }, 'Printer configuration saved.')
+  }, t('uiMessages.printerConfigurationSaved'))
 }
 async function createCartridge() {
   await perform(async () => {
@@ -578,7 +640,7 @@ async function createCartridge() {
       explicitSelection: true,
       apiPrefix: '/proxy',
     })
-  }, 'Cartridge added and installed.')
+  }, t('uiMessages.cartridgeAddedAndInstalled'))
 }
 function toggleJob(job: Job, checked: boolean) {
   const ids = new Set(queuedCopies(job))
@@ -706,8 +768,11 @@ function changePage(delta: number) {
       <span v-else class="station-locked"
         ><LockClosedIcon aria-hidden="true" />{{ $t('companionApp.locked') }}</span
       >
+      <LanguagePicker
+        :key="station?.user?.id ?? 'device'"
+        :save="station?.user ? saveLanguage : undefined"
+      />
     </header>
-    <Transition name="notice"><LanguagePicker v-if="!station?.user" /></Transition>
     <Transition name="notice"
       ><p
         v-if="refreshError && stationReachable && station?.online && !serverUnavailable"
@@ -766,14 +831,18 @@ function changePage(delta: number) {
                   <div class="row wrap printer-name-mode">
                     <h2>{{ printer.name }}</h2>
                     <span v-if="printer.no_automatic_printing != null" class="muted printer-mode">{{
-                      printer.no_automatic_printing ? $t('printers.manualOnly') : 'Automatic'
+                      printer.no_automatic_printing
+                        ? $t('printers.manualOnly')
+                        : $t('uiMessages.automatic')
                     }}</span>
                   </div>
                   <p class="muted">
                     {{
                       printer.status.tape_width_mm
-                        ? `${printer.status.tape_width_mm} mm tape`
-                        : 'Tape not detected'
+                        ? $t('uiDetails.tapeWidth', {
+                            value1: String(printer.status.tape_width_mm),
+                          })
+                        : $t('uiMessages.tapeNotDetected')
                     }}
                   </p>
                 </div>
@@ -805,7 +874,11 @@ function changePage(delta: number) {
                   :aria-expanded="selected === printer.local_id"
                   @click="openControls(printer)"
                 >
-                  {{ selected === printer.local_id ? 'Close controls' : 'Controls' }}
+                  {{
+                    selected === printer.local_id
+                      ? $t('uiMessages.closeControls')
+                      : $t('uiMessages.controls')
+                  }}
                 </button>
                 <button
                   v-if="!station?.locked && can(printer.id, 'view_activity')"
@@ -846,7 +919,7 @@ function changePage(delta: number) {
                     v-else-if="status?.media_warning || status?.cartridge_check_pending"
                     class="alert warning"
                   >
-                    {{ status.media_warning ?? 'Confirm the installed cartridge.' }}
+                    {{ status.media_warning ?? $t('uiMessages.confirmTheInstalledCartridge') }}
                   </p>
                   <div class="row wrap">
                     <button
@@ -860,7 +933,9 @@ function changePage(delta: number) {
                       @click="hold"
                     >
                       {{
-                        status?.automatic_printing_held ? 'Resume printer' : 'Hold printer'
+                        status?.automatic_printing_held
+                          ? $t('uiMessages.resumePrinter')
+                          : $t('uiMessages.holdPrinter')
                       }}</button
                     ><button
                       v-if="can(printer.id, 'configure')"
@@ -977,7 +1052,10 @@ function changePage(delta: number) {
                           /><span
                             >{{ group.name ?? group.jobs[0]?.process_name }}
                             <small
-                              >{{ group.run_id ? `${group.jobs.length} rows · ` : ''
+                              >{{
+                                group.run_id
+                                  ? $t('uiDetails.rows', { value1: String(group.jobs.length) })
+                                  : ''
                               }}{{ groupCopies(group).length }} {{ $t('common.copies3') }}
                               {{
                                 group.jobs[0]?.attribution?.requested_by?.name ??
@@ -1011,7 +1089,9 @@ function changePage(delta: number) {
                             />
                             <span
                               >{{
-                                job.source_row == null ? job.process_name : `Row ${job.source_row}`
+                                job.source_row == null
+                                  ? job.process_name
+                                  : $t('uiDetails.row', { value1: String(job.source_row) })
                               }}<small
                                 >{{ queuedCopies(job).length }} {{ $t('common.copies3') }}
                                 {{ jobProfileName(job) }}</small
@@ -1228,7 +1308,7 @@ function changePage(delta: number) {
   >
   <AdminDialog
     :open="!!config && !station?.locked"
-    :title="newPrinterId ? $t('common.addPrinter') : 'Printer configuration'"
+    :title="newPrinterId ? $t('common.addPrinter') : $t('uiMessages.printerConfiguration')"
     :busy="busy"
     @close="config = undefined"
     ><form v-if="config" v-validate-form class="form-stack" @submit.prevent="saveConfig">
@@ -1268,7 +1348,7 @@ function changePage(delta: number) {
         }}</label
       >
       <button class="primary" :disabled="busy || !operational">
-        {{ newPrinterId ? $t('common.addPrinter') : 'Save configuration' }}
+        {{ newPrinterId ? $t('common.addPrinter') : $t('uiMessages.saveConfiguration') }}
       </button>
     </form></AdminDialog
   >
@@ -1452,13 +1532,18 @@ function changePage(delta: number) {
 }
 .station-heading {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 20px;
   margin-bottom: 16px;
 }
 .station-heading:has(.station-lock) {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+}
+.station-heading > .language-picker {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
 }
 .station-title {
   min-width: 0;
@@ -1476,6 +1561,9 @@ function changePage(delta: number) {
   min-height: 24px;
 }
 .station-locked {
+  grid-column: 3;
+  grid-row: 1;
+  margin-right: 64px;
   display: flex;
   align-items: center;
   justify-content: end;
@@ -1692,7 +1780,7 @@ function changePage(delta: number) {
     gap: 16px;
   }
   .station-title {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 1;
   }
   .station-unlock {
@@ -1700,12 +1788,18 @@ function changePage(delta: number) {
     grid-row: 2;
   }
   .station-locked {
-    grid-column: 2;
-    grid-row: 1;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-right: 0;
     align-self: start;
   }
   .station-heading:has(.station-locked) .station-title {
-    padding-right: 80px;
+    padding-right: 0;
+  }
+  .station-heading > .language-picker {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
   }
   .station-lock {
     grid-column: 1 / -1;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { ref } from 'vue'
 import type { Cartridge } from '../shared/types'
 import { api } from '../shared/api'
@@ -22,7 +23,7 @@ async function save() {
         price_minor: price.value === '' ? null : Math.round(Number(price.value) * 100),
         currency: currency.value,
       }),
-    'Cartridge price updated.',
+    t('uiMessages.cartridgePriceUpdated'),
   )
 }
 </script>

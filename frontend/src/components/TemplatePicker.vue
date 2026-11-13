@@ -118,9 +118,9 @@ const scopeName = (item: Template) =>
     <div class="template-choice-summary">
       <TemplatePreview v-if="selected" :template="selected" />
       <div class="template-choice-description">
-        <strong>{{ selected?.name ?? 'Choose a template' }}</strong>
+        <strong>{{ selected?.name ?? $t('uiMessages.chooseATemplate') }}</strong>
         <span v-if="selected?.owner_id && selected.owner_id !== auth.user?.id" class="muted">{{
-          selected.owner_username || 'Unavailable user'
+          selected.owner_username || $t('uiMessages.unavailableUser')
         }}</span>
         <span v-if="selected" class="muted"
           >{{ selected.document.width_mm }} {{ $t('common.mm2') }} {{ templateLength(selected) }}
@@ -230,14 +230,14 @@ const scopeName = (item: Template) =>
                 <button
                   type="button"
                   class="picker-select"
-                  :aria-label="`Use ${item.name}`"
+                  :aria-label="$t('uiDetails.use', { value1: String(item.name) })"
                   :aria-pressed="modelValue === item.id"
                   @click="choose(item)"
                 >
                   {{ item.name }}
                 </button>
                 <span v-if="item.owner_id && item.owner_id !== auth.user?.id" class="muted">{{
-                  item.owner_username || 'Unavailable user'
+                  item.owner_username || $t('uiMessages.unavailableUser')
                 }}</span>
                 <span class="muted"
                   >{{ item.document.width_mm }} {{ $t('common.mm2') }}

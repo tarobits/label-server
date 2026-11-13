@@ -34,7 +34,7 @@ test('pressing a template preview keeps the whole card clickable during press fe
 })
 
 async function seedTemplates(request: APIRequestContext, page: Page) {
-  const items = []
+  const items: { id: string }[] = []
   for (let index = 1; index <= 26; index++) {
     const response = await request.post('/api/templates', {
       data: {

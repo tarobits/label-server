@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref, watch } from 'vue'
 import { api } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -67,8 +68,8 @@ async function save() {
           include_printed: includePrinted.value,
         }),
       mode.value === 'free'
-        ? 'Free retry queued. Printer holds remain in place.'
-        : 'Retry approval sent to the requester.',
+        ? t('uiMessages.freeRetryQueuedPrinterHoldsRemainInPlace')
+        : t('uiMessages.retryApprovalSentToTheRequester'),
     )
   )
     opened.value = false
@@ -106,7 +107,8 @@ async function save() {
         <label v-for="item in visible" :key="item.copy_id" class="checkbox">
           <input v-model="selected" type="checkbox" :value="item.copy_id" />
           {{ item.process_name }} ·
-          {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }} {{ $t('common.copy') }}
+          {{ item.attribution?.requested_by?.name ?? $t('uiMessages.unknownRequester') }}
+          {{ $t('common.copy') }}
           {{ item.copy_number }}
         </label>
       </div>
@@ -138,7 +140,9 @@ async function save() {
       </ExpandableContent>
       <div class="admin-actions">
         <button :disabled="w.busy || !selected.length || (mode === 'free' && !cartridge)">
-          {{ mode === 'free' ? 'Authorize free retry' : 'Send retry offer' }}
+          {{
+            mode === 'free' ? $t('uiMessages.authorizeFreeRetry') : $t('uiMessages.sendRetryOffer')
+          }}
         </button>
       </div>
     </form>

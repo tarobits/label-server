@@ -288,7 +288,7 @@ const balances = computed(() => {
   for (const charge of details.value?.charges ?? []) {
     const key = `${charge.recipient_id ?? charge.cartridge_id}:${charge.currency}`
     const row = totals.get(key) ?? {
-      name: charge.recipient_name ?? charge.cartridge_name ?? 'Unowned cartridge',
+      name: charge.recipient_name ?? charge.cartridge_name ?? t('uiMessages.unownedCartridge'),
       currency: charge.currency,
       amount: 0,
     }
@@ -307,7 +307,7 @@ const payees = computed(() => [
   ...new Map(
     (details.value?.charges ?? [])
       .filter((c) => c.recipient_id && c.outstanding_micros > 0)
-      .map((c) => [c.recipient_id!, c.recipient_name ?? 'Former member']),
+      .map((c) => [c.recipient_id!, c.recipient_name ?? t('uiMessages.formerMember')]),
   ).entries(),
 ])
 const payable = computed(() =>
@@ -338,17 +338,19 @@ const money = (micros: number | string, currency: string) =>
   }).format(Number(micros) / 1000000)
 const kind = (value: string) =>
   ({
-    job: 'Print funding',
-    history: 'Historical transfer',
-    payment: 'Payment confirmation',
-    transfer: 'Transferred debt',
-    reimbursement: 'Reimbursement',
-    supply: 'Cartridge use',
+    job: t('uiMessages.printFunding'),
+    history: t('uiMessages.historicalTransfer'),
+    payment: t('uiMessages.paymentConfirmation'),
+    transfer: t('uiMessages.transferredDebt'),
+    reimbursement: t('uiMessages.reimbursement'),
+    supply: t('uiMessages.cartridgeUse'),
   })[value] ?? value
 const obligation = (value: string) =>
-  ({ transfer: 'Cartridge cost', reimbursement: 'Reimbursement', supply: 'Own cartridge' })[
-    value
-  ] ?? value
+  ({
+    transfer: t('uiMessages.cartridgeCost'),
+    reimbursement: t('uiMessages.reimbursement'),
+    supply: t('uiMessages.ownCartridge'),
+  })[value] ?? value
 let generation = 0
 async function load() {
   const ticket = ++generation
@@ -463,7 +465,7 @@ async function create() {
     selected.value = account.id
     createName.value = ''
     createOpen.value = false
-  }, 'Group account created.')
+  }, t('uiMessages.groupAccountCreated'))
 }
 async function decide(item: FundingRequest, approve: boolean) {
   await perform(
@@ -474,7 +476,7 @@ async function decide(item: FundingRequest, approve: boolean) {
       })
       closeRequest()
     },
-    approve ? 'Request approved.' : 'Request rejected.',
+    approve ? t('uiMessages.requestApproved') : t('uiMessages.requestRejected'),
   )
 }
 async function resolve(item: FundingRequest, cancel: boolean) {
@@ -483,7 +485,7 @@ async function resolve(item: FundingRequest, cancel: boolean) {
       await api(`/accounts/groups/requests/${item.id}/resolve`, 'POST', { cancel })
       closeRequest()
     },
-    cancel ? 'Queued labels cancelled.' : 'Personal payment selected.',
+    cancel ? t('uiMessages.queuedLabelsCancelled') : t('uiMessages.personalPaymentSelected'),
   )
 }
 async function loadAccess() {
@@ -502,7 +504,7 @@ async function saveGrant() {
     )
       access.value = null
     else access.value = await api<Access>(`/accounts/groups/${selected.value}/access`)
-  }, 'Permissions saved.')
+  }, t('uiMessages.permissionsSaved'))
 }
 let paymentKey = '',
   paymentSignature = ''
@@ -510,7 +512,7 @@ async function reportPayment() {
   await perform(async () => {
     const amount = payment.amount.trim()
     if (!/^\d+(\.\d{1,6})?$/.test(amount))
-      throw new Error('Enter an amount with up to six decimal places.')
+      throw new Error(t('uiMessages.enterAnAmountWithUpToSixDecimalPlaces'))
     const micros =
       Number(amount.split('.')[0]) * 1000000 + Number((amount.split('.')[1] ?? '').padEnd(6, '0'))
     const body = {
@@ -532,7 +534,7 @@ async function reportPayment() {
     payment.amount = ''
     payment.note = ''
     paymentSignature = ''
-  }, 'Payment recorded. Unconfirmed payments remain pending.')
+  }, t('uiMessages.paymentRecordedUnconfirmedPaymentsRemainPending'))
 }
 const transferKeys = new Map<string, string>()
 async function transfer(item: History, direct = false) {
@@ -552,7 +554,7 @@ async function transfer(item: History, direct = false) {
         (row) => row.available_micros > 0,
       )
     },
-    direct ? 'Costs transferred.' : 'Transfer requested.',
+    direct ? t('uiMessages.costsTransferred') : t('uiMessages.transferRequested'),
   )
 }
 </script>
@@ -653,10 +655,18 @@ async function transfer(item: History, direct = false) {
             <button
               class="secondary"
               :disabled="busy"
-              :aria-label="`${item.can_decide ? 'Review' : $t('common.view')} ${kind(item.kind)} from ${item.requester_name}`"
+              :aria-label="
+                $t('uiDetails.requestFrom', {
+                  value1: String(
+                    item.can_decide ? $t('uiMessages.reviewMessage') : $t('common.view'),
+                  ),
+                  value2: String(kind(item.kind)),
+                  value3: String(item.requester_name),
+                })
+              "
               @click="openRequest(item, $event)"
             >
-              {{ item.can_decide ? 'Review' : $t('common.viewRequest') }}
+              {{ item.can_decide ? $t('uiMessages.reviewMessage') : $t('common.viewRequest') }}
             </button>
           </div>
         </section>
@@ -706,7 +716,11 @@ async function transfer(item: History, direct = false) {
                 <tr v-for="charge in details.charges" :key="charge.id">
                   <td>{{ charge.requester_name }}</td>
                   <td>
-                    {{ charge.recipient_name ?? charge.cartridge_name ?? 'Unowned cartridge' }}
+                    {{
+                      charge.recipient_name ??
+                      charge.cartridge_name ??
+                      $t('uiMessages.unownedCartridge')
+                    }}
                   </td>
                   <td>{{ charge.cartridge_name ?? charge.cartridge_id }}</td>
                   <td>
@@ -830,7 +844,7 @@ async function transfer(item: History, direct = false) {
                   name: editName,
                   archived: editArchived,
                 })
-              }, 'Account saved.')
+              }, $t('uiMessages.accountSaved'))
             "
           >
             <label
@@ -1079,7 +1093,7 @@ async function transfer(item: History, direct = false) {
         <div class="row wrap">
           <span
             >{{ chargeItem.requester_name }} →
-            {{ chargeItem.recipient_name ?? 'Unowned cartridge' }}</span
+            {{ chargeItem.recipient_name ?? $t('uiMessages.unownedCartridge') }}</span
           ><span>{{ date(chargeItem.created_at) }}</span>
         </div>
         <span>{{ chargeItem.cartridge_name ?? chargeItem.cartridge_id }}</span>
@@ -1109,7 +1123,7 @@ async function transfer(item: History, direct = false) {
     </AdminDialog>
     <AdminDialog
       :open="!!reviewItem"
-      :title="reviewItem ? kind(reviewItem.kind) : 'Funding request'"
+      :title="reviewItem ? kind(reviewItem.kind) : $t('uiMessages.fundingRequest')"
       :busy="busy"
       @close="closeRequest"
     >
@@ -1134,8 +1148,8 @@ async function transfer(item: History, direct = false) {
           >
           <span v-if="reviewItem.kind === 'job' && reviewItem.status === 'pending'">{{
             reviewItem.mode === 'wait'
-              ? 'Printing waits for approval'
-              : 'Requester pays until approved'
+              ? $t('uiMessages.printingWaitsForApproval')
+              : $t('uiMessages.requesterPaysUntilApproved')
           }}</span>
         </div>
         <p v-if="reviewItem.reason">{{ reviewItem.reason }}</p>
@@ -1147,7 +1161,11 @@ async function transfer(item: History, direct = false) {
           /></label>
           <div class="row wrap">
             <button class="primary" :disabled="busy" @click="decide(reviewItem, true)">
-              {{ reviewItem.kind === 'payment' ? 'Confirm receipt' : 'Approve' }}</button
+              {{
+                reviewItem.kind === 'payment'
+                  ? $t('uiMessages.confirmReceipt')
+                  : $t('uiMessages.approve')
+              }}</button
             ><button class="secondary" :disabled="busy" @click="decide(reviewItem, false)">
               {{ $t('groupAccounts.reject') }}
             </button>

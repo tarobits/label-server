@@ -1,3 +1,4 @@
+import { t } from './i18n'
 import type { ObjectDirective } from 'vue'
 import { ApiError } from './api'
 
@@ -139,7 +140,7 @@ function createValidation(form: HTMLFormElement) {
       summary.setAttribute('aria-labelledby', `${prefix}-heading`)
       const heading = document.createElement('strong')
       heading.id = `${prefix}-heading`
-      heading.textContent = `${entries.size} fields need attention`
+      heading.textContent = t('sharedMessages.fieldsInvalid', { count: entries.size })
       const list = document.createElement('ul')
       for (const [control, entry] of entries) {
         const item = document.createElement('li')

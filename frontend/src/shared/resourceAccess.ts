@@ -1,3 +1,4 @@
+import { t } from './i18n'
 import { printerPermissionLabel } from '../printing/printerPermissions'
 export type ResourceKind = 'printer' | 'cartridge' | 'location'
 export interface Grant {
@@ -84,31 +85,37 @@ export interface AccessExplanation {
 export function permissionLabel(permission: string): string {
   if (permission.startsWith('printer.')) return printerPermissionLabel(permission)
   const labels: Record<string, string> = {
-    'cartridge.view': 'View cartridge',
-    'cartridge.use': 'Use cartridge',
-    'cartridge.approve_use': 'Approve cartridge use',
-    'cartridge.edit_notes': 'Edit cartridge notes',
-    'cartridge.edit_details': 'Edit cartridge details',
-    'cartridge.manage_access': 'Manage cartridge access',
-    'cartridge.view_audit': 'View cartridge audit log',
-    'location.manage': 'Manage location',
+    'cartridge.view': t('sharedMessages.viewCartridge'),
+    'cartridge.use': t('sharedMessages.useCartridge'),
+    'cartridge.approve_use': t('sharedMessages.approveCartridge'),
+    'cartridge.edit_notes': t('sharedMessages.editNotes'),
+    'cartridge.edit_details': t('sharedMessages.editDetails'),
+    'cartridge.manage_access': t('sharedMessages.manageAccess'),
+    'cartridge.view_audit': t('sharedMessages.viewAudit'),
+    'location.manage': t('sharedMessages.manageLocation'),
   }
   return labels[permission] ?? permission.replaceAll('_', ' ')
 }
 export function decisionSummary(decision: PermissionDecision): string {
-  if (decision.superseded_by) return `Uses ${permissionLabel(decision.superseded_by)}`
+  if (decision.superseded_by)
+    return t('sharedMessages.usesPermission', {
+      permission: permissionLabel(decision.superseded_by),
+    })
   const winners = decision.rules.filter(
     (rule) => rule.winning && (decision.allowed || rule.effect === 'deny'),
   )
-  if (!winners.length) return 'No access granted'
-  return `${decision.allowed ? 'Has access' : 'Denied'} through ${[
+  if (!winners.length) return t('sharedMessages.noAccess')
+  const sources = [
     ...new Set(
       winners.map(
         (rule) =>
           `${rule.scope_name}${rule.principal_kind === 'role' ? ` · ${rule.principal_name}` : ''}`,
       ),
     ),
-  ].join(', ')}`
+  ].join(', ')
+  return t(decision.allowed ? 'sharedMessages.allowedThrough' : 'sharedMessages.deniedThrough', {
+    sources,
+  })
 }
 
 export function exclusiveGrantModes(grants: Grant[]): Grant[] {

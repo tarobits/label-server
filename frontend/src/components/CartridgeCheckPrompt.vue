@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../auth/auth'
@@ -38,7 +39,7 @@ watch(
           chooseCartridge: () =>
             router.push({ path: '/cartridges', query: { printer: status.printer_id } }),
         }),
-      'Cartridge confirmed. Eligible queued labels may now print.',
+      t('uiMessages.cartridgeConfirmedEligibleQueuedLabelsMayNowPrint'),
     )
   },
   { immediate: true },

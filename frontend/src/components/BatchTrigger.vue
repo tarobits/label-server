@@ -8,7 +8,7 @@ defineProps<{ trigger?: BatchTrigger | null }>()
   <p class="batch-trigger">
     <template v-if="trigger?.kind === 'manual'">
       <span>{{ $t('batchTrigger.manuallyStartedBy') + ' ' }}</span
-      ><strong>{{ trigger.actor?.name ?? 'Not recorded' }}</strong>
+      ><strong>{{ trigger.actor?.name ?? $t('uiMessages.notRecorded') }}</strong>
       <span v-if="trigger.at != null"> · {{ date(trigger.at) }}</span>
     </template>
     <template v-else-if="trigger?.kind === 'automatic'">{{
@@ -23,7 +23,7 @@ defineProps<{ trigger?: BatchTrigger | null }>()
         : $t('common.stopAfterCurrentLabel')
     }}
     {{ $t('common.requestedBy') }}
-    <strong>{{ trigger.stop_request.actor?.name ?? 'Not recorded' }}</strong> ·
+    <strong>{{ trigger.stop_request.actor?.name ?? $t('uiMessages.notRecorded') }}</strong> ·
     {{ date(trigger.stop_request.at) }}
   </p>
 </template>

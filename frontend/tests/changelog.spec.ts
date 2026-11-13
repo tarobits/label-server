@@ -11,8 +11,8 @@ test('release notes format inline Markdown and separate upgrade paragraphs', asy
   const dialog = page.getByRole('dialog', { name: 'Changelog', exact: true })
   const latest = dialog
     .locator('.release-notes')
-    .filter({ has: page.getByRole('heading', { name: 'v0.17.1', exact: true }) })
-  await expect(latest.locator('strong')).toHaveText('Upgrade notes:')
+    .filter({ has: page.getByRole('heading', { name: 'v0.17.0', exact: true }) })
+  await expect(latest.locator('strong').first()).toHaveText('Compatibility:')
   await expect(latest).not.toContainText('**')
   const previous = dialog
     .locator('.release-notes')
@@ -20,15 +20,17 @@ test('release notes format inline Markdown and separate upgrade paragraphs', asy
   await expect(
     previous.locator('code').filter({ hasText: 'LABEL_COMPANION_FRAME_ANCESTORS' }),
   ).toHaveCount(1)
-  await expect(previous.getByRole('link', { name: 'security guide', exact: true })).toHaveAttribute(
+  await expect(
+    previous.getByRole('link', { name: 'release security guide', exact: true }),
+  ).toHaveAttribute(
     'href',
     'https://github.com/tarobits/label-server/blob/v0.17.0/docs/SECURITY.md',
   )
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 844 })
     await latest.scrollIntoViewIfNeeded()
-    const list = (await latest.locator('ul').boundingBox())!
-    const paragraph = (await latest.locator('p').boundingBox())!
+    const list = (await latest.locator('ul').last().boundingBox())!
+    const paragraph = (await latest.locator('p').first().boundingBox())!
     expect(paragraph.y - list.y - list.height).toBeGreaterThanOrEqual(15)
     expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
     await page.screenshot({
@@ -200,7 +202,7 @@ test('the modal excludes changelogs beyond the installed version', async ({ page
   await expect(dialog.getByRole('heading', { level: 3 })).toHaveText(['v0.2.0', 'v0.1.0'])
   await expect(dialog).toContainText('Initial release of Label Printer Server.')
   await expect(dialog).toContainText(
-    'Multiple physical printers and HomeBox integration remain deferred.',
+    'Cancellation may finish the current label before stopping subsequent labels.',
   )
 })
 

@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import { defineStore } from 'pinia'
 import { shallowRef } from 'vue'
 import { api, onApiMutation } from '../shared/api'
@@ -8,7 +9,7 @@ interface Entry {
 }
 export class SessionChanged extends Error {
   constructor() {
-    super('The session changed while loading data.')
+    super(t('remainingUi.theSessionChangedWhileLoadingData'))
   }
 }
 

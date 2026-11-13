@@ -11,7 +11,7 @@ const unique = computed(() => [
   <div v-if="unique.length" class="payment-attribution">
     <small v-for="payer in unique" :key="`${payer.kind}:${payer.id}:${payer.note ?? ''}`">
       {{ $t('paymentAttribution.payer') }} {{ payer.name }} ({{
-        payer.kind === 'group' ? 'group account' : 'user'
+        payer.kind === 'group' ? $t('uiRemainder.group') : $t('uiRemainder.user')
       }})<span v-if="payer.note"> · {{ payer.note }}</span>
     </small>
   </div>

@@ -44,7 +44,13 @@ const filterFields = [
     },
     options: 'requesters',
   },
-  { key: 'authorizer_id', title: 'Authorizer', options: 'authorizers' },
+  {
+    key: 'authorizer_id',
+    get title() {
+      return t('uiMessages.authorizer')
+    },
+    options: 'authorizers',
+  },
 ]
 const choices = ref<Record<string, { id: string; name: string }[]>>({})
 let filterGeneration = 0
@@ -92,7 +98,7 @@ function setFilter(key: string, event: Event) {
 }
 const cleanupMessage = ref('')
 async function purged(count: number) {
-  cleanupMessage.value = `Permanently deleted ${count} duplicate ${count === 1 ? 'attempt' : t('common.attempts')}.`
+  cleanupMessage.value = t('uiRemainder.purged', { count })
   await batches.retry()
 }
 </script>
@@ -176,21 +182,27 @@ async function purged(count: number) {
               ></strong
             ><small
               >{{
-                batch.cartridge_id ? w.cartridgeName(batch.cartridge_id) : 'Restricted cartridge'
+                batch.cartridge_id
+                  ? w.cartridgeName(batch.cartridge_id)
+                  : $t('uiMessages.restrictedCartridge')
               }}
               ·
-              {{ batch.printer_id ? w.destinationName(batch.printer_id) : 'Restricted printer' }} ·
-              {{ date(batch.created_at)
+              {{
+                batch.printer_id
+                  ? w.destinationName(batch.printer_id)
+                  : $t('uiMessages.restrictedPrinter')
+              }}
+              · {{ date(batch.created_at)
               }}<template v-if="batch.estimated_mm != null">
                 ·
                 {{
                   batch.consumed_mm === null || batch.consumption_source === 'estimated'
-                    ? 'Estimated'
+                    ? $t('uiMessages.estimated')
                     : batch.consumption_source === 'reported'
-                      ? 'Reported'
+                      ? $t('uiMessages.reported')
                       : batch.consumption_source === 'measured'
-                        ? 'Measured'
-                        : 'Accounted'
+                        ? $t('uiMessages.measured')
+                        : $t('uiMessages.accounted')
                 }}
                 {{ metres(batch.consumed_mm ?? batch.estimated_mm) }}</template
               ></small
@@ -201,7 +213,7 @@ async function purged(count: number) {
           <Badge :state="batch.state" /><RouterLink :to="`/batches/${batch.id}`">{{
             batch.state === 'needs_review' && !batch.redacted
               ? $t('common.reviewBatch')
-              : 'Details →'
+              : $t('uiMessages.details')
           }}</RouterLink>
           <RouterLink
             v-if="!['printing', 'needs_review'].includes(batch.state)"

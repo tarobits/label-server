@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import { computed, ref } from 'vue'
 import { checkServer, serverUnavailable } from './serverConnection'
 
@@ -118,7 +119,7 @@ async function activate(worker: ServiceWorker): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('Service worker activation timed out'))
+      reject(new Error(t('remainingUi.serviceWorkerActivationTimedOut')))
     }, 10000)
     function cleanup() {
       clearTimeout(timer)
@@ -150,7 +151,7 @@ export async function reloadForAppUpdate() {
     // can still cancel the reload without discarding the mounted editor.
     window.location.reload()
   } catch {
-    appUpdateError.value = 'Could not update the app. Try again.'
+    appUpdateError.value = t('remainingUi.couldNotUpdateTheAppTryAgain')
   } finally {
     applyingAppUpdate.value = false
   }

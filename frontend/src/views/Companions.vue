@@ -43,10 +43,10 @@ const busy = ref(false),
 const principal = ref('')
 const refreshError = ref('')
 const statusLabels = {
-  online: 'Online',
-  offline: 'Offline',
-  never_connected: 'Never connected',
-  revoked: 'Key revoked',
+  online: t('uiMessages.online'),
+  offline: t('uiMessages.offline'),
+  never_connected: t('uiMessages.neverConnected'),
+  revoked: t('uiMessages.keyRevoked'),
 }
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let loadGeneration = 0
@@ -58,7 +58,10 @@ onBeforeUnmount(() => {
 })
 const people = computed(() => [
   ...(catalog.value?.users ?? []).map((u) => ({ id: `user:${u.id}`, name: u.name })),
-  ...(catalog.value?.roles ?? []).map((r) => ({ id: `role:${r.id}`, name: `Role: ${r.name}` })),
+  ...(catalog.value?.roles ?? []).map((r) => ({
+    id: `role:${r.id}`,
+    name: t('uiDetails.role', { value1: String(r.name) }),
+  })),
 ])
 async function load() {
   const [, access] = await Promise.all([loadCompanions(), api<AccessCatalog>('/resource-access')])
@@ -148,7 +151,7 @@ async function save() {
     form.value = undefined
     key.value = result.api_key ?? ''
     copied.value = false
-    success.value = 'Companion saved.'
+    success.value = t('uiMessages.companionSaved')
     await load()
   } catch (issue) {
     if (!disposed) {
@@ -163,9 +166,9 @@ async function keyAction(item: Companion, revoke: boolean) {
   if (
     !(await confirmAction(
       revoke
-        ? `Revoke ${item.name}'s key? It will disconnect and cannot receive more work.`
-        : `Replace ${item.name}'s key? Update its deployment with the new key to reconnect.`,
-      revoke ? t('companions.revokeKey') : 'Replace key',
+        ? t('uiDetails.revokeCompanionKey', { value1: String(item.name) })
+        : t('uiDetails.replaceCompanionKey', { value1: String(item.name) }),
+      revoke ? t('companions.revokeKey') : t('uiMessages.replaceKey'),
     ))
   )
     return
@@ -191,7 +194,7 @@ async function copyKey() {
     await navigator.clipboard.writeText(key.value)
     copied.value = true
   } catch {
-    error.value = 'Copy the key from the field below.'
+    error.value = t('uiMessages.copyTheKeyFromTheFieldBelow')
   }
 }
 function removeGrant(index: number) {
@@ -227,7 +230,9 @@ function removeGrant(index: number) {
               printed: !refreshError && item.status === 'online',
               failed: !refreshError && ['offline', 'revoked'].includes(item.status),
             }"
-            >{{ refreshError ? 'Status unavailable' : statusLabels[item.status] }}</span
+            >{{
+              refreshError ? $t('uiMessages.statusUnavailable') : statusLabels[item.status]
+            }}</span
           >
         </div>
         <p class="muted">
@@ -235,12 +240,14 @@ function removeGrant(index: number) {
           {{
             item.bound_user_id
               ? (catalog?.users.find((u) => u.id === item.bound_user_id)?.name ??
-                'Unavailable user')
+                $t('uiMessages.unavailableUser'))
               : $t('common.userPicker')
           }}
         </p>
         <div class="companion-telemetry muted">
-          <span>{{ item.software_version ? `v${item.software_version}` : 'Version unknown' }}</span>
+          <span>{{
+            item.software_version ? `v${item.software_version}` : $t('uiMessages.versionUnknown')
+          }}</span>
           <span v-if="item.last_seen_at !== null">
             {{ $t('common.lastSeen') }}
             <time :datetime="new Date(item.last_seen_at * 1000).toISOString()">
@@ -258,7 +265,7 @@ function removeGrant(index: number) {
         <button class="secondary" :disabled="busy" @click="edit(item)">
           {{ $t('common.settings') }}</button
         ><button class="secondary" :disabled="busy" @click="keyAction(item, false)">
-          {{ item.enabled ? 'Replace key' : 'Generate key' }}</button
+          {{ item.enabled ? $t('uiMessages.replaceKey') : $t('uiMessages.generateKey') }}</button
         ><button v-if="item.enabled" class="danger" :disabled="busy" @click="keyAction(item, true)">
           {{ $t('companions.revokeKey') }}
         </button>
@@ -340,7 +347,7 @@ function removeGrant(index: number) {
             type="button"
             class="secondary"
             :disabled="busy"
-            :aria-label="`Remove ${entry.principal_id}`"
+            :aria-label="$t('uiDetails.remove', { value1: String(entry.principal_id) })"
             @click="removeGrant(index)"
           >
             {{ $t('common.remove') }}
@@ -359,9 +366,9 @@ function removeGrant(index: number) {
         {{
           selected
             ? preview
-              ? 'Confirm changes'
+              ? $t('uiMessages.confirmChanges')
               : $t('resourceAccess.reviewChanges')
-            : 'Create companion'
+            : $t('uiMessages.createCompanion')
         }}
       </button>
     </form>
@@ -375,7 +382,7 @@ function removeGrant(index: number) {
         }}<input :value="key" readonly autocomplete="off" spellcheck="false"
       /></label>
       <button type="button" class="primary" @click="copyKey">
-        {{ copied ? 'Copied' : 'Copy key' }}
+        {{ copied ? $t('uiMessages.copied') : $t('uiMessages.copyKey') }}
       </button>
     </div>
   </AdminDialog>

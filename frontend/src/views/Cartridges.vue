@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { mediaLabel, compatibleProfile } from '../printing/media'
 import CartridgePrice from '../components/CartridgePrice.vue'
 import CartridgeNotes from '../components/CartridgeNotes.vue'
@@ -76,11 +77,11 @@ function isInstalled(cartridge: Cartridge) {
   return cartridge.installed || !!installedIn(cartridge.id)
 }
 function removalReason(cartridge: Cartridge) {
-  if (cartridge.archive_blocked_reason)
-    return cartridge.archive_blocked_reason.replace('archiving', 'archiving or deleting')
+  if (isInstalled(cartridge)) return t('uiMessages.removeCartridgeBeforeArchivingOrDeleting')
+  if (cartridge.archive_blocked_reason) return cartridge.archive_blocked_reason
   if (cartridge.delete_blocked_reason)
     return cartridge.archived
-      ? 'Cartridges with print or queue history cannot be permanently deleted.'
+      ? t('uiMessages.cartridgesWithPrintOrQueueHistoryCannotBePermanentlyDeleted')
       : cartridge.delete_blocked_reason
   return ''
 }
@@ -107,7 +108,7 @@ async function save() {
           nominal_length_mm: form.nominal * 1000,
           remaining_mm: form.remaining * 1000,
         }),
-      'Cartridge registered. Install it when it is in the printer.',
+      t('uiMessages.cartridgeRegisteredInstallItWhenItIsInThePrinter'),
     )
   ) {
     showForm.value = false
@@ -118,12 +119,17 @@ async function save() {
 async function archive(cartridge: Cartridge) {
   if (
     !(await confirmAction(
-      `Archive “${cartridge.name}”? It will no longer appear in active inventory or printing choices. Its history, usage and costs remain available.`,
-      'Archive cartridge',
+      t('uiDetails.archiveCartridge', { value1: String(cartridge.name) }),
+      t('cartridges.archiveCartridge'),
     ))
   )
     return
-  if (await w.action(() => api(`/cartridges/${cartridge.id}`, 'DELETE'), 'Cartridge archived.'))
+  if (
+    await w.action(
+      () => api(`/cartridges/${cartridge.id}`, 'DELETE'),
+      t('uiMessages.cartridgeArchived'),
+    )
+  )
     correcting.value = null
 }
 function startRename(cartridge: Cartridge) {
@@ -141,7 +147,7 @@ async function rename(cartridge: Cartridge) {
   if (
     await w.action(
       () => api(`/cartridges/${cartridge.id}`, 'PUT', { name: cartridgeName.value.trim() }),
-      'Cartridge renamed.',
+      t('uiMessages.cartridgeRenamed'),
     )
   )
     editing.value = null
@@ -149,21 +155,21 @@ async function rename(cartridge: Cartridge) {
 async function restore(cartridge: Cartridge) {
   await w.action(
     () => api(`/cartridges/${cartridge.id}/restore`, 'POST'),
-    'Cartridge restored to inventory.',
+    t('uiMessages.cartridgeRestoredToInventory'),
   )
 }
 async function remove(cartridge: Cartridge) {
   if (
     !(await confirmAction(
-      `Permanently delete “${cartridge.name}”? This removes its inventory record and cannot be undone.`,
-      'Delete permanently',
+      t('uiDetails.deleteCartridge', { value1: String(cartridge.name) }),
+      t('cartridges.deletePermanently'),
     ))
   )
     return
   if (
     await w.action(
       () => api(`/cartridges/${cartridge.id}/permanent`, 'DELETE'),
-      'Cartridge permanently deleted.',
+      t('uiMessages.cartridgePermanentlyDeleted'),
     )
   )
     correcting.value = null
@@ -174,8 +180,8 @@ async function install(id: string | null) {
   await w.action(
     () => installCartridge(target, id, { explicitSelection: true }),
     id
-      ? `Cartridge installed in ${name}. Eligible queued labels may now print.`
-      : `Cartridge removed from ${name}.`,
+      ? t('uiDetails.cartridgeInstalled', { value1: String(name) })
+      : t('uiDetails.cartridgeRemoved', { value1: String(name) }),
   )
 }
 function startCorrection(cartridge: Cartridge) {
@@ -186,7 +192,7 @@ async function correct(id: string) {
   if (
     await w.action(
       () => api(`/cartridges/${id}/remaining`, 'PUT', { remaining_mm: correction.value * 1000 }),
-      'Remaining tape estimate updated.',
+      t('uiMessages.remainingTapeEstimateUpdated'),
     )
   )
     correcting.value = null
@@ -223,8 +229,10 @@ async function correct(id: string) {
   <p class="muted">
     {{
       selectedPrinter
-        ? `Select the cassette physically installed in ${selectedPrinter.name}.`
-        : 'No physical printers are assigned. Cartridges can be registered for later installation.'
+        ? $t('uiDetails.selectInstalledCassette', { value1: String(selectedPrinter.name) })
+        : $t(
+            'uiMessages.noPhysicalPrintersAreAssignedCartridgesCanBeRegisteredForLaterInstallation',
+          )
     }}
   </p>
   <p v-if="locked" class="alert warning">
@@ -293,7 +301,11 @@ async function correct(id: string) {
   <Transition name="notice"
     ><div v-if="!visibleCartridges.length" class="panel empty motion-reveal">
       <h2>
-        {{ inventoryView === 'archived' ? 'No archived cartridges.' : 'No active cartridges.' }}
+        {{
+          inventoryView === 'archived'
+            ? $t('uiMessages.noArchivedCartridges')
+            : $t('uiMessages.noActiveCartridges')
+        }}
       </h2>
       <RouterLink
         v-if="!profiles.length && inventoryView === 'active'"
@@ -320,8 +332,10 @@ async function correct(id: string) {
         ><span v-if="cartridge.archived" class="badge">{{ $t('common.archived') }}</span
         ><span v-else-if="isInstalled(cartridge)" class="badge printed">{{
           installedIn(cartridge.id)
-            ? `Installed in ${installedIn(cartridge.id)?.printer_name}`
-            : 'Installed in another printer'
+            ? $t('uiDetails.installedIn', {
+                value1: String(installedIn(cartridge.id)?.printer_name),
+              })
+            : $t('uiMessages.installedInAnotherPrinter')
         }}</span>
       </div>
       <p class="badge">
@@ -372,7 +386,7 @@ async function correct(id: string) {
       <progress
         :value="cartridge.remaining_mm"
         :max="cartridge.nominal_length_mm"
-        :aria-label="`${cartridge.name} remaining tape`"
+        :aria-label="$t('uiDetails.remainingTape', { value1: String(cartridge.name) })"
       ></progress>
       <p v-if="cartridge.consumption_uncertain" class="inline-warning">
         {{ $t('cartridges.consumptionUncertainReconcileItDuringBatchReview') }}

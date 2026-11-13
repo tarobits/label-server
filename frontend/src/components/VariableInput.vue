@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import type { TemplateField, VariableValue } from '../templates/editor'
 import ImageValueInput from './ImageValueInput.vue'
 import { ref, watchEffect } from 'vue'
@@ -22,9 +23,9 @@ watchEffect(
     const maximum = props.field.max_length ?? 2000
     textInput.value?.setCustomValidity(
       length && length < minimum
-        ? `Enter at least ${minimum} characters.`
+        ? t('uiDetails.minimumCharacters', { value1: String(minimum) })
         : length > maximum
-          ? `Enter at most ${maximum} characters.`
+          ? t('uiDetails.maximumCharacters', { value1: String(maximum) })
           : '',
     )
   },

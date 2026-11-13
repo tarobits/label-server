@@ -11,10 +11,19 @@ const rights = [
     get title() {
       return t('migrationResourceCreator.create')
     },
-    action: 'create group',
   },
-  { key: 'can_edit_others', title: 'Edit others', action: 'edit others’' },
-  { key: 'can_delete_others', title: 'Delete others', action: 'delete others’' },
+  {
+    key: 'can_edit_others',
+    get title() {
+      return t('uiMessages.editOthers')
+    },
+  },
+  {
+    key: 'can_delete_others',
+    get title() {
+      return t('uiMessages.deleteOthers')
+    },
+  },
 ] as const
 function checked(kind: (typeof kinds)[number], key: keyof GroupRights) {
   return !!(kind === 'templates' ? props.modelValue[key] : props.modelValue[kind]?.[key])
@@ -38,9 +47,21 @@ function update(kind: (typeof kinds)[number], key: keyof GroupRights, event: Eve
   )
 }
 function label(kind: (typeof kinds)[number], right: (typeof rights)[number]) {
-  return props.invitation
-    ? `${right.title === 'Create' ? t('migrationResourceCreator.create') : right.title.replace('others', 'others’')} ${kind} in ${props.subject}`
-    : `Allow ${props.subject} to ${right.action} ${kind}`
+  const keys = props.invitation
+    ? {
+        can_create: 'actionMessages.inviteCreate',
+        can_edit_others: 'actionMessages.inviteEdit',
+        can_delete_others: 'actionMessages.inviteDelete',
+      }
+    : {
+        can_create: 'actionMessages.allowCreate',
+        can_edit_others: 'actionMessages.allowEdit',
+        can_delete_others: 'actionMessages.allowDelete',
+      }
+  return t(keys[right.key], {
+    subject: props.subject,
+    kind: t(`actionMessages.resourceKinds.${kind}`),
+  })
 }
 </script>
 <template>

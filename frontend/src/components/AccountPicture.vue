@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { api, errorMessage } from '../shared/api'
@@ -32,7 +33,7 @@ async function upload(event: Event) {
   error.value = ''
   success.value = ''
   if (file.size > 5_000_000) {
-    error.value = 'Profile pictures are limited to 5 MB'
+    error.value = t('uiMessages.profilePicturesAreLimitedTo5MB')
     return
   }
   busy.value = true
@@ -41,7 +42,7 @@ async function upload(event: Event) {
     const result = await api<{ avatar_version: string }>('/auth/avatar', 'PUT', file)
     avatar.setVersion(result.avatar_version, owner)
     if (!disposed) {
-      success.value = 'Profile picture saved.'
+      success.value = t('uiMessages.profilePictureSaved')
     }
   } catch (issue) {
     if (!disposed) error.value = errorMessage(issue)
@@ -59,7 +60,7 @@ async function remove() {
     await api('/auth/avatar', 'DELETE')
     avatar.setVersion(null, owner)
     if (!disposed) {
-      success.value = 'Profile picture removed.'
+      success.value = t('uiMessages.profilePictureRemoved')
     }
   } catch (issue) {
     if (!disposed) error.value = errorMessage(issue)

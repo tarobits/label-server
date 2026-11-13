@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import type { PrintPlan } from '../shared/types'
 withDefaults(defineProps<{ plan?: PrintPlan | null; caption?: string }>(), {
-  caption: 'Estimated tape use',
+  caption: t('uiMessages.estimatedTapeUse'),
 })
 </script>
 

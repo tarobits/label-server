@@ -113,7 +113,7 @@ const title = (item: Batch) =>
             :value="item.id"
             :disabled="!complete(item)"
           >
-            {{ title(item) }}{{ complete(item) ? '' : ' · Not ready for packing' }}
+            {{ title(item) }}{{ complete(item) ? '' : $t('uiRemainder.notPacked') }}
           </option>
         </select></label
       >

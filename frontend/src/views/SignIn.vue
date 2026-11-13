@@ -44,8 +44,7 @@ async function submit() {
 <template>
   <main class="auth-shell">
     <div class="auth-layout">
-      <BrandLogo class="auth-brand" />
-      <LanguagePicker />
+      <div class="row spread"><BrandLogo class="auth-brand" /><LanguagePicker /></div>
       <form
         :key="setup ? 'setup' : registering ? 'register' : 'login'"
         v-validate-form

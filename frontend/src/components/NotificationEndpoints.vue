@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { vValidateForm } from '../shared/formValidation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -25,13 +26,62 @@ import {
 const w = useWorkspaceStore()
 const auth = useAuthStore()
 const eventKinds = [
-  { value: 'general', label: 'General alerts', scoped: false, priority: 3 },
-  { value: 'empty_tape', label: 'Empty cartridges', scoped: true, priority: 4 },
-  { value: 'printer_blocked', label: 'Blocked printers', scoped: true, priority: 4 },
-  { value: 'batch_review', label: 'Batch reviews', scoped: true, priority: 4 },
-  { value: 'batch_printed', label: 'Finished batches', scoped: true, priority: 3 },
-  { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true, priority: 3 },
-  { value: 'approval_digest', label: 'Pending print requests', scoped: false, priority: 3 },
+  {
+    value: 'general',
+    get label() {
+      return t('uiMessages.generalAlerts')
+    },
+    scoped: false,
+    priority: 3,
+  },
+  {
+    value: 'empty_tape',
+    get label() {
+      return t('uiMessages.emptyCartridges')
+    },
+    scoped: true,
+    priority: 4,
+  },
+  {
+    value: 'printer_blocked',
+    get label() {
+      return t('uiMessages.blockedPrinters')
+    },
+    scoped: true,
+    priority: 4,
+  },
+  {
+    value: 'batch_review',
+    get label() {
+      return t('uiMessages.batchReviews')
+    },
+    scoped: true,
+    priority: 4,
+  },
+  {
+    value: 'batch_printed',
+    get label() {
+      return t('uiMessages.finishedBatches')
+    },
+    scoped: true,
+    priority: 3,
+  },
+  {
+    value: 'tape_waiting',
+    get label() {
+      return t('uiMessages.waitingTapeReminders')
+    },
+    scoped: true,
+    priority: 3,
+  },
+  {
+    value: 'approval_digest',
+    get label() {
+      return t('uiMessages.pendingPrintRequests')
+    },
+    scoped: false,
+    priority: 3,
+  },
 ]
 const administration = useAdministrationStore()
 const { endpoints } = storeToRefs(administration)
@@ -196,14 +246,19 @@ async function save() {
       },
     )
     cancel()
-  }, 'Notification endpoint saved.')
+  }, t('uiMessages.notificationEndpointSaved'))
 }
 async function remove(endpoint: Endpoint) {
-  if (!(await confirmAction(`Delete notification endpoint “${endpoint.name}”?`))) return
+  if (
+    !(await confirmAction(
+      t('uiDetails.deleteNotificationEndpoint', { value1: String(endpoint.name) }),
+    ))
+  )
+    return
   await perform(async () => {
     await api(`/admin/notification-endpoints/${endpoint.id}`, 'DELETE')
     if (editing.value?.id === endpoint.id) cancel()
-  }, 'Notification endpoint deleted.')
+  }, t('uiMessages.notificationEndpointDeleted'))
 }
 function refreshAccess() {
   void load().catch((issue) => {
@@ -246,25 +301,28 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
         }}</small>
         <small
           ><template v-if="endpoint.transport === 'ntfy'"
-            >{{ endpoint.has_token ? 'Token stored' : 'No token stored' }} ·
+            >{{
+              endpoint.has_token ? $t('uiMessages.tokenStored') : $t('uiMessages.noTokenStored')
+            }}
+            ·
           </template>
           {{
             endpoint.all_printers
               ? $t('notificationEndpoints.allCurrentAndFuturePrinters')
               : endpoint.destination_ids.length
                 ? endpoint.destination_ids.map(w.destinationName).join(', ')
-                : 'No printers or groups selected'
+                : $t('uiMessages.noPrintersOrGroupsSelected')
           }}</small
         >
       </div>
       <span class="badge" :class="endpoint.enabled ? 'printed' : 'cancelled'">{{
-        endpoint.enabled ? 'Enabled' : $t('administration.disabled')
+        endpoint.enabled ? $t('uiMessages.enabled') : $t('administration.disabled')
       }}</span>
       <div class="row wrap">
         <button
           class="secondary"
           :disabled="busy"
-          :aria-label="`Edit endpoint ${endpoint.name}`"
+          :aria-label="$t('uiDetails.editEndpoint', { value1: String(endpoint.name) })"
           @click="edit(endpoint)"
         >
           {{ $t('common.edit') }}
@@ -273,7 +331,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
     </article>
     <AdminDialog
       :open="showForm"
-      :title="editing ? 'Edit notification endpoint' : 'New notification endpoint'"
+      :title="
+        editing
+          ? $t('uiMessages.editNotificationEndpoint')
+          : $t('uiMessages.newNotificationEndpoint')
+      "
       :busy="busy"
       wide
       @close="cancel"
@@ -321,8 +383,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 :disabled="form.clear_token"
               /><span class="help">{{
                 editing?.has_token
-                  ? 'Leave blank to keep the stored token.'
-                  : 'Optional. Tokens are stored privately and never shown again.'
+                  ? $t('uiMessages.leaveBlankToKeepTheStoredToken')
+                  : $t('uiMessages.optionalTokensAreStoredPrivatelyAndNeverShownAgain')
               }}</span></label
             >
             <label v-if="editing?.has_token" class="checkbox"
@@ -368,7 +430,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 v-model="form.destination_ids"
                 type="checkbox"
                 :value="destination.id"
-                :aria-label="`Notify for ${destination.name}`"
+                :aria-label="$t('uiDetails.notifyFor', { value1: String(destination.name) })"
                 :disabled="form.all_printers"
               />{{ destination.name }}
               <span class="muted">{{
@@ -383,7 +445,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 v-model="form.destination_ids"
                 type="checkbox"
                 :value="id"
-                :aria-label="`Remove unavailable destination ${id}`"
+                :aria-label="$t('uiDetails.removeUnavailableDestination', { value1: String(id) })"
               />{{ $t('common.unavailableDestination') }}{{ id }})</label
             >
           </div>
@@ -415,7 +477,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                 >{{ $t('common.priority') }}
                 <select
                   v-model.number="form.priorities[kind.value]"
-                  :aria-label="`Priority for ${kind.label}`"
+                  :aria-label="$t('uiDetails.eventPriority', { value1: String(kind.label) })"
                   :disabled="!form.kinds.includes(kind.value) || (kind.scoped && !hasPrinterScope)"
                 >
                   <option
@@ -449,7 +511,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             type="button"
             class="secondary danger-text"
             :disabled="busy"
-            :aria-label="`Delete endpoint ${editing.name}`"
+            :aria-label="$t('uiDetails.deleteEndpoint', { value1: String(editing.name) })"
             @click="remove(editing)"
           >
             {{ $t('notificationEndpoints.deleteEndpoint') }}

@@ -63,14 +63,14 @@ function customize(id: string, event: Event) {
             type="checkbox"
             :checked="printer.id in rules"
             :disabled="disabled"
-            :aria-label="`Customize events for ${printer.name}`"
+            :aria-label="$t('uiDetails.customizeEvents', { value1: String(printer.name) })"
             @change="customize(printer.id, $event)"
           />{{ $t('printerNotificationKinds.customizeEventsFor') }} {{ printer.name }}
         </label>
         <ExpandableContent :open="printer.id in rules">
           <fieldset
             class="printer-events notification-event-grid"
-            :aria-label="`Event types for ${printer.name}`"
+            :aria-label="$t('uiDetails.eventTypes', { value1: String(printer.name) })"
           >
             <div
               v-for="kind in printerEventKinds"
@@ -91,7 +91,12 @@ function customize(id: string, event: Event) {
                   >{{ $t('common.priority') }}
                   <select
                     :value="priorities[printer.id]?.[kind.value] ?? ''"
-                    :aria-label="`Priority for ${kind.label} on ${printer.name}`"
+                    :aria-label="
+                      $t('uiDetails.printerEventPriority', {
+                        value1: String(kind.label),
+                        value2: String(printer.name),
+                      })
+                    "
                     :disabled="disabled || !rules[printer.id]?.includes(kind.value)"
                     @change="setPriority(printer.id, kind.value, $event)"
                   >

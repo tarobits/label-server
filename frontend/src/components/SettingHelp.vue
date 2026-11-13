@@ -93,7 +93,7 @@ onBeforeUnmount(() => clearTimeout(closing))
       ref="trigger"
       type="button"
       class="setting-info"
-      :aria-label="`About ${help.title}`"
+      :aria-label="$t('uiDetails.about', { value1: String(help.title) })"
       :aria-describedby="open ? id : undefined"
       @pointerenter="$event.pointerType === 'mouse' && show()"
       @pointerleave="leave"

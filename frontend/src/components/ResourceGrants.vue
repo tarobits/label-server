@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref, watch } from 'vue'
 import { api, errorMessage } from '../shared/api'
 import type {
@@ -25,12 +26,18 @@ let generation = 0
 const people = computed(() => [
   ...props.catalog.users.map((user) => ({ value: `user:${user.id}`, label: user.name })),
   ...(props.roles
-    ? props.catalog.roles.map((role) => ({ value: `role:${role.id}`, label: `Role: ${role.name}` }))
+    ? props.catalog.roles.map((role) => ({
+        value: `role:${role.id}`,
+        label: t('uiDetails.role', { value1: String(role.name) }),
+      }))
     : []),
 ])
 const sections = computed(() =>
   (props.kind === 'location' ? (['printer', 'cartridge'] as const) : [props.kind]).map((kind) => ({
-    title: kind === 'printer' ? 'Printer permissions' : 'Cartridge permissions',
+    title:
+      kind === 'printer'
+        ? t('uiMessages.printerPermissions')
+        : t('uiMessages.cartridgePermissions'),
     options: props.catalog.permissions[kind as 'printer' | 'cartridge'].map((id) => ({
       id,
       label: permissionLabel(id),
@@ -46,7 +53,10 @@ const hints = computed(() =>
   Object.fromEntries(
     (explanation.value?.resources[0]?.permissions ?? [])
       .filter((decision) => decision.rules.length)
-      .map((decision) => [decision.permission, `Saved: ${decisionSummary(decision)}`]),
+      .map((decision) => [
+        decision.permission,
+        t('uiDetails.saved', { value1: String(decisionSummary(decision)) }),
+      ]),
   ),
 )
 function change(options: { id: string }[], allowed: string[], denied: string[]) {

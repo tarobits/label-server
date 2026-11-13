@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { locale } from '../shared/i18n'
+import { t, locale } from '../shared/i18n'
 
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import AnimatedDetails from './AnimatedDetails.vue'
@@ -74,7 +74,7 @@ watch(
           recipient_id: form.recipientId,
           currency: form.currency,
           amount_minor: Math.round(Number(form.amount) * 100) * (form.direction === 'add' ? 1 : -1),
-          note: 'Allocation preview',
+          note: t('uiMessages.allocationPreview'),
         })
         if (ticket !== allocationGeneration) return
         allocationRows.value = result.cartridges
@@ -173,8 +173,17 @@ async function save() {
     // Flush form watchers before showing the saved receipt.
     await nextTick()
     saved.value = props.report
-      ? 'Payment reported. Awaiting confirmation; your balance has not changed.'
-      : `${new Intl.NumberFormat(locale.value, { style: 'currency', currency: result.currency, signDisplay: 'always' }).format(result.amount_minor / 100)} recorded for ${result.username}.`
+      ? t('uiMessages.paymentReportedAwaitingConfirmationYourBalanceHasNotChanged')
+      : t('uiDetails.paymentRecorded', {
+          value1: String(
+            new Intl.NumberFormat(locale.value, {
+              style: 'currency',
+              currency: result.currency,
+              signDisplay: 'always',
+            }).format(result.amount_minor / 100),
+          ),
+          value2: String(result.username),
+        })
     emit('saved')
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -244,19 +253,19 @@ async function save() {
             type="number"
             min="0"
             step="0.000001"
-            :aria-label="`Payment toward ${row.cartridge_name}`"
+            :aria-label="$t('uiDetails.paymentToward', { value1: String(row.cartridge_name) })"
         /></label>
       </AnimatedDetails>
       <div class="row">
         <button class="primary" :disabled="!canSave || allocating">
           {{
             busy
-              ? 'Recording…'
+              ? $t('uiMessages.recording')
               : report
-                ? 'Report payment'
+                ? $t('uiMessages.reportPayment')
                 : auth.can('usage.edit_accounts')
-                  ? 'Record adjustment'
-                  : 'Confirm received payment'
+                  ? $t('uiMessages.recordAdjustment')
+                  : $t('uiMessages.confirmReceivedPayment')
           }}
         </button>
       </div>

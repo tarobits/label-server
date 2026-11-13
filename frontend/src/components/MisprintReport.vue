@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref, watch } from 'vue'
 import { api } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -50,7 +51,7 @@ async function save() {
           reason: reason.value,
           evidence_photo: photo.value,
         }),
-      'Misprint recorded. Choose retry funding separately.',
+      t('uiMessages.misprintRecordedChooseRetryFundingSeparately'),
     )
   ) {
     opened.value = false
@@ -88,7 +89,7 @@ async function save() {
             ><input v-model="selected" type="checkbox" :value="item.copy_id" />{{
               item.process_name
             }}
-            · {{ item.attribution?.requested_by?.name ?? 'Unknown requester' }}
+            · {{ item.attribution?.requested_by?.name ?? $t('uiMessages.unknownRequester') }}
             {{ $t('common.copy') }} {{ item.copy_number }}</label
           >
           <JobPreview

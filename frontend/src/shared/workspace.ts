@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import { locale } from './i18n'
 import { computed, ref, watch, toRaw, type Ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -227,12 +228,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const printNow = () =>
     action(
       () => requestPrinting(`/queue/print?printer_id=${encodeURIComponent(selectedPrinter.value)}`),
-      'Manual batch requested. Its queued copies are now reserved for this flush.',
+      t('remainingUi.manualBatchRequestedItsQueuedCopiesAreNowReservedForThisFlush'),
     )
   const profileName = (id: string) =>
-    profiles.value.find((p) => p.id === id)?.name ?? 'Unknown tape'
+    profiles.value.find((p) => p.id === id)?.name ?? t('remainingUi.unknownTape')
   const cartridgeName = (id: string) =>
-    cartridges.value.find((c) => c.id === id)?.name ?? 'Unknown cartridge'
+    cartridges.value.find((c) => c.id === id)?.name ?? t('remainingUi.unknownCartridge')
   watch([selectedPrinter, printerStatuses], () => {
     status.value = printerStatuses.value.find((s) => s.printer_id === selectedPrinter.value) ?? null
     try {

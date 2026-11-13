@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -71,15 +72,19 @@ onUnmounted(() => {
 function steps(rule: PermissionRule, name: string) {
   return [
     result.value?.user.name ?? '',
-    ...(rule.principal_kind === 'role' ? [`Role: ${rule.principal_name}`] : []),
+    ...(rule.principal_kind === 'role'
+      ? [t('uiDetails.role', { value1: String(rule.principal_name) })]
+      : []),
     rule.protected
       ? rule.scope_name
       : rule.scope_kind === 'location'
-        ? `Location: ${rule.scope_name}`
+        ? t('uiDetails.location', { value1: String(rule.scope_name) })
         : rule.scope_kind === 'application'
           ? rule.scope_name
-          : 'Direct rule',
-    ...(rule.inherited_via ?? []).map((location) => `Location: ${location}`),
+          : t('uiMessages.directRule'),
+    ...(rule.inherited_via ?? []).map((location) =>
+      t('uiDetails.location', { value1: String(location) }),
+    ),
     name,
   ]
 }
@@ -129,11 +134,14 @@ function steps(rule: PermissionRule, name: string) {
         <div class="section-heading wrap">
           <h3>{{ row.name }}</h3>
           <span class="badge" :class="row.decision.allowed ? 'printed' : 'failed'">{{
-            row.decision.allowed ? 'Allowed' : 'Denied'
+            row.decision.allowed ? $t('uiMessages.allowed') : $t('uiMessages.denied')
           }}</span>
         </div>
         <p>{{ decisionSummary(row.decision) }}</p>
-        <ol class="access-paths" :aria-label="`Access paths for ${row.name}`">
+        <ol
+          class="access-paths"
+          :aria-label="$t('uiDetails.accessPaths', { value1: String(row.name) })"
+        >
           <li
             v-for="(rule, index) in row.decision.rules"
             :key="index"
@@ -154,7 +162,7 @@ function steps(rule: PermissionRule, name: string) {
             </div>
             <p class="path-outcome">
               {{ rule.effect === 'allow' ? $t('common.allow') : $t('common.deny') }} ·
-              {{ rule.winning ? 'Applies' : 'Overridden'
+              {{ rule.winning ? $t('uiMessages.applies') : $t('uiMessages.overridden')
               }}{{ rule.protected ? ' · Protected' : '' }}
             </p>
           </li>

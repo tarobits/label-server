@@ -1,6 +1,7 @@
-import { readonly, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
+import { t } from './i18n'
 
-export const serverUnavailableMessage = 'The label server is currently unable to be reached.'
+export const serverUnavailableMessage = computed(() => t('requestErrors.unavailable'))
 const unavailable = ref(false)
 const checking = ref(false)
 export const serverUnavailable = readonly(unavailable)

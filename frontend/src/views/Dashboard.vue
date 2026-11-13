@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed } from 'vue'
 import { useWorkspaceStore, date, metres } from '../shared/workspace'
 import { api } from '../shared/api'
@@ -49,19 +50,21 @@ function canPrintDirect(id: string) {
 async function hold(id: string, held: boolean) {
   await w.action(
     () => api(`/destinations/${encodeURIComponent(id)}/automatic-printing`, 'PUT', { held }),
-    `${w.destinationName(id)}: automatic printing ${held ? 'held' : 'resumed'}.`,
+    t(held ? 'uiRemainder.held' : 'uiRemainder.resumed', { name: w.destinationName(id) }),
   )
 }
 async function print(id: string) {
   await w.action(
     () => requestPrinting(`/destinations/${encodeURIComponent(id)}/print`),
-    `${w.destinationName(id)}: matching queued labels requested for printing.`,
+    t('uiDetails.requestMatchingLabels', { value1: String(w.destinationName(id)) }),
   )
 }
 async function stopPrinter(id: string, mode: 'after_current' | 'emergency') {
   await w.action(
     () => api(`/printers/${encodeURIComponent(id)}/stop`, 'POST', { mode }),
-    `${w.destinationName(id)}: ${mode === 'emergency' ? 'emergency stop' : 'stop after current label'} requested. Automatic printing is held.`,
+    t(mode === 'emergency' ? 'uiRemainder.emergency' : 'uiRemainder.stop', {
+      name: w.destinationName(id),
+    }),
   )
 }
 const printerName = (id: string) => w.printers.find((device) => device.id === id)?.name ?? id
@@ -70,7 +73,11 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
 <template>
   <div v-if="!w.printers.length && !groups.length" class="panel empty">
     <h2>
-      {{ auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet' }}
+      {{
+        auth.can('printers.manage')
+          ? $t('uiMessages.addYourFirstPrinter')
+          : $t('uiMessages.noPrintersAssignedYet')
+      }}
     </h2>
     <p v-if="!auth.can('printers.manage')">
       {{ $t('common.askYourAdministratorToAssignYouARoleWith') }}
@@ -130,7 +137,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         v-for="device in w.printers"
         :key="device.id"
         class="panel fleet-card"
-        :aria-label="`Printer ${device.name}`"
+        :aria-label="$t('uiDetails.printer', { value1: String(device.name) })"
       >
         <div class="section-heading fleet-card-heading">
           <div class="fleet-title">
@@ -138,7 +145,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
             <h3>{{ device.name }}</h3>
           </div>
           <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
-            state(device.id)?.connected ? 'Connected' : 'Disconnected'
+            state(device.id)?.connected ? $t('uiMessages.connected') : $t('uiMessages.disconnected')
           }}</span>
         </div>
         <div class="row wrap fleet-state">
@@ -155,8 +162,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
             device.no_automatic_printing
               ? $t('printers.manualOnly')
               : state(device.id)?.automatic_printing_held
-                ? 'Automatic printing held'
-                : 'Automatic printing enabled'
+                ? $t('uiMessages.automaticPrintingHeld')
+                : $t('uiMessages.automaticPrintingEnabled')
           }}</span>
         </div>
         <div class="fleet-tape">
@@ -170,9 +177,9 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
           >
           <div>
             <small>{{ $t('dashboard.installedTape') }}</small
-            ><strong>{{ profile(device.id)?.name ?? 'No cartridge selected' }}</strong
+            ><strong>{{ profile(device.id)?.name ?? $t('uiMessages.noCartridgeSelected') }}</strong
             ><span>{{
-              cartridge(device.id)?.name ?? 'Install a cartridge to print matching labels'
+              cartridge(device.id)?.name ?? $t('uiMessages.installACartridgeToPrintMatchingLabels')
             }}</span>
           </div>
         </div>
@@ -238,7 +245,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >{{
                 auth.printer(device.id, 'submit_directly')
                   ? $t('printers.printALabel')
-                  : 'Request printing'
+                  : $t('uiMessages.requestPrinting')
               }}</RouterLink
             >
             <RouterLink
@@ -277,8 +284,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >
                 {{
                   state(device.id)?.automatic_printing_held
-                    ? 'Resume automatic printing'
-                    : 'Hold automatic printing'
+                    ? $t('uiMessages.resumeAutomaticPrinting')
+                    : $t('uiMessages.holdAutomaticPrinting')
                 }}
               </button>
             </div>
@@ -326,8 +333,10 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
             <p v-if="state(device.id)?.stop_requested" class="alert warning" role="status">
               {{
                 state(device.id)?.stop_requested === 'emergency'
-                  ? 'Emergency stop requested. The current label may finish. Review the batch before printing again.'
-                  : 'Stopping after the current label. The remaining batch will need review.'
+                  ? $t(
+                      'uiMessages.emergencyStopRequestedTheCurrentLabelMayFinishReviewTheBatchBeforePrintingAgain',
+                    )
+                  : $t('uiMessages.stoppingAfterTheCurrentLabelTheRemainingBatchWillNeedReview')
               }}
             </p>
             <p
@@ -369,7 +378,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         v-for="group in groups"
         :key="group.id"
         class="panel fleet-card"
-        :aria-label="`Distribution group ${group.name}`"
+        :aria-label="$t('uiDetails.distributionGroup', { value1: String(group.name) })"
       >
         <div class="section-heading fleet-card-heading">
           <div class="fleet-title">
@@ -385,8 +394,8 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               group.available === false
                 ? $t('common.unavailable')
                 : group.automatic_printing_held
-                  ? 'Held'
-                  : 'Automatic routing'
+                  ? $t('uiMessages.held')
+                  : $t('uiMessages.automaticRouting')
             }}</span
           >
         </div>
@@ -424,14 +433,14 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               >{{
                 auth.printer(group.id, 'submit_directly')
                   ? $t('printers.printALabel')
-                  : 'Request printing'
+                  : $t('uiMessages.requestPrinting')
               }}</RouterLink
             >
             <button v-else class="secondary" disabled>
               {{
                 auth.printer(group.id, 'submit_directly')
                   ? $t('printers.printALabel')
-                  : 'Request printing'
+                  : $t('uiMessages.requestPrinting')
               }}
             </button>
             <RouterLink
@@ -466,7 +475,11 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
               :disabled="w.busy"
               @click="hold(group.id, !group.automatic_printing_held)"
             >
-              {{ group.automatic_printing_held ? 'Resume group' : 'Hold group' }}
+              {{
+                group.automatic_printing_held
+                  ? $t('uiMessages.resumeGroup')
+                  : $t('uiMessages.holdGroup')
+              }}
             </button>
           </div>
         </div>
@@ -485,7 +498,7 @@ const printerName = (id: string) => w.printers.find((device) => device.id === id
         ><small>{{ w.cartridgeName(batch.cartridge_id) }} · {{ date(batch.created_at) }}</small>
       </div>
       <Badge :state="batch.state" /><RouterLink :to="`/batches/${batch.id}`">{{
-        batch.state === 'needs_review' ? 'Review →' : 'Details →'
+        batch.state === 'needs_review' ? $t('uiMessages.review') : $t('uiMessages.details')
       }}</RouterLink>
     </div>
   </section>

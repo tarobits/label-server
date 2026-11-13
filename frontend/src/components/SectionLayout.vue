@@ -18,7 +18,7 @@ const sections = computed(() => props.groups.flatMap((group) => group.sections))
       class="administration-nav section-nav"
       :identity="active"
       selector="button.active"
-      :aria-label="`${label} sections`"
+      :aria-label="$t('uiDetails.sections', { value1: String(label) })"
     >
       <div v-for="group in groups" :key="group.title" class="section-nav-group">
         <h2>{{ group.title }}</h2>

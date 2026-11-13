@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { freezeLeavingItem } from '../shared/collectionMotion'
 import { vValidateForm } from '../shared/formValidation'
 import { useAuthStore } from '../auth/auth'
@@ -28,12 +29,12 @@ const moveChoices = computed(() => w.printers.filter((p) => p.companion?.enabled
 async function retirePrinter(device: Printer) {
   if (
     !(await confirmAction(
-      `Retire “${device.name}”? It will disappear from active printers and its cartridge will be uninstalled. Print history and audit records will be retained.`,
-      'Retire printer',
+      t('uiDetails.retirePrinter', { value1: String(device.name) }),
+      t('printers.retirePrinter'),
     ))
   )
     return
-  await w.action(() => api(`/printers/${device.id}`, 'DELETE'), 'Printer retired.')
+  await w.action(() => api(`/printers/${device.id}`, 'DELETE'), t('uiMessages.printerRetired'))
 }
 function openMove(device: Printer) {
   movingPrinter.value = device.id
@@ -48,7 +49,7 @@ async function movePrinter() {
         api(`/printers/${movingPrinter.value}/move-to-companion`, 'POST', {
           target_printer_id: moveTarget.value,
         }),
-      'Printer moved. Check its cartridge before resuming printing.',
+      t('uiMessages.printerMovedCheckItsCartridgeBeforeResumingPrinting'),
     )
   )
     movingPrinter.value = ''
@@ -60,7 +61,7 @@ async function cancelFlush(id: string) {
   if (pending)
     await w.action(
       () => api(`/queue/flush/${pending}`, 'DELETE'),
-      'Pending flush cancelled. Copies remain queued.',
+      t('uiMessages.pendingFlushCancelledCopiesRemainQueued'),
     )
 }
 const defaults = () => ({
@@ -130,8 +131,8 @@ async function addPrinter() {
           },
         ),
       editingPrinter.value
-        ? 'Printer configuration saved.'
-        : 'Printer registered. Install its cartridge to make matching labels eligible.',
+        ? t('uiMessages.printerConfigurationSaved')
+        : t('uiMessages.printerRegisteredInstallItsCartridgeToMakeMatchingLabelsEligible'),
     )
   ) {
     showPrinter.value = false
@@ -154,7 +155,7 @@ async function saveGroup() {
           editing.value ? 'PUT' : 'POST',
           group,
         ),
-      'Printer group saved.',
+      t('uiMessages.printerGroupSaved'),
     )
   )
     showGroup.value = false
@@ -165,13 +166,13 @@ async function install(id: string, event: Event) {
   select.value = state(id)?.active_cartridge_id ?? ''
   await w.action(
     () => installCartridge(id, selected, { explicitSelection: true }),
-    'Installed cartridge updated.',
+    t('uiMessages.installedCartridgeUpdated'),
   )
 }
 async function hold(id: string, held: boolean) {
   await w.action(
     () => api(`/destinations/${id}/automatic-printing`, 'PUT', { held }),
-    held ? 'Automatic printing held.' : 'Automatic printing resumed.',
+    held ? t('uiMessages.automaticPrintingHeldMessage') : t('uiMessages.automaticPrintingResumed'),
   )
 }
 async function setCartridgeCheck(id: string, event: Event) {
@@ -181,7 +182,7 @@ async function setCartridgeCheck(id: string, event: Event) {
   try {
     await w.action(
       () => api(`/printers/${encodeURIComponent(id)}/cartridge-check`, 'PUT', { enabled }),
-      enabled ? 'Cartridge check enabled.' : 'Cartridge check disabled.',
+      enabled ? t('uiMessages.cartridgeCheckEnabled') : t('uiMessages.cartridgeCheckDisabled'),
     )
   } finally {
     delete cartridgeChecks[id]
@@ -190,20 +191,20 @@ async function setCartridgeCheck(id: string, event: Event) {
 async function print(id: string) {
   await w.action(
     () => requestPrinting(`/destinations/${id}/print`),
-    'Matching labels requested on available printers.',
+    t('uiMessages.matchingLabelsRequestedOnAvailablePrinters'),
   )
 }
 async function clearBlock(id: string) {
   if (
     !(await confirmAction(
-      'Have you investigated the printer and resolved its error?',
-      'Clear printer block',
+      t('uiMessages.haveYouInvestigatedThePrinterAndResolvedItsError'),
+      t('uiMessages.clearPrinterBlock'),
     ))
   )
     return
   await w.action(
     () => api(`/companions/printers/${encodeURIComponent(id)}/clear`, 'POST'),
-    'Printer block cleared.',
+    t('uiMessages.printerBlockCleared'),
   )
 }
 function move(index: number, offset: number) {
@@ -225,7 +226,7 @@ function move(index: number, offset: number) {
   </div>
   <Transition name="panel-expand">
     <form v-validate-form v-if="showPrinter" class="panel form-stack" @submit.prevent="addPrinter">
-      <h2>{{ editingPrinter ? 'Edit printer' : $t('common.addPrinter') }}</h2>
+      <h2>{{ editingPrinter ? $t('uiMessages.editPrinter') : $t('common.addPrinter') }}</h2>
       <label v-if="!editingPrinter" class="checkbox"
         ><input v-model="ownPrinter" type="checkbox" />{{ $t('printers.ownThisPrinter') }}</label
       >
@@ -299,7 +300,9 @@ function move(index: number, offset: number) {
       </p>
       <div class="row">
         <button class="primary" :disabled="w.busy">
-          {{ editingPrinter ? 'Save printer' : 'Register printer' }}</button
+          {{
+            editingPrinter ? $t('uiMessages.savePrinter') : $t('uiMessages.registerPrinter')
+          }}</button
         ><button type="button" class="secondary" @click="showPrinter = false">
           {{ $t('common.cancel') }}
         </button>
@@ -309,8 +312,8 @@ function move(index: number, offset: number) {
   <p v-if="!w.printers.length && !showPrinter" class="panel empty">
     {{
       auth.can('printers.manage')
-        ? 'No printers registered.'
-        : 'No direct printer access. Available groups are listed below.'
+        ? $t('uiMessages.noPrintersRegistered')
+        : $t('uiMessages.noDirectPrinterAccessAvailableGroupsAreListedBelow')
     }}
   </p>
   <TransitionGroup
@@ -327,7 +330,7 @@ function move(index: number, offset: number) {
         }}</span>
         <span v-if="device.owner_id === null" class="badge">{{ $t('common.noOwner') }}</span>
         <span class="badge" :class="state(device.id)?.connected ? 'printed' : 'failed'">{{
-          state(device.id)?.connected ? 'Connected' : 'Disconnected'
+          state(device.id)?.connected ? $t('uiMessages.connected') : $t('uiMessages.disconnected')
         }}</span>
       </div>
       <p v-if="device.configuration_error" class="alert warning">
@@ -352,7 +355,7 @@ function move(index: number, offset: number) {
         {{
           state(device.id)?.detected_width_mm
             ? `${state(device.id)?.detected_width_mm} mm`
-            : 'Unknown'
+            : $t('uiMessages.unknown')
         }}
       </p>
       <button class="text-button" @click="detailsPrinter = device.id">
@@ -432,8 +435,8 @@ function move(index: number, offset: number) {
         >
           {{
             state(device.id)?.automatic_printing_held
-              ? 'Resume automatic printing'
-              : 'Hold automatic printing'
+              ? $t('uiMessages.resumeAutomaticPrinting')
+              : $t('uiMessages.holdAutomaticPrinting')
           }}
         </button>
         <button
@@ -503,10 +506,20 @@ function move(index: number, offset: number) {
   </AdminDialog>
   <AdminDialog
     :open="!!detailsDevice"
-    :title="`${detailsDevice?.name ?? $t('common.printer')} · Detected details`"
+    :title="
+      $t('uiDetails.detectedDetails', {
+        value1: String(detailsDevice?.name ?? $t('common.printer')),
+      })
+    "
     @close="detailsPrinter = ''"
   >
-    <p role="status">{{ state(detailsPrinter)?.connected ? 'Connected' : 'Disconnected' }}</p>
+    <p role="status">
+      {{
+        state(detailsPrinter)?.connected
+          ? $t('uiMessages.connected')
+          : $t('uiMessages.disconnected')
+      }}
+    </p>
     <p v-if="state(detailsPrinter)?.printer_error" class="alert warning">
       {{ state(detailsPrinter)?.printer_error }}
     </p>
@@ -539,7 +552,7 @@ function move(index: number, offset: number) {
             type="button"
             class="small secondary"
             :disabled="index === 0"
-            :aria-label="`Prefer ${w.destinationName(id)} earlier`"
+            :aria-label="$t('uiDetails.preferEarlier', { value1: String(w.destinationName(id)) })"
             @click="move(index, -1)"
           >
             ↑</button
@@ -547,7 +560,7 @@ function move(index: number, offset: number) {
             type="button"
             class="small secondary"
             :disabled="index === group.printer_ids.length - 1"
-            :aria-label="`Prefer ${w.destinationName(id)} later`"
+            :aria-label="$t('uiDetails.preferLater', { value1: String(w.destinationName(id)) })"
             @click="move(index, 1)"
           >
             ↓
@@ -613,7 +626,11 @@ function move(index: number, offset: number) {
           :disabled="w.busy"
           @click="hold(target.id, !target.automatic_printing_held)"
         >
-          {{ target.automatic_printing_held ? 'Resume group' : 'Hold group' }}
+          {{
+            target.automatic_printing_held
+              ? $t('uiMessages.resumeGroup')
+              : $t('uiMessages.holdGroup')
+          }}
         </button>
       </div>
     </article>
@@ -623,8 +640,8 @@ function move(index: number, offset: number) {
     <p>
       {{
         w.overview.notifications_enabled
-          ? 'ntfy delivery is enabled.'
-          : 'ntfy delivery is not configured.'
+          ? $t('uiRemainder.ntfyEnabled')
+          : $t('uiRemainder.ntfyDisabled')
       }}
     </p>
     <p class="help">{{ $t('printers.notificationEndpointsAreConfiguredInAdministration') }}</p>

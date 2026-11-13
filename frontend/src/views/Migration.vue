@@ -241,14 +241,17 @@ async function act(action: 'save' | 'review' | 'complete') {
                     v-model="selected"
                     type="checkbox"
                     :value="key(item)"
-                    :aria-label="`Select ${item.name}`"
+                    :aria-label="$t('uiDetails.select', { value1: String(item.name) })"
                   />
                 </td>
                 <td>
                   {{ item.name }}<small>{{ item.kind }}</small>
                 </td>
                 <td>
-                  <select v-model="change(item).owner_id" :aria-label="`Owner of ${item.name}`">
+                  <select
+                    v-model="change(item).owner_id"
+                    :aria-label="$t('uiDetails.owner', { value1: String(item.name) })"
+                  >
                     <option :value="null" disabled>{{ $t('migration.chooseAnOwner') }}</option>
                     <option v-for="user in catalog.users" :key="user.id" :value="user.id">
                       {{ user.name }}
@@ -258,7 +261,7 @@ async function act(action: 'save' | 'review' | 'complete') {
                 <td>
                   <select
                     v-model="change(item).location_id"
-                    :aria-label="`Location of ${item.name}`"
+                    :aria-label="$t('uiDetails.locationOf', { value1: String(item.name) })"
                   >
                     <option :value="null">{{ $t('common.unassigned') }}</option>
                     <option
@@ -340,7 +343,7 @@ async function act(action: 'save' | 'review' | 'complete') {
                   <td>
                     <select
                       v-model="draft.adjustment_recipients[item.id]"
-                      :aria-label="`Recipient for ${item.note}`"
+                      :aria-label="$t('uiDetails.recipient', { value1: String(item.note) })"
                     >
                       <option :value="undefined" disabled>
                         {{ $t('common.chooseARecipient') }}
@@ -406,7 +409,12 @@ async function act(action: 'save' | 'review' | 'complete') {
               type="number"
               min="0"
               step="0.000001"
-              :aria-label="`Allocation of ${adjustment.note} to ${row.cartridge_name}`"
+              :aria-label="
+                $t('uiDetails.allocation', {
+                  value1: String(adjustment.note),
+                  value2: String(row.cartridge_name),
+                })
+              "
               :value="
                 Math.abs(
                   (draft.adjustment_allocations[adjustment.id] ?? adjustment.cartridge_allocations)[

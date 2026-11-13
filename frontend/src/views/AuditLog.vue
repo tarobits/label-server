@@ -143,7 +143,9 @@ const fields = (entry: Entry) =>
           {{
             entry.fields.actor_name ??
             entry.fields.actor_id ??
-            (entry.fields.source === 'anonymous' ? 'Unauthenticated' : $t('common.system'))
+            (entry.fields.source === 'anonymous'
+              ? $t('uiMessages.unauthenticated')
+              : $t('common.system'))
           }}</small
         >
         <AnimatedDetails

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, shallowRef, watch } from 'vue'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import type {
@@ -48,8 +49,8 @@ function add(duplicate = false) {
     id: randomUUID(),
     name:
       duplicate && selected.value
-        ? `${selected.value.name.slice(0, 95)} copy`
-        : `Example ${examples.value.length + 1}`,
+        ? t('uiDetails.copyName', { value1: String(selected.value.name.slice(0, 95)) })
+        : t('uiDetails.example', { value1: String(examples.value.length + 1) }),
     data: JSON.parse(JSON.stringify(duplicate && selected.value ? selected.value.data : data)),
   }
   props.document.preview_examples = [...examples.value, example]
@@ -137,7 +138,7 @@ function sample(field: TemplateField) {
             <ChevronLeftIcon />
           </button>
           <span class="count" role="status">{{
-            selected ? `${index + 1} / ${examples.length}` : 'Samples'
+            selected ? `${index + 1} / ${examples.length}` : $t('uiMessages.samples')
           }}</span>
           <button
             type="button"

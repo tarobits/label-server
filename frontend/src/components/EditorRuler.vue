@@ -29,7 +29,7 @@ const range = computed(() =>
     :width="vertical ? 28 : length * scale"
     :height="vertical ? length * scale : 28"
     role="img"
-    :aria-label="vertical ? 'Left ruler (mm)' : 'Top ruler (mm)'"
+    :aria-label="vertical ? $t('uiMessages.leftRulerMm') : $t('uiMessages.topRulerMm')"
   >
     <rect
       v-if="range"

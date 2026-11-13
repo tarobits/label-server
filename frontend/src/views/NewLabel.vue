@@ -198,27 +198,31 @@ const matchingPrinters = computed(() =>
 )
 const routingHint = computed(() => {
   if (destination.value?.available === false)
-    return 'No configured printer is available. Check the destination’s printer settings.'
+    return t('uiMessages.noConfiguredPrinterIsAvailableCheckTheDestinationSPrinterSettings')
   if (!auth.printer(form.destination_id, 'submit_directly'))
-    return 'Approval is required before this label enters the queue.'
+    return t('uiMessages.approvalIsRequiredBeforeThisLabelEntersTheQueue')
   if (destination.value?.automatic_printing_held)
-    return 'Automatic printing is held. Print manually or resume to print these copies.'
+    return t('uiMessages.automaticPrintingIsHeldPrintManuallyOrResumeToPrintTheseCopies')
   if (destination.value?.no_automatic_printing)
-    return 'Manual-only destination. Start printing from the queue or printer controls.'
+    return t('uiMessages.manualOnlyDestinationStartPrintingFromTheQueueOrPrinterControls')
   if (
     destination.value?.kind === 'group' &&
     destination.value.printer_ids.some(
       (id) => !w.printerStatuses.some((state) => state.printer_id === id),
     )
   )
-    return 'Labels wait for a ready group member with matching tape and enough copies to reach the threshold.'
+    return t(
+      'uiMessages.labelsWaitForAReadyGroupMemberWithMatchingTapeAndEnoughCopiesToReachTheThreshold',
+    )
   if (!matchingPrinters.value.length)
-    return 'Waiting for this tape to be installed at the destination.'
+    return t('uiMessages.waitingForThisTapeToBeInstalledAtTheDestination')
   if (matchingPrinters.value.every((s) => s.no_automatic_printing))
-    return 'Matching printers are manual only. Start printing from the queue or printer controls.'
+    return t('uiMessages.matchingPrintersAreManualOnlyStartPrintingFromTheQueueOrPrinterControls')
   if (matchingPrinters.value.every((s) => s.automatic_printing_held))
-    return 'Matching printers are held. Print manually or resume to print these copies.'
-  return 'Tape installed. Automatic printing starts when a matching printer is ready and the threshold is reached.'
+    return t('uiMessages.matchingPrintersAreHeldPrintManuallyOrResumeToPrintTheseCopies')
+  return t(
+    'uiMessages.tapeInstalledAutomaticPrintingStartsWhenAMatchingPrinterIsReadyAndTheThresholdIsReached',
+  )
 })
 const adaptiveText = computed(() => template.value?.id === 'text' && template.value.revision === 2)
 const document = computed(() => {
@@ -268,11 +272,12 @@ async function render() {
   try {
     const errors: FieldErrors = {}
     if (document.value.width_mm !== selected.value?.width_mm)
-      errors.tape_profile = 'Template and tape widths do not match.'
+      errors.tape_profile = t('uiMessages.templateAndTapeWidthsDoNotMatch')
     const missing = document.value.fields.filter(
       (field) => field.required && missingValue(data.value[field.name]),
     )
-    for (const field of missing) errors[`data.${field.name}`] = `${field.label} is required`
+    for (const field of missing)
+      errors[`data.${field.name}`] = t('uiDetails.required', { value1: String(field.label) })
     previewFieldErrors.value = errors
     if (Object.keys(errors).length) {
       preview.value = null
@@ -374,8 +379,8 @@ async function submit() {
           throw issue
         }),
       direct
-        ? `${body.copies} ${body.copies === 1 ? 'copy' : t('common.copies2')} added to the queue.`
-        : 'Label sent for approval. Nothing has been queued yet.',
+        ? t('uiRemainder.queued', { count: body.copies })
+        : t('uiMessages.labelSentForApprovalNothingHasBeenQueuedYet'),
     )
   ) {
     rememberTemplate(auth.user?.id, body.template)
@@ -521,7 +526,9 @@ async function submit() {
         type="submit"
       >
         {{
-          auth.printer(form.destination_id, 'submit_directly') ? 'Add to queue' : 'Request printing'
+          auth.printer(form.destination_id, 'submit_directly')
+            ? $t('uiMessages.addToQueue')
+            : $t('uiMessages.requestPrinting')
         }}
       </button>
     </form>
@@ -535,7 +542,9 @@ async function submit() {
     >
       <div class="section-heading">
         <h2>{{ $t('newLabel.printPreview') }}</h2>
-        <span class="badge">{{ showPrintPixels ? '1-bit raster' : 'Smooth design' }}</span>
+        <span class="badge">{{
+          showPrintPixels ? $t('uiRemainder.rasterLabel') : $t('uiMessages.smoothDesign')
+        }}</span>
       </div>
       <label class="checkbox"
         ><input v-model="showPrintPixels" type="checkbox" />{{

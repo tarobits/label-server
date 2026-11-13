@@ -8,10 +8,14 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
   <dl class="print-attribution">
     <div>
       <dt>
-        {{ queue && attribution?.authorization.kind !== 'approval' ? 'Queued by' : 'Requested by' }}
+        {{
+          queue && attribution?.authorization.kind !== 'approval'
+            ? $t('uiMessages.queuedBy')
+            : $t('uiMessages.requestedBy')
+        }}
       </dt>
       <dd>
-        {{ attribution?.requested_by?.name ?? 'Not recorded'
+        {{ attribution?.requested_by?.name ?? $t('uiMessages.notRecorded')
         }}<span
           v-if="
             attribution?.submitted_by &&
@@ -34,10 +38,12 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
     >
       <dt>
         {{
-          queue && attribution?.authorization.kind === 'override' ? 'Authorized by' : 'Approved by'
+          queue && attribution?.authorization.kind === 'override'
+            ? $t('uiMessages.authorizedBy')
+            : $t('uiMessages.approvedBy')
         }}
       </dt>
-      <dd>{{ attribution?.authorization.actor?.name ?? 'Not recorded' }}</dd>
+      <dd>{{ attribution?.authorization.actor?.name ?? $t('uiMessages.notRecorded') }}</dd>
       <dd class="attribution-detail">
         <template v-if="attribution?.authorization.kind === 'direct'">{{
           $t('printAttribution.directPrinting')
@@ -71,7 +77,7 @@ defineProps<{ attribution?: PrintAttribution | null; queue?: boolean }>()
     </div>
     <div v-if="attribution?.release" class="release-attribution">
       <dt>{{ $t('printAttribution.releasedBy') }}</dt>
-      <dd>{{ attribution.release.actor?.name ?? 'Not recorded' }}</dd>
+      <dd>{{ attribution.release.actor?.name ?? $t('uiMessages.notRecorded') }}</dd>
       <dd class="attribution-detail">
         {{ $t('printAttribution.accessHoldReleased') }} {{ date(attribution.release.at) }}
       </dd>

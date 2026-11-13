@@ -31,7 +31,7 @@ const refreshButton = ref<HTMLButtonElement | null>(null)
 const prefix = useId()
 const hasOthers = computed(() => sessions.value.some((session) => !session.current))
 const date = (value: number | null) =>
-  value === null ? 'Not recorded' : new Date(value * 1000).toLocaleString(locale.value)
+  value === null ? t('uiMessages.notRecorded') : new Date(value * 1000).toLocaleString(locale.value)
 async function load() {
   sessions.value = await api<LoginSession[]>('/auth/sessions')
   loaded.value = true
@@ -51,8 +51,11 @@ async function refresh() {
 async function revoke(session?: LoginSession) {
   if (busy.value) return
   const message = session
-    ? `Sign out ${session.current ? 'this session' : `${session.browser} on ${session.device}`}? Its push notifications will also stop.`
-    : 'Sign out all other sessions? Their push notifications will also stop.'
+    ? t(session.current ? 'actionMessages.sessionCurrent' : 'actionMessages.sessionOther', {
+        browser: session.browser,
+        device: session.device,
+      })
+    : t('uiMessages.signOutAllOtherSessionsTheirPushNotificationsWillAlsoStop')
   if (
     !(await confirmAction(
       message,
@@ -70,7 +73,9 @@ async function revoke(session?: LoginSession) {
     }
     await api(`/auth/sessions/${session?.id ?? 'others'}`, 'DELETE')
     await load()
-    success.value = session ? 'Session signed out.' : 'Other sessions signed out.'
+    success.value = session
+      ? t('uiMessages.sessionSignedOut')
+      : t('uiMessages.otherSessionsSignedOut')
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
@@ -135,7 +140,7 @@ watch(() => props.refreshKey, refresh)
         <ExpandableContent :id="`${prefix}-${session.id}`" :open="expanded.includes(session.id)">
           <dl class="session-details">
             <dt>{{ $t('accountSessions.ipAddress') }}</dt>
-            <dd>{{ session.ip_address || 'Not recorded' }}</dd>
+            <dd>{{ session.ip_address || $t('uiMessages.notRecorded') }}</dd>
             <dt>{{ $t('accountSessions.approximateLocation') }}</dt>
             <dd>{{ session.location || $t('common.unavailable') }}</dd>
             <dt>{{ $t('common.browser') }}</dt>
@@ -149,7 +154,7 @@ watch(() => props.refreshKey, refresh)
             <dt>{{ $t('common.lastSeen') }}</dt>
             <dd>{{ date(session.last_seen_at) }}</dd>
             <dt>{{ $t('common.userAgent') }}</dt>
-            <dd>{{ session.user_agent || 'Not recorded' }}</dd>
+            <dd>{{ session.user_agent || $t('uiMessages.notRecorded') }}</dd>
           </dl>
         </ExpandableContent>
       </li>

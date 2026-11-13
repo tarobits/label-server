@@ -163,28 +163,35 @@ function displayState(job: Job) {
   return 'group_funding_on_hold'
 }
 function routing(job: Job) {
-  if (job.billing_held) return `${w.destinationName(job.destination_id)} · Group funding on hold`
+  if (job.billing_held)
+    return t('uiDetails.groupFundingHeld', {
+      value1: String(w.destinationName(job.destination_id)),
+    })
   if (
     job.billing_request?.mode === 'wait' &&
     ['pending', 'rejected'].includes(job.billing_request.status)
   )
-    return `${w.destinationName(job.destination_id)} · Waiting for funding decision`
+    return t('uiDetails.fundingPending', { value1: String(w.destinationName(job.destination_id)) })
   if (job.access_hold?.status === 'held')
-    return `${w.destinationName(job.destination_id)} · Paused: ${job.access_hold.reason}`
+    return t('uiDetails.paused', {
+      value1: String(w.destinationName(job.destination_id)),
+      value2: String(job.access_hold.reason),
+    })
   const destination = w.destinations.find((d) => d.id === job.destination_id)
   if (!destination) return job.destination_id
   if (destination.no_automatic_printing && job.status === 'queued')
-    return `${destination.name} · Manual only`
+    return t('uiDetails.manualOnly', { value1: String(destination.name) })
   if (job.assigned_printer_id)
     return `${destination.name} → ${destination.member_names?.[job.assigned_printer_id] ?? w.destinationName(job.assigned_printer_id)}`
   if (destination.kind === 'printer' || job.status !== 'queued') return destination.name
-  if (destination.automatic_printing_held) return `${destination.name} · Held`
+  if (destination.automatic_printing_held)
+    return t('uiDetails.held', { value1: String(destination.name) })
   if (
     destination.printer_ids.some(
       (id) => !w.printerStatuses.some((state) => state.printer_id === id),
     )
   )
-    return `${destination.name} · Routed through this group`
+    return t('uiDetails.routedThroughGroup', { value1: String(destination.name) })
   const ready = destination.printer_ids.find((id) => {
     const state = w.printerStatuses.find((s) => s.printer_id === id)
     return (
@@ -198,7 +205,7 @@ function routing(job: Job) {
       w.cartridges.find((c) => c.id === state.active_cartridge_id)?.profile_id === job.profile_id
     )
   })
-  return `${destination.name} · ${ready ? 'Next eligible: ' + w.destinationName(ready) : 'Waiting for a matching printer'}`
+  return `${destination.name} · ${ready ? t('uiRemainder.nextPrinter', { name: w.destinationName(ready) }) : t('uiMessages.waitingForAMatchingPrinter')}`
 }
 async function printerChanged() {
   selectedIds.value = []
@@ -208,15 +215,13 @@ async function removeSelected() {
   const ids = [...selectedIds.value]
   if (
     !ids.length ||
-    !(await confirmAction(
-      `Remove ${ids.length} queued copies? They will remain in cancelled history.`,
-    ))
+    !(await confirmAction(t('uiDetails.removeQueuedCopies', { value1: String(ids.length) })))
   )
     return
   if (
     await w.action(
       () => api('/queue/remove', 'POST', { copy_ids: ids }),
-      'Selected copies removed from the queue.',
+      t('uiMessages.selectedCopiesRemovedFromTheQueue'),
     )
   ) {
     selectedIds.value = []
@@ -247,7 +252,7 @@ async function printSelected() {
   if (
     await w.action(
       () => requestPrinting(`/destinations/${selectedDestination.value}/print`, { copy_ids: ids }),
-      'Selected copies reserved for printing.',
+      t('uiMessages.selectedCopiesReservedForPrinting'),
     )
   ) {
     selectedIds.value = []
@@ -255,9 +260,11 @@ async function printSelected() {
   }
 }
 async function cancel(job: Job) {
-  if (!(await confirmAction('Remove this item’s queued copies? Printed copies stay in history.')))
+  if (!(await confirmAction(t('uiMessages.removeThisItemSQueuedCopiesPrintedCopiesStayInHistory'))))
     return
-  if (await w.action(() => api(`/jobs/${job.id}`, 'DELETE'), 'Item removed from the queue.'))
+  if (
+    await w.action(() => api(`/jobs/${job.id}`, 'DELETE'), t('uiMessages.itemRemovedFromTheQueue'))
+  )
     await load(false, true)
 }
 </script>
@@ -370,7 +377,7 @@ async function cancel(job: Job) {
                   <label class="checkbox-target"
                     ><input
                       type="checkbox"
-                      :aria-label="`Select run ${group.name}`"
+                      :aria-label="$t('uiDetails.selectRun', { value1: String(group.name) })"
                       :checked="checked(group.jobs)"
                       :indeterminate="partial(group.jobs)"
                       :disabled="!selectable(group.jobs).length || loading"
@@ -378,7 +385,7 @@ async function cancel(job: Job) {
                   /></label>
                   <button
                     class="queue-disclosure"
-                    :aria-label="`Toggle ${group.name}`"
+                    :aria-label="$t('uiDetails.toggle', { value1: String(group.name) })"
                     :aria-expanded="expanded.includes(group.id)"
                     @click="expand(group.id)"
                   >
@@ -406,8 +413,8 @@ async function cancel(job: Job) {
                     :plan="group.print_plan"
                     :caption="
                       group.print_plan_scope === 'queued'
-                        ? 'Queued copies, if printed as one batch'
-                        : 'Saved submission estimate'
+                        ? $t('uiMessages.queuedCopiesIfPrintedAsOneBatch')
+                        : $t('uiMessages.savedSubmissionEstimate')
                     "
                   />
                 </AnimatedDetails>
@@ -447,7 +454,16 @@ async function cancel(job: Job) {
                       <label class="checkbox-target"
                         ><input
                           type="checkbox"
-                          :aria-label="`Select ${job.payload.text || (job.source_row ? 'CSV record ' + job.source_row : labelName(job))}`"
+                          :aria-label="
+                            $t('uiDetails.select', {
+                              value1: String(
+                                job.payload.text ||
+                                  (job.source_row
+                                    ? $t('uiRemainder.csvRecord', { record: job.source_row })
+                                    : labelName(job)),
+                              ),
+                            })
+                          "
                           :checked="checked([job])"
                           :indeterminate="partial([job])"
                           :disabled="!selectable([job]).length || loading"
@@ -496,8 +512,8 @@ async function cancel(job: Job) {
                           :plan="group.print_plan"
                           :caption="
                             group.print_plan_scope === 'queued'
-                              ? 'Queued copies, if printed as one batch'
-                              : 'Saved submission estimate'
+                              ? $t('uiMessages.queuedCopiesIfPrintedAsOneBatch')
+                              : $t('uiMessages.savedSubmissionEstimate')
                           "
                         />
                       </AnimatedDetails>

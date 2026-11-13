@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { t, locale } from '../shared/i18n'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Compartment, EditorState, Transaction } from '@codemirror/state'
 import {
   EditorView,
@@ -27,11 +28,17 @@ import {
   type Completion,
 } from '@codemirror/autocomplete'
 import { lintGutter, setDiagnostics, lintKeymap } from '@codemirror/lint'
-import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+import {
+  searchKeymap,
+  highlightSelectionMatches,
+  closeSearchPanel,
+  openSearchPanel,
+  searchPanelOpen,
+} from '@codemirror/search'
 import { tags } from '@lezer/highlight'
 import type { TemplateDocument } from '../templates/editor'
 import type { LogicCatalog, SourceDiagnostic } from '../templates/logicGraph'
-import { logicTargetLabel } from '../templates/logicGraph'
+import { logicTargetLabel, operationDescription, socketTypeLabel } from '../templates/logicGraph'
 import { referenceEntries } from '../templates/logicReference'
 
 const props = defineProps<{
@@ -44,10 +51,46 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ change: [source: string]; help: [id: string] }>()
 const host = ref<HTMLElement | null>(null),
-  status = ref('Ln 1, Col 1'),
+  cursor = ref({ line: 1, column: 1 }),
   limit = ref('')
+const status = computed(() =>
+  t('uiDetails.cursorPosition', { value1: cursor.value.line, value2: cursor.value.column }),
+)
 let view: EditorView | undefined
 const readOnly = new Compartment()
+const translatedInterface = new Compartment()
+function interfaceExtensions() {
+  return [
+    EditorState.phrases.of({
+      Find: t('codeEditor.find'),
+      Replace: t('codeEditor.replaceInput'),
+      next: t('codeEditor.next'),
+      previous: t('codeEditor.previous'),
+      all: t('codeEditor.all'),
+      'match case': t('codeEditor.matchCase'),
+      regexp: t('codeEditor.regexp'),
+      'by word': t('codeEditor.byWord'),
+      replace: t('codeEditor.replace'),
+      'replace all': t('codeEditor.replaceAll'),
+      close: t('codeEditor.close'),
+      Completions: t('codeEditor.completions'),
+      Diagnostics: t('codeEditor.diagnostics'),
+      'No diagnostics': t('codeEditor.noDiagnostics'),
+      'Go to line': t('codeEditor.goToLine'),
+      go: t('codeEditor.go'),
+      'replaced match on line $': t('codeEditor.replacedLine'),
+      'replaced $ matches': t('codeEditor.replacedMatches'),
+      'current match': t('codeEditor.currentMatch'),
+      'on line': t('codeEditor.onLine'),
+      'Control character': t('codeEditor.controlCharacter'),
+    }),
+    EditorView.contentAttributes.of({
+      'aria-label': t('uiMessages.logicSource'),
+      'aria-multiline': 'true',
+      spellcheck: 'false',
+    }),
+  ]
+}
 const language = StreamLanguage.define({
   token(stream) {
     if (stream.eatSpace()) return null
@@ -116,7 +159,7 @@ function complete(context: CompletionContext) {
     options = Object.entries(properties ?? {}).map(([label, type]) => ({
       label,
       type: 'property',
-      detail: type,
+      detail: socketTypeLabel(type),
       info: helpFor(`${alias}.${label}`).summary,
     }))
     return { from: (word?.from ?? context.pos) + split + 1, options, validFor: /^[A-Za-z0-9_]*$/ }
@@ -124,7 +167,7 @@ function complete(context: CompletionContext) {
   const inputs = props.document.fields.map((field) => ({
     label: field.name,
     type: 'variable',
-    detail: field.type ?? 'text',
+    detail: socketTypeLabel(field.type ?? 'text'),
     info: field.label,
   }))
   const declared = [
@@ -137,13 +180,15 @@ function complete(context: CompletionContext) {
       .map((label) => ({
         label,
         type: 'variable',
-        detail: props.catalog.types[label] ?? 'intermediate',
+        detail: props.catalog.types[label]
+          ? socketTypeLabel(props.catalog.types[label])
+          : t('logicMessages.intermediate'),
       })),
     ...Object.keys(props.catalog.targets).map((label) => ({
       label,
       displayLabel: logicTargetLabel(props.document, label),
       type: 'class',
-      detail: 'property target',
+      detail: t('logicMessages.propertyTarget'),
     })),
     ...props.catalog.operations.map((operation) =>
       snippetCompletion(
@@ -151,8 +196,8 @@ function complete(context: CompletionContext) {
         {
           label: operation.name,
           type: 'function',
-          detail: `${operation.minimum_arguments} argument${operation.minimum_arguments === 1 ? '' : 's'}`,
-          info: operation.description,
+          detail: t('logicMessages.arguments', { count: operation.minimum_arguments }),
+          info: operationDescription(operation.name),
         },
       ),
     ),
@@ -160,12 +205,16 @@ function complete(context: CompletionContext) {
     snippetCompletion('let ${1:name} = ${2:0};', {
       label: 'let',
       type: 'keyword',
-      info: 'Declare a named intermediate value.',
+      get info() {
+        return t('uiMessages.declareANamedIntermediateValue')
+      },
     }),
     snippetCompletion('image("${1:asset-id}")', {
       label: 'image',
       type: 'function',
-      info: 'An uploaded image asset reference.',
+      get info() {
+        return t('uiMessages.anUploadedImageAssetReference')
+      },
     }),
   ]
   return { from: word?.from ?? context.pos, options, validFor: /^[A-Za-z0-9_]*$/ }
@@ -249,11 +298,7 @@ onMounted(() => {
         EditorState.readOnly.of(!!props.disabled),
         EditorView.editable.of(!props.disabled),
       ]),
-      EditorView.contentAttributes.of({
-        'aria-label': 'Logic source',
-        'aria-multiline': 'true',
-        spellcheck: 'false',
-      }),
+      translatedInterface.of(interfaceExtensions()),
       keymap.of([
         ...closeBracketsKeymap,
         ...defaultKeymap,
@@ -285,7 +330,7 @@ onMounted(() => {
             dom.append(text)
             const button = document.createElement('button')
             button.type = 'button'
-            button.textContent = 'Open reference'
+            button.textContent = t('uiMessages.openReference')
             button.onclick = () => emit('help', entry.id)
             dom.append(button)
             return { dom }
@@ -294,12 +339,15 @@ onMounted(() => {
       }),
       EditorState.changeFilter.of((transaction) => {
         if ([...transaction.newDoc.toString()].length <= 16384) return true
-        limit.value = 'Logic source is limited to 16,384 characters.'
+        limit.value = t('uiMessages.logicSourceIsLimitedTo16384Characters')
         return false
       }),
       EditorView.updateListener.of((update) => {
         const line = update.state.doc.lineAt(update.state.selection.main.head)
-        status.value = `Ln ${line.number}, Col ${update.state.selection.main.head - line.from + 1}`
+        cursor.value = {
+          line: line.number,
+          column: update.state.selection.main.head - line.from + 1,
+        }
         if (
           update.docChanged &&
           !update.transactions.some(
@@ -335,6 +383,13 @@ watch(
     }),
 )
 watch(() => props.diagnostics, updateDiagnostics, { deep: true })
+watch(locale, () => {
+  if (!view) return
+  const searching = searchPanelOpen(view.state)
+  if (searching) closeSearchPanel(view)
+  view.dispatch({ effects: translatedInterface.reconfigure(interfaceExtensions()) })
+  if (searching) openSearchPanel(view)
+})
 watch(
   () => props.active,
   (active) => {

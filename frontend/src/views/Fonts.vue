@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { api } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
 import { confirmAction } from '../shared/confirmation'
@@ -16,19 +17,15 @@ async function visibility(font: FontAsset) {
         font.archived ? 'POST' : 'DELETE',
       ),
     font.archived
-      ? 'Font restored to the picker.'
-      : 'Font hidden from the picker. Saved layouts and queued jobs retain it.',
+      ? t('uiMessages.fontRestoredToThePicker')
+      : t('uiMessages.fontHiddenFromThePickerSavedLayoutsAndQueuedJobsRetainIt'),
   )
 }
 async function remove(font: FontAsset) {
-  if (
-    await confirmAction(
-      `Delete “${font.family}”? It becomes unavailable immediately, including in saved templates. Administrators can restore it for 30 days before permanent purging. Fonts used by saved labels require administrator or global deletion permission.`,
-    )
-  )
+  if (await confirmAction(t('uiDetails.deleteFont', { value1: String(font.family) })))
     await w.action(
       () => api(`/font-assets/${font.id}/permanent`, 'DELETE'),
-      'Font deleted. Administrators can restore it within 30 days.',
+      t('uiMessages.fontDeletedAdministratorsCanRestoreItWithin30Days'),
     )
 }
 </script>
@@ -65,9 +62,9 @@ async function remove(font: FontAsset) {
               {{ font.family }}<small>{{ font.id.slice(0, 12) }}</small>
             </td>
             <td v-if="auth.user?.is_admin" class="asset-owner">
-              {{ font.owner_name ?? 'Unknown owner' }}
+              {{ font.owner_name ?? $t('uiMessages.unknownOwner') }}
             </td>
-            <td>{{ font.variable ? 'Variable' : font.style }}</td>
+            <td>{{ font.variable ? $t('uiMessages.variable') : font.style }}</td>
             <td>{{ (font.size_bytes / 1024).toFixed(0) }} {{ $t('fonts.kb') }}</td>
             <td>
               {{
@@ -78,7 +75,7 @@ async function remove(font: FontAsset) {
                     : $t('common.personal')
               }}
             </td>
-            <td>{{ font.archived ? 'Hidden' : $t('fonts.available') }}</td>
+            <td>{{ font.archived ? $t('uiMessages.hidden') : $t('fonts.available') }}</td>
             <td>
               <button
                 v-if="font.archived ? font.can_edit : font.can_delete"
@@ -86,7 +83,7 @@ async function remove(font: FontAsset) {
                 :disabled="w.busy"
                 @click="visibility(font)"
               >
-                {{ font.archived ? $t('administration.restore') : 'Hide' }}
+                {{ font.archived ? $t('administration.restore') : $t('uiMessages.hide') }}
               </button>
               <button
                 v-if="font.can_delete"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { api, ApiError, errorMessage } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -50,7 +51,7 @@ const name = ref(
       ? 'iPad'
       : /Android/.test(navigator.userAgent)
         ? 'Android'
-        : 'This browser',
+        : t('uiMessages.thisBrowser'),
 )
 const enableButton = ref<HTMLButtonElement | null>(null)
 const preferencesButton = ref<HTMLButtonElement | null>(null)
@@ -78,15 +79,65 @@ const destinations = computed(() =>
   w.destinations.filter((destination) => auth.printer(destination.id, 'view_activity')),
 )
 const kinds = computed(() => [
-  { value: 'general', label: 'General alerts', scoped: false },
-  { value: 'job_printed', label: 'My printed labels', scoped: false },
-  { value: 'empty_tape', label: 'Empty cartridges', scoped: true },
-  { value: 'printer_blocked', label: 'Blocked printers', scoped: true },
-  { value: 'batch_review', label: 'Batch reviews', scoped: true },
-  { value: 'batch_printed', label: 'Finished batches', scoped: true },
-  { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true },
+  {
+    value: 'general',
+    get label() {
+      return t('uiMessages.generalAlerts')
+    },
+    scoped: false,
+  },
+  {
+    value: 'job_printed',
+    get label() {
+      return t('uiMessages.myPrintedLabels')
+    },
+    scoped: false,
+  },
+  {
+    value: 'empty_tape',
+    get label() {
+      return t('uiMessages.emptyCartridges')
+    },
+    scoped: true,
+  },
+  {
+    value: 'printer_blocked',
+    get label() {
+      return t('uiMessages.blockedPrinters')
+    },
+    scoped: true,
+  },
+  {
+    value: 'batch_review',
+    get label() {
+      return t('uiMessages.batchReviews')
+    },
+    scoped: true,
+  },
+  {
+    value: 'batch_printed',
+    get label() {
+      return t('uiMessages.finishedBatches')
+    },
+    scoped: true,
+  },
+  {
+    value: 'tape_waiting',
+    get label() {
+      return t('uiMessages.waitingTapeReminders')
+    },
+    scoped: true,
+  },
   ...(auth.user?.is_admin
-    ? [{ value: 'approval_digest', label: 'Pending print requests', scoped: false }]
+    ? [
+        {
+          value: 'approval_digest',
+          get label() {
+            return t('uiMessages.pendingPrintRequests')
+          },
+          scoped: false,
+        },
+      ]
     : []),
 ])
 const selectedDestinations = computed(() =>
@@ -151,19 +202,24 @@ async function enable() {
       Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
     if (permission === 'denied') {
       throw new Error(
-        'The browser denied notification permission. Check this site’s notification permission and device settings. Some browsers disable web notifications entirely.',
+        t(
+          'uiMessages.theBrowserDeniedNotificationPermissionCheckThisSiteSNotificationPermissionAndDeviceSettingsSomeBrowsersDisableWebNotificationsEntirely',
+        ),
       )
     }
     if (permission !== 'granted')
       throw new Error(
-        'Notification permission was not granted. Try again and accept the browser’s permission prompt.',
+        t(
+          'uiMessages.notificationPermissionWasNotGrantedTryAgainAndAcceptTheBrowserSPermissionPrompt',
+        ),
       )
     const worker = registration.value
-    if (!worker || !settings.value?.public_key) throw new Error('Reload the app and try again.')
+    if (!worker || !settings.value?.public_key)
+      throw new Error(t('uiMessages.reloadTheAppAndTryAgain'))
     // Fresh keys prevent a different account on this installation from inheriting a subscription.
     const previous = await worker.pushManager.getSubscription()
     if (previous && !(await previous.unsubscribe()))
-      throw new Error('Could not renew notifications. Try again.')
+      throw new Error(t('uiMessages.couldNotRenewNotificationsTryAgain'))
     const subscription = await worker.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: applicationKey(settings.value.public_key),
@@ -173,7 +229,7 @@ async function enable() {
       subscription: subscription.toJSON(),
       replace_id: current.value?.id,
     })
-    return 'Notifications enabled.'
+    return t('uiMessages.notificationsEnabled')
   })
 }
 async function save() {
@@ -186,7 +242,7 @@ async function save() {
       printer_kinds: printerKinds.value,
     })
     editing.value = false
-    return 'Notification preferences saved.'
+    return t('uiMessages.notificationPreferencesSaved')
   })
   if (!editing.value) {
     await nextTick()
@@ -196,11 +252,17 @@ async function save() {
 async function testPush() {
   await perform(async () => {
     await api(`/auth/push/${currentId.value}/test`, 'POST', {})
-    return 'Test notification sent.'
+    return t('uiMessages.testNotificationSent')
   })
 }
 async function remove(device: Device) {
-  if (!(await confirmAction(`Stop notifications on ${device.name}?`, 'Remove device'))) return
+  if (
+    !(await confirmAction(
+      t('uiDetails.stopDeviceNotifications', { value1: String(device.name) }),
+      t('uiMessages.removeDevice'),
+    ))
+  )
+    return
   await perform(async () => {
     await api(`/auth/push/${device.id}`, 'DELETE')
     if (device.id === currentId.value) {
@@ -213,7 +275,7 @@ async function remove(device: Device) {
       const notifications = await registration.value?.getNotifications()
       notifications?.forEach((notification) => notification.close())
     }
-    return 'Device removed.'
+    return t('uiMessages.deviceRemoved')
   })
   await nextTick()
   pendingFocus = true
@@ -334,16 +396,20 @@ onMounted(() => {
           <span class="device-name"
             >{{ device.name
             }}<small
-              >{{ device.id === currentId ? 'This device' : ''
+              >{{ device.id === currentId ? $t('uiMessages.thisDevice') : ''
               }}{{
-                !device.enabled ? (device.id === currentId ? ' · Inactive' : 'Inactive') : ''
+                !device.enabled
+                  ? device.id === currentId
+                    ? ' · Inactive'
+                    : $t('uiMessages.inactive')
+                  : ''
               }}</small
             ></span
           >
           <button
             class="danger-text"
             :disabled="busy"
-            :aria-label="`Remove ${device.name}`"
+            :aria-label="$t('uiDetails.remove', { value1: String(device.name) })"
             @click="remove(device)"
           >
             {{ $t('common.remove') }}

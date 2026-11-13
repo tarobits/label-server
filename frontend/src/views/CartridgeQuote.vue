@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../shared/api'
@@ -81,8 +82,8 @@ async function act(action: 'accept' | 'decline') {
             : {},
         ),
       action === 'accept'
-        ? 'Price accepted. The operator can now approve cartridge use.'
-        : 'Price declined. Your labels remain queued.',
+        ? t('uiMessages.priceAcceptedTheOperatorCanNowApproveCartridgeUse')
+        : t('uiMessages.priceDeclinedYourLabelsRemainQueued'),
     )
   )
     await load()
@@ -103,7 +104,11 @@ async function act(action: 'accept' | 'decline') {
         :length-mm="offer.label.length_mm"
       />
       <p v-if="offer.status !== 'pending'" role="status">
-        {{ offer.status === 'accepted' ? 'Price accepted.' : 'Price declined.' }}
+        {{
+          offer.status === 'accepted'
+            ? $t('uiMessages.priceAccepted')
+            : $t('uiMessages.priceDeclined')
+        }}
       </p>
       <ExpandableContent :open="offer.status === 'pending'">
         <form v-validate-form class="form-stack" @submit.prevent="act('accept')">

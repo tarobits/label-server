@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, errorMessage } from '../shared/api'
 import { confirmAction } from '../shared/confirmation'
@@ -39,14 +40,14 @@ async function save(remove = false) {
   error.value = ''
   success.value = ''
   if (!remove && pin.value !== confirmation.value) {
-    error.value = 'PINs do not match.'
+    error.value = t('remainingUi.pINsDoNotMatch')
     return
   }
   if (
     remove &&
     !(await confirmAction(
-      'Remove your companion PIN and lock your companion sessions?',
-      'Remove PIN',
+      t('uiMessages.removeYourCompanionPINAndLockYourCompanionSessions'),
+      t('accountPin.removePin'),
     ))
   )
     return
@@ -60,7 +61,7 @@ async function save(remove = false) {
     configured.value = value.configured
     editing.value = false
     clear()
-    success.value = remove ? 'PIN removed.' : 'PIN saved.'
+    success.value = remove ? t('remainingUi.pINRemoved') : t('remainingUi.pINSaved')
   } catch (issue) {
     if (!disposed) error.value = errorMessage(issue)
   } finally {
@@ -87,7 +88,13 @@ function toggleEditing() {
     :disabled="busy"
     @click="toggleEditing"
   >
-    {{ editing ? $t('common.cancel') : configured ? 'Change PIN' : 'Set PIN' }}
+    {{
+      editing
+        ? $t('common.cancel')
+        : configured
+          ? $t('uiMessages.changePIN')
+          : $t('uiMessages.setPIN')
+    }}
   </button>
   <ExpandableContent :open="editing" @closed="clear">
     <form ref="pinForm" v-validate-form class="form-stack pin-form" @submit.prevent="save()">

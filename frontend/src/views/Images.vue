@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { vValidateForm } from '../shared/formValidation'
 import { nextTick, ref } from 'vue'
 import { api } from '../shared/api'
@@ -34,7 +35,7 @@ async function rename(asset: ImageAsset) {
   if (
     await w.action(
       () => api(`/image-assets/${asset.id}`, 'PUT', { name: imageName.value.trim() }),
-      'Image renamed.',
+      t('uiMessages.imageRenamed'),
     )
   )
     editing.value = null
@@ -42,14 +43,23 @@ async function rename(asset: ImageAsset) {
 async function remove(asset: ImageAsset) {
   if (
     !(await confirmAction(
-      `Delete “${asset.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. ${auth.user?.is_admin || (asset.scope === 'global' && auth.can('images.delete_global')) ? 'Templates using it will show a missing-image placeholder, and affected queued work is paused.' : 'Images used by saved labels cannot be deleted.'}`,
+      t('uiDetails.deleteImage', {
+        value1: String(asset.name),
+        value2: String(
+          auth.user?.is_admin || (asset.scope === 'global' && auth.can('images.delete_global'))
+            ? t(
+                'uiMessages.templatesUsingItWillShowAMissingImagePlaceholderAndAffectedQueuedWorkIsPaused',
+              )
+            : t('uiMessages.imagesUsedBySavedLabelsCannotBeDeleted'),
+        ),
+      }),
     ))
   )
     return
   if (
     await w.action(
       () => api(`/image-assets/${asset.id}/permanent`, 'DELETE'),
-      'Image deleted. Administrators can restore it within 30 days.',
+      t('uiMessages.imageDeletedAdministratorsCanRestoreItWithin30Days'),
     )
   ) {
     if (editing.value === asset.id) editing.value = null
@@ -63,8 +73,8 @@ async function visibility(asset: ImageAsset) {
         asset.archived ? 'POST' : 'DELETE',
       ),
     asset.archived
-      ? 'Image restored to the picker.'
-      : 'Image hidden. Saved layouts and queued jobs retain it.',
+      ? t('uiMessages.imageRestoredToThePicker')
+      : t('uiMessages.imageHiddenSavedLayoutsAndQueuedJobsRetainIt'),
   )
 }
 </script>
@@ -128,9 +138,9 @@ async function visibility(asset: ImageAsset) {
               <small>{{ asset.id.slice(0, 12) }}</small>
             </td>
             <td v-if="auth.user?.is_admin" class="asset-owner">
-              {{ asset.owner_name ?? 'Unknown owner' }}
+              {{ asset.owner_name ?? $t('uiMessages.unknownOwner') }}
             </td>
-            <td>{{ asset.kind === 'svg' ? 'SVG' : 'Bitmap' }}</td>
+            <td>{{ asset.kind === 'svg' ? 'SVG' : $t('uiMessages.bitmap') }}</td>
             <td>{{ asset.width }} × {{ asset.height }}</td>
             <td>
               {{
@@ -141,7 +151,7 @@ async function visibility(asset: ImageAsset) {
                     : $t('common.personal')
               }}
             </td>
-            <td>{{ asset.archived ? 'Hidden' : $t('fonts.available') }}</td>
+            <td>{{ asset.archived ? $t('uiMessages.hidden') : $t('fonts.available') }}</td>
             <td>
               <div class="image-library-actions">
                 <button
@@ -158,7 +168,7 @@ async function visibility(asset: ImageAsset) {
                   :disabled="w.busy"
                   @click="visibility(asset)"
                 >
-                  {{ asset.archived ? $t('administration.restore') : 'Hide' }}
+                  {{ asset.archived ? $t('administration.restore') : $t('uiMessages.hide') }}
                 </button>
                 <button
                   v-if="asset.can_delete"

@@ -1,5 +1,5 @@
 import { checkServer, serverUnavailable, serverUnavailableMessage } from './serverConnection'
-import { browserLanguage, locale } from './i18n'
+import { browserLanguage, locale, t } from './i18n'
 
 let csrfToken: string | null = null
 let unauthorized: (() => void) | undefined
@@ -42,21 +42,21 @@ function responseMessage(detail: unknown, status: number): string {
     typeof detail.message === 'string'
   )
     return detail.message
-  if (status === 401) return 'Your session has expired. Sign in again.'
-  if (status === 403) return 'You do not have permission to perform this action.'
-  if (status === 404) return 'This item is no longer available.'
-  if (status === 429) return 'Too many requests. Wait a moment and try again.'
-  if (status >= 500) return 'The server could not complete the request. Try again.'
-  return `Request failed (${status}). Try again.`
+  if (status === 401) return t('requestErrors.sessionExpired')
+  if (status === 403) return t('requestErrors.forbidden')
+  if (status === 404) return t('requestErrors.notFound')
+  if (status === 429) return t('requestErrors.tooManyRequests')
+  if (status >= 500) return t('requestErrors.serverError')
+  return t('requestErrors.requestFailed', { status })
 }
 function transportError(error: unknown, safeToRetry: boolean) {
   const timedOut = error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)
   return new ApiError(
     timedOut
       ? safeToRetry
-        ? 'The request timed out. Try again.'
-        : 'The request timed out. Check its status before trying again.'
-      : 'Cannot reach the server. Check your connection and try again.',
+        ? t('requestErrors.timeout')
+        : t('requestErrors.timeoutMutation')
+      : t('requestErrors.connection'),
     0,
   )
 }
@@ -67,7 +67,7 @@ export async function api<T>(
   headers: Record<string, string> = {},
 ): Promise<T> {
   // Never queue or replay mutations during an outage.
-  if (serverUnavailable.value) throw new ApiError(serverUnavailableMessage, 0)
+  if (serverUnavailable.value) throw new ApiError(serverUnavailableMessage.value, 0)
   const requestToken = csrfToken
   const readOnly = ['GET', 'HEAD', 'OPTIONS'].includes(method)
   const safeToRetry =
@@ -113,9 +113,7 @@ export async function api<T>(
         if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name))
           throw transportError(error, safeToRetry)
         throw new ApiError(
-          safeToRetry
-            ? 'The server returned an unreadable response. Try again.'
-            : 'The server returned an unreadable response. Check its status before trying again.',
+          safeToRetry ? t('requestErrors.unreadable') : t('requestErrors.unreadableMutation'),
           response.status,
         )
       }
@@ -133,5 +131,5 @@ export async function api<T>(
   return result as T
 }
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+  return error instanceof Error ? error.message : t('requestErrors.unexpected')
 }

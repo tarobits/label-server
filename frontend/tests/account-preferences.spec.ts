@@ -1,3 +1,4 @@
+import { languagePicker, expectLanguage } from './language'
 import { test, expect } from './fixtures'
 
 for (const width of [1280, 390]) {
@@ -196,10 +197,8 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     await settings.click()
     await expect(page).toHaveURL(/#\/account$/)
     await expect(page.getByRole('heading', { name: 'Change password', exact: true })).toBeVisible()
-    await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toBeEnabled()
-    await expect(page.getByRole('combobox', { name: 'Language', exact: true })).toHaveValue(
-      'browser',
-    )
+    await expect(languagePicker(page)).toBeEnabled()
+    await expectLanguage(page, 'en')
     await expect(page.getByLabel('Reduced motion', { exact: true })).toHaveValue('browser')
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
     await page.screenshot({

@@ -90,7 +90,11 @@ useLiveRefresh(refresh)
 <template>
   <button
     class="notification-bell text-button"
-    :aria-label="unread ? `Notifications, ${unread} unread` : $t('common.notifications')"
+    :aria-label="
+      unread
+        ? $t('uiDetails.notificationsUnread', { value1: String(unread) })
+        : $t('common.notifications')
+    "
     :aria-expanded="open"
     @click="show"
   >
@@ -110,7 +114,9 @@ useLiveRefresh(refresh)
     </div>
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <p v-if="!items.length && !error" class="empty">
-      {{ unreadOnly ? 'No unread notifications.' : 'No notifications yet.' }}
+      {{
+        unreadOnly ? $t('uiMessages.noUnreadNotifications') : $t('uiMessages.noNotificationsYet')
+      }}
     </p>
     <TransitionGroup name="notice" tag="div" class="notification-list">
       <article v-for="notice in items" :key="notice.id" :class="{ unread: !notice.read_at }">
@@ -120,7 +126,7 @@ useLiveRefresh(refresh)
           ><small>{{ date(notice.created_at) }}</small>
         </button>
         <button class="text-button" :disabled="busy" @click="mark(notice, notice.read_at === null)">
-          {{ notice.read_at ? 'Mark unread' : 'Mark read' }}
+          {{ notice.read_at ? $t('uiMessages.markUnread') : $t('uiMessages.markRead') }}
         </button>
       </article>
     </TransitionGroup>

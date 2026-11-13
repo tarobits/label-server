@@ -94,7 +94,7 @@ async function save() {
           {{ $t('common.cancel') }}
         </button>
         <button type="submit" class="primary" :disabled="busy || !printer">
-          {{ busy ? 'Changing…' : $t('changeQueuePrinter.changePrinter') }}
+          {{ busy ? $t('uiMessages.changing') : $t('changeQueuePrinter.changePrinter') }}
         </button>
       </div>
     </form>

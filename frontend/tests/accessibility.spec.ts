@@ -25,7 +25,7 @@ for (const viewport of [
   { width: 1280, height: 600 },
   { width: 390, height: 844 },
 ]) {
-  test(`navigation focus outlines fit inside the scroll area at ${viewport.width}px`, async ({
+  test(`navigation focus outlines fit inside the navigation at ${viewport.width}px`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport)
@@ -34,6 +34,8 @@ for (const viewport of [
     await expect(page.locator('.route-surface')).not.toHaveClass(/page-enter-active/)
     const navigation = page.getByRole('navigation', { name: 'Main navigation' })
     await expect(navigation).toBeVisible()
+    const menu = navigation.getByRole('button', { name: 'Menu', exact: true })
+    if (await menu.isVisible()) await menu.click()
     for (const link of [
       navigation.getByRole('link').first(),
       navigation.getByRole('link').last(),
@@ -123,6 +125,8 @@ test('Tab traverses the navigation and reaches page controls in both directions'
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
   const scopes = page.getByRole('group', { name: 'Template visibility', exact: true })
   const controls = [
+    page.getByRole('link', { name: 'New CSV run', exact: true }),
+    page.getByRole('button', { name: 'Language', exact: true }),
     ...['All', 'Personal', 'Groups', 'Global'].map((name) =>
       scopes.getByRole('button', { name, exact: true }),
     ),
@@ -160,8 +164,9 @@ test('the skip link reaches account fields without entering disabled or hidden c
   await page.keyboard.press('Tab')
   await expect(page.getByRole('link', { name: 'New label', exact: true })).toBeFocused()
   for (const control of [
+    page.getByRole('link', { name: 'New CSV run', exact: true }),
+    page.getByRole('button', { name: 'Language', exact: true }),
     page.getByLabel('Choose image', { exact: true }),
-    page.getByRole('combobox', { name: 'Language', exact: true }),
     page.getByLabel('Reduced motion', { exact: true }),
     page.getByRole('button', { name: 'Add email', exact: true }),
     page.getByLabel('Device name', { exact: true }),
@@ -222,6 +227,7 @@ test('navigation stays reachable in short windows and identifies nested pages on
 
   await page.setViewportSize({ width: 390, height: 812 })
   await page.goto('/#/templates/text/edit')
+  await navigation.getByRole('button', { name: 'Menu', exact: true }).click()
   await expect(templates).toHaveAttribute('aria-current', 'location')
   await expect
     .poll(async () => {

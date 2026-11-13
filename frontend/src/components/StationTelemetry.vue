@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { locale } from '../shared/i18n'
+import { t, locale } from '../shared/i18n'
 
 import { computed } from 'vue'
 export interface StationDashboard {
@@ -34,8 +34,11 @@ const lastResult = computed(() => {
   const batch = props.details.last_batch
   if (!batch) return ''
   return batch.state === 'printed'
-    ? `${batch.confirmed_labels} labels completed`
-    : `${batch.confirmed_labels} of ${batch.total_labels} labels confirmed`
+    ? t('uiDetails.labelsCompleted', { value1: String(batch.confirmed_labels) })
+    : t('uiDetails.labelsConfirmed', {
+        value1: String(batch.confirmed_labels),
+        value2: String(batch.total_labels),
+      })
 })
 </script>
 
@@ -71,7 +74,11 @@ const lastResult = computed(() => {
           </div>
         </div>
         <div class="stock-amount">
-          <span>{{ stock.uncertain ? 'Estimate needs review' : 'Estimated remaining' }}</span
+          <span>{{
+            stock.uncertain
+              ? $t('uiMessages.estimateNeedsReview')
+              : $t('uiMessages.estimatedRemaining')
+          }}</span
           ><strong>{{ metres(stock.remaining_mm) }}</strong>
         </div>
         <meter
@@ -83,13 +90,20 @@ const lastResult = computed(() => {
           :low="stock.nominal_length_mm * 0.15"
           :optimum="stock.nominal_length_mm"
           :value="Math.max(0, Math.min(stock.nominal_length_mm, stock.remaining_mm))"
-          :aria-valuetext="`${metres(stock.remaining_mm)} of ${metres(stock.nominal_length_mm)}`"
+          :aria-valuetext="
+            $t('uiDetails.partOfTotal', {
+              value1: String(metres(stock.remaining_mm)),
+              value2: String(metres(stock.nominal_length_mm)),
+            })
+          "
         />
       </template>
       <p v-else class="muted stock-empty">{{ $t('common.noCartridgeInstalled') }}</p>
     </div>
     <div v-if="details.active_batch" class="batch-strip" :class="{ active: printing }">
-      <strong>{{ printing ? 'Active batch' : 'Awaiting batch result' }}</strong>
+      <strong>{{
+        printing ? $t('uiMessages.activeBatch') : $t('uiMessages.awaitingBatchResult')
+      }}</strong>
       <span>{{ details.active_batch.total_labels }} {{ $t('common.labels') }}</span>
     </div>
     <p v-else-if="details.last_batch" class="last-batch">

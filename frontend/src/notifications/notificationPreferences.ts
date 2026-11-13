@@ -5,8 +5,18 @@ export type PrinterKinds = Record<string, string[]>
 export type PrinterPriorities = Record<string, Record<string, number>>
 
 export const priorityOptions = [
-  { value: 1, label: 'Min' },
-  { value: 2, label: 'Low' },
+  {
+    value: 1,
+    get label() {
+      return t('notificationPriorities.minimum')
+    },
+  },
+  {
+    value: 2,
+    get label() {
+      return t('notificationPriorities.low')
+    },
+  },
   {
     value: 3,
     get label() {
@@ -19,15 +29,45 @@ export const priorityOptions = [
       return t('companionApp.high')
     },
   },
-  { value: 5, label: 'Urgent' },
+  {
+    value: 5,
+    get label() {
+      return t('notificationPriorities.urgent')
+    },
+  },
 ]
 
 export const printerEventKinds = [
-  { value: 'empty_tape', label: 'Empty cartridges' },
-  { value: 'printer_blocked', label: 'Blocked printers' },
-  { value: 'batch_review', label: 'Batch reviews' },
-  { value: 'batch_printed', label: 'Finished batches' },
-  { value: 'tape_waiting', label: 'Waiting tape reminders' },
+  {
+    value: 'empty_tape',
+    get label() {
+      return t('uiMessages.emptyCartridges')
+    },
+  },
+  {
+    value: 'printer_blocked',
+    get label() {
+      return t('uiMessages.blockedPrinters')
+    },
+  },
+  {
+    value: 'batch_review',
+    get label() {
+      return t('uiMessages.batchReviews')
+    },
+  },
+  {
+    value: 'batch_printed',
+    get label() {
+      return t('uiMessages.finishedBatches')
+    },
+  },
+  {
+    value: 'tape_waiting',
+    get label() {
+      return t('uiMessages.waitingTapeReminders')
+    },
+  },
 ]
 
 export function scopedPrinters(destinations: Destination[], all: boolean, selected: string[]) {

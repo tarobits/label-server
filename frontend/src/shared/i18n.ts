@@ -1,7 +1,7 @@
 import { computed, ref, watch } from 'vue'
 import { createI18n } from 'vue-i18n'
-import english from '../../../lang/en.json'
-import german from '../../../lang/de.json'
+import english from '../../../lang/en.json' with { type: 'json' }
+import german from '../../../lang/de.json' with { type: 'json' }
 
 export type Language = 'en' | 'de'
 export type LanguagePreference = Language | 'browser'
@@ -25,9 +25,16 @@ function readPreference(): LanguagePreference {
 }
 export const deviceLanguage = ref<LanguagePreference>(readPreference())
 export const accountLanguage = ref<LanguagePreference | null>(null)
-export const browserLanguage = ref(detectLanguage(navigator.languages))
+export const deploymentLanguage = ref<Language | null>(null)
+export const browserLanguage = ref(
+  detectLanguage(typeof navigator === 'undefined' ? [] : (navigator.languages ?? [])),
+)
 export const locale = computed<Language>(() => {
-  const preference = accountLanguage.value ?? deviceLanguage.value
+  const preference =
+    accountLanguage.value ??
+    (deviceLanguage.value === 'browser'
+      ? (deploymentLanguage.value ?? 'browser')
+      : deviceLanguage.value)
   return preference === 'browser' ? browserLanguage.value : preference
 })
 export const i18n = createI18n({
@@ -53,7 +60,7 @@ watch(
   locale,
   (value) => {
     i18n.global.locale.value = value
-    document.documentElement.lang = value
+    if (typeof document !== 'undefined') document.documentElement.lang = value
   },
   { immediate: true, flush: 'sync' },
 )
@@ -68,9 +75,11 @@ watch(
   },
   { flush: 'sync' },
 )
-window.addEventListener('storage', (event) => {
-  if (event.key === storageKey || event.key === null) deviceLanguage.value = readPreference()
-})
-window.addEventListener('languagechange', () => {
-  browserLanguage.value = detectLanguage(navigator.languages)
-})
+if (typeof window !== 'undefined')
+  window.addEventListener('storage', (event) => {
+    if (event.key === storageKey || event.key === null) deviceLanguage.value = readPreference()
+  })
+if (typeof window !== 'undefined')
+  window.addEventListener('languagechange', () => {
+    browserLanguage.value = detectLanguage(navigator.languages)
+  })

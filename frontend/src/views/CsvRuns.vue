@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { confirmAction } from '../shared/confirmation'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -73,7 +74,7 @@ const destinationId = ref(
 )
 const csv = ref(''),
   delimiter = ref(','),
-  name = ref('CSV labels'),
+  name = ref(t('remainingUi.cSVLabels')),
   templateId = ref(
     typeof route.query.template === 'string' ? route.query.template : (w.templates[0]?.id ?? ''),
   ),
@@ -208,7 +209,7 @@ async function fileChanged(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
   await perform(async () => {
-    if (file.size > 1_000_000) throw new Error('CSV must not exceed 1 MB.')
+    if (file.size > 1_000_000) throw new Error(t('remainingUi.cSVMustNotExceed1MB'))
     csv.value = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
     name.value = file.name.slice(0, 100)
   })
@@ -245,8 +246,8 @@ function move(index: number, delta: number) {
 }
 async function prepare() {
   await perform(async () => {
-    if (!template.value) throw new Error('Choose a template.')
-    if (!processName.value.trim()) throw new Error('Process name is required.')
+    if (!template.value) throw new Error(t('uiMessages.chooseATemplateMessage'))
+    if (!processName.value.trim()) throw new Error(t('uiMessages.processNameIsRequired'))
     rowErrors.value = []
     const body = {
       process_name: processName.value.trim(),
@@ -339,7 +340,7 @@ async function loadPreview(force = false) {
   }
 }
 async function deleteDraft(item: Run) {
-  if (!(await confirmAction(`Delete draft “${item.name}”? This cannot be undone.`))) return
+  if (!(await confirmAction(t('uiDetails.deleteDraft', { value1: String(item.name) })))) return
   await perform(async () => {
     await api(`/runs/${item.id}`, 'DELETE')
     resources.invalidate(['/runs'])
@@ -374,11 +375,7 @@ async function submit() {
         !auth.user?.is_admin
       )
         throw failure
-      if (
-        !(await confirmAction(
-          `${failure.message}\nOverride and print this run with your administrator authorization?`,
-        ))
-      )
+      if (!(await confirmAction(t('uiDetails.overrideRun', { value1: String(failure.message) }))))
         return
       result = await api<{ run: Run }>(`/runs/${id}/submit`, 'POST', {
         authorization_override: true,
@@ -546,7 +543,9 @@ onUnmounted(() => {
                     ><input
                       v-model="row.selected"
                       type="checkbox"
-                      :aria-label="`Select record ${row.source_row}`"
+                      :aria-label="
+                        $t('uiDetails.selectRecord', { value1: String(row.source_row) })
+                      "
                   /></label>
                 </td>
                 <td>{{ row.source_row }}</td>
@@ -557,11 +556,11 @@ onUnmounted(() => {
                     min="0"
                     step="0.01"
                     :placeholder="$t('common.noMaximum')"
-                    :aria-label="`Maximum for record ${row.source_row}`"
+                    :aria-label="$t('uiDetails.recordMaximum', { value1: String(row.source_row) })"
                   /><input
                     v-model="row.currency"
                     maxlength="3"
-                    :aria-label="`Currency for record ${row.source_row}`"
+                    :aria-label="$t('uiDetails.recordCurrency', { value1: String(row.source_row) })"
                   />
                 </td>
                 <td class="csv-values">{{ row.values.join(' · ') }}</td>
@@ -571,7 +570,7 @@ onUnmounted(() => {
                     type="number"
                     min="1"
                     max="1000"
-                    :aria-label="`Copies for record ${row.source_row}`"
+                    :aria-label="$t('uiDetails.recordCopies', { value1: String(row.source_row) })"
                   />
                 </td>
                 <td>
@@ -579,20 +578,24 @@ onUnmounted(() => {
                     ><input
                       v-model="row.notify_on_completion"
                       type="checkbox"
-                      :aria-label="`Notify when record ${row.source_row} is printed`"
+                      :aria-label="
+                        $t('uiDetails.recordNotification', { value1: String(row.source_row) })
+                      "
                   /></label>
                 </td>
                 <td>
                   <div class="row">
                     <button
                       :disabled="index === 0"
-                      :aria-label="`Move record ${row.source_row} up`"
+                      :aria-label="$t('uiDetails.moveRecordUp', { value1: String(row.source_row) })"
                       @click="move(index, -1)"
                     >
                       ↑</button
                     ><button
                       :disabled="index === rows.length - 1"
-                      :aria-label="`Move record ${row.source_row} down`"
+                      :aria-label="
+                        $t('uiDetails.moveRecordDown', { value1: String(row.source_row) })
+                      "
                       @click="move(index, 1)"
                     >
                       ↓
@@ -626,7 +629,10 @@ onUnmounted(() => {
       <p v-if="!runs.length" class="help">{{ $t('csvRuns.noSavedRunsYet') }}</p>
       <div v-for="item in runs" :key="item.id" class="section-heading">
         <RouterLink :to="`/runs/${item.id}`">{{ item.name }}</RouterLink
-        ><span>{{ item.submitted_at ? 'Submitted' : 'Draft' }} · {{ date(item.created_at) }}</span>
+        ><span
+          >{{ item.submitted_at ? $t('uiMessages.submitted') : $t('uiMessages.draft') }} ·
+          {{ date(item.created_at) }}</span
+        >
         <button
           v-if="!item.submitted_at"
           class="text-button danger-text"
@@ -672,8 +678,8 @@ onUnmounted(() => {
           {{ run.print_plan.feed_per_label_mm.toFixed(1) }} {{ $t('common.mmFeedPerLabel') }}
           {{
             run.print_plan.cut_each
-              ? 'Cut after each label'
-              : 'Continuous strip, final feed and cut'
+              ? $t('uiMessages.cutAfterEachLabel')
+              : $t('uiMessages.continuousStripFinalFeedAndCut')
           }}
         </p>
         <div class="row wrap">
@@ -713,8 +719,8 @@ onUnmounted(() => {
         >
           {{
             auth.printer(run.destination_id, 'submit_directly')
-              ? 'Submit entire run'
-              : 'Request printing for run'
+              ? $t('uiMessages.submitEntireRun')
+              : $t('uiMessages.requestPrintingForRun')
           }}
         </button>
         <button class="text-button danger-text" :disabled="busy" @click="deleteDraft(run)">

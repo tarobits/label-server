@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '../auth/auth'
 import { useResourceStore } from '../stores/resources'
@@ -36,7 +37,7 @@ useLiveRefresh(async () => {
     const values = await resources.get<{ id: string; name: string }[]>('/user-groups')
     groups.value =
       props.original?.group_id && !values.some((group) => group.id === props.original?.group_id)
-        ? [...values, { id: props.original.group_id, name: 'Current group' }]
+        ? [...values, { id: props.original.group_id, name: t('uiMessages.currentGroup') }]
         : values
     error.value = ''
   } catch (cause) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { ref, onBeforeUnmount } from 'vue'
 import ExpandableContent from './ExpandableContent.vue'
 const model = defineModel<string | null>({ default: null })
@@ -26,19 +27,19 @@ async function choose(event: Event) {
   mime.value = file.type
   const ticket = generation
   if (file.size > 5_000_000 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    error.value = 'Choose a PNG, JPEG or WebP photo up to 5 MB.'
+    error.value = t('uiMessages.chooseAPNGJPEGOrWebPPhotoUpTo5MB')
     return
   }
   try {
     const encoded = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
-      reader.onerror = () => reject(new Error('Photo could not be read.'))
+      reader.onerror = () => reject(new Error(t('uiMessages.photoCouldNotBeRead')))
       reader.readAsDataURL(file)
     })
     if (ticket === generation) model.value = encoded
   } catch {
-    if (ticket === generation) error.value = 'Photo could not be read.'
+    if (ticket === generation) error.value = t('uiMessages.photoCouldNotBeRead')
   }
 }
 </script>

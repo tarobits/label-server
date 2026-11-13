@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { locale } from '../shared/i18n'
+import { t, locale } from '../shared/i18n'
 
 import { computed } from 'vue'
 import type { CostEstimate } from '../shared/types'
@@ -26,11 +26,11 @@ const prices = computed(() =>
 const missing = computed(() => {
   switch (props.estimate?.reason) {
     case 'price':
-      return 'No price set for this tape.'
+      return t('uiMessages.noPriceSetForThisTape')
     case 'cartridge':
-      return 'No matching cartridge registered.'
+      return t('uiMessages.noMatchingCartridgeRegistered')
     default:
-      return 'No available print destination.'
+      return t('uiMessages.noAvailablePrintDestination')
   }
 })
 </script>

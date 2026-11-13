@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { t, number } from '../shared/i18n'
 import type { PrintPlan } from '../shared/types'
 
 const props = withDefaults(defineProps<{ plan?: PrintPlan | null; copies?: number }>(), {
@@ -22,7 +23,10 @@ const message = computed(() => {
       : (plan.strip_padding_mm ?? 0)
     const extra = padding + templateExtra
     return extra > 0
-      ? `${padding > 0 ? `This strip is below the ${plan.minimum_cut_length_mm} mm minimum cut length. ` : ''}Hand trimming required; ${extra.toFixed(1)} mm of extra unused tape estimated, beyond normal feed and leader.`
+      ? t(padding > 0 ? 'printPlanMessages.shortStrip' : 'printPlanMessages.trim', {
+          minimum: plan.minimum_cut_length_mm ?? 0,
+          extra: number(extra, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+        })
       : ''
   }
   const short = (plan.label_output ?? []).filter((label) => label.minimum_padding_mm > 0)
@@ -30,10 +34,11 @@ const message = computed(() => {
   const extra =
     short.reduce((sum, label) => sum + label.minimum_padding_mm, 0) * copies + templateExtra
   if (!extra) return ''
-  const reason = count
-    ? `${count === 1 ? '1 label is' : `${count} labels are`} below the ${plan.minimum_cut_length_mm} mm minimum cut length. `
-    : ''
-  return `${reason}Hand trimming required; ${extra.toFixed(1)} mm of extra unused tape estimated, beyond normal feed and leader.`
+  return t(count ? 'printPlanMessages.shortLabels' : 'printPlanMessages.trim', {
+    count,
+    minimum: plan.minimum_cut_length_mm ?? 0,
+    extra: number(extra, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+  })
 })
 </script>
 

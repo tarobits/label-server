@@ -63,7 +63,7 @@ async function submit() {
   fields.value = {}
   invalidLink.value = false
   if (mode.value === 'reset' && password.value !== confirmation.value) {
-    fields.value = { confirmation: 'Passwords do not match.' }
+    fields.value = { confirmation: t('common.passwordsDoNotMatch') }
     await nextTick()
     focusFormErrors(recoveryForm.value)
     return
@@ -77,7 +77,7 @@ async function submit() {
       success.value = result.message
     } else if (mode.value === 'verify') {
       await api('/auth/email/verify', 'POST', { token: token.value })
-      success.value = 'Email verified.'
+      success.value = t('uiMessages.emailVerified')
       token.value = ''
     } else {
       await api('/auth/password/reset', 'POST', {
@@ -87,7 +87,7 @@ async function submit() {
       token.value = ''
       password.value = ''
       confirmation.value = ''
-      success.value = 'Password reset. Sign in with your new password.'
+      success.value = t('uiMessages.passwordResetSignInWithYourNewPassword')
       await auth.refresh(true)
     }
   } catch (issue) {
@@ -174,7 +174,7 @@ function clearField(event: Event) {
             <button class="primary" :disabled="busy || (mode !== 'forgot' && !token)">
               {{
                 mode === 'forgot'
-                  ? 'Send reset link'
+                  ? $t('uiMessages.sendResetLink')
                   : mode === 'verify'
                     ? $t('common.verifyEmail')
                     : $t('common.resetPassword')

@@ -190,7 +190,11 @@ onMounted(() => action(load))
                 <td>{{ row.missing }}</td>
                 <td>
                   <button class="secondary" :aria-disabled="busy" @click="action(() => open(row))">
-                    {{ row.revoke_only ? 'Review revocation' : 'Reassign' }}
+                    {{
+                      row.revoke_only
+                        ? $t('uiMessages.reviewRevocation')
+                        : $t('uiMessages.reassign')
+                    }}
                   </button>
                 </td>
               </tr>
@@ -227,7 +231,11 @@ onMounted(() => action(load))
     </Transition>
     <AdminDialog
       :open="!!editing"
-      :title="editing?.revoke_only ? 'Revoke invalid credential' : 'Reassign reference'"
+      :title="
+        editing?.revoke_only
+          ? $t('uiMessages.revokeInvalidCredential')
+          : $t('uiMessages.reassignReference')
+      "
       :busy="busy"
       @close="editing = undefined"
     >
@@ -311,7 +319,11 @@ onMounted(() => action(load))
               type="submit"
               :disabled="busy || !reason.trim() || (!editing.revoke_only && !target)"
             >
-              {{ editing.revoke_only ? 'Revoke credential' : 'Save assignment' }}</button
+              {{
+                editing.revoke_only
+                  ? $t('uiMessages.revokeCredential')
+                  : $t('uiMessages.saveAssignment')
+              }}</button
             ><button type="button" class="secondary" :disabled="busy" @click="editing = undefined">
               {{ $t('common.cancel') }}
             </button>

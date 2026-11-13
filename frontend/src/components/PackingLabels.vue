@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, ref } from 'vue'
 import type { BatchDetail } from '../shared/types'
 import JobPreview from './JobPreview.vue'
@@ -19,7 +20,7 @@ const groups = computed(() => {
   for (const item of props.batch?.items ?? []) {
     if (item.outcome !== 'printed') continue
     const previous = result.at(-1),
-      name = item.attribution?.requested_by?.name ?? 'Unknown requester'
+      name = item.attribution?.requested_by?.name ?? t('uiMessages.unknownRequester')
     if (
       previous &&
       previous.item.job_id === item.job_id &&

@@ -40,7 +40,9 @@ function noticeState(notice: Notice) {
     <div class="section-heading">
       <h2 id="notification-history-title">{{ $t('common.notifications') }}</h2>
       <span class="badge" :class="overview.notifications_enabled ? 'printed' : 'queued'">{{
-        overview.notifications_enabled ? 'Delivery enabled' : 'Delivery not configured'
+        overview.notifications_enabled
+          ? $t('uiMessages.deliveryEnabled')
+          : $t('uiMessages.deliveryNotConfigured')
       }}</span>
     </div>
     <p v-if="!overview.notifications_enabled" class="help">

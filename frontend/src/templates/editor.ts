@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import { randomUUID } from '../shared/uuid'
 import type { CostEstimate, PrintPlan } from '../shared/types'
 
@@ -190,7 +191,7 @@ export function newElement(kind: Element['kind']): Element {
     content: ['qr', 'datamatrix', 'aztec'].includes(kind)
       ? 'https://example.org'
       : kind === 'text'
-        ? 'Your label'
+        ? t('remainingUi.yourLabel')
         : kind === 'barcode'
           ? '12345678'
           : '',

@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n'
 import type {
   Expression,
   LogicEditorState,
@@ -68,8 +69,36 @@ export const valueType = (value: VariableValue): SocketType =>
         : typeof value === 'boolean'
           ? 'boolean'
           : 'number'
+const operationKeys: Record<string, string> = {
+  add: 'add',
+  subtract: 'subtract',
+  multiply: 'multiply',
+  divide: 'divide',
+  negate: 'negate',
+  min: 'min',
+  max: 'max',
+  abs: 'abs',
+  round: 'round',
+  less: 'less',
+  less_equal: 'lessEqual',
+  greater: 'greater',
+  greater_equal: 'greaterEqual',
+  equal: 'equal',
+  not_equal: 'notEqual',
+  and: 'and',
+  or: 'or',
+  not: 'not',
+  if: 'if',
+  filled: 'filled',
+}
 export const title = (name: string) =>
-  name.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
+  operationKeys[name]
+    ? t(`logicOperations.${operationKeys[name]}.title`)
+    : valueTypes.includes(name as ValueType)
+      ? t(`logicTypeTitles.${name}`)
+      : name
+export const operationDescription = (name: string) =>
+  operationKeys[name] ? t(`logicOperations.${operationKeys[name]}.description`) : name
 export function automaticOutput(
   node: Pick<LogicNode, 'kind' | 'target' | 'property'>,
   doc: TemplateDocument,
@@ -112,7 +141,7 @@ export function semanticProgram(program: LogicProgram | null | undefined): strin
   ])
 }
 export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicProgram {
-  if (nodes.length > 512) throw new Error('At most 512 nodes are supported.')
+  if (nodes.length > 512) throw new Error(t('logicMessages.tooManyNodes'))
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const outputs = new Map(
     nodes
@@ -127,15 +156,14 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
   ])
   for (const node of variables) {
     if (!node.name || !validVariableName(node.name) || names.has(node.name))
-      throw new Error('Intermediate variables need unique, non-reserved names.')
+      throw new Error(t('logicMessages.uniqueNames'))
     names.add(node.name)
   }
   // Check every wire, including detached draft nodes, before walking expression trees.
   const visiting = new Set<string>(),
     visited = new Set<string>()
   function check(node: LogicNode, depth = 0) {
-    if (depth > 32 || visiting.has(node.id))
-      throw new Error('Connections cannot form a cycle or exceed 32 levels.')
+    if (depth > 32 || visiting.has(node.id)) throw new Error(t('logicMessages.cycle'))
     if (visited.has(node.id)) return
     visiting.add(node.id)
     if (node.kind === 'property') {
@@ -145,7 +173,7 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
     for (const id of node.inputs)
       if (id) {
         const input = byId.get(id)
-        if (!input || input.kind === 'output') throw new Error('A connection has no value source.')
+        if (!input || input.kind === 'output') throw new Error(t('logicMessages.noSource'))
         check(input, depth + 1)
       }
     visiting.delete(node.id)
@@ -160,8 +188,7 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
       : { kind: 'literal', value: node.defaults[index] ?? null }
   }
   function expression(node: LogicNode, depth = 0): Expression {
-    if (++budget > 512 || depth > 32)
-      throw new Error('This graph exceeds the expression size or depth limit.')
+    if (++budget > 512 || depth > 32) throw new Error(t('logicMessages.expressionLimit'))
     if (node.kind === 'input' || node.kind === 'variable')
       return { kind: 'reference', name: node.name!, node_id: node.id }
     if (node.kind === 'literal')
@@ -175,7 +202,7 @@ export function compileGraph(nodes: LogicNode[], doc: TemplateDocument): LogicPr
         arguments: node.inputs.map((_, index) => argument(node, index, depth)),
         node_id: node.id,
       }
-    throw new Error('Output nodes cannot be used as inputs.')
+    throw new Error(t('logicMessages.outputAsInput'))
   }
   return {
     version: 1,
@@ -329,7 +356,7 @@ export function loadGraph(doc: TemplateDocument, restoreManualLength = true): Lo
       node.defaults = expression.arguments.map((argument) =>
         argument.kind === 'literal' ? argument.value : null,
       )
-    } else throw new Error(`Unknown variable: ${expression.name}`)
+    } else throw new Error(t('logicMessages.unknownVariable', { name: expression.name }))
     return insert(node)
   }
   function setRoot(node: LogicNode, expression: Expression, path: string) {
@@ -467,15 +494,14 @@ export function validateGraphTypes(nodes: LogicNode[], catalog: LogicCatalog, ch
   const types = new Map<string, SocketType>(),
     visiting = new Set<string>()
   function infer(node: LogicNode, depth = 0): SocketType {
-    if (depth > 32 || visiting.has(node.id))
-      throw new Error('Connections cannot form a cycle or exceed 32 levels.')
+    if (depth > 32 || visiting.has(node.id)) throw new Error(t('logicMessages.cycle'))
     const cached = types.get(node.id)
     if (cached) return cached
     visiting.add(node.id)
     const args = node.inputs.map((id, index) => {
       if (!id) return valueType(node.defaults[index] ?? null)
       const source = byId.get(id)
-      if (!source || source.kind === 'output') throw new Error('A connection has no value source.')
+      if (!source || source.kind === 'output') throw new Error(t('logicMessages.noSource'))
       return infer(source, depth + 1)
     })
     const require = (
@@ -485,29 +511,43 @@ export function validateGraphTypes(nodes: LogicNode[], catalog: LogicCatalog, ch
       nullable = false,
     ) => {
       if (actual !== expected && !(nullable && actual === 'null'))
-        throw new Error(`${label} needs ${expected}; the value is ${actual ?? 'missing'}.`)
+        throw new Error(
+          t('logicMessages.typeRequired', {
+            label,
+            expected: socketTypeLabel(expected),
+            actual: socketTypeLabel(actual),
+          }),
+        )
     }
     let result: SocketType
     if (node.kind === 'input') result = node.type
     else if (node.kind === 'property') {
       result = nodeType(node, nodes, catalog)
-      if (result === 'any') throw new Error('This property cannot be read during logic.')
+      if (result === 'any') throw new Error(t('logicMessages.unreadable'))
     } else if (node.kind === 'literal') result = valueType(node.value ?? null)
     else if (node.kind === 'variable') result = args[0] ?? 'null'
     else if (node.kind === 'output') {
       result = nodeType(node, nodes, catalog)
-      require(args[0], result, node.property ?? 'Output', result === 'image')
+      require(args[0], result, node.property ?? t('logicMessages.output'), result === 'image')
     } else {
       const operation = catalog.operations.find((operation) => operation.name === node.operation)
-      if (!operation) throw new Error(`Unknown operation: ${node.operation}`)
+      if (!operation)
+        throw new Error(t('logicMessages.unknownOperation', { name: node.operation ?? '' }))
       if (args.length < operation.minimum_arguments || args.length > operation.maximum_arguments)
-        throw new Error(`${title(operation.name)} has an invalid number of inputs.`)
+        throw new Error(t('logicMessages.invalidArity', { name: title(operation.name) }))
       if (operation.signature === 'conditional' || operation.signature === 'equality') {
         const [a, b] = operation.signature === 'conditional' ? [1, 2] : [0, 1]
-        if (operation.signature === 'conditional') require(args[0], 'boolean', 'If Condition')
+        if (operation.signature === 'conditional')
+          require(args[0], 'boolean', t('logicMessages.ifCondition'))
         if (args[a!] !== args[b!] && args[a!] !== 'null' && args[b!] !== 'null')
           throw new Error(
-            `${title(operation.name)} ${socketLabel(node, a!)} and ${socketLabel(node, b!)} must have the same type; received ${args[a!]} and ${args[b!]}.`,
+            t('logicMessages.sameType', {
+              name: title(operation.name),
+              first: socketLabel(node, a!),
+              second: socketLabel(node, b!),
+              a: socketTypeLabel(args[a!]),
+              b: socketTypeLabel(args[b!]),
+            }),
           )
         result =
           operation.signature === 'equality'
@@ -562,9 +602,10 @@ export function inputType(
   return 'any'
 }
 export function socketLabel(node: LogicNode, index: number) {
-  if (node.kind === 'output' || node.kind === 'variable') return 'Value'
-  if (node.operation === 'if') return ['Condition', 'Then', 'Else'][index]!
-  if (node.inputs.length === 1) return 'Value'
+  if (node.kind === 'output' || node.kind === 'variable') return t('logicMessages.value')
+  if (node.operation === 'if')
+    return [t('logicMessages.condition'), t('logicMessages.then'), t('logicMessages.else')][index]!
+  if (node.inputs.length === 1) return t('logicMessages.value')
   return ['A', 'B'][index]!
 }
 export function canConnect(
@@ -576,7 +617,7 @@ export function canConnect(
   doc: TemplateDocument,
 ) {
   if (source.kind === 'output' || source.id === destination.id)
-    throw new Error('Choose a value output and a different node’s input.')
+    throw new Error(t('logicMessages.chooseEndpoints'))
   if (destination.kind === 'output') {
     const reason = Object.values(catalog.targets).find((target) => target.id === destination.target)
       ?.disabled_properties?.[destination.property!]
@@ -586,7 +627,12 @@ export function canConnect(
     actual = nodeType(source, nodes, catalog)
   const nullable = expected === 'image' || pairedInputs(destination).includes(index)
   if (expected !== 'any' && actual !== expected && !(nullable && actual === 'null'))
-    throw new Error(`This input needs ${expected}; the output is ${actual}.`)
+    throw new Error(
+      t('logicMessages.connectionType', {
+        expected: socketTypeLabel(expected),
+        actual: socketTypeLabel(actual),
+      }),
+    )
   const candidate = nodes.map((node) =>
     node.id === destination.id
       ? { ...node, inputs: node.inputs.map((id, slot) => (slot === index ? source.id : id)) }
@@ -594,4 +640,8 @@ export function canConnect(
   )
   compileGraph(candidate, doc)
   validateGraphTypes(candidate, catalog, [destination.id])
+}
+
+export function socketTypeLabel(type: SocketType | undefined) {
+  return t(`logicMessages.${type ?? 'missing'}`)
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { onBeforeUnmount } from 'vue'
 import { api } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -32,7 +33,7 @@ async function upload(event: Event) {
   const context = props.context
   if (!file) return
   if (file.size > 5_000_000) {
-    w.actionError = 'Upload an image of at most 5 MB.'
+    w.actionError = t('uiMessages.uploadAnImageOfAtMost5MB')
     input.value = ''
     return
   }
@@ -44,7 +45,7 @@ async function upload(event: Event) {
       file,
     )
     if (asset.archived) asset = await api<ImageAsset>(`/image-assets/${asset.id}/restore`, 'POST')
-  }, 'Image uploaded.')
+  }, t('uiMessages.imageUploaded'))
   if (ok && asset && mounted && props.context === context) {
     emit('update:modelValue', { image_asset: asset.id })
     emit('change')

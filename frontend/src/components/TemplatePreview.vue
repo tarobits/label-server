@@ -21,7 +21,7 @@ const { image, failed, reload } = usePreview(source, target)
       v-if="image && !failed"
       :key="image"
       :src="image"
-      :alt="`Preview of ${template.name}`"
+      :alt="$t('uiDetails.previewOf', { value1: String(template.name) })"
       loading="lazy"
       decoding="async"
       @error="failed = true"

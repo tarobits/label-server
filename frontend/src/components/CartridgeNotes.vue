@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { ref } from 'vue'
 import type { Cartridge } from '../shared/types'
 import { api } from '../shared/api'
@@ -10,7 +11,7 @@ const notes = ref('')
 async function save() {
   await w.action(
     () => api(`/cartridges/${props.cartridge.id}/notes`, 'PUT', { notes: notes.value }),
-    'Notes saved.',
+    t('uiMessages.notesSaved'),
   )
 }
 </script>

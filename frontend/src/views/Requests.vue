@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../shared/api'
@@ -101,8 +102,10 @@ async function decide(approve: boolean) {
   if (
     !(await confirmAction(
       approve
-        ? 'Approve this request? Its saved labels will enter the print queue and may print automatically.'
-        : 'Reject this print request?',
+        ? t(
+            'uiMessages.approveThisRequestItsSavedLabelsWillEnterThePrintQueueAndMayPrintAutomatically',
+          )
+        : t('uiMessages.rejectThisPrintRequest'),
     ))
   )
     return
@@ -164,7 +167,7 @@ onUnmounted(() => {
       </p></Transition
     >
     <div class="section-heading">
-      <h2>{{ selected.owner_name || 'Print request' }}</h2>
+      <h2>{{ selected.owner_name || $t('uiMessages.printRequest') }}</h2>
       <span class="badge">{{ selected.status }}</span>
     </div>
     <p>
@@ -185,7 +188,7 @@ onUnmounted(() => {
         v-else
         :key="`${selected.id}-${position}-${previewAttempt}`"
         :src="`/api/requests/${selected.id}/labels/${position}/preview${previewAttempt ? `?retry=${previewAttempt}` : ''}`"
-        :alt="`Requested label ${position + 1}`"
+        :alt="$t('uiDetails.requestedLabel', { value1: String(position + 1) })"
         :style="{ '--label-ratio': label.length_mm / label.width_mm }"
         @error="previewFailed = true"
       />
@@ -245,7 +248,9 @@ onUnmounted(() => {
     <div class="section-heading">
       <h2>
         {{
-          auth.anyPrinter('approve_requests') ? $t('common.printRequests') : 'Your print requests'
+          auth.anyPrinter('approve_requests')
+            ? $t('common.printRequests')
+            : $t('uiMessages.yourPrintRequests')
         }}
       </h2>
       <label
@@ -268,8 +273,8 @@ onUnmounted(() => {
       <div>
         <strong>{{
           request.labels[0]
-            ? Object.values(request.labels[0].payload).join(' · ') || 'Image label'
-            : 'Print request'
+            ? Object.values(request.labels[0].payload).join(' · ') || $t('uiMessages.imageLabel')
+            : $t('uiMessages.printRequest')
         }}</strong
         ><small
           >{{ request.owner_name ? request.owner_name + ' · ' : ''

@@ -100,7 +100,7 @@ function clearFilters() {
         >{{ $t('common.aa') }}</span
       >
       <span
-        >{{ selected?.name ?? savedName ?? 'Choose a tape profile'
+        >{{ selected?.name ?? savedName ?? $t('uiMessages.chooseATapeProfile')
         }}{{ selected?.available === false ? ' — Unavailable' : '' }}</span
       >
     </button>
@@ -114,7 +114,7 @@ function clearFilters() {
         {{ $t('common.aa') }}
       </div>
       <div class="template-choice-description">
-        <strong>{{ selected?.name ?? 'Choose a tape profile' }}</strong>
+        <strong>{{ selected?.name ?? $t('uiMessages.chooseATapeProfile') }}</strong>
         <span v-if="selected" class="muted">{{ mediaLabel(selected) }}</span>
         <span v-if="selected?.available === false" class="badge">{{
           $t('common.unavailable')
@@ -214,7 +214,7 @@ function clearFilters() {
                   type="button"
                   class="picker-select"
                   :disabled="blocked(item)"
-                  :aria-label="`Use ${item.name}`"
+                  :aria-label="$t('uiDetails.use', { value1: String(item.name) })"
                   :aria-pressed="modelValue === item.id"
                   @click="choose(item)"
                 >

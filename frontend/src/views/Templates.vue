@@ -44,21 +44,27 @@ const scopes = [
     get label() {
       return t('common.personal')
     },
-    heading: 'Personal templates',
+    get heading() {
+      return t('uiMessages.personalTemplates')
+    },
   },
   {
     id: 'group',
     get label() {
       return t('templatePicker.groups')
     },
-    heading: 'Group templates',
+    get heading() {
+      return t('uiMessages.groupTemplates')
+    },
   },
   {
     id: 'global',
     get label() {
       return t('common.global')
     },
-    heading: 'Global templates',
+    get heading() {
+      return t('uiMessages.globalTemplates')
+    },
   },
 ] as const
 type Scope = (typeof scopes)[number]['id']
@@ -119,7 +125,7 @@ const groups = computed(() => {
   const names = new Map<string, string>()
   for (const template of sorted.value)
     if (template.scope === 'group' && template.group_id)
-      names.set(template.group_id, template.group_name || 'Unnamed group')
+      names.set(template.group_id, template.group_name || t('uiMessages.unnamedGroup'))
   return [...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
 })
 const matching = computed(() => {
@@ -171,34 +177,33 @@ async function duplicate(template: Template) {
   if (
     await w.action(async () => {
       result = await api<Template>('/templates', 'POST', {
-        name: `${template.name} copy`,
+        name: t('uiDetails.copyName', { value1: String(template.name) }),
         document: template.document,
         destination_id: w.selectedPrinter || undefined,
         scope: 'personal',
       })
-    }, 'Template duplicated.')
+    }, t('uiMessages.templateDuplicated'))
   )
     await router.push(`/templates/${result!.id}/edit`)
 }
 async function archive(template: Template) {
-  if (await confirmAction(`Archive “${template.name}”? Queued labels keep their saved revision.`))
+  if (await confirmAction(t('uiDetails.archiveTemplate', { value1: String(template.name) })))
     await w.action(
       () => api(`/templates/${template.id}`, 'DELETE'),
-      'Template archived. Existing queued labels are unchanged.',
+      t('uiMessages.templateArchivedExistingQueuedLabelsAreUnchanged'),
     )
 }
 async function restore(template: Template) {
-  await w.action(() => api(`/templates/${template.id}/unarchive`, 'POST'), 'Template restored.')
+  await w.action(
+    () => api(`/templates/${template.id}/unarchive`, 'POST'),
+    t('uiMessages.templateRestored'),
+  )
 }
 async function remove(template: Template) {
-  if (
-    await confirmAction(
-      `Delete “${template.name}”? It becomes unavailable immediately. Administrators can restore it for 30 days before permanent purging. Queued work using it is paused.`,
-    )
-  )
+  if (await confirmAction(t('uiDetails.deleteTemplate', { value1: String(template.name) })))
     await w.action(
       () => api(`/templates/${template.id}/permanent`, 'DELETE'),
-      'Template deleted. Administrators can restore it within 30 days.',
+      t('uiMessages.templateDeletedAdministratorsCanRestoreItWithin30Days'),
     )
 }
 </script>
@@ -314,7 +319,7 @@ async function remove(template: Template) {
             <span class="badge">{{ template.document.width_mm }} {{ $t('common.mm') }}</span>
           </div>
           <p v-if="template.owner_id && template.owner_id !== auth.user?.id" class="help">
-            {{ template.owner_username || 'Unavailable user' }}
+            {{ template.owner_username || $t('uiMessages.unavailableUser') }}
           </p>
           <p>
             {{ $t('common.revision') }} {{ template.revision }} ·
@@ -322,7 +327,8 @@ async function remove(template: Template) {
             · {{ template.document.elements.length }} {{ $t('common.elements') }}
           </p>
           <p class="help">
-            {{ $t('common.fields') }} {{ template.fields.join(', ') || 'No variable fields' }}
+            {{ $t('common.fields') }}
+            {{ template.fields.join(', ') || $t('uiMessages.noVariableFields') }}
           </p>
           <p
             v-for="notice in template.asset_notices ?? []"
@@ -332,7 +338,7 @@ async function remove(template: Template) {
             {{ notice.message }}
           </p>
           <p v-if="template.scope === 'group'" class="template-group-name">
-            {{ template.group_name || 'Group template' }}
+            {{ template.group_name || $t('uiMessages.groupTemplate') }}
           </p>
           <div class="row wrap">
             <RouterLink
@@ -381,7 +387,7 @@ async function remove(template: Template) {
               :class="['text-button', { 'danger-text': !template.archived }]"
               @click="template.archived ? restore(template) : archive(template)"
             >
-              {{ template.archived ? 'Restore template' : 'Archive' }}
+              {{ template.archived ? $t('uiMessages.restoreTemplate') : $t('uiMessages.archive') }}
             </button>
             <button
               v-if="
@@ -403,8 +409,8 @@ async function remove(template: Template) {
             activeFilters
               ? $t('templatePicker.noMatchingTemplates')
               : filters.archived
-                ? 'No archived templates.'
-                : 'No templates yet.'
+                ? $t('uiMessages.noArchivedTemplates')
+                : $t('uiMessages.noTemplatesYet')
           }}
         </p>
       </div>

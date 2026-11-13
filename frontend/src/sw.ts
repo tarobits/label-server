@@ -7,6 +7,8 @@ import {
 } from 'workbox-precaching'
 import type { PrecacheEntry } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
+import en from '../../lang/en.json'
+import de from '../../lang/de.json'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: PrecacheEntry[] }
 
@@ -59,7 +61,16 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(
       typeof payload.title === 'string' ? payload.title : "Taro's Label Room",
       {
-        body: typeof payload.body === 'string' ? payload.body : 'Open the app to view your alerts.',
+        body:
+          typeof payload.body === 'string'
+            ? payload.body
+            : (self.navigator.languages
+                .find((language) => /^(en|de)(-|$)/i.test(language))
+                ?.toLowerCase()
+                .startsWith('de')
+                ? de
+                : en
+              ).notificationMessages.openApp,
         icon: '/pwa-192x192.png',
         tag: typeof payload.tag === 'string' ? payload.tag : undefined,
         data: {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onUnmounted, ref } from 'vue'
 import { api, ApiError, errorMessage } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -45,7 +46,14 @@ async function upload() {
     item.state = 'Uploading'
     item.error = ''
     try {
-      if (item.file.size > 5_000_000) throw new Error(`Upload a ${singular.value} of at most 5 MB.`)
+      if (item.file.size > 5_000_000)
+        throw new Error(
+          t(
+            props.kind === 'images'
+              ? 'assetUploadMessages.imageLimit'
+              : 'assetUploadMessages.fontLimit',
+          ),
+        )
       const query = new URLSearchParams({ scope: target.scope, name: item.file.name })
       if (target.group_id) query.set('group_id', target.group_id)
       await api(`/${singular.value}-assets?${query}`, 'POST', item.file)
@@ -69,7 +77,9 @@ onUnmounted(() => {
 </script>
 <template>
   <section v-if="auth.canUpload(kind)" class="panel form-stack">
-    <h2>{{ $t('common.upload') }} {{ kind }}</h2>
+    <h2>
+      {{ $t(kind === 'images' ? 'assetUploadMessages.images' : 'assetUploadMessages.fonts') }}
+    </h2>
     <p v-if="kind === 'fonts'" class="help">
       {{ $t('common.staticOrVariableTtfAndOtfFilesUpTo') }}
     </p>
@@ -83,7 +93,7 @@ onUnmounted(() => {
     </template>
     <AssetScopeFields v-model="sharing" :kind="kind" :disabled="uploading" />
     <label
-      >{{ kind === 'fonts' ? 'Font files' : 'Image files'
+      >{{ kind === 'fonts' ? $t('uiMessages.fontFiles') : $t('uiMessages.imageFiles')
       }}<input
         type="file"
         multiple
@@ -103,7 +113,16 @@ onUnmounted(() => {
             <strong>{{ item.file.name }}</strong
             ><small v-if="item.error" class="danger-text">{{ item.error }}</small>
           </div>
-          <span>{{ item.state }}</span>
+          <span>{{
+            $t(
+              {
+                Ready: 'uiMessages.ready',
+                Uploading: 'uiMessages.uploading',
+                Uploaded: 'uiMessages.uploaded',
+                Failed: 'uiMessages.failed',
+              }[item.state],
+            )
+          }}</span>
         </li>
       </ul>
     </Transition>
@@ -115,10 +134,15 @@ onUnmounted(() => {
       >
         {{
           uploading
-            ? 'Uploading…'
+            ? $t('uiMessages.uploadingMessage')
             : remaining.length && remaining.every((item) => item.state === 'Failed')
-              ? 'Retry failed uploads'
-              : `Upload ${singular}${files.length > 1 ? 's' : ''}`
+              ? $t('uiMessages.retryFailedUploads')
+              : $t(
+                  kind === 'images'
+                    ? 'assetUploadMessages.imageAction'
+                    : 'assetUploadMessages.fontAction',
+                  { count: Math.max(1, files.length) },
+                )
         }}
       </button>
       <Transition name="notice">

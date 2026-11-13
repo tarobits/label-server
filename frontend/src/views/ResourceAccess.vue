@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onMounted, ref } from 'vue'
 import { api, errorMessage } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -123,7 +124,7 @@ async function confirm() {
     )
     form.value = undefined
     preview.value = undefined
-    saved.value = 'Access saved.'
+    saved.value = t('uiMessages.accessSaved')
     await auth.refresh(true)
     await load()
   } catch (e) {
@@ -209,11 +210,15 @@ async function confirm() {
             </td>
             <td>
               <div class="row wrap">
-                <button class="secondary" :aria-label="`Manage ${item.name}`" @click="edit(item)">
+                <button
+                  class="secondary"
+                  :aria-label="$t('uiDetails.manage', { value1: String(item.name) })"
+                  @click="edit(item)"
+                >
                   {{ $t('resourceAccess.manage') }}</button
                 ><button
                   class="secondary"
-                  :aria-label="`Permissions graph for ${item.name}`"
+                  :aria-label="$t('uiDetails.permissionsGraph', { value1: String(item.name) })"
                   @click="openGraph(item)"
                 >
                   {{ $t('common.permissionsGraph') }}
@@ -243,7 +248,11 @@ async function confirm() {
   </AdminDialog>
   <AdminDialog
     :open="!!form"
-    :title="preview ? 'Review access changes' : selected?.name || $t('resourceAccess.newLocation')"
+    :title="
+      preview
+        ? $t('uiMessages.reviewAccessChanges')
+        : selected?.name || $t('resourceAccess.newLocation')
+    "
     :busy="busy"
     @close="form = undefined"
   >

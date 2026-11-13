@@ -9,7 +9,6 @@ import AccountPush from '../components/AccountPush.vue'
 import AccountSessions from '../components/AccountSessions.vue'
 import AccountPicture from '../components/AccountPicture.vue'
 import AccountPin from '../components/AccountPin.vue'
-import LanguagePicker from '../components/LanguagePicker.vue'
 import {
   vValidateForm,
   apiFieldErrors,
@@ -44,7 +43,7 @@ async function savePassword() {
   error.value = ''
   success.value = ''
   if (form.new_password !== form.confirmation) {
-    errors.value = { confirmation: 'Passwords do not match.' }
+    errors.value = { confirmation: t('common.passwordsDoNotMatch') }
     await nextTick()
     focusFormErrors(passwordForm.value)
     return
@@ -82,7 +81,6 @@ async function savePassword() {
     <section class="settings-section" aria-labelledby="preferences-heading">
       <h2 id="preferences-heading">{{ $t('accountSettings.preferences') }}</h2>
       <div class="settings-preferences">
-        <LanguagePicker account />
         <label
           >{{ $t('accountSettings.reducedMotion') }}
           <select v-model="motionPreference" :aria-label="$t('accountSettings.reducedMotion')">

@@ -1,6 +1,7 @@
 import { t } from '../shared/i18n'
 import { api, ApiError } from '../shared/api'
 import { ActionCancelled, confirmAction, chooseAction } from '../shared/confirmation'
+import { permissionLabel } from '../shared/resourceAccess'
 
 export async function installCartridge(
   printerId: string,
@@ -30,7 +31,7 @@ export async function installCartridge(
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 409) throw error
       if (attempt >= 5)
-        throw new Error('Cartridge details keep changing. Check them and try again.')
+        throw new Error(t('remainingUi.cartridgeDetailsKeepChangingCheckThemAndTryAgain'))
       const detail = error.detail as {
         code?: string
         message?: string
@@ -50,23 +51,23 @@ export async function installCartridge(
               after = Object.values(user.after).flat()
             const added = after
               .filter((permission) => !before.includes(permission))
-              .map((permission) => permission.replace('cartridge.', '').replaceAll('_', ' '))
+              .map(permissionLabel)
             const removed = before
               .filter((permission) => !after.includes(permission))
-              .map((permission) => permission.replace('cartridge.', '').replaceAll('_', ' '))
-            return `${user.name}: ${[added.length ? `adds ${added.join(', ')}` : '', removed.length ? `removes ${removed.join(', ')}` : ''].filter(Boolean).join('; ')}`
+              .map(permissionLabel)
+            return `${user.name}: ${[added.length ? t('uiRemainder.adds', { permissions: added.join(', ') }) : '', removed.length ? t('uiRemainder.removes', { permissions: removed.join(', ') }) : ''].filter(Boolean).join('; ')}`
           })
           .join('\n')
         const warning = detail.owner_loss_warning
-          ? '\nApprove use can reduce the cartridge owner’s income.'
+          ? t('remainingUi.approveUseCanReduceTheCartridgeOwnersIncome')
           : ''
         const choice = await chooseAction(
           [detail.message, changes, warning].filter(Boolean).join('\n\n'),
           {
-            title: 'Cartridge location',
-            confirmLabel: 'Move location and install',
-            alternateLabel: 'Keep location and install',
-            cancelLabel: 'Cancel',
+            title: t('remainingUi.cartridgeLocation'),
+            confirmLabel: t('remainingUi.moveLocationAndInstall'),
+            alternateLabel: t('remainingUi.keepLocationAndInstall'),
+            cancelLabel: t('common.cancel'),
           },
         )
         if (choice === 'cancel') throw new ActionCancelled()
@@ -81,19 +82,21 @@ export async function installCartridge(
       )
         throw error
       if (attempt >= 3)
-        throw new Error('Cartridge detection keeps changing. Check the cartridge and try again.')
+        throw new Error(
+          t('remainingUi.cartridgeDetectionKeepsChangingCheckTheCartridgeAndTryAgain'),
+        )
       if (detail.reason === 'cartridge_check' && options.chooseCartridge) {
         const choice = await chooseAction(detail.message, {
           get title() {
             return t('cartridgeDetection.confirmCartridge')
           },
-          confirmLabel: 'Yes, it is',
-          cancelLabel: 'No, I will change it later',
-          alternateLabel: 'No, take me to cartridges',
+          confirmLabel: t('remainingUi.yesItIs'),
+          cancelLabel: t('remainingUi.noIWillChangeItLater'),
+          alternateLabel: t('remainingUi.noTakeMeToCartridges'),
         })
         if (choice === 'alternate') await options.chooseCartridge()
         if (choice !== 'confirm') throw new ActionCancelled()
-      } else if (!(await confirmAction(detail.message, 'Yes, I’m sure')))
+      } else if (!(await confirmAction(detail.message, t('remainingUi.yesImSure'))))
         throw new ActionCancelled()
       confirmation = detail.confirmation
     }

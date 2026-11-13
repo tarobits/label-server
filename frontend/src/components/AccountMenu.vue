@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
@@ -122,7 +123,7 @@ async function logout() {
   try {
     await auth.logout()
   } catch {
-    workspace.actionError = 'Could not sign out. Please try again.'
+    workspace.actionError = t('uiMessages.couldNotSignOutPleaseTryAgain')
   } finally {
     signingOut.value = false
   }
@@ -138,7 +139,7 @@ async function logout() {
     @focusout="focusOutside"
   >
     <summary
-      :aria-label="`Account: ${auth.user?.username}`"
+      :aria-label="$t('uiDetails.account', { value1: String(auth.user?.username) })"
       :aria-expanded="open"
       :aria-controls="panelId"
       @click.prevent="toggle"

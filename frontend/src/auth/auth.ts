@@ -5,17 +5,43 @@ import { clearBrowserPush } from '../notifications/push'
 import { legacyPrinterPermissions } from '../printing/printerPermissions'
 import {
   accountLanguage,
+  t,
   browserLanguage,
   validPreference,
   type LanguagePreference,
 } from '../shared/i18n'
 export type AccessLevel = 'none' | 'request' | 'print' | 'moderator' | 'full'
 export const accessLevels: { value: AccessLevel; label: string }[] = [
-  { value: 'none', label: 'No access' },
-  { value: 'request', label: 'Request only' },
-  { value: 'print', label: 'Print' },
-  { value: 'moderator', label: 'Moderator' },
-  { value: 'full', label: 'Full' },
+  {
+    value: 'none',
+    get label() {
+      return t('uiRemainder.noAccess')
+    },
+  },
+  {
+    value: 'request',
+    get label() {
+      return t('uiRemainder.requestOnly')
+    },
+  },
+  {
+    value: 'print',
+    get label() {
+      return t('uiRemainder.print')
+    },
+  },
+  {
+    value: 'moderator',
+    get label() {
+      return t('uiRemainder.moderator')
+    },
+  },
+  {
+    value: 'full',
+    get label() {
+      return t('uiRemainder.full')
+    },
+  },
 ]
 export interface GroupRights {
   can_create: boolean

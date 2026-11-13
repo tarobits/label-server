@@ -111,8 +111,18 @@ const sections = [
   },
 ] as const
 const navigationGroups = [
-  { title: 'Accounts', sections: sections.slice(0, 4) },
-  { title: 'General', sections: sections.slice(4) },
+  {
+    get title() {
+      return t('uiMessages.accounts')
+    },
+    sections: sections.slice(0, 4),
+  },
+  {
+    get title() {
+      return t('uiMessages.general')
+    },
+    sections: sections.slice(4),
+  },
 ]
 const section = computed(
   () => sections.find((item) => item.id === route.query.section) ?? sections[0],
@@ -127,16 +137,16 @@ function navigate(id: string) {
 const editor = ref<'user' | 'new-user' | 'role' | 'group' | 'code' | null>(null)
 const editorTitle = computed(() =>
   editor.value === 'user'
-    ? `Edit ${selectedUser.value?.username}`
+    ? t('uiDetails.edit', { value1: String(selectedUser.value?.username) })
     : editor.value === 'new-user'
       ? t('administration.createAnAccount')
       : editor.value === 'role'
         ? roleForm.id
-          ? `Edit ${roleForm.name}`
+          ? t('uiDetails.edit', { value1: String(roleForm.name) })
           : t('administration.newRole')
         : editor.value === 'group'
           ? groupForm.id
-            ? `Edit ${groupForm.name}`
+            ? t('uiDetails.edit', { value1: String(groupForm.name) })
             : t('administration.newContentGroup')
           : t('administration.newRegistrationCode'),
 )
@@ -218,9 +228,10 @@ const filteredGroups = computed(() => groups.value.filter((group) => matches(gro
 const filteredCodes = computed(() => codes.value.filter((code) => matches(code.name)))
 const filteredTrash = computed(() => trash.value.filter((item) => matches(item.name)))
 const roleNames = (ids: string[]) =>
-  ids.map((id) => roles.value.find((role) => role.id === id)?.name ?? id).join(', ') || 'No roles'
+  ids.map((id) => roles.value.find((role) => role.id === id)?.name ?? id).join(', ') ||
+  t('uiMessages.noRoles')
 function roleSummary(role: Role) {
-  if (role.protected) return 'Universal access'
+  if (role.protected) return t('uiMessages.universalAccess')
   return (
     role.permissions
       .filter((permission) => permission.kind !== 'destination' || permission.level !== 'none')
@@ -232,7 +243,7 @@ function roleSummary(role: Role) {
             ? `${accessCatalog.value?.locations.find((location) => location.id === permission.location_id)?.name ?? permission.location_id} · ${permission.permissions.length} allowed, ${permission.denied_permissions?.length ?? 0} denied`
             : `${w.destinationName(permission.destination_id)} · ${permission.kind === 'destination' ? levelName(permission.level) : `${permission.permissions.length} allowed, ${permission.denied_permissions?.length ?? 0} denied`}`,
       )
-      .join('; ') || 'No additional access'
+      .join('; ') || t('uiMessages.noAdditionalAccess')
   )
 }
 const normalized = (value: unknown) => JSON.stringify(value)
@@ -258,11 +269,21 @@ const rolePermissions = () => [
 ]
 const permissionGroups = computed(() => [
   ...(['templates', 'images', 'fonts'] as const).map((kind) => ({
-    title: `${kind === 'templates' ? t('common.template') : kind === 'images' ? t('templateEditor.image') : t('templateEditor.font')} permissions`,
+    title: t('uiDetails.permissions', {
+      value1: String(
+        kind === 'templates'
+          ? t('common.template')
+          : kind === 'images'
+            ? t('templateEditor.image')
+            : t('templateEditor.font'),
+      ),
+    }),
     options: permissions.value.filter((permission) => permission.id.startsWith(`${kind}.`)),
   })),
   {
-    title: 'Application permissions',
+    get title() {
+      return t('uiMessages.applicationPermissions')
+    },
     options: permissions.value.filter(
       (permission) => !/^(templates|images|fonts)\./.test(permission.id),
     ),
@@ -432,8 +453,9 @@ async function applyChange() {
     if (e instanceof ApiError && e.status === 409) {
       try {
         impact.value = await api<Impact>('/admin/access-preview', 'POST', previewBody(value))
-        previewError.value =
-          'Access changed since the previous preview. Review the updated comparison and confirm again.'
+        previewError.value = t(
+          'uiMessages.accessChangedSinceThePreviousPreviewReviewTheUpdatedComparisonAndConfirmAgain',
+        )
       } catch (next) {
         previewError.value = errorMessage(next)
         impact.value = null
@@ -459,7 +481,7 @@ function deleteUser(user: Person) {
     identifier: user.id,
     method: 'DELETE',
     payload: {},
-    message: 'Account deleted.',
+    message: t('uiMessages.accountDeleted'),
     done: () => {
       if (selectedUser.value?.id === user.id) cancelUser()
       groupForm.members = groupForm.members.filter((member) => member.user_id !== user.id)
@@ -473,25 +495,30 @@ function restoreDeleted(item: DeletedItem) {
       identifier: item.identifier,
       method: 'RESTORE',
       payload: {},
-      message: 'Account and its content restored. Previously paused labels still need review.',
+      message: t('uiMessages.accountAndItsContentRestoredPreviouslyPausedLabelsStillNeedReview'),
     })
   } else {
     void perform(
       () => api(`/admin/trash/${item.kind}/${item.identifier}/restore`, 'POST', {}),
-      'Content restored. Previously paused labels still need review.',
+      t('uiMessages.contentRestoredPreviouslyPausedLabelsStillNeedReview'),
       ['trash'],
     )
   }
 }
 async function purgeDeleted(item: DeletedItem) {
-  const content = item.kind === 'users' ? ' and the content deleted with this account' : ''
-  if (await confirmAction(`Permanently purge “${item.name}”${content}? This cannot be undone.`))
+  if (
+    await confirmAction(
+      t(item.kind === 'users' ? 'actionMessages.purgeAccount' : 'actionMessages.purgeContent', {
+        name: item.name,
+      }),
+    )
+  )
     await perform(
       () =>
         api(`/admin/trash/${item.kind}/${item.identifier}/purge`, 'POST', {
           confirmation: item.identifier,
         }),
-      'Permanently purged.',
+      t('uiMessages.permanentlyPurged'),
       ['trash', 'users'],
     )
 }
@@ -600,8 +627,12 @@ function setMemberPermissions(userId: string, rights: Membership) {
   if (member) Object.assign(member, rights)
 }
 async function revokeCode(id: string) {
-  if (!(await confirmAction('Revoke this registration code?'))) return
-  await perform(() => api('/admin/registration-codes/' + id, 'DELETE'), 'Code revoked.', ['codes'])
+  if (!(await confirmAction(t('uiMessages.revokeThisRegistrationCode')))) return
+  await perform(
+    () => api('/admin/registration-codes/' + id, 'DELETE'),
+    t('uiMessages.codeRevoked'),
+    ['codes'],
+  )
 }
 function toggleMember(userId: string, event: Event) {
   if ((event.target as HTMLInputElement).checked)
@@ -627,7 +658,7 @@ function saveUser() {
         role_ids: [...user.role_ids],
         ...(password.value ? { password: password.value } : {}),
       },
-      message: 'Account updated.',
+      message: t('uiMessages.accountUpdated'),
       done: cancelUser,
     })
 }
@@ -636,7 +667,7 @@ function createUser() {
     resource: 'users',
     method: 'POST',
     payload: { ...userForm, role_ids: [...userForm.role_ids] },
-    message: 'Account created.',
+    message: t('uiMessages.accountCreated'),
     done: () => {
       userForm.username = ''
       userForm.password = ''
@@ -651,7 +682,7 @@ function saveRole() {
     identifier: roleForm.id || undefined,
     method: roleForm.id ? 'PUT' : 'POST',
     payload: { name: roleForm.name, permissions },
-    message: 'Role saved.',
+    message: t('uiMessages.roleSaved'),
   })
 }
 function saveGroup() {
@@ -661,11 +692,17 @@ function saveGroup() {
     identifier: groupForm.id || undefined,
     method: groupForm.id ? 'PUT' : 'POST',
     payload: { name: groupForm.name, members: groupForm.members.map((m) => ({ ...m })) },
-    message: 'Content group saved.',
+    message: t('uiMessages.contentGroupSaved'),
   })
 }
 function remove(resource: 'roles' | 'groups', identifier: string) {
-  void preview({ resource, identifier, method: 'DELETE', payload: {}, message: 'Removed.' })
+  void preview({
+    resource,
+    identifier,
+    method: 'DELETE',
+    payload: {},
+    message: t('uiMessages.removed'),
+  })
 }
 async function issueCode() {
   await perform(
@@ -675,15 +712,15 @@ async function issueCode() {
       codeForm.name = ''
       editor.value = null
     },
-    'Registration code created. Copy it before leaving this page.',
+    t('uiMessages.registrationCodeCreatedCopyItBeforeLeavingThisPage'),
     ['codes'],
   )
 }
 function describe(value: Effective | null) {
-  if (!value) return ['Account does not exist']
-  if (value.disabled) return ['Account disabled']
+  if (!value) return [t('uiMessages.accountDoesNotExist')]
+  if (value.disabled) return [t('uiMessages.accountDisabled')]
   if (value.is_admin)
-    return ['Administrator — universal access to all existing and future resources']
+    return [t('uiMessages.administratorUniversalAccessToAllExistingAndFutureResources')]
   return [
     ...value.permissions.map((id) => permissions.value.find((p) => p.id === id)?.label ?? id),
     ...(value.destination_permissions
@@ -696,23 +733,27 @@ function describe(value: Effective | null) {
           ([id, level]) => `${w.destinationName(id)}: ${levelName(level)}`,
         )),
     ...Object.entries(value.cartridge_permissions ?? {}).flatMap(([id, values]) =>
-      values.map(
-        (permission) =>
-          `${w.cartridgeName(id)}: ${permission.replace('cartridge.', '').replaceAll('_', ' ')}`,
-      ),
+      values.map((permission) => `${w.cartridgeName(id)}: ${permissionLabel(permission)}`),
     ),
     ...Object.entries(value.group_memberships).map(
       ([id, m]) =>
-        `${groups.value.find((g) => g.id === id)?.name ?? groupForm.name ?? id}: view; ${(
+        `${groups.value.find((g) => g.id === id)?.name ?? groupForm.name ?? id}: ${t('uiRemainder.view')}; ${(
           ['templates', 'images', 'fonts'] as const
         )
           .map((kind) => {
             const rights = kind === 'templates' ? m : m[kind]
-            return `${kind}${rights?.can_create ? ', create' : ''}${rights?.can_edit_others ? ', edit others' : ''}${rights?.can_delete_others ? ', delete others' : ''}`
+            return [
+              t(`uiRemainder.${kind}`),
+              rights?.can_create ? t('uiRemainder.create') : '',
+              rights?.can_edit_others ? t('uiRemainder.editOthers') : '',
+              rights?.can_delete_others ? t('uiRemainder.deleteOthers') : '',
+            ]
+              .filter(Boolean)
+              .join(', ')
           })
           .join('; ')}`,
     ),
-    'Own templates, images and fonts: edit and delete; own queued jobs: cancel',
+    t('uiMessages.ownTemplatesImagesAndFontsEditAndDeleteOwnQueuedJobsCancel'),
   ]
 }
 function refreshAccess() {
@@ -823,13 +864,15 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                         v-if="!user.disabled"
                         class="button secondary"
                         :to="{ path: '/resource-access', query: { user: user.id } }"
-                        :aria-label="`Permissions graph for ${user.username}`"
+                        :aria-label="
+                          $t('uiDetails.permissionsGraph', { value1: String(user.username) })
+                        "
                         >{{ $t('common.permissionsGraph') }}</RouterLink
                       >
                       <button
                         class="secondary"
                         :disabled="busy"
-                        :aria-label="`Edit ${user.username}`"
+                        :aria-label="$t('uiDetails.edit', { value1: String(user.username) })"
                         @click="editUser(user)"
                       >
                         {{ $t('common.edit') }}
@@ -866,7 +909,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               v-else
               class="secondary"
               :disabled="busy"
-              :aria-label="`Edit role ${role.name}`"
+              :aria-label="$t('uiDetails.editRole', { value1: String(role.name) })"
               @click="editRole(role)"
             >
               {{ $t('common.edit') }}
@@ -901,14 +944,18 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             <button
               class="secondary"
               :disabled="busy"
-              :aria-label="`Edit group ${group.name}`"
+              :aria-label="$t('uiDetails.editGroup', { value1: String(group.name) })"
               @click="editGroup(group)"
             >
               {{ $t('common.edit') }}
             </button>
           </div>
           <p v-if="!filteredGroups.length" class="empty">
-            {{ groups.length ? 'No content groups found.' : 'No content groups.' }}
+            {{
+              groups.length
+                ? $t('uiMessages.noContentGroupsFound')
+                : $t('uiMessages.noContentGroups')
+            }}
           </p>
         </section>
         <section
@@ -943,23 +990,34 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               <strong>{{ code.name }}</strong
               ><small
                 >{{
-                  code.revoked ? 'Revoked' : code.redeemed_at ? 'Redeemed' : $t('common.unused')
+                  code.revoked
+                    ? $t('uiMessages.revoked')
+                    : code.redeemed_at
+                      ? $t('uiMessages.redeemed')
+                      : $t('common.unused')
                 }}
-                · {{ code.expires_at ? 'Expires ' + date(code.expires_at) : 'No expiry' }}</small
+                ·
+                {{
+                  code.expires_at ? 'Expires ' + date(code.expires_at) : $t('uiMessages.noExpiry')
+                }}</small
               >
             </div>
             <button
               v-if="!code.revoked && !code.redeemed_at"
               class="secondary"
               :disabled="busy"
-              :aria-label="`Revoke code ${code.name}`"
+              :aria-label="$t('uiDetails.revokeCode', { value1: String(code.name) })"
               @click="revokeCode(code.id)"
             >
               {{ $t('administration.revoke') }}
             </button>
           </div>
           <p v-if="!filteredCodes.length" class="empty">
-            {{ codes.length ? 'No registration codes found.' : 'No registration codes.' }}
+            {{
+              codes.length
+                ? $t('uiMessages.noRegistrationCodesFound')
+                : $t('uiMessages.noRegistrationCodes')
+            }}
           </p>
         </section>
         <section
@@ -974,9 +1032,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             v-validate-form
             class="form-stack"
             @submit.prevent="
-              perform(() => api('/admin/settings', 'PUT', settings), 'Account settings saved.', [
-                'settings',
-              ])
+              perform(
+                () => api('/admin/settings', 'PUT', settings),
+                $t('uiMessages.accountSettingsSaved'),
+                ['settings'],
+              )
             "
           >
             <label class="checkbox"
@@ -1044,7 +1104,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   item.purge_after * 1000 <= Date.now() ||
                   (!!item.account_id && item.kind !== 'users')
                 "
-                :aria-label="`Restore ${item.name}`"
+                :aria-label="$t('uiDetails.restore', { value1: String(item.name) })"
                 @click="restoreDeleted(item)"
               >
                 {{ $t('administration.restore') }}
@@ -1052,7 +1112,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               <button
                 class="danger"
                 :disabled="busy"
-                :aria-label="`Purge ${item.name} now`"
+                :aria-label="$t('uiDetails.purge', { value1: String(item.name) })"
                 @click="purgeDeleted(item)"
               >
                 {{ $t('administration.purgeNow') }}
@@ -1062,8 +1122,8 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
           <p v-if="!filteredTrash.length" class="empty">
             {{
               trash.length
-                ? 'No deleted content found.'
-                : 'No deleted accounts or content awaiting purge.'
+                ? $t('uiMessages.noDeletedContentFound')
+                : $t('uiMessages.noDeletedAccountsOrContentAwaitingPurge')
             }}
           </p>
         </section>
@@ -1125,7 +1185,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
             type="button"
             class="danger-text secondary"
             :disabled="busy"
-            :aria-label="`Delete account ${selectedUser.username}`"
+            :aria-label="$t('uiDetails.deleteAccount', { value1: String(selectedUser.username) })"
             @click="deleteUser(selectedUser)"
           >
             {{ $t('administration.deleteAccount') }}</button
@@ -1208,7 +1268,7 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               <label
                 >{{ $t('administration.preset')
                 }}<select
-                  :aria-label="`Access to ${destination.name}`"
+                  :aria-label="$t('uiDetails.accessTo', { value1: String(destination.name) })"
                   :value="selectedPreset(destination.id, destination.kind === 'group')"
                   @change="
                     setPrinterRules(
@@ -1227,7 +1287,10 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                   </option>
                 </select></label
               >
-              <div role="group" :aria-label="`${destination.name} permissions`">
+              <div
+                role="group"
+                :aria-label="$t('uiDetails.permissions', { value1: String(destination.name) })"
+              >
                 <PermissionRules
                   :options="permissionOptions(destination.kind === 'group')"
                   :allowed="roleForm.destinations[destination.id] ?? []"
@@ -1248,7 +1311,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
               class="form-stack"
             >
               <legend>
-                {{ kind === 'printer' ? 'Printer permissions' : 'Cartridge permissions' }}
+                {{
+                  kind === 'printer'
+                    ? $t('uiMessages.printerPermissions')
+                    : $t('uiMessages.cartridgePermissions')
+                }}
               </legend>
               <PermissionRules
                 :options="
@@ -1403,7 +1470,11 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
       @cancel.prevent="cancelPreview"
     >
       <h2 id="access-preview-title">
-        {{ deletingAccount ? $t('administration.deleteAccount') : 'Review effective access' }}
+        {{
+          deletingAccount
+            ? $t('administration.deleteAccount')
+            : $t('uiMessages.reviewEffectiveAccess')
+        }}
       </h2>
       <template v-if="deletingAccount">
         <p>
@@ -1434,7 +1505,9 @@ onUnmounted(() => window.removeEventListener('access-changed', refreshAccess))
                     ? `${item.before.username} → ${item.after.username}`
                     : item.username
                 }}</strong
-                ><small>{{ item.changed ? 'Changed' : 'Unchanged' }}</small>
+                ><small>{{
+                  item.changed ? $t('uiMessages.changed') : $t('uiMessages.unchanged')
+                }}</small>
               </td>
               <td>
                 <ul>

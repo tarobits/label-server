@@ -1,4 +1,5 @@
 import type { Profile, Printer } from '../shared/types'
+import { t, number } from '../shared/i18n'
 import type { TemplateDocument } from '../templates/editor'
 
 export interface MediaProperties {
@@ -16,8 +17,11 @@ export function mediaProperties(
 export function mediaLabel(profile: Profile | undefined) {
   if (!profile) return ''
   return profile.media_family === 'fixed_label'
-    ? `Fixed labels · ${profile.width_mm} × ${profile.label_length_mm} mm`
-    : `TZe · Continuous · ${profile.width_mm} mm`
+    ? t('uiRemainder.fixedMedia', {
+        width: number(profile.width_mm),
+        length: profile.label_length_mm == null ? '—' : number(profile.label_length_mm),
+      })
+    : t('uiRemainder.continuousMedia', { width: number(profile.width_mm) })
 }
 export function compatibleProfile(
   profile: Profile | undefined,

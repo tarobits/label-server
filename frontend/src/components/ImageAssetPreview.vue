@@ -31,7 +31,7 @@ const { image, failed, reload } = usePreview(source, target)
       v-else-if="!large"
       type="button"
       class="image-thumbnail"
-      :aria-label="`Preview ${asset.name}`"
+      :aria-label="$t('uiDetails.preview', { value1: String(asset.name) })"
       :disabled="!image"
       @click="emit('enlarge')"
     >

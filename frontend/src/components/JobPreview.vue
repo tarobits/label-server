@@ -33,14 +33,14 @@ function enlarge() {
       v-else
       type="button"
       class="history-thumbnail"
-      :aria-label="`Enlarge label preview: ${text}`"
+      :aria-label="$t('uiDetails.enlargeLabelPreview', { value1: String(text) })"
       :disabled="!image"
       @click="enlarge"
     >
       <img
         v-if="image"
         :src="image"
-        :alt="`Label preview: ${text}`"
+        :alt="$t('uiDetails.labelPreview', { value1: String(text) })"
         loading="lazy"
         decoding="async"
         @error="failed = true"
@@ -66,7 +66,7 @@ function enlarge() {
       <img
         v-else-if="opened && image"
         :src="image"
-        :alt="`Enlarged label: ${text}`"
+        :alt="$t('uiDetails.enlargedLabel', { value1: String(text) })"
         @error="failed = true"
       />
       <p class="help">{{ lengthMm }} × {{ widthMm }} {{ $t('common.mmSavedPrintPixels') }}</p>

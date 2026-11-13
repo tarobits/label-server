@@ -19,11 +19,30 @@ const resources = useResourceStore()
 const route = useRoute()
 const router = useRouter()
 const navigationGroups = [
-  { title: 'Usage', sections: [{ id: 'usage', title: 'Tape & allocations' }] },
   {
-    title: 'Accounting',
+    get title() {
+      return t('uiMessages.usage')
+    },
     sections: [
-      { id: 'balances', title: 'Account balances' },
+      {
+        id: 'usage',
+        get title() {
+          return t('uiMessages.tapeAllocations')
+        },
+      },
+    ],
+  },
+  {
+    get title() {
+      return t('uiMessages.accounting')
+    },
+    sections: [
+      {
+        id: 'balances',
+        get title() {
+          return t('uiMessages.accountBalances')
+        },
+      },
       {
         id: 'cartridges',
         get title() {
@@ -184,7 +203,9 @@ function money(value: string, currency: string) {
           </p>
           <div v-if="!report.users.length" class="empty compact">
             {{
-              cartridge ? 'No tracked usage for this cartridge.' : 'No tracked print attempts yet.'
+              cartridge
+                ? $t('uiMessages.noTrackedUsageForThisCartridge')
+                : $t('uiMessages.noTrackedPrintAttemptsYet')
             }}
           </div>
           <article v-for="user in report.users" :key="user.user_id" class="list-row">
@@ -218,9 +239,9 @@ function money(value: string, currency: string) {
               {{ metres(entry.consumed_mm ?? entry.planned_mm) }} ·
               {{
                 entry.consumed_mm === null
-                  ? 'Pending'
+                  ? $t('uiMessages.pending')
                   : entry.cost === null
-                    ? 'Unpriced'
+                    ? $t('uiMessages.unpriced')
                     : money(entry.cost, entry.currency)
               }}</template
             >
@@ -233,8 +254,8 @@ function money(value: string, currency: string) {
                 <Badge :state="entry.state" /><span
                   >{{
                     entry.consumed_mm === null
-                      ? 'Planned'
-                      : (entry.consumption_source ?? 'Accounted')
+                      ? $t('uiMessages.planned')
+                      : (entry.consumption_source ?? $t('uiMessages.accounted'))
                   }}
                   {{ $t('common.tape2') }} {{ metres(entry.consumed_mm ?? entry.planned_mm) }}</span
                 >

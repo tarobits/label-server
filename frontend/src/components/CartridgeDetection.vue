@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed } from 'vue'
 import { useAuthStore } from '../auth/auth'
 import { installCartridge } from '../printing/cartridges'
@@ -28,7 +29,7 @@ async function confirm() {
         chooseCartridge: () =>
           router.push({ path: '/cartridges', query: { printer: status.printer_id } }),
       }),
-    'Cartridge confirmed. Eligible queued labels may now print.',
+    t('uiMessages.cartridgeConfirmedEligibleQueuedLabelsMayNowPrint'),
   )
 }
 </script>
@@ -39,9 +40,9 @@ async function confirm() {
       <p>
         {{
           status?.cartridge_check_pending
-            ? 'Printer opened or tape changed. Confirm the installed cartridge.'
+            ? $t('uiMessages.printerOpenedOrTapeChangedConfirmTheInstalledCartridge')
             : status?.media_confirmed
-              ? 'Using confirmed cartridge.'
+              ? $t('uiMessages.usingConfirmedCartridge')
               : status?.media_warning
         }}
       </p>

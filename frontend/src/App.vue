@@ -2,17 +2,18 @@
 import { t } from './shared/i18n'
 
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 import Icon from './components/Icon.vue'
 import BrandLogo from './components/BrandLogo.vue'
 import AccountMenu from './components/AccountMenu.vue'
+import LanguagePicker from './components/LanguagePicker.vue'
 import NotificationBell from './components/NotificationBell.vue'
 import CartridgeConsent from './components/CartridgeConsent.vue'
 import { reducedMotion } from './shared/preferences'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import CartridgeCheckPrompt from './components/CartridgeCheckPrompt.vue'
-import MotionTrack from './components/MotionTrack.vue'
+import MainNavigation from './components/MainNavigation.vue'
 import RouteSurface from './components/RouteSurface.vue'
 import VersionStatus from './components/VersionStatus.vue'
 import SourceLink from './components/SourceLink.vue'
@@ -44,7 +45,6 @@ watch(
     }
   },
 )
-const navigation = ref<InstanceType<typeof MotionTrack> | null>(null)
 const navigationPending = ref(false)
 const pageDirection = ref(1)
 const routeStage = ref<HTMLElement | null>(null)
@@ -123,18 +123,6 @@ const activeSection = computed(() => {
   if (route.path === '/access-holds') return '/admin'
   return `/${route.path.split('/')[1]}`
 })
-watch(
-  () => [auth.user?.id, activeSection.value],
-  async () => {
-    await nextTick()
-    const nav = navigation.value?.element
-    const selected = nav?.querySelector<HTMLElement>('.selected')
-    if (!nav || !selected || nav.scrollWidth <= nav.clientWidth) return
-    const item = selected.getBoundingClientRect()
-    const bounds = nav.getBoundingClientRect()
-    nav.scrollLeft += item.left - bounds.left - (bounds.width - item.width) / 2
-  },
-)
 const needsPrinter = computed(() => route.path === '/new')
 const designPage = computed(
   () =>
@@ -179,15 +167,15 @@ const links = computed(() =>
     ['/profiles', 'common.tapeProfiles', 'tape'],
     ['/cartridges', 'resourceAccess.cartridges', 'cartridge'],
     ['/activity', 'common.printActivity', 'activity'],
-    ['/audit', 'common.auditLog', 'activity'],
+    ['/audit', 'common.auditLog', 'audit'],
     ['/notification-history', 'common.notificationDelivery', 'bell'],
-    ['/usage', 'common.tapeUsage', 'tape'],
+    ['/usage', 'common.tapeUsage', 'usage'],
     ['/group-accounts', 'common.groupAccounts', 'users'],
     ['/printers', 'common.printersGroups', 'printer'],
-    ['/companions', 'companions.companions', 'printer'],
-    ['/resource-access', 'common.locationsAccess', 'users'],
-    ['/migration', 'common.ownershipMigration', 'users'],
-    ['/admin', 'common.administration', 'users'],
+    ['/companions', 'companions.companions', 'companion'],
+    ['/resource-access', 'common.locationsAccess', 'location'],
+    ['/migration', 'common.ownershipMigration', 'transfer'],
+    ['/admin', 'common.administration', 'settings'],
   ].filter(([path]) => {
     if (path === '/audit')
       return (
@@ -291,7 +279,7 @@ onMounted(auth.refresh)
   <ServerUnavailable />
   <AppUpdateNotice />
   <main v-if="!auth.ready" class="panel empty">
-    <p>{{ auth.error || 'Opening your workspace…' }}</p>
+    <p>{{ auth.error || $t('uiMessages.openingYourWorkspace') }}</p>
     <button v-if="auth.error" @click="auth.refresh(true)">{{ $t('common.retry') }}</button>
   </main>
   <AccountRecovery
@@ -309,6 +297,7 @@ onMounted(auth.refresh)
       <BrandLogo /><button class="secondary" @click="auth.logout()">
         {{ $t('common.signOut') }}
       </button>
+      <LanguagePicker account />
     </header>
     <RelationshipMigration v-if="auth.user.is_admin" />
     <section v-else class="panel">
@@ -326,29 +315,7 @@ onMounted(auth.refresh)
     <div class="app-shell">
       <aside class="sidebar">
         <RouterLink class="brand-link" to="/"><BrandLogo /></RouterLink>
-        <MotionTrack
-          ref="navigation"
-          tag="nav"
-          :identity="activeSection"
-          selector="a.selected"
-          :aria-label="$t('app.mainNavigation')"
-        >
-          <RouterLink
-            v-for="[path, label, icon] in links"
-            :key="path"
-            :to="path!"
-            :class="{ selected: activeSection === path }"
-            :aria-current="
-              route.path === path ? 'page' : activeSection === path ? 'location' : undefined
-            "
-            ><Icon :name="icon!" />{{ $t(label!)
-            }}<Transition name="notice"
-              ><span v-if="navCounts[path!]" class="nav-count motion-reveal">{{
-                navCounts[path!]
-              }}</span></Transition
-            ></RouterLink
-          >
-        </MotionTrack>
+        <MainNavigation :links="links" :active="activeSection" :counts="navCounts" />
         <div class="account-controls"><AccountMenu /><NotificationBell /></div>
         <CartridgeConsent />
         <div class="sidebar-footer">
@@ -390,15 +357,22 @@ onMounted(auth.refresh)
                 <h1 :key="String(route.meta.title)">{{ $t(String(route.meta.title)) }}</h1>
               </Transition>
             </div>
-            <RouterLink
-              v-if="
-                route.path !== '/new' &&
-                (auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly'))
-              "
-              class="button primary"
-              to="/new"
-              ><Icon name="plus" />{{ $t('app.newLabel') }}</RouterLink
-            >
+            <div class="page-header-controls">
+              <div
+                v-if="auth.anyPrinter('submit_requests') || auth.anyPrinter('submit_directly')"
+                class="print-shortcuts"
+                role="group"
+                :aria-label="$t('app.createPrints')"
+              >
+                <RouterLink v-if="route.path !== '/new'" class="button secondary" to="/new">
+                  <Icon name="plus" />{{ $t('app.newLabel') }}
+                </RouterLink>
+                <RouterLink v-if="route.path !== '/runs'" class="button secondary" to="/runs">
+                  <Icon name="csv" />{{ $t('app.newCsvRun') }}
+                </RouterLink>
+              </div>
+              <LanguagePicker account />
+            </div>
           </header>
           <Transition name="notice">
             <div v-if="connectionError" class="alert danger" role="alert">
@@ -443,7 +417,11 @@ onMounted(auth.refresh)
             }}</RouterLink>
           </div>
           <div v-if="!loaded" class="empty panel">
-            {{ connectionError ? 'Waiting for the server…' : 'Loading your workspace…' }}
+            {{
+              connectionError
+                ? $t('uiMessages.waitingForTheServer')
+                : $t('uiMessages.loadingYourWorkspace')
+            }}
           </div>
           <div
             v-if="w.accessHolds.length && route.path !== '/access-holds'"
@@ -461,7 +439,9 @@ onMounted(auth.refresh)
           <div v-if="loaded && !w.destinations.length && needsPrinter" class="panel empty">
             <h2>
               {{
-                auth.can('printers.manage') ? 'Add your first printer' : 'No printers assigned yet'
+                auth.can('printers.manage')
+                  ? $t('uiMessages.addYourFirstPrinter')
+                  : $t('uiMessages.noPrintersAssignedYet')
               }}
             </h2>
             <p v-if="!auth.can('printers.manage')">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useAuthStore } from '../auth/auth'
 import { api, errorMessage } from '../shared/api'
@@ -120,23 +121,31 @@ async function restoreSelected() {
     actor = auth.user?.id
   try {
     const accepted = await confirmAction(
-      `Restore revision ${entry.revision} as a new revision?${props.unsavedChanges ? ' Unsaved editor changes will be discarded.' : ''}`,
-      'Restore revision',
+      t(
+        props.unsavedChanges
+          ? 'actionMessages.restoreRevisionDiscard'
+          : 'actionMessages.restoreRevision',
+        { revision: entry.revision },
+      ),
+      t('templateHistory.restoreRevision'),
     )
     if (!accepted || !props.open || identifier !== props.templateId || actor !== auth.user?.id)
       return
     let result: Template | undefined
-    const ok = await workspace.action(async () => {
-      try {
-        result = await api<Template>(`${path.value}/${entry.revision}/restore`, 'POST', {
-          expected_revision: expected,
-          destination_id: workspace.selectedPrinter || undefined,
-        })
-      } catch (error) {
-        restoreError.value = errorMessage(error)
-        throw error
-      }
-    }, `Revision ${entry.revision} restored as a new revision.`)
+    const ok = await workspace.action(
+      async () => {
+        try {
+          result = await api<Template>(`${path.value}/${entry.revision}/restore`, 'POST', {
+            expected_revision: expected,
+            destination_id: workspace.selectedPrinter || undefined,
+          })
+        } catch (error) {
+          restoreError.value = errorMessage(error)
+          throw error
+        }
+      },
+      t('uiDetails.revisionRestored', { value1: String(entry.revision) }),
+    )
     if (
       !stopped &&
       ok &&
@@ -178,7 +187,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <AdminDialog
       :open="open"
-      :title="`History: ${templateName}`"
+      :title="$t('uiDetails.history', { value1: String(templateName) })"
       :busy="restoring"
       wide
       @close="emit('close')"
@@ -198,7 +207,7 @@ onBeforeUnmount(() => {
           <li v-for="entry in entries" :key="entry.revision">
             <button
               type="button"
-              :aria-label="`View revision ${entry.revision}`"
+              :aria-label="$t('uiDetails.viewRevision', { value1: String(entry.revision) })"
               :aria-pressed="selectedNumber === entry.revision"
               :aria-controls="previewId"
               :aria-current="entry.revision === currentRevision ? 'true' : undefined"
@@ -213,7 +222,7 @@ onBeforeUnmount(() => {
                 }}</span></span
               >
               <span :id="`${previewId}-${entry.revision}-metadata`" class="revision-metadata">
-                <span>{{ entry.edited_by?.name || 'Editor not recorded' }}</span>
+                <span>{{ entry.edited_by?.name || $t('uiMessages.editorNotRecorded') }}</span>
                 <time
                   v-if="entry.created_at"
                   :datetime="new Date(entry.created_at * 1000).toISOString()"
@@ -240,7 +249,7 @@ onBeforeUnmount(() => {
               v-if="preview"
               class="motion-reveal"
               :src="preview.png"
-              :alt="`Preview of revision ${selected.revision}`"
+              :alt="$t('uiDetails.revisionPreview', { value1: String(selected.revision) })"
               :style="{ aspectRatio: `${preview.length_mm} / ${preview.width_mm}` }"
             />
             <p v-else-if="previewLoading" role="status">{{ $t('common.loadingPreview') }}</p>

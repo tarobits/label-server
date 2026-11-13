@@ -8,6 +8,9 @@ for (const width of [1280, 390]) {
       .getByRole('navigation', { name: 'Main navigation' })
       .locator('a[href="#/requests"]')
     const count = link.locator('.nav-count')
+    if (width === 390) {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click()
+    }
     await expect(link).toBeVisible()
     await expect(count).toHaveCount(0)
     const [printer] = await (await request.get('/api/printers')).json()

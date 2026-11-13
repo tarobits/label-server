@@ -84,7 +84,7 @@ test('navigation keeps the current page while loading, then hands over without a
     ),
   ).toBe('same document')
   await expect(page.getByRole('progressbar', { name: 'Loading page' })).toHaveCount(0)
-  const marker = page.locator('nav[aria-label="Main navigation"] > .motion-indicator')
+  const marker = page.locator('#main-navigation-links > .motion-indicator')
   const selected = page.getByRole('link', { name: 'Fonts', exact: true })
   await expect
     .poll(async () => {

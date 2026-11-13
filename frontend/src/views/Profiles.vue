@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { freezeLeavingItem } from '../shared/collectionMotion'
 import { vValidateForm } from '../shared/formValidation'
 import { storeToRefs } from 'pinia'
@@ -70,24 +71,25 @@ async function save() {
           editing.value ? 'PUT' : 'POST',
           body,
         ),
-      'Tape profile saved. Its threshold is effective immediately.',
+      t('uiMessages.tapeProfileSavedItsThresholdIsEffectiveImmediately'),
     )
   )
     formOpen.value = false
 }
 async function remove(profile: Profile) {
-  if (
-    await confirmAction(
-      `Delete unused profile “${profile.name}”? Profiles with history cannot be deleted.`,
+  if (await confirmAction(t('uiDetails.deleteProfile', { value1: String(profile.name) })))
+    await w.action(
+      () => api(`/tape-profiles/${profile.id}`, 'DELETE'),
+      t('uiMessages.tapeProfileDeleted'),
     )
-  )
-    await w.action(() => api(`/tape-profiles/${profile.id}`, 'DELETE'), 'Tape profile deleted.')
 }
 async function setAvailability(profile: Profile) {
   const available = profile.available === false
   await w.action(
     () => api(`/tape-profiles/${profile.id}/availability`, 'PUT', { available }),
-    available ? 'Tape profile available.' : 'Tape profile unavailable for new labels.',
+    available
+      ? t('uiMessages.tapeProfileAvailable')
+      : t('uiMessages.tapeProfileUnavailableForNewLabels'),
   )
 }
 async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
@@ -98,7 +100,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   if (
     await w.action(
       () => api(`/tape-profiles/${id}/reminder`, 'PUT', body),
-      `Reminder setting updated.`,
+      t('uiMessages.reminderSettingUpdated'),
     )
   )
     if (snoozeProfile.value) closeSnooze()
@@ -111,7 +113,7 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
   <Transition name="panel-expand">
     <form v-validate-form v-if="formOpen" class="panel form-stack" @submit.prevent="save">
       <div class="section-heading">
-        <h2>{{ editing ? 'Edit tape profile' : 'New tape profile' }}</h2>
+        <h2>{{ editing ? $t('uiMessages.editTapeProfile') : $t('uiMessages.newTapeProfile') }}</h2>
         <button type="button" class="text-button" @click="formOpen = false">
           {{ $t('common.close') }}
         </button>
@@ -232,7 +234,9 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
         <span>{{ $t('common.waitingReminders') }}</span
         ><strong>{{
           profile.waiting_notification_enabled
-            ? `Every ${+(profile.waiting_notification_interval_seconds / 3600).toFixed(2)} h`
+            ? $t('uiDetails.intervalHours', {
+                value1: String(+(profile.waiting_notification_interval_seconds / 3600).toFixed(2)),
+              })
             : $t('accountSettings.off')
         }}</strong>
       </div>
@@ -277,7 +281,11 @@ async function reminder(id: string, action: 'silence' | 'resume' | 'snooze') {
       </Transition>
       <div class="card-actions">
         <button class="text-button" :disabled="busy" @click="setAvailability(profile)">
-          {{ profile.available === false ? 'Make available' : 'Mark unavailable' }}
+          {{
+            profile.available === false
+              ? $t('uiMessages.makeAvailable')
+              : $t('uiMessages.markUnavailable')
+          }}
         </button>
         <button class="text-button" @click="edit(profile)">{{ $t('profiles.editProfile') }}</button
         ><button class="text-button danger-text" :disabled="busy" @click="remove(profile)">

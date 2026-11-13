@@ -117,7 +117,13 @@ const money = (value: string, currency: string) =>
   <div class="pair-accounts">
     <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
     <section v-show="section === 'balances'" class="usage-accounts">
-      <h2>{{ allUsers ? 'Account balances' : `Balances for ${currentName}` }}</h2>
+      <h2>
+        {{
+          allUsers
+            ? $t('uiMessages.accountBalances')
+            : $t('uiDetails.balances', { value1: String(currentName) })
+        }}
+      </h2>
       <div class="table-scroll">
         <table>
           <thead>
@@ -259,16 +265,24 @@ const money = (value: string, currency: string) =>
         >
         <dl>
           <dt>
-            {{ charge.recipient_assigned_at ? 'Assigned recipient' : $t('common.recipient') }}
+            {{
+              charge.recipient_assigned_at
+                ? $t('uiMessages.assignedRecipient')
+                : $t('common.recipient')
+            }}
           </dt>
           <dd>{{ charge.recipient_name ?? charge.cartridge_name }}</dd>
           <dt>{{ $t('common.tapeUsed') }}</dt>
-          <dd>{{ charge.consumed_mm === null ? 'Pending' : metres(charge.consumed_mm) }}</dd>
+          <dd>
+            {{
+              charge.consumed_mm === null ? $t('uiMessages.pending') : metres(charge.consumed_mm)
+            }}
+          </dd>
           <dt>{{ $t('pairAccounts.actualCost') }}</dt>
           <dd>
             {{
               charge.actual_cost === null
-                ? 'Pending or unpriced'
+                ? $t('uiMessages.pendingOrUnpriced')
                 : money(charge.actual_cost, charge.currency)
             }}
           </dd>
@@ -276,9 +290,9 @@ const money = (value: string, currency: string) =>
           <dd>
             {{
               charge.own_cartridge
-                ? 'Own cartridge — no debt'
+                ? $t('uiMessages.ownCartridgeNoDebt')
                 : charge.charged === null
-                  ? 'Pending or unpriced'
+                  ? $t('uiMessages.pendingOrUnpriced')
                   : money(charge.charged, charge.currency)
             }}
           </dd>

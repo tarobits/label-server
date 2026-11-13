@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { t } from '../shared/i18n'
 
-import { logicTargetLabel } from '../templates/logicGraph'
+import { logicTargetLabel, operationDescription } from '../templates/logicGraph'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ChevronDownIcon,
@@ -153,7 +153,7 @@ watch(target, () => {
 const operations = computed(
   () =>
     catalog.value?.operations.filter((operation) =>
-      `${title(operation.name)} ${operation.name} ${operation.description}`
+      `${title(operation.name)} ${operation.name} ${operationDescription(operation.name)}`
         .toLowerCase()
         .includes(search.value.toLowerCase()),
     ) ?? [],
@@ -355,7 +355,7 @@ async function compileSource() {
     const graph = loadGraph(document, false)
     if (semanticProgram(compileGraph(graph.nodes, document)) !== semanticProgram(result.program))
       throw new Error(
-        'Cannot synchronize these node changes. Revert the source draft and try again.',
+        t('uiMessages.cannotSynchronizeTheseNodeChangesRevertTheSourceDraftAndTryAgain'),
       )
     graph.source = source
     document.logic_editor = graph
@@ -568,10 +568,12 @@ function removeSelected() {
 function label(node: LogicNode) {
   if (node.kind === 'input')
     return (
-      props.document.fields.find((field) => field.name === node.name)?.label ?? node.name ?? 'Input'
+      props.document.fields.find((field) => field.name === node.name)?.label ??
+      node.name ??
+      t('uiMessages.input')
     )
-  if (node.kind === 'variable') return node.name ?? 'Intermediate'
-  if (node.kind === 'literal') return `${title(node.type)} value`
+  if (node.kind === 'variable') return node.name ?? t('uiMessages.intermediate')
+  if (node.kind === 'literal') return t('logicMessages.literalTitle', { type: title(node.type) })
   if (node.kind === 'call') return title(node.operation ?? '')
   const element = props.document.elements.find((element) => element.id === node.target)
   const name =
@@ -582,7 +584,7 @@ function label(node: LogicNode) {
           element?.logic_name ?? node.target ?? '',
           node.property ?? undefined,
         )
-  return `${node.kind === 'property' ? 'Read ' : ''}${name}`
+  return `${node.kind === 'property' ? t('uiMessages.read') : ''}${name}`
 }
 function typeOf(node: LogicNode, depth = 0): SocketType {
   const type = catalog.value ? nodeType(node, state.value.nodes, catalog.value) : node.type
@@ -643,12 +645,12 @@ function choose(id: string, port: number) {
   }
   if (!active.value) {
     active.value = { id, port }
-    announcement.value = 'Connector selected. Choose a compatible connector.'
+    announcement.value = t('uiMessages.connectorSelectedChooseACompatibleConnector')
     return
   }
   const first = active.value
   if ((first.port === -1) === (port === -1)) {
-    announcement.value = 'Choose an input and an output.'
+    announcement.value = t('uiMessages.chooseAnInputAndAnOutput')
     return
   }
   const source = state.value.nodes.find((node) => node.id === (port === -1 ? id : first.id))!
@@ -657,14 +659,22 @@ function choose(id: string, port: number) {
   if (destination.inputs[index] === source.id) {
     if (disconnect(destination, index)) {
       active.value = null
-      announcement.value = `Disconnected ${label(source)} from ${label(destination)}, ${socketLabel(destination, index)}.`
+      announcement.value = t('uiDetails.disconnected', {
+        value1: String(label(source)),
+        value2: String(label(destination)),
+        value3: String(socketLabel(destination, index)),
+      })
     }
     return
   }
   try {
     canConnect(source, destination, index, state.value.nodes, catalog.value!, upgraded())
     destination.inputs[index] = source.id
-    announcement.value = `Connected ${label(source)} to ${label(destination)}, ${socketLabel(destination, index)}.`
+    announcement.value = t('uiDetails.connected', {
+      value1: String(label(source)),
+      value2: String(label(destination)),
+      value3: String(socketLabel(destination, index)),
+    })
     active.value = null
     changed()
   } catch (failure) {
@@ -673,7 +683,7 @@ function choose(id: string, port: number) {
 }
 function cancel() {
   active.value = null
-  announcement.value = 'Connection cancelled.'
+  announcement.value = t('uiMessages.connectionCancelled')
 }
 function point(id: string, port: number) {
   const node = state.value.nodes.find((node) => node.id === id)!
@@ -871,7 +881,9 @@ onBeforeUnmount(() => {
         </button>
       </h2>
       <button v-if="open" class="small" :aria-pressed="expanded" @click="expanded = !expanded">
-        <ArrowsPointingOutIcon />{{ expanded ? 'Restore view' : 'Expand view' }}
+        <ArrowsPointingOutIcon />{{
+          expanded ? $t('uiMessages.restoreView') : $t('uiMessages.expandView')
+        }}
       </button>
     </div>
     <ExpandableContent id="logic-workspace-body" :open="open">
@@ -959,10 +971,14 @@ onBeforeUnmount(() => {
                     :key="type"
                     @click="add('literal', type)"
                   >
-                    {{ title(type) }} {{ $t('common.value2') }}
+                    {{ $t('logicMessages.literalTitle', { type: title(type) }) }}
                   </button>
                   <button
-                    v-if="'intermediate variable'.includes(search.toLowerCase())"
+                    v-if="
+                      $t('logicWorkspace.intermediateVariable')
+                        .toLowerCase()
+                        .includes(search.toLowerCase())
+                    "
                     @click="add('variable', '')"
                   >
                     {{ $t('logicWorkspace.intermediateVariable') }}
@@ -970,7 +986,7 @@ onBeforeUnmount(() => {
                   <button
                     v-for="operation in operations"
                     :key="operation.name"
-                    :title="operation.description"
+                    :title="operationDescription(operation.name)"
                     @click="add('call', operation.name)"
                   >
                     {{ title(operation.name) }}
@@ -1043,7 +1059,7 @@ onBeforeUnmount(() => {
                   >
                     <header
                       tabindex="0"
-                      :aria-label="`Move ${label(node)}`"
+                      :aria-label="$t('uiDetails.move', { value1: String(label(node)) })"
                       @focus="selectedId = node.id"
                       @keydown="keyboard($event, node)"
                     >
@@ -1065,7 +1081,13 @@ onBeforeUnmount(() => {
                         :type="portType(node, index)"
                         :disabled="!!disabledOutput(node)"
                         :title="disabledOutput(node)"
-                        :label="`${label(node)} ${socketLabel(node, index)} input (${portType(node, index)})`"
+                        :label="
+                          $t('uiDetails.socketInput', {
+                            value1: String(label(node)),
+                            value2: String(socketLabel(node, index)),
+                            value3: String(portType(node, index)),
+                          })
+                        "
                         :node="node.id"
                         :port="index"
                         :selected="active?.id === node.id && active.port === index"
@@ -1086,7 +1108,12 @@ onBeforeUnmount(() => {
                     <div v-if="node.kind !== 'output'" class="node-output">
                       <LogicSocket
                         :type="typeOf(node)"
-                        :label="`${label(node)} output (${typeOf(node)})`"
+                        :label="
+                          $t('uiDetails.socketOutput', {
+                            value1: String(label(node)),
+                            value2: String(typeOf(node)),
+                          })
+                        "
                         :node="node.id"
                         :port="-1"
                         :selected="active?.id === node.id && active.port === -1"
@@ -1129,11 +1156,7 @@ onBeforeUnmount(() => {
                       {{ $t('logicWorkspace.nodeReference') }}
                     </button>
                     <p v-if="selected.kind === 'call'" class="help">
-                      {{
-                        catalog.operations.find(
-                          (operation) => operation.name === selected?.operation,
-                        )?.description
-                      }}
+                      {{ operationDescription(selected.operation ?? '') }}
                     </p>
                     <label v-if="selected.kind === 'variable'"
                       >{{ $t('common.variableName')
@@ -1177,7 +1200,11 @@ onBeforeUnmount(() => {
                         ><button
                           class="small"
                           :disabled="graphLocked"
-                          :aria-label="`Disconnect ${socketLabel(selected, index)}`"
+                          :aria-label="
+                            $t('uiDetails.disconnect', {
+                              value1: String(socketLabel(selected, index)),
+                            })
+                          "
                           @click="disconnect(selected, index)"
                         >
                           {{ $t('logicWorkspace.disconnect') }}

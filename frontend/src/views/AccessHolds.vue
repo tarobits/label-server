@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { api } from '../shared/api'
 import { useWorkspaceStore, date } from '../shared/workspace'
 const w = useWorkspaceStore()
@@ -9,14 +10,18 @@ async function resolve(hold: AccessHold, release: boolean) {
   if (
     !(await confirmAction(
       release
-        ? 'Release these saved copies for printing despite the access change? They may print automatically.'
-        : 'Cancel these paused queued copies? Printed copies stay in history.',
+        ? t(
+            'uiMessages.releaseTheseSavedCopiesForPrintingDespiteTheAccessChangeTheyMayPrintAutomatically',
+          )
+        : t('uiMessages.cancelThesePausedQueuedCopiesPrintedCopiesStayInHistory'),
     ))
   )
     return
   await w.action(
     () => api(`/access-holds/${hold.job_id}/${release ? 'release' : 'cancel'}`, 'POST', {}),
-    release ? 'Paused copies released by an administrator.' : 'Paused copies cancelled.',
+    release
+      ? t('uiMessages.pausedCopiesReleasedByAnAdministrator')
+      : t('uiMessages.pausedCopiesCancelled'),
   )
 }
 </script>
@@ -42,7 +47,7 @@ async function resolve(hold: AccessHold, release: boolean) {
     </p>
     <JobPreview
       :job-id="hold.job_id"
-      :text="Object.values(hold.job.payload).join(' · ') || 'Image label'"
+      :text="Object.values(hold.job.payload).join(' · ') || $t('uiMessages.imageLabel')"
       :width-mm="hold.job.width_mm"
       :length-mm="hold.job.length_mm"
     />

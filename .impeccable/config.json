@@ -1,3 +1,15 @@
 {
-  "buildPath": "code"
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "createdAt": "2026-11-12T21:51:40.236Z",
+        "reason": "Codex review: the existing CodeMirror source editor already uses SFMono-Regular in HEAD; technical source text intentionally uses a monospace stack. This translation change preserves it."
+      }
+    ]
+  }
 }

@@ -12,6 +12,11 @@ for (const width of [402, 1280]) {
     const selected = navigation.locator('a.selected')
     await expect(selected).toContainText('Print requests')
     const aligned = async () => {
+      const menu = navigation.getByRole('button', { name: 'Menu', exact: true })
+      if ((await menu.isVisible()) && (await menu.getAttribute('aria-expanded')) !== 'true') {
+        await menu.click()
+      }
+      await expect(selected).toBeVisible()
       await expect
         .poll(() =>
           navigation.evaluate((nav) => {

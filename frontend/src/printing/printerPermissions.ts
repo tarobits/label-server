@@ -1,23 +1,29 @@
 import type { AccessLevel } from '../auth/auth'
+import { t } from '../shared/i18n'
 
 export const printerPermissionOptions = [
-  ['view', 'View printer'],
-  ['submit_requests', 'Submit requests'],
-  ['submit_directly', 'Submit directly'],
-  ['start_own', 'Start own prints'],
-  ['view_queue', 'View everyone’s queue'],
-  ['start_any', 'Start anyone’s prints'],
-  ['manage_queue', 'Manage everyone’s queue'],
-  ['approve_requests', 'Approve print requests'],
-  ['view_activity', 'View everyone’s print activity'],
-  ['view_audit', 'View audit log'],
-  ['review', 'Review interrupted batches'],
-  ['swap_cartridges', 'Swap cartridges'],
-  ['hold_resume', 'Hold/resume printing'],
-  ['stop_after_label', 'Stop after current label'],
-  ['emergency_stop', 'Emergency stop'],
-  ['configure', 'Configure printer'],
-].map(([name, label]) => ({ id: `printer.${name}`, label: label! }))
+  ['view', 'view'],
+  ['submit_requests', 'submitRequests'],
+  ['submit_directly', 'submitDirectly'],
+  ['start_own', 'startOwn'],
+  ['view_queue', 'viewQueue'],
+  ['start_any', 'startAny'],
+  ['manage_queue', 'manageQueue'],
+  ['approve_requests', 'approveRequests'],
+  ['view_activity', 'viewActivity'],
+  ['view_audit', 'viewAudit'],
+  ['review', 'review'],
+  ['swap_cartridges', 'swapCartridges'],
+  ['hold_resume', 'holdResume'],
+  ['stop_after_label', 'stopAfterLabel'],
+  ['emergency_stop', 'emergencyStop'],
+  ['configure', 'configure'],
+].map(([name, key]) => ({
+  id: `printer.${name}`,
+  get label() {
+    return t(`printerPermissionLabels.${key}`)
+  },
+}))
 
 const physical = new Set(
   ['review', 'swap_cartridges', 'stop_after_label', 'emergency_stop', 'view_audit'].map(

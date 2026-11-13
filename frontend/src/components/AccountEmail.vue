@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '../shared/i18n'
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, useId } from 'vue'
 import { api, errorMessage } from '../shared/api'
 import { useAuthStore } from '../auth/auth'
@@ -48,15 +49,65 @@ const destinations = computed(() =>
   w.destinations.filter((destination) => auth.printer(destination.id, 'view_activity')),
 )
 const kinds = computed(() => [
-  { value: 'general', label: 'General alerts', scoped: false },
-  { value: 'job_printed', label: 'My printed labels', scoped: false },
-  { value: 'empty_tape', label: 'Empty cartridges', scoped: true },
-  { value: 'printer_blocked', label: 'Blocked printers', scoped: true },
-  { value: 'batch_review', label: 'Batch reviews', scoped: true },
-  { value: 'batch_printed', label: 'Finished batches', scoped: true },
-  { value: 'tape_waiting', label: 'Waiting tape reminders', scoped: true },
+  {
+    value: 'general',
+    get label() {
+      return t('uiMessages.generalAlerts')
+    },
+    scoped: false,
+  },
+  {
+    value: 'job_printed',
+    get label() {
+      return t('uiMessages.myPrintedLabels')
+    },
+    scoped: false,
+  },
+  {
+    value: 'empty_tape',
+    get label() {
+      return t('uiMessages.emptyCartridges')
+    },
+    scoped: true,
+  },
+  {
+    value: 'printer_blocked',
+    get label() {
+      return t('uiMessages.blockedPrinters')
+    },
+    scoped: true,
+  },
+  {
+    value: 'batch_review',
+    get label() {
+      return t('uiMessages.batchReviews')
+    },
+    scoped: true,
+  },
+  {
+    value: 'batch_printed',
+    get label() {
+      return t('uiMessages.finishedBatches')
+    },
+    scoped: true,
+  },
+  {
+    value: 'tape_waiting',
+    get label() {
+      return t('uiMessages.waitingTapeReminders')
+    },
+    scoped: true,
+  },
   ...(auth.user?.is_admin
-    ? [{ value: 'approval_digest', label: 'Pending print requests', scoped: false }]
+    ? [
+        {
+          value: 'approval_digest',
+          get label() {
+            return t('uiMessages.pendingPrintRequests')
+          },
+          scoped: false,
+        },
+      ]
     : []),
 ])
 const selectedDestinations = computed(() =>
@@ -139,7 +190,7 @@ async function saveSubscription() {
       kinds: hasEvents.value ? selectedKinds.value : ['general'],
       printer_kinds: printerKinds.value,
     })
-    return 'Email notifications saved.'
+    return t('uiMessages.emailNotificationsSaved')
   })
 }
 onMounted(() => {
@@ -165,7 +216,7 @@ onBeforeUnmount(() => {
         {{ $t('accountEmail.emailDeliveryHasNotBeenConfiguredByYourAdministrator') }}
       </p>
       <div class="row wrap">
-        <span>{{ settings.email || 'No verified email address' }}</span>
+        <span>{{ settings.email || $t('uiMessages.noVerifiedEmailAddress') }}</span>
         <button
           ref="editButton"
           :aria-expanded="editing"
@@ -173,7 +224,7 @@ onBeforeUnmount(() => {
           :disabled="busy || (!settings.available && !settings.email && !settings.pending_email)"
           @click="edit"
         >
-          {{ settings.email ? 'Change email' : 'Add email' }}
+          {{ settings.email ? $t('uiMessages.changeEmail') : $t('uiMessages.addEmail') }}
         </button>
       </div>
       <p v-if="settings.pending_email" class="help">

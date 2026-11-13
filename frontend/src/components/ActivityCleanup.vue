@@ -160,7 +160,11 @@ onUnmounted(() => sequence++)
           :disabled="purging || loading"
           @click="purge"
         >
-          {{ purging ? 'Purging…' : `Permanently delete ${preview.batches}` }}
+          {{
+            purging
+              ? $t('uiMessages.purging')
+              : $t('uiDetails.deletePermanently', { value1: String(preview.batches) })
+          }}
         </button>
       </div>
     </dialog>

@@ -56,6 +56,36 @@ async function save(page: Page, request: APIRequestContext, id: string, revision
 const source =
   '// Conditional subtitle\nlet hasSubtitle = filled(subtitle);\ntext1.height = if(hasSubtitle, 12, 14);\ntext2.visible = hasSubtitle;'
 
+test('source search and reference translate without discarding an unsaved program', async ({
+  page,
+  request,
+}) => {
+  const { workspace } = await openEditor(page, request)
+  await edit(workspace, source)
+  await valid(workspace)
+  await workspace.getByRole('textbox', { name: 'Logic source' }).press('ControlOrMeta+f')
+  const search = workspace.locator('.cm-search input[name="search"]')
+  await search.fill('subtitle')
+  await search.dispatchEvent('change')
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'languages', { configurable: true, value: ['de-DE'] })
+    window.dispatchEvent(new Event('languagechange'))
+  })
+  await expect(search).toHaveAttribute('aria-label', 'Suchen')
+  await expect(search).toHaveValue('subtitle')
+  await expect(workspace.locator('.cm-content')).toHaveText(source.replaceAll('\n', ''))
+  await workspace.locator('.cm-search button[name="close"]').click()
+  await expect(workspace.locator('.cm-search')).toHaveCount(0)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'languages', { configurable: true, value: ['en'] })
+    window.dispatchEvent(new Event('languagechange'))
+  })
+  await expect(workspace.getByRole('textbox', { name: 'Logic source' })).toHaveText(
+    source.replaceAll('\n', ''),
+  )
+  await valid(workspace)
+})
+
 test('source, nodes, layout, comments, and undo round-trip through saving', async ({
   page,
   request,

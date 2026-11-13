@@ -62,7 +62,7 @@ const auth = useAuthStore()
 const route = useRoute(),
   router = useRouter()
 const document = ref<TemplateDocument>(newDocument()),
-  name = ref('Untitled label'),
+  name = ref(t('uiMessages.untitledLabel')),
   id = ref<string | null>(null),
   revision = ref(0)
 const scope = ref<'personal' | 'group' | 'global'>('personal'),
@@ -206,14 +206,30 @@ const printableBorder = computed(() => {
 })
 const selected = computed(() => document.value.elements.find((e) => e.id === selectedId.value))
 const elementTitles = {
-  text: 'Text',
-  qr: 'QR code',
-  barcode: 'Barcode',
-  datamatrix: 'Data Matrix',
-  aztec: 'Aztec code',
-  image: 'Image',
-  rectangle: 'Rectangle',
-  line: 'Line',
+  get text() {
+    return t('common.text')
+  },
+  get qr() {
+    return t('remainingUi.qRCode')
+  },
+  get barcode() {
+    return t('templateEditor.barcode')
+  },
+  get datamatrix() {
+    return t('templateEditor.dataMatrix')
+  },
+  get aztec() {
+    return t('uiMessages.aztecCode')
+  },
+  get image() {
+    return t('templateEditor.image')
+  },
+  get rectangle() {
+    return t('templateEditor.rectangle')
+  },
+  get line() {
+    return t('logicSourceEditor.line')
+  },
 }
 type InspectorTab = 'content' | 'style' | 'layout'
 const activeInspector = ref<InspectorTab>('content')
@@ -233,8 +249,18 @@ const inspectorTabs = computed(() =>
         return t('templateEditor.content')
       },
     },
-    { id: 'style' as const, label: 'Style' },
-    { id: 'layout' as const, label: 'Layout' },
+    {
+      id: 'style' as const,
+      get label() {
+        return t('uiMessages.style')
+      },
+    },
+    {
+      id: 'layout' as const,
+      get label() {
+        return t('uiMessages.layout')
+      },
+    },
   ].filter((tab) =>
     tab.id === 'content'
       ? ['text', 'qr', 'barcode', 'datamatrix', 'aztec', 'image'].includes(
@@ -455,14 +481,14 @@ async function load() {
       groupId.value = template.group_id ?? null
       originalSharing.value = { scope: scope.value, group_id: groupId.value }
       if (groupId.value && !userGroups.value.some((g) => g.id === groupId.value))
-        userGroups.value.push({ id: groupId.value, name: 'Current template group' })
+        userGroups.value.push({ id: groupId.value, name: t('uiMessages.currentTemplateGroup') })
       editable.value =
         template.can_edit ?? (!!auth.user?.is_admin || template.owner_id === auth.user?.id)
       document.value = { print_resolution: 'printer', ...structuredClone(template.document) }
     } else {
       id.value = null
       revision.value = 0
-      name.value = 'Untitled label'
+      name.value = t('uiMessages.untitledLabel')
       ownerId.value = auth.user?.id ?? null
       scope.value = auth.can('templates.create_personal')
         ? 'personal'
@@ -780,7 +806,7 @@ async function uploadImage() {
     target = selected.value
   if (!file || target?.kind !== 'image') return
   if (file.size > 5_000_000) {
-    w.actionError = 'Upload an image of at most 5 MB.'
+    w.actionError = t('uiMessages.uploadAnImageOfAtMost5MB')
     return
   }
   let asset: ImageAsset | undefined
@@ -791,7 +817,7 @@ async function uploadImage() {
       file,
     )
     if (asset.archived) asset = await api<ImageAsset>(`/image-assets/${asset.id}/restore`, 'POST')
-  }, 'Image uploaded and added to the template.')
+  }, t('uiMessages.imageUploadedAndAddedToTheTemplate'))
   if (ok && asset && document.value.elements.includes(target)) {
     target.image_asset = asset.id
     selectedId.value = target.id
@@ -928,7 +954,7 @@ async function save() {
         expected_revision: id.value ? revision.value : null,
       },
     )
-  }, 'Template revision saved. Existing queued labels keep their original layout.')
+  }, t('uiMessages.templateRevisionSavedExistingQueuedLabelsKeepTheirOriginalLayout'))
   if (ok && result) {
     saved.value = submitted
     revision.value = result.revision
@@ -978,7 +1004,7 @@ function removeField(index: number) {
     if (reference.name === name) referenced = true
   })
   if (referenced) {
-    w.actionError = 'Remove references to this variable from logic before deleting it.'
+    w.actionError = t('uiMessages.removeReferencesToThisVariableFromLogicBeforeDeletingIt')
     return
   }
   document.value.fields.splice(index, 1)
@@ -995,10 +1021,10 @@ function addField() {
     index++
   document.value.fields.push({
     name: `field${index}`,
-    label: `Field ${index}`,
+    label: t('uiDetails.field', { value1: String(index) }),
     required: true,
     default: '',
-    sample: 'Example',
+    sample: t('templatePreviewInputs.example'),
     ...(document.value.version === 2 ? { type: 'text' as const } : {}),
   })
   record()
@@ -1009,7 +1035,9 @@ function beforeUnload(event: BeforeUnloadEvent) {
     event.returnValue = ''
   }
 }
-onBeforeRouteLeave(() => !dirty.value || confirmAction('Discard unsaved template changes?'))
+onBeforeRouteLeave(
+  () => !dirty.value || confirmAction(t('uiMessages.discardUnsavedTemplateChanges')),
+)
 onMounted(() => {
   void load()
   window.addEventListener('beforeunload', beforeUnload)
@@ -1041,7 +1069,11 @@ onUnmounted(() => {
     <p v-else role="status">{{ $t('templateEditor.loadingTemplate') }}</p>
   </div>
   <div v-if="ready && w.profiles.length && !editable" class="alert warning">
-    {{ id ? 'This template is read-only.' : 'You do not have permission to create templates.' }}
+    {{
+      id
+        ? $t('uiMessages.thisTemplateIsReadOnly')
+        : $t('uiMessages.youDoNotHavePermissionToCreateTemplates')
+    }}
   </div>
   <section v-if="ready && w.profiles.length" class="panel editor-toolbar">
     <div class="editor-settings-fields">
@@ -1218,7 +1250,11 @@ onUnmounted(() => {
           {{ $t('common.saveTemplate') }}
         </button>
         <span class="help">{{
-          dirty ? 'Unsaved changes' : revision ? `Revision ${revision}` : 'New document'
+          dirty
+            ? $t('uiMessages.unsavedChanges')
+            : revision
+              ? $t('uiDetails.revision', { value1: String(revision) })
+              : $t('uiMessages.newDocument')
         }}</span>
       </div>
     </div>
@@ -1484,8 +1520,8 @@ onUnmounted(() => {
           rendering
             ? $t('newLabel.rendering')
             : showPrintPixels
-              ? 'Device raster preview'
-              : 'Smooth design preview'
+              ? $t('uiMessages.deviceRasterPreview')
+              : $t('uiMessages.smoothDesignPreview')
         }}
       </p>
       <p v-if="document.auto_length || document.out_of_bounds === 'clip'" class="help">
@@ -1691,7 +1727,7 @@ onUnmounted(() => {
                       :key="font.id"
                       :value="font.id"
                     >
-                      {{ font.family }} · {{ font.variable ? 'Variable' : font.style
+                      {{ font.family }} · {{ font.variable ? $t('uiMessages.variable') : font.style
                       }}{{ font.archived ? ' (hidden)' : '' }}
                     </option>
                   </select></label
@@ -1964,7 +2000,8 @@ onUnmounted(() => {
             </div>
             <div class="field-row">
               <label
-                >{{ selected.kind === 'line' ? $t('companionApp.lengthMm') : 'Width (mm)'
+                >{{
+                  selected.kind === 'line' ? $t('companionApp.lengthMm') : $t('uiMessages.widthMm')
                 }}<input
                   ref="widthInput"
                   :value="
@@ -2045,8 +2082,8 @@ onUnmounted(() => {
                     @change="changeAutomaticWidth"
                   />{{
                     selected.rotation % 180
-                      ? 'Fit text box height to content'
-                      : 'Fit text box width to content'
+                      ? $t('uiMessages.fitTextBoxHeightToContent')
+                      : $t('uiMessages.fitTextBoxWidthToContent')
                   }}</label
                 ><SettingHelp :help="editorHelp.autoWidth" />
               </div>

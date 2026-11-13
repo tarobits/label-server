@@ -1,3 +1,4 @@
+import { languagePicker, selectLanguage, expectLanguage } from './language'
 import { test, expect } from './fixtures'
 
 test('failed language saves preserve the account preference and allow a later save', async ({
@@ -5,18 +6,18 @@ test('failed language saves preserve the account preference and allow a later sa
   request,
 }) => {
   await page.goto('/#/account')
-  const picker = page.getByRole('combobox', { name: 'Language', exact: true })
-  await expect(picker).toHaveValue('browser')
+  const picker = languagePicker(page)
+  await expectLanguage(page, 'en')
   await page.route('**/api/auth/language', (route) => route.abort('failed'), { times: 1 })
-  await picker.selectOption('de')
+  await selectLanguage(page, 'de')
   await expect(page.getByRole('alert')).toContainText('Could not save language')
   await expect(picker).toBeEnabled()
-  await expect(picker).toHaveValue('browser')
+  await expectLanguage(page, 'en')
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   expect((await (await request.get('/api/auth/session')).json()).user.language).toBe('browser')
-  await picker.selectOption('de')
+  await selectLanguage(page, 'de')
   await expect(page.locator('html')).toHaveAttribute('lang', 'de')
-  await expect(page.getByRole('combobox', { name: 'Sprache', exact: true })).toBeEnabled()
+  await expect(languagePicker(page)).toBeEnabled()
   await expect(page.getByRole('alert')).toHaveCount(0)
   expect((await (await request.get('/api/auth/session')).json()).user.language).toBe('de')
   await page.goto('/#/activity')
@@ -27,8 +28,8 @@ test('a language save completing after sign-out cannot restore the old account o
   page,
 }) => {
   await page.goto('/#/account')
-  const picker = page.getByRole('combobox', { name: 'Language', exact: true })
-  await expect(picker).toHaveValue('browser')
+  const picker = languagePicker(page)
+  await expectLanguage(page, 'en')
   let release!: () => void
   const held = new Promise<void>((resolve) => {
     release = resolve
@@ -52,9 +53,9 @@ test('a language save completing after sign-out cannot restore the old account o
     }
   })
   try {
-    await picker.selectOption('de')
+    await selectLanguage(page, 'de')
     await saved
-    await expect(picker).toBeDisabled()
+    await expect(picker).toHaveAttribute('aria-busy', 'true')
     await page.locator('.account-menu > summary').click()
     await page
       .getByRole('group', { name: 'Account', exact: true })
@@ -66,7 +67,7 @@ test('a language save completing after sign-out cannot restore the old account o
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     // A subsequent device preference change must still work after the stale response.
-    await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de')
+    await selectLanguage(page, 'de')
     await expect(page.getByRole('heading', { name: 'Anmelden', exact: true })).toBeVisible()
   } finally {
     release()
@@ -85,17 +86,21 @@ test('account language changes live, preserves input and follows another session
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#/account')
   await page.locator('input[name="current_password"]').fill('unsaved text')
-  await page.getByRole('combobox', { name: 'Language', exact: true }).selectOption('de')
+  await selectLanguage(page, 'de')
   await expect(page.locator('html')).toHaveAttribute('lang', 'de')
-  await expect(page.getByRole('combobox', { name: 'Sprache', exact: true })).toHaveValue('de')
+  await expectLanguage(page, 'de')
   await expect(page.locator('input[name="current_password"]')).toHaveValue('unsaved text')
   await expect(page).toHaveTitle(/Kontoeinstellungen/)
   await expect(page.getByRole('heading', { name: 'Kontoeinstellungen', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Menü', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Vorlagen', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Menü', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'PIN festlegen', exact: true })).toBeVisible()
+  await expect(page.getByText('Keine bestätigte E-Mail-Adresse', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   )
-  await page.getByRole('combobox', { name: 'Sprache', exact: true }).scrollIntoViewIfNeeded()
+  await languagePicker(page).scrollIntoViewIfNeeded()
   await page.screenshot({ path: 'test-results/i18n-de-account.png', animations: 'disabled' })
   const another = await browser.newContext({
     baseURL,
@@ -105,13 +110,14 @@ test('account language changes live, preserves input and follows another session
   try {
     const second = await another.newPage()
     await second.goto('/#/account')
-    await expect(second.getByRole('combobox', { name: 'Sprache', exact: true })).toHaveValue('de')
+    await expectLanguage(second, 'de')
     await expect(second.locator('html')).toHaveAttribute('lang', 'de')
   } finally {
     await another.close()
   }
-  await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en')
+  await selectLanguage(page, 'en')
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page.getByRole('button', { name: 'Set PIN', exact: true })).toBeVisible()
   await expect(page.locator('input[name="current_password"]')).toHaveValue('unsaved text')
   expect(errors).toEqual([])
 })
@@ -130,7 +136,7 @@ test('signed-out language uses the browser and keeps form values when switched',
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'Anmelden', exact: true })).toBeVisible()
     await page.locator('input[autocomplete="username"]').fill('unchanged-name')
-    await page.getByRole('combobox', { name: 'Sprache', exact: true }).selectOption('en')
+    await selectLanguage(page, 'en')
     await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible()
     await expect(page.locator('input[autocomplete="username"]')).toHaveValue('unchanged-name')
     await page.reload()
