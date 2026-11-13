@@ -504,6 +504,9 @@ async function remove(template: Template) {
 .template-card h3 {
   font-size: 17px;
 }
+.template-card > .row {
+  margin-top: 12px;
+}
 .template-card .template-group-name {
   color: var(--text-secondary);
 }

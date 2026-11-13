@@ -77,7 +77,7 @@ function toggleEditing() {
 </script>
 
 <template>
-  <h2>{{ $t('common.companionPin') }}</h2>
+  <h2 class="pin-heading">{{ $t('common.companionPin') }}</h2>
   <p v-if="error" class="alert danger" role="alert">{{ error }}</p>
   <p v-if="success" class="alert success" role="status">{{ success }}</p>
   <button
@@ -156,6 +156,9 @@ function toggleEditing() {
 </template>
 
 <style scoped>
+.pin-heading {
+  margin-bottom: 24px;
+}
 .pin-form {
   max-width: 440px;
   margin-top: 24px;

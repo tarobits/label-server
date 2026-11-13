@@ -993,6 +993,10 @@ td small {
 .pagination > span {
   margin-right: auto;
 }
+.pagination + .alert,
+.pagination + [role='status'] {
+  margin-top: 12px;
+}
 .pagination button {
   font-size: 12px;
   padding: 6px 12px;
@@ -1473,7 +1477,7 @@ dd {
   min-height: 44px;
 }
 .editor-settings-actions {
-  gap: 8px;
+  gap: 10px;
   margin-left: auto;
 }
 .editor-settings-actions .help {
@@ -1577,7 +1581,7 @@ dd {
   gap: 12px;
 }
 .editor-add-buttons {
-  gap: 8px;
+  gap: 10px;
 }
 .editor-add-buttons button {
   padding: 9px 12px;

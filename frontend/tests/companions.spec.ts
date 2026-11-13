@@ -47,7 +47,7 @@ for (const width of [1280, 390]) {
     const removeBox = (await removeButton.boundingBox())!
     expect(
       Math.max(removeBox.x - saveBox.x - saveBox.width, removeBox.y - saveBox.y - saveBox.height),
-    ).toBeGreaterThanOrEqual(8)
+    ).toBeGreaterThanOrEqual(10)
     await saveButton.click()
     await expect(settings.locator('.validation-summary')).toBeVisible()
     await settings.getByRole('button', { name: 'Cancel', exact: true }).click()

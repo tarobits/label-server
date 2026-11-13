@@ -105,7 +105,7 @@ function press(key: string) {
   gap: 12px;
 }
 .compact .pin-keypad {
-  gap: 8px;
+  gap: 10px;
 }
 .compact .pin-keypad button {
   min-height: 44px;

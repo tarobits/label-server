@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
   margin: -7px;
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 10px;
   max-height: 55vh;
   overflow: auto;
 }

@@ -77,22 +77,24 @@ async function remove(font: FontAsset) {
             </td>
             <td>{{ font.archived ? $t('uiMessages.hidden') : $t('fonts.available') }}</td>
             <td>
-              <button
-                v-if="font.archived ? font.can_edit : font.can_delete"
-                class="text-button"
-                :disabled="w.busy"
-                @click="visibility(font)"
-              >
-                {{ font.archived ? $t('administration.restore') : $t('uiMessages.hide') }}
-              </button>
-              <button
-                v-if="font.can_delete"
-                class="text-button danger-text"
-                :disabled="w.busy"
-                @click="remove(font)"
-              >
-                {{ $t('fonts.deleteFont') }}
-              </button>
+              <div class="row wrap">
+                <button
+                  v-if="font.archived ? font.can_edit : font.can_delete"
+                  class="text-button"
+                  :disabled="w.busy"
+                  @click="visibility(font)"
+                >
+                  {{ font.archived ? $t('administration.restore') : $t('uiMessages.hide') }}
+                </button>
+                <button
+                  v-if="font.can_delete"
+                  class="text-button danger-text"
+                  :disabled="w.busy"
+                  @click="remove(font)"
+                >
+                  {{ $t('fonts.deleteFont') }}
+                </button>
+              </div>
               <AssetSharingEditor v-if="font.can_share" kind="fonts" :asset="font" />
             </td>
           </tr>

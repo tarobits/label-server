@@ -167,6 +167,9 @@ useLiveRefresh(refresh)
   padding: 0 3px;
 }
 .notification-list article {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
   padding: 1rem 0;
   border-bottom: 1px solid var(--line);
 }

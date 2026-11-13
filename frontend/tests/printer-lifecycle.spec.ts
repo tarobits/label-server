@@ -91,7 +91,7 @@ for (const width of [1280, 390]) {
         retire!.x - configure!.x - configure!.width,
         retire!.y - configure!.y - configure!.height,
       ),
-    ).toBeGreaterThanOrEqual(8)
+    ).toBeGreaterThanOrEqual(10)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     )

@@ -1383,7 +1383,7 @@ onBeforeUnmount(() => {
 .node-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   max-height: 160px;
   overflow: auto;
 }

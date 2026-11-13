@@ -442,7 +442,7 @@ function focusIssue(issue: SourceDiagnostic) {
 }
 .source-diagnostics {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   padding-block: 12px;
 }
 .source-diagnostics button {

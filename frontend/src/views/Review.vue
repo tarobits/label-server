@@ -426,7 +426,7 @@ async function resolve() {
 .review-decision {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-width: 165px;
 }
 .review-decision button {

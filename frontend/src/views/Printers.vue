@@ -635,7 +635,7 @@ function move(index: number, offset: number) {
       </div>
     </article>
   </section>
-  <section class="panel">
+  <section class="panel printer-notifications">
     <h2>{{ $t('common.notifications') }}</h2>
     <p>
       {{
@@ -651,6 +651,11 @@ function move(index: number, offset: number) {
   </section>
 </template>
 <style scoped>
+.printer-notifications {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
 .printer-diagnostics {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
@@ -700,6 +705,6 @@ function move(index: number, offset: number) {
   min-width: 160px;
 }
 .preference-list button {
-  margin-left: 8px;
+  margin-left: 10px;
 }
 </style>
