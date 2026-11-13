@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.3] - 2026-11-13
+
+### Changed
+
+- New labels and CSV runs start without a selected template; explicit template links
+  still select the requested template.
+
+### Fixed
+
+- Unavailable or missing suggested tape profiles leave the selection empty until
+  an available profile is chosen.
+
 ## [0.20.2] - 2026-11-13
 
 ### Fixed

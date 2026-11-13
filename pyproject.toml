@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "label-printer-server"
-version = "0.20.2"
+version = "0.20.3"
 description = "Persistent tape-aware label queue with Brother USB printers and groups"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE", "NOTICE.md", "app/fonts/OFL.txt"]
