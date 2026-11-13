@@ -37,7 +37,7 @@ const route = useRoute(),
 const groups = ref<QueueGroup[]>([]),
   selectedIds = ref<string[]>([]),
   expanded = ref<string[]>([]),
-  filter = ref(route.query.state === 'printed' ? 'printed' : t('common.queued')),
+  filter = ref(route.query.state === 'printed' ? 'printed' : 'queued'),
   profileFilter = ref(''),
   destinationFilter = ref(
     typeof route.query.destination === 'string' ? route.query.destination : '',
@@ -95,7 +95,7 @@ watch(
 watch(
   () => route.query.state,
   (state) => {
-    filter.value = state === 'printed' ? 'printed' : t('common.queued')
+    filter.value = state === 'printed' ? 'printed' : 'queued'
   },
 )
 watch(page, () => {
