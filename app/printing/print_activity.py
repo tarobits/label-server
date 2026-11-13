@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.audit.activity_redaction import personal_attribution
 from app.authn.access import access_context
 from app.authn.authorization import visible_destinations
+from app.i18n import Message
 from app.models import Batch, BatchItem, Cartridge, LabelCopy, PrinterDevice, PrintJob, State
 
 
@@ -37,7 +38,7 @@ def full_activity(request: Request, batch: Batch, *, review: bool = False) -> bo
 def readable_batch(request: Request, session: Session, identifier: str) -> Batch:
     batch = session.get(Batch, identifier)
     if batch is None:
-        raise HTTPException(404, "Batch not found")
+        raise HTTPException(404, Message("serverMessages.batchNotFound"))
     if (
         not full_activity(request, batch, review=True)
         and session.scalar(
@@ -48,7 +49,7 @@ def readable_batch(request: Request, session: Session, identifier: str) -> Batch
         )
         is None
     ):
-        raise HTTPException(403, "This batch is not accessible")
+        raise HTTPException(403, Message("serverMessages.thisBatchIsNotAccessible"))
     return batch
 
 

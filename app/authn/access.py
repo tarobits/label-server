@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from app.authn.identity import LOCAL_OWNER_ID
+from app.i18n import Message
 
 LEVELS = {"none": 0, "request": 1, "print": 2, "moderator": 3, "full": 4}
 ADMINISTRATOR_ROLE_ID = "administrator"
@@ -100,7 +101,7 @@ class AccountPolicy:
 
     def can_destination(self, actor: Actor, identifier: str, minimum: str = "request") -> bool:
         if minimum not in LEVELS:
-            raise ValueError("Unknown destination access level")
+            raise ValueError(Message("authValidation.unknownDestinationAccessLevel"))
         if actor.is_admin:
             return True
         return (
@@ -113,7 +114,7 @@ class AccountPolicy:
 
         permission = f"printer.{permission}"
         if permission not in PRINTER_PERMISSIONS:
-            raise ValueError("Unknown printer permission")
+            raise ValueError(Message("authValidation.unknownPrinterPermission"))
         if actor.is_admin:
             return True
         if identifier not in self.destinations:
@@ -260,21 +261,21 @@ class AccessContext:
 
     def require_printer(self, identifier: str, *permissions: str) -> None:
         if not any(self.can_printer(identifier, permission) for permission in permissions):
-            raise HTTPException(403, "This printer permission is not granted")
+            raise HTTPException(403, Message("authMessages.thisPrinterPermissionIsNotGranted"))
 
     def can_cartridge(self, identifier: str, permission: str) -> bool:
         from app.authn.resource_access import CARTRIDGE_PERMISSIONS
 
         name = f"cartridge.{permission}"
         if name not in CARTRIDGE_PERMISSIONS:
-            raise ValueError("Unknown cartridge permission")
+            raise ValueError(Message("authValidation.unknownCartridgePermission"))
         if not isinstance(self.policy, AccountPolicy):
             return self.can(Action.READ, Resource("cartridge", identifier))
         return self.actor.is_admin or name in self.actor.cartridge_permissions.get(identifier, ())
 
     def require_cartridge(self, identifier: str, permission: str) -> None:
         if not self.can_cartridge(identifier, permission):
-            raise HTTPException(403, "This cartridge permission is not granted")
+            raise HTTPException(403, Message("authMessages.thisCartridgePermissionIsNotGranted"))
 
     def can_destination(self, identifier: str, minimum: str = "request") -> bool:
         if isinstance(self.policy, AccountPolicy):
@@ -283,11 +284,13 @@ class AccessContext:
 
     def require_destination(self, identifier: str, minimum: str = "request") -> None:
         if not self.can_destination(identifier, minimum):
-            raise HTTPException(403, "This destination access level is not permitted")
+            raise HTTPException(
+                403, Message("authMessages.thisDestinationAccessLevelIsNotPermitted")
+            )
 
     def require(self, action: Action, resource: Resource) -> None:
         if not self.can(action, resource):
-            raise HTTPException(403, "This operation is not permitted")
+            raise HTTPException(403, Message("authMessages.thisOperationIsNotPermitted"))
 
 
 def access_context(request: Request) -> AccessContext:
@@ -307,7 +310,7 @@ def access_context(request: Request) -> AccessContext:
             return station_context(request, session)
         authentication = session_user(request, session)
         if authentication is None:
-            raise HTTPException(401, "Sign in to continue")
+            raise HTTPException(401, Message("authMessages.signInToContinue"))
         user, login = authentication
         check_csrf(request, login)
         actor = actor_for_user(session, user)
@@ -343,7 +346,7 @@ def authorize_current_request(request: Request) -> None:
     context = access_context(request)
     path = request.scope["route"].path
     if path.startswith("/api/notifications") and not context.actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
     action = (
         Action.READ
         if request.method in ("GET", "HEAD")

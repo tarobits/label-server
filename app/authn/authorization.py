@@ -7,6 +7,7 @@ from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.authn.access import Action, Resource, access_context
+from app.i18n import Message
 from app.models import (
     Base,
     Batch,
@@ -31,7 +32,7 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
 
         with request.app.state.factory() as session:
             if is_deleted(session, "templates", value.id):
-                raise HTTPException(410, "Template has been deleted")
+                raise HTTPException(410, Message("authMessages.templateHasBeenDeleted"))
         context.require(
             action,
             Resource(
@@ -58,7 +59,7 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
             and value.owner_id != context.actor.id
             and not context.actor.is_admin
         ):
-            raise HTTPException(403, "This draft belongs to another user")
+            raise HTTPException(403, Message("authMessages.thisDraftBelongsToAnotherUser"))
         context.require(
             action,
             Resource(
@@ -84,7 +85,7 @@ def require_record(request: Request, value: Base, action: Action = Action.READ) 
                     )
                 )
             if owners != {context.actor.id}:
-                raise HTTPException(403, "This queue reservation is not yours")
+                raise HTTPException(403, Message("authMessages.thisQueueReservationIsNotYours"))
     elif isinstance(value, (PrinterDevice, PrinterGroup)):
         context.require(action, Resource("destination", value.id, destination_id=value.id))
     elif isinstance(value, Cartridge):
@@ -133,9 +134,11 @@ def rendering_destination(
         if session.scalar(select(PrinterDevice.id).limit(1)) or session.scalar(
             select(PrinterGroup.id).limit(1)
         ):
-            raise HTTPException(403, "No permitted print destination")
-        raise HTTPException(409, "No available print destination; ask an administrator for access")
-    raise HTTPException(422, "Choose a printer or distribution group")
+            raise HTTPException(403, Message("authMessages.noPermittedPrintDestination"))
+        raise HTTPException(
+            409, Message("authMessages.noAvailablePrintDestinationAskAnAdministratorForAccess")
+        )
+    raise HTTPException(422, Message("authMessages.chooseAPrinterOrDistributionGroup"))
 
 
 def visible_jobs(request: Request, session: Session, query: Select[Any]) -> Select[Any]:
@@ -265,14 +268,14 @@ def template_scope(request: Request, session: Session, scope: str, group_id: str
 
     context = access_context(request)
     if scope == "global" and not context.has_permission("templates.create_global"):
-        raise HTTPException(403, "You cannot create global templates")
+        raise HTTPException(403, Message("authMessages.youCannotCreateGlobalTemplates"))
     if scope == "personal" and not context.has_permission("templates.create_personal"):
-        raise HTTPException(403, "You cannot create personal templates")
+        raise HTTPException(403, Message("authMessages.youCannotCreatePersonalTemplates"))
     if scope == "group":
         if not group_id or session.get(UserGroup, group_id) is None:
-            raise HTTPException(422, "Choose a user group")
+            raise HTTPException(422, Message("authMessages.chooseAUserGroup"))
         membership = context.actor.group_memberships.get(group_id)
         if not context.actor.is_admin and (membership is None or not membership.can_create):
-            raise HTTPException(403, "You cannot create templates in this group")
+            raise HTTPException(403, Message("authMessages.youCannotCreateTemplatesInThisGroup"))
     elif group_id is not None:
-        raise HTTPException(422, "Only group templates may select a user group")
+        raise HTTPException(422, Message("authMessages.onlyGroupTemplatesMaySelectAUserGroup"))

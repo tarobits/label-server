@@ -24,6 +24,7 @@ from app.authn.resource_access import (
     validate_location_parent,
 )
 from app.http import db, record
+from app.i18n import Message, error_detail
 from app.models import (
     AccessChangeConfirmation,
     Cartridge,
@@ -70,7 +71,7 @@ def rights_for(request: Request, session: Session) -> ResourceAccess:
     actor = access_context(request).actor
     user = session.get(User, actor.id)
     if user is None:
-        raise HTTPException(403, "An account is required")
+        raise HTTPException(403, Message("authMessages.anAccountIsRequired"))
     return resolve_resource_access(session, user, actor=actor)
 
 
@@ -205,12 +206,12 @@ def apply_resource_change(
     supplied = body.model_fields_set
     if body.kind == "location":
         if not abilities["locate"]:
-            raise HTTPException(403, "Location management permission is required")
+            raise HTTPException(403, Message("authMessages.locationManagementPermissionIsRequired"))
         if "location_id" in supplied:
-            raise HTTPException(422, "Use parent location for locations")
+            raise HTTPException(422, Message("authMessages.useParentLocationForLocations"))
         if value is None:
             if not body.name:
-                raise HTTPException(422, "A location name is required")
+                raise HTTPException(422, Message("authMessages.aLocationNameIsRequired"))
             value = Location(id=body.identifier, name=body.name, owner_id=rights.user_id)
             session.add(value)
         if body.name is not None:
@@ -219,21 +220,26 @@ def apply_resource_change(
             try:
                 validate_location_parent(session, body.identifier, body.parent_id)
             except ValueError as error:
-                raise HTTPException(422, str(error)) from error
+                raise HTTPException(422, error_detail(error)) from error
             value.parent_id = body.parent_id
     else:
         if value is None:
-            raise HTTPException(404, "Resource not found")
+            raise HTTPException(404, Message("authMessages.resourceNotFound"))
         if supplied & {"name", "parent_id"}:
-            raise HTTPException(422, "Use the resource editor to rename this resource")
+            raise HTTPException(
+                422, Message("authMessages.useTheResourceEditorToRenameThisResource")
+            )
         if "owner_id" in supplied:
             if not abilities["transfer"]:
                 raise HTTPException(
-                    403, "Only the owner or an authorized global editor may transfer ownership"
+                    403,
+                    Message(
+                        "authMessages.onlyTheOwnerOrAnAuthorizedGlobalEditorMayTransferOwnership"
+                    ),
                 )
             owner = session.get(User, body.owner_id) if body.owner_id else None
             if owner is None or owner.disabled:
-                raise HTTPException(422, "Choose an enabled owner")
+                raise HTTPException(422, Message("authMessages.chooseAnEnabledOwner"))
             from app.authn.ownership import record_ownership
 
             record_ownership(session, body.kind, value, at=0)
@@ -244,7 +250,9 @@ def apply_resource_change(
                 link = session.get(CompanionPrinter, body.identifier)
                 companion = session.get(Companion, link.companion_id) if link else None
                 if companion and body.location_id != companion.location_id:
-                    raise HTTPException(409, "This printer inherits its companion's location")
+                    raise HTTPException(
+                        409, Message("authMessages.thisPrinterInheritsItsCompanionsLocation")
+                    )
             installation = (
                 session.get(PrinterDevice, installation_printer) if installation_printer else None
             )
@@ -257,26 +265,32 @@ def apply_resource_change(
                 and rights.can("cartridge", body.identifier, "cartridge.view")
             )
             if not abilities["locate"] and not installing:
-                raise HTTPException(403, "Resource configuration permission is required")
+                raise HTTPException(
+                    403, Message("authMessages.resourceConfigurationPermissionIsRequired")
+                )
             if body.location_id and session.get(Location, body.location_id) is None:
-                raise HTTPException(422, "Location not found")
+                raise HTTPException(422, Message("authMessages.locationNotFound"))
             value.location_id = body.location_id
     if body.kind == "location" and "owner_id" in supplied:
         if not abilities["transfer"]:
-            raise HTTPException(403, "Location ownership management is required")
+            raise HTTPException(403, Message("authMessages.locationOwnershipManagementIsRequired"))
         owner = session.get(User, body.owner_id) if body.owner_id else None
         if body.owner_id and (owner is None or owner.disabled):
-            raise HTTPException(422, "Choose an enabled owner")
+            raise HTTPException(422, Message("authMessages.chooseAnEnabledOwner"))
         value.owner_id = body.owner_id
     if body.grants is not None:
         if not abilities["grants"]:
-            raise HTTPException(403, "Resource access management permission is required")
+            raise HTTPException(
+                403, Message("authMessages.resourceAccessManagementPermissionIsRequired")
+            )
         if not abilities["roles"] and any(g.principal_kind != "user" for g in body.grants):
-            raise HTTPException(403, "Printer owners may manage direct user grants only")
+            raise HTTPException(
+                403, Message("authMessages.printerOwnersMayManageDirectUserGrantsOnly")
+            )
         if len({(g.principal_kind, g.principal_id, g.permission) for g in body.grants}) != len(
             body.grants
         ):
-            raise HTTPException(422, "Duplicate grant")
+            raise HTTPException(422, Message("authMessages.duplicateGrant"))
         from app.authn.permission_rules import validate_submission_modes
 
         principals = {(g.principal_kind, g.principal_id) for g in body.grants}
@@ -288,7 +302,7 @@ def apply_resource_change(
                     if (g.principal_kind, g.principal_id) == principal and g.effect == "allow"
                 )
             except ValueError as error:
-                raise HTTPException(422, str(error)) from error
+                raise HTTPException(422, error_detail(error)) from error
         session.flush()
         query = delete(ResourceGrant).where(
             ResourceGrant.scope_kind == body.kind, ResourceGrant.scope_id == body.identifier
@@ -303,7 +317,7 @@ def apply_resource_change(
             try:
                 validate_grant(session, grant)
             except ValueError as error:
-                raise HTTPException(422, str(error)) from error
+                raise HTTPException(422, error_detail(error)) from error
             session.add(grant)
     session.flush()
     return value
@@ -380,7 +394,9 @@ def apply(body: ResourceChange, request: Request, session: DB) -> dict[str, Any]
         or receipt.request_hash != change_fingerprint(body)
         or receipt.state_hash != state_hash(session)
     ):
-        raise HTTPException(409, "Preview the current access changes before confirming")
+        raise HTTPException(
+            409, Message("authMessages.previewTheCurrentAccessChangesBeforeConfirming")
+        )
     if (
         any(
             grant.permission == "cartridge.approve_use" and grant.effect == "allow"
@@ -389,7 +405,7 @@ def apply(body: ResourceChange, request: Request, session: DB) -> dict[str, Any]
         and not body.accept_owner_loss
     ):
         raise HTTPException(
-            422, "Acknowledge that Approve use may reduce the cartridge owner's income"
+            422, Message("authMessages.acknowledgeThatApproveUseMayReduceTheCartridgeOwnersIncome")
         )
     value = mutate_with_evidence(session, request, rights, body)
     session.delete(receipt)
@@ -539,13 +555,13 @@ def explain_access(
     from dataclasses import asdict
 
     if location_id and (kind or identifier):
-        raise HTTPException(422, "Choose a resource or location filter")
+        raise HTTPException(422, Message("authMessages.chooseAResourceOrLocationFilter"))
     if bool(kind) != bool(identifier):
-        raise HTTPException(422, "Choose a resource kind and identifier together")
+        raise HTTPException(422, Message("authMessages.chooseAResourceKindAndIdentifierTogether"))
     viewer = rights_for(request, session)
     subject = session.get(User, user_id)
     if subject is None or subject.disabled:
-        raise HTTPException(404, "Enabled user not found")
+        raise HTTPException(404, Message("authMessages.enabledUserNotFound"))
     parents = dict(session.execute(select(Location.id, Location.parent_id)).all())
     permitted = []
     for resource_kind in MODELS:
@@ -581,7 +597,9 @@ def explain_access(
             if can_inspect:
                 permitted.append((resource_kind, value))
     if not permitted:
-        raise HTTPException(403, "Access inspection is not available for these resources")
+        raise HTTPException(
+            403, Message("authMessages.accessInspectionIsNotAvailableForTheseResources")
+        )
     resolved = resolve_resource_access(session, subject)
     return {
         "user": {"id": subject.id, "name": subject.username},

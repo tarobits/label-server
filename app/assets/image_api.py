@@ -20,6 +20,7 @@ from app.assets.asset_access import (
 from app.assets.image_assets import MAX_IMAGE_BYTES
 from app.authn.access import Action, access_context
 from app.http import db
+from app.i18n import Message, error_detail
 from app.schemas import Input
 from app.transaction_routes import TransactionRouter
 
@@ -33,7 +34,7 @@ class ImageNameInput(Input):
     @classmethod
     def nonempty_name(cls, value: str) -> str:
         if not value.strip():
-            raise ValueError("Image name must not be blank")
+            raise ValueError(Message("domainMessages.imageNameMustNotBeBlank"))
         return value.strip()
 
 
@@ -102,7 +103,7 @@ async def upload_image(
     async for chunk in request.stream():
         size += len(chunk)
         if size > MAX_IMAGE_BYTES:
-            raise HTTPException(413, "Upload an image of at most 5 MB")
+            raise HTTPException(413, Message("serverMessages.uploadAnImageOfAtMost5MB"))
         chunks.append(chunk)
     data = b"".join(chunks)
 
@@ -124,7 +125,7 @@ async def upload_image(
                     ),
                 )
             except ValueError as error:
-                raise HTTPException(422, str(error)) from error
+                raise HTTPException(422, error_detail(error)) from error
 
     return await run_in_threadpool(store)
 
@@ -154,7 +155,7 @@ def change_visibility(
             request.app.state.images.set_archived(identifier, archived, session=session),
         )
     except ValueError as error:
-        raise HTTPException(404, str(error)) from error
+        raise HTTPException(404, error_detail(error)) from error
 
 
 @router.put("/{identifier}/sharing")

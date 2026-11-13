@@ -14,6 +14,7 @@ from app.audit.print_audit import actor_snapshot, unknown_attribution
 from app.authn.access import access_context
 from app.authn.authorization import visible_destinations
 from app.http import db, job_template_name, record
+from app.i18n import Message
 from app.models import (
     FlushRequest,
     LabelCopy,
@@ -49,27 +50,35 @@ def change_printer(
 ) -> dict[str, Any]:
     context = access_context(request)
     if not context.has_permission("queue.change_printer"):
-        raise HTTPException(403, "The Change printers for queued work permission is required")
+        raise HTTPException(
+            403, Message("serverMessages.theChangePrintersForQueuedWorkPermissionIsRequired")
+        )
     context.require_printer(body.printer_id, "manage_queue")
     target = session.get(PrinterDevice, body.printer_id)
     if target is None or target.config.get("retired"):
-        raise HTTPException(422, "Choose an active replacement printer")
+        raise HTTPException(422, Message("serverMessages.chooseAnActiveReplacementPrinter"))
     fleet = request.app.state.fleet
     if target.id not in fleet.workers:
-        raise HTTPException(409, "The replacement printer's configuration is unavailable")
+        raise HTTPException(
+            409, Message("serverMessages.theReplacementPrintersConfigurationIsUnavailable")
+        )
     wanted = set(body.copy_ids)
     if len(wanted) != len(body.copy_ids):
-        raise HTTPException(422, "Select each copy once")
+        raise HTTPException(422, Message("printErrors.uniqueCopies"))
     copies = list(session.scalars(select(LabelCopy).where(LabelCopy.id.in_(wanted))))
     if len(copies) != len(wanted):
-        raise HTTPException(409, "Some selected copies are no longer available. Refresh the queue")
+        raise HTTPException(
+            409, Message("serverMessages.someSelectedCopiesAreNoLongerAvailableRefreshTheQueue")
+        )
     jobs = list(
         session.scalars(select(PrintJob).where(PrintJob.id.in_({c.job_id for c in copies})))
     )
     for job in jobs:
         context.require_printer(job.destination_id, "manage_queue")
     if any(label.state != State.QUEUED for label in copies):
-        raise HTTPException(409, "Only queued copies can change printer. Refresh the queue")
+        raise HTTPException(
+            409, Message("serverMessages.onlyQueuedCopiesCanChangePrinterRefreshTheQueue")
+        )
     job_ids = {job.id for job in jobs}
     run_ids = {job.run_id for job in jobs if job.run_id}
     scope = list(
@@ -82,33 +91,46 @@ def change_printer(
     if any(label.state in (State.PRINTING, State.NEEDS_REVIEW) for label in scope):
         raise HTTPException(
             409,
-            "A selected item or CSV run is printing or awaiting review. Finish or review its batch first",
+            Message(
+                "serverMessages.aSelectedItemOrCSVRunIsPrintingOrAwaitingReviewFinishOrReviewItsBatchFirst"
+            ),
         )
     if any(label.state == State.QUEUED and label.id not in wanted for label in scope):
         raise HTTPException(
             409,
-            "Select all remaining queued copies of each item and CSV run before changing printer",
+            Message(
+                "serverMessages.selectAllRemainingQueuedCopiesOfEachItemAndCSVRunBeforeChangingPrinter"
+            ),
         )
     for pending in session.scalars(select(FlushRequest).where(FlushRequest.completed.is_(False))):
         if wanted.intersection(pending.copy_ids):
             raise HTTPException(
                 409,
-                "Selected copies are reserved for printing. Cancel their pending print reservation first",
+                Message(
+                    "serverMessages.selectedCopiesAreReservedForPrintingCancelTheirPendingPrintReservationFirst"
+                ),
             )
     for job in jobs:
         if job.destination_id == target.id:
             raise HTTPException(
-                409, "Some selected items already use this printer. Choose another printer"
+                409,
+                Message(
+                    "serverMessages.someSelectedItemsAlreadyUseThisPrinterChooseAnotherPrinter"
+                ),
             )
         if fleet.enforce_job_access and not job_eligible(session, job):
             raise HTTPException(
                 409,
-                "A selected item has an access or content hold. An administrator must review it first",
+                Message(
+                    "serverMessages.aSelectedItemHasAnAccessOrContentHoldAnAdministratorMustReviewItFirst"
+                ),
             )
         if not fleet.supports_geometry(job, target.id):
             raise HTTPException(
                 409,
-                "The replacement printer does not support the selected labels' saved resolution or printable area",
+                Message(
+                    "serverMessages.theReplacementPrinterDoesNotSupportTheSelectedLabelsSavedResolutionOrPrintableArea"
+                ),
             )
     stamp = time.time()
     person = actor_snapshot(context.actor) or {

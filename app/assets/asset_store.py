@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.assets.asset_cache import cache_use, touch
 from app.assets.binary_json import check_packet_size
 from app.authn.identity import LOCAL_OWNER_ID
+from app.i18n import Message
 from app.models import StoredAsset
 
 ASSET_ID = re.compile(r"^[a-f0-9]{64}$")
@@ -31,9 +32,11 @@ class AssetStore:
 
     def path(self, identifier: str, *, include_deleted: bool = False) -> Path:
         if not ASSET_ID.fullmatch(identifier):
-            raise ValueError("Invalid asset ID")
+            raise ValueError(Message("domainMessages.invalidAssetID"))
         if not include_deleted and self.unavailable(identifier):
-            raise ValueError("This asset was deleted; restore or replace it before printing")
+            raise ValueError(
+                Message("domainMessages.thisAssetWasDeletedRestoreOrReplaceItBeforePrinting")
+            )
         path = self.root / f"{identifier}.{self.suffix}"
         if self.factory:
             with cache_use(), self.factory() as session:
@@ -44,25 +47,29 @@ class AssetStore:
                     )
                 )
                 if checksum is None:
-                    raise ValueError("Asset is missing from the database")
+                    raise ValueError(Message("domainMessages.assetIsMissingFromTheDatabase"))
                 if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
                     asset = session.get(StoredAsset, (self.suffix, identifier))
                     assert asset is not None
                     if hashlib.sha256(asset.content).hexdigest() != checksum:
-                        raise ValueError("Asset failed database integrity verification")
+                        raise ValueError(
+                            Message("domainMessages.assetFailedDatabaseIntegrityVerification")
+                        )
                     self._write(path, asset.content)
                 touch(path)
                 return path
         if not path.is_file():
-            raise ValueError("Asset is missing; restore it from your data backup")
+            raise ValueError(Message("domainMessages.assetIsMissingRestoreItFromYourDataBackup"))
         return path
 
     def metadata(self, identifier: str, *, include_deleted: bool = False) -> dict[str, Any]:
         if self.factory:
             if not ASSET_ID.fullmatch(identifier):
-                raise ValueError("Invalid asset ID")
+                raise ValueError(Message("domainMessages.invalidAssetID"))
             if not include_deleted and self.unavailable(identifier):
-                raise ValueError("This asset was deleted; restore or replace it before printing")
+                raise ValueError(
+                    Message("domainMessages.thisAssetWasDeletedRestoreOrReplaceItBeforePrinting")
+                )
             with self.factory() as session:
                 details = session.scalar(
                     select(StoredAsset.details).where(
@@ -70,7 +77,7 @@ class AssetStore:
                     )
                 )
                 if details is None:
-                    raise ValueError("Asset is missing from the database")
+                    raise ValueError(Message("domainMessages.assetIsMissingFromTheDatabase"))
                 return dict(details)
         self.path(identifier, include_deleted=include_deleted)
         metadata = dict(json.loads((self.root / f"{identifier}.json").read_text()))
@@ -129,7 +136,7 @@ class AssetStore:
 
     def purge(self, identifier: str, *, session: Session | None = None) -> None:
         if not ASSET_ID.fullmatch(identifier):
-            raise ValueError("Invalid asset ID")
+            raise ValueError(Message("domainMessages.invalidAssetID"))
         if self.factory:
             if session is None:
                 with self.factory.begin() as transaction:
@@ -186,7 +193,7 @@ class AssetStore:
                 return
             asset = session.get(StoredAsset, (self.suffix, identifier))
             if asset is None:
-                raise ValueError("Asset is missing from the database")
+                raise ValueError(Message("domainMessages.assetIsMissingFromTheDatabase"))
             asset.details = metadata
         else:
             self._write(self.root / f"{identifier}.json", json.dumps(metadata).encode())

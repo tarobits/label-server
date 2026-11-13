@@ -21,6 +21,7 @@ from app.accounts.usage_accounts import (
 from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.authn.access import access_context
 from app.http import db, record
+from app.i18n import Message
 from app.models import (
     Batch,
     Cartridge,
@@ -44,9 +45,9 @@ def accounts(
     if (all_users or user_id not in (None, context.actor.id)) and not context.has_permission(
         "usage.view_others"
     ):
-        raise HTTPException(403, "Viewing other users' accounts is not permitted")
+        raise HTTPException(403, Message("serverMessages.viewingOtherUsersAccountsIsNotPermitted"))
     if all_users and user_id is not None:
-        raise HTTPException(422, "Choose all accounts or an individual account")
+        raise HTTPException(422, Message("serverMessages.chooseAllAccountsOrAnIndividualAccount"))
     viewer = None if all_users else user_id or context.actor.id
     allocations = (
         select(TapeAllocation, Batch.created_at, Cartridge.name)
@@ -131,10 +132,13 @@ def parties(request: Request, session: DB) -> list[dict[str, str]]:
 def record_repayment(request: Request, session: Session, body: AdjustmentInput) -> UsageAdjustment:
     context = access_context(request)
     if body.amount_minor < 0 and not context.has_permission("usage.edit_accounts"):
-        raise HTTPException(403, "Only an accounting editor may subtract from a balance")
+        raise HTTPException(
+            403, Message("serverMessages.onlyAnAccountingEditorMaySubtractFromABalance")
+        )
     if body.recipient_id != context.actor.id and not context.has_permission("usage.edit_accounts"):
         raise HTTPException(
-            403, "Only the recipient or an accounting editor may record this repayment"
+            403,
+            Message("serverMessages.onlyTheRecipientOrAnAccountingEditorMayRecordThisRepayment"),
         )
     existing = session.get(UsageAdjustment, str(body.request_id))
     adjustment = adjust_account(session, context.actor, body)
@@ -188,10 +192,12 @@ def repayment(body: AdjustmentInput, request: Request, session: DB) -> dict[str,
 def repayment_preview(body: AdjustmentInput, request: Request, session: DB) -> dict[str, Any]:
     context = access_context(request)
     if body.amount_minor < 0 and not context.has_permission("usage.edit_accounts"):
-        raise HTTPException(403, "Only an accounting editor may subtract from a balance")
+        raise HTTPException(
+            403, Message("serverMessages.onlyAnAccountingEditorMaySubtractFromABalance")
+        )
     if body.recipient_id != context.actor.id and not context.has_permission("usage.edit_accounts"):
         raise HTTPException(
-            403, "Only the recipient or an accounting editor may allocate a repayment"
+            403, Message("serverMessages.onlyTheRecipientOrAnAccountingEditorMayAllocateARepayment")
         )
     balances = [
         row
@@ -251,7 +257,9 @@ def require_payment_accounts(session: Session, *identifiers: str) -> None:
 
     for identifier in identifiers:
         if session.get(User, identifier) is None or is_deleted(session, "users", identifier):
-            raise HTTPException(409, "Both payment accounts must exist and not be deleted")
+            raise HTTPException(
+                409, Message("serverMessages.bothPaymentAccountsMustExistAndNotBeDeleted")
+            )
 
 
 @router.post("/payment-reports", status_code=201)
@@ -264,12 +272,14 @@ def report_payment(body: PaymentReportInput, request: Request, session: DB) -> d
             getattr(existing, key) != getattr(body, key)
             for key in ("recipient_id", "amount_minor", "currency", "note")
         ):
-            raise HTTPException(409, "This payment reference has already been used")
+            raise HTTPException(
+                409, Message("serverMessages.thisPaymentReferenceHasAlreadyBeenUsed")
+            )
         return payment_report_record(existing, request)
     if session.get(UsageAdjustment, identifier) is not None:
-        raise HTTPException(409, "This payment reference has already been used")
+        raise HTTPException(409, Message("serverMessages.thisPaymentReferenceHasAlreadyBeenUsed"))
     if body.recipient_id == actor.id:
-        raise HTTPException(422, "Choose a different payer and recipient")
+        raise HTTPException(422, Message("serverMessages.chooseADifferentPayerAndRecipient"))
     require_payment_accounts(session, actor.id, body.recipient_id)
     recipient = session.get(User, body.recipient_id)
     assert recipient is not None
@@ -297,7 +307,7 @@ def review_payment(
         select(PaymentReport).where(PaymentReport.id == identifier).with_for_update()
     )
     if report is None:
-        raise HTTPException(404, "Payment report not found")
+        raise HTTPException(404, Message("serverMessages.paymentReportNotFound"))
     context = access_context(request)
     if decision == "cancel":
         allowed = report.user_id == context.actor.id
@@ -308,17 +318,23 @@ def review_payment(
     if not allowed:
         raise HTTPException(
             403,
-            "Only the recipient or an accounting editor may review a payment; only its payer may cancel it",
+            Message(
+                "serverMessages.onlyTheRecipientOrAnAccountingEditorMayReviewAPaymentOnlyItsPayerMayCancelIt"
+            ),
         )
     status = {"approve": "approved", "reject": "rejected", "cancel": "cancelled"}[decision]
     if report.status != "pending":
         if report.status != status:
-            raise HTTPException(409, "This payment report has already been resolved")
+            raise HTTPException(
+                409, Message("serverMessages.thisPaymentReportHasAlreadyBeenResolved")
+            )
         return payment_report_record(report, request)
     if decision == "approve":
         require_payment_accounts(session, report.user_id, report.recipient_id)
         if session.get(UsageAdjustment, identifier) is not None:
-            raise HTTPException(409, "This payment reference has already been used")
+            raise HTTPException(
+                409, Message("serverMessages.thisPaymentReferenceHasAlreadyBeenUsed")
+            )
         record_repayment(
             request,
             session,

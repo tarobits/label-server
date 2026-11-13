@@ -113,3 +113,45 @@ def test_saved_source_equivalence_ignores_declaration_order_and_numeric_spelling
     response = client.post("/api/logic/inspect", json=raw)
     assert response.status_code == 200, response.text
     assert response.json()["source"] == source
+
+
+def test_german_diagnostics_keep_source_offsets_and_allow_recovery(client):
+    raw = document().model_dump(mode="json")
+    source = "// 🦊\ntext1.height = unknown;"
+    payload = {"document": raw, "source": source}
+    english = client.post("/api/logic/compile", json=payload).json()
+    german = client.post(
+        "/api/logic/compile", json=payload, headers={"Accept-Language": "de"}
+    ).json()
+    assert not english["valid"] and not german["valid"]
+    original, translated = english["diagnostics"][0], german["diagnostics"][0]
+    assert "Nicht definierte Variable unknown" in translated["message"]
+    assert {key: value for key, value in translated.items() if key != "message"} == {
+        key: value for key, value in original.items() if key != "message"
+    }
+    payload["source"] = "text1.height = 12;"
+    recovered = client.post(
+        "/api/logic/compile", json=payload, headers={"Accept-Language": "de"}
+    ).json()
+    assert recovered["valid"] and recovered["diagnostics"] == []
+    assert recovered["catalog"]["source"] == recovered["formatted"]
+    add = next(item for item in recovered["catalog"]["operations"] if item["name"] == "add")
+    assert add["description"] == "Addiert zwei Zahlen."
+
+
+def test_automatic_dimension_error_survives_model_validation_in_german(client):
+    raw = document(automatic=True).model_dump(mode="json")
+    response = client.post(
+        "/api/logic/compile",
+        json={
+            "document": raw,
+            "source": "label.length_mm = 60;",
+        },
+        headers={"Accept-Language": "de"},
+    )
+    assert response.status_code == 200
+    assert not response.json()["valid"]
+    assert (
+        "Deaktiviere die automatische Etikettenlänge"
+        in response.json()["diagnostics"][0]["message"]
+    )

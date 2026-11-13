@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from app.i18n import Message
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 
@@ -63,12 +64,14 @@ def status_router(settings: Settings, agent: Agent) -> APIRouter:
     def authorize(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> None:
         expected = settings.status_api_key.get_secret_value()
         if not expected:
-            raise HTTPException(404, "Status API is disabled")
+            raise HTTPException(404, Message("serverMessages.statusAPIIsDisabled"))
         if credentials is None or not hmac.compare_digest(
             credentials.credentials.encode(), expected.encode()
         ):
             raise HTTPException(
-                401, "Invalid status API key", headers={"WWW-Authenticate": "Bearer"}
+                401,
+                Message("serverMessages.invalidStatusAPIKey"),
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
     router = APIRouter(prefix="/api/status", dependencies=[Depends(authorize)])
@@ -137,7 +140,7 @@ def status_router(settings: Settings, agent: Agent) -> APIRouter:
     def one_printer(local_id: str) -> StationStatus:
         device = next((device for device in agent.devices if device.local_id == local_id), None)
         if device is None:
-            raise HTTPException(404, "Printer not found")
+            raise HTTPException(404, Message("serverMessages.printerNotFound"))
         return snapshot([device])
 
     return router

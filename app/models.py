@@ -362,6 +362,7 @@ class PrinterState(Base):
         ForeignKey("cartridges.id", ondelete="SET NULL")
     )
     blocker: Mapped[str | None]
+    blocker_translation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     automatic_printing_held: Mapped[bool] = mapped_column(default=False, server_default="0")
 
 

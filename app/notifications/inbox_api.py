@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.audit.audit import AuditField, AuditScope, append_audit
 from app.authn.access import access_context
 from app.http import db
-from app.i18n import notice_text, request_language
+from app.i18n import Message, notice_text, request_language
 from app.models import Notification, NotificationRead, new_id
 from app.schemas import Input
 from app.transaction_routes import TransactionRouter
@@ -129,7 +129,7 @@ def mark_one(identifier: str, body: ReadInput, request: Request, session: DB) ->
     actor = access_context(request).actor
     entry = session.execute(visible(request, session).where(Notification.id == identifier)).first()
     if entry is None:
-        raise HTTPException(404, "Notification not found")
+        raise HTTPException(404, Message("serverMessages.notificationNotFound"))
     row = session.get(NotificationRead, (identifier, actor.id))
     if body.read and row is None:
         session.add(NotificationRead(notification_id=identifier, user_id=actor.id))

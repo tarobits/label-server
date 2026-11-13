@@ -21,33 +21,34 @@ from fastapi import HTTPException, Request, Response
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.i18n import Message
 from app.models import AuthSession, AuthSettings, PrinterDevice, PrinterGroup, Role, User, UserGroup
 
 COOKIE_NAME = "label_session"
 SESSION_SECONDS = 7 * 24 * 3600
 PERMISSIONS = {
-    "billing.create": "Create group billing accounts",
-    "templates.create_personal": "Create personal templates",
-    "templates.create_global": "Create global templates",
-    "templates.edit_global": "Edit other users’ global templates",
-    "templates.delete_global": "Delete other users’ global templates",
-    "images.create_personal": "Upload personal images",
-    "images.create_global": "Upload global images",
-    "images.edit_global": "Edit other users’ global images",
-    "images.delete_global": "Delete other users’ global images",
-    "fonts.create_personal": "Upload personal fonts",
-    "fonts.create_global": "Upload global fonts",
-    "fonts.edit_global": "Edit other users’ global fonts",
-    "fonts.delete_global": "Delete other users’ global fonts",
-    "inventory.manage": "Manage tape profiles and cartridges",
-    "queue.change_printer": "Change printers for queued work",
-    "printers.manage": "Register printers and create distribution groups",
-    "usage.view_others": "View other users’ usage and balances",
-    "usage.edit_accounts": "Edit usage accounts",
-    "audit.view_all": "View all audit logs",
-    "locations.manage": "Manage locations and location access",
-    "printers.edit_all": "Edit all printers",
-    "cartridges.edit_all": "Edit all cartridges",
+    "billing.create": Message("permissionLabels.billing.create"),
+    "templates.create_personal": Message("permissionLabels.templates.createPersonal"),
+    "templates.create_global": Message("permissionLabels.templates.createGlobal"),
+    "templates.edit_global": Message("permissionLabels.templates.editGlobal"),
+    "templates.delete_global": Message("permissionLabels.templates.deleteGlobal"),
+    "images.create_personal": Message("permissionLabels.images.createPersonal"),
+    "images.create_global": Message("permissionLabels.images.createGlobal"),
+    "images.edit_global": Message("permissionLabels.images.editGlobal"),
+    "images.delete_global": Message("permissionLabels.images.deleteGlobal"),
+    "fonts.create_personal": Message("permissionLabels.fonts.createPersonal"),
+    "fonts.create_global": Message("permissionLabels.fonts.createGlobal"),
+    "fonts.edit_global": Message("permissionLabels.fonts.editGlobal"),
+    "fonts.delete_global": Message("permissionLabels.fonts.deleteGlobal"),
+    "inventory.manage": Message("permissionLabels.inventory.manage"),
+    "queue.change_printer": Message("permissionLabels.queue.changePrinter"),
+    "printers.manage": Message("permissionLabels.printers.manage"),
+    "usage.view_others": Message("permissionLabels.usage.viewOthers"),
+    "usage.edit_accounts": Message("permissionLabels.usage.editAccounts"),
+    "audit.view_all": Message("permissionLabels.audit.viewAll"),
+    "locations.manage": Message("permissionLabels.locations.manage"),
+    "printers.edit_all": Message("permissionLabels.printers.editAll"),
+    "cartridges.edit_all": Message("permissionLabels.cartridges.editAll"),
 }
 MEMBER_PERMISSIONS = [
     {"kind": "application", "permission": "images.create_personal"},
@@ -245,7 +246,7 @@ def check_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if not origin:
         if request.headers.get("sec-fetch-site") == "cross-site":
-            raise HTTPException(403, "Cross-site requests are not permitted")
+            raise HTTPException(403, Message("requestErrors.crossSite"))
         return
 
     def normalized(url: str) -> tuple[str, str | None, int | None]:
@@ -262,9 +263,9 @@ def check_origin(request: Request) -> None:
             normalized(request.app.state.settings.public_url),
         }
         if normalized(origin) not in allowed:
-            raise HTTPException(403, "Cross-site requests are not permitted")
+            raise HTTPException(403, Message("requestErrors.crossSite"))
     except ValueError as error:
-        raise HTTPException(403, "Invalid request origin") from error
+        raise HTTPException(403, Message("requestErrors.invalidOrigin")) from error
 
 
 def check_csrf(request: Request, session: AuthSession) -> None:
@@ -273,7 +274,7 @@ def check_csrf(request: Request, session: AuthSession) -> None:
     check_origin(request)
     csrf = request.headers.get("x-csrf-token", "")
     if not hmac.compare_digest(csrf.encode(), session.csrf_token.encode()):
-        raise HTTPException(403, "Missing or invalid CSRF token")
+        raise HTTPException(403, Message("requestErrors.csrf"))
 
 
 def session_record(session: Session, user: User, record: AuthSession) -> dict[str, Any]:
@@ -375,7 +376,7 @@ class AuthRateLimiter:
             ):
                 raise HTTPException(
                     429,
-                    "Too many authentication attempts; try again later",
+                    Message("authMessages.tooManyAuthenticationAttemptsTryAgainLater"),
                     headers={"Retry-After": "300"},
                 )
             for key, _ in keys:

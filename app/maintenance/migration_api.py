@@ -18,6 +18,7 @@ from app.authn.auth import token_hash
 from app.authn.resource_access import legacy_permissions
 from app.authn.resource_api import ResourceChange, mutate_with_evidence, objects, rights_for
 from app.http import db, record
+from app.i18n import Message
 from app.models import (
     AccessChangeConfirmation,
     Batch,
@@ -53,13 +54,15 @@ class MigrationDraft(Input):
 
 def require_admin(request: Request) -> None:
     if not access_context(request).actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
 
 
 def migration_record(session: Session) -> ReleaseMigration:
     value = session.get(ReleaseMigration, "0.13.0")
     if value is None:
-        raise HTTPException(409, "Upgrade the database before migrating ownership")
+        raise HTTPException(
+            409, Message("serverMessages.upgradeTheDatabaseBeforeMigratingOwnership")
+        )
     return value
 
 
@@ -82,7 +85,7 @@ def save_draft(body: MigrationDraft, request: Request, session: DB) -> dict[str,
     require_admin(request)
     value = migration_record(session)
     if value.completed_at is not None:
-        raise HTTPException(409, "The migration is already complete")
+        raise HTTPException(409, Message("serverMessages.theMigrationIsAlreadyComplete"))
     value.draft = body.model_dump(exclude_unset=True)
     return {"saved": True}
 
@@ -119,16 +122,20 @@ def stage_migration(request: Request, session: Session, draft: MigrationDraft) -
     for change in draft.resources:
         key = (change.kind, change.identifier)
         if key in seen:
-            raise HTTPException(422, "Assign each resource once")
+            raise HTTPException(422, Message("serverMessages.assignEachResourceOnce"))
         seen.add(key)
         if change.kind == "location":
-            raise HTTPException(422, "Create locations before assigning inventory")
+            raise HTTPException(
+                422, Message("serverMessages.createLocationsBeforeAssigningInventory")
+            )
         mutate_with_evidence(session, request, rights, change)
     for kind in ("printer", "cartridge"):
         for resource in objects(session, kind):
             owner = session.get(User, resource.owner_id) if resource.owner_id else None
             if owner is None or owner.disabled:
-                raise HTTPException(422, "Assign an enabled owner to every printer and cartridge")
+                raise HTTPException(
+                    422, Message("serverMessages.assignAnEnabledOwnerToEveryPrinterAndCartridge")
+                )
             from app.authn.ownership import record_ownership
 
             record_ownership(session, kind, resource, at=0)
@@ -147,7 +154,9 @@ def stage_migration(request: Request, session: Session, draft: MigrationDraft) -
         batch = session.get(Batch, allocation.batch_id)
         cartridge = session.get(Cartridge, batch.cartridge_id) if batch else None
         if cartridge is None:
-            raise HTTPException(409, "A historical allocation's cartridge is missing")
+            raise HTTPException(
+                409, Message("serverMessages.aHistoricalAllocationsCartridgeIsMissing")
+            )
         owner = session.get(User, cartridge.owner_id)
         assert owner is not None
         allocation.cartridge_id = cartridge.id
@@ -161,7 +170,7 @@ def stage_migration(request: Request, session: Session, draft: MigrationDraft) -
     if (set(draft.adjustment_recipients) | set(draft.adjustment_allocations)) - {
         row.id for row in adjustments
     }:
-        raise HTTPException(422, "An adjustment in the draft no longer exists")
+        raise HTTPException(422, Message("serverMessages.anAdjustmentInTheDraftNoLongerExists"))
     # Rebuild in payment order so previews and completion produce identical FIFO
     # allocations. Savepoints keep preview assignments out of the live ledger.
     for adjustment in adjustments:
@@ -171,7 +180,9 @@ def stage_migration(request: Request, session: Session, draft: MigrationDraft) -
         identifier = draft.adjustment_recipients.get(adjustment.id, adjustment.recipient_id)
         recipient = session.get(User, identifier) if identifier else None
         if recipient is None or recipient.disabled:
-            raise HTTPException(422, "Choose a recipient for every historical adjustment")
+            raise HTTPException(
+                422, Message("serverMessages.chooseARecipientForEveryHistoricalAdjustment")
+            )
         adjustment.recipient_id, adjustment.recipient_name = recipient.id, recipient.username
         from app.accounts.cartridge_debts import repayment_allocations
 
@@ -230,7 +241,7 @@ def preview(request: Request, session: DB) -> dict[str, Any]:
     require_admin(request)
     value = migration_record(session)
     if value.completed_at is not None:
-        raise HTTPException(409, "The migration is already complete")
+        raise HTTPException(409, Message("serverMessages.theMigrationIsAlreadyComplete"))
     draft = MigrationDraft.model_validate(value.draft)
     original = fingerprint(session, value)
     from app.authn.resource_api import access_snapshot
@@ -297,7 +308,9 @@ def complete(request: Request, session: DB) -> dict[str, Any]:
         or receipt.request_hash != "migration:0.13.0"
         or receipt.state_hash != fingerprint(session, value)
     ):
-        raise HTTPException(409, "Review the current migration before completing it")
+        raise HTTPException(
+            409, Message("serverMessages.reviewTheCurrentMigrationBeforeCompletingIt")
+        )
     draft = MigrationDraft.model_validate(value.draft)
     if (
         any(
@@ -307,7 +320,9 @@ def complete(request: Request, session: DB) -> dict[str, Any]:
         )
         and not draft.accept_owner_loss
     ):
-        raise HTTPException(422, "Acknowledge that Approve use may reduce cartridge owners' income")
+        raise HTTPException(
+            422, Message("serverMessages.acknowledgeThatApproveUseMayReduceCartridgeOwnersIncome")
+        )
     stage_migration(request, session, draft)
     rule = (AuditRequirement("application", "", "audit.view_all"),)
     append_audit(

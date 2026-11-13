@@ -5,6 +5,7 @@ from test_access_security import accounts as accounts
 from test_cost_estimates import set_price
 from test_use_overrides import prepared
 
+from app.i18n import notice_text
 from app.models import CartridgeQuoteOffer, Notification, PrintJob, ResourceGrant, UnitCharge
 
 
@@ -66,6 +67,11 @@ def test_missing_quote_notifies_requester_but_never_grants_use_or_starts_printin
             )
         )
         assert len(notices) == 1 and notices[0].recipient_id == "alice"
+        assert notice_text(notices[0], "title", "de") == "Druck benötigt deine Preisfreigabe"
+        assert notice_text(notices[0], "message", "de") == (
+            "Eine Bedienperson hat eine andere Kassette für deine wartenden Etiketten vorgeschlagen. "
+            "Prüfe den Preis vor dem Druck."
+        )
     accepted = accept(alice, identifier)
     worker = admin.app.state.fleet.workers["main"]
     worker.tick()
@@ -107,7 +113,13 @@ def test_quote_detects_price_changes_and_decline_does_not_change_saved_consent(a
         "maximum_price": {"currency": quote["currency"], "micros": quote["amount_micros"]},
     }
     set_price(admin, cartridge, 6000)
-    assert alice.post(f"/api/cartridge-quotes/{identifier}/accept", json=body).status_code == 409
+    stale = alice.post(
+        f"/api/cartridge-quotes/{identifier}/accept", json=body, headers={"Accept-Language": "de"}
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == (
+        "Der Preis oder die eingereihten Kopien haben sich geändert. Aktualisiere das Angebot."
+    )
     assert alice.post(f"/api/cartridge-quotes/{identifier}/decline").status_code == 200
     assert alice.post(f"/api/cartridge-quotes/{identifier}/decline").status_code == 200
     assert alice.post(f"/api/cartridge-quotes/{identifier}/accept", json=body).status_code == 409
@@ -184,7 +196,13 @@ def test_revoked_operator_cannot_obtain_fresh_requester_consent(accounts):
     }
     with admin.app.state.factory.begin() as session:
         session.execute(delete(ResourceGrant).where(ResourceGrant.principal_id == "bob"))
-    response = alice.get(f"/api/cartridge-quotes/{identifier}").json()
-    assert response["quote"] is None and response["unavailable"]
+    response = alice.get(
+        f"/api/cartridge-quotes/{identifier}", headers={"Accept-Language": "de"}
+    ).json()
+    assert response["quote"] is None
+    assert (
+        response["unavailable"]
+        == "Die Kassettenberechtigung der Bedienperson ist nicht mehr gültig."
+    )
     assert alice.post(f"/api/cartridge-quotes/{identifier}/accept", json=body).status_code == 409
     assert alice.post(f"/api/cartridge-quotes/{identifier}/decline").status_code == 200

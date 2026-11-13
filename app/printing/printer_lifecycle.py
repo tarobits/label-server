@@ -12,6 +12,7 @@ from app.audit.action_audit import record_action, record_swap
 from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.authn.access import access_context
 from app.http import db, get
+from app.i18n import Message, error_detail
 from app.models import (
     Companion,
     CompanionBatch,
@@ -39,7 +40,7 @@ def idle_locked(request: Request, session: Session, identifier: str) -> None:
     try:
         require_idle(session, identifier)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
     results: list[Any] = list(
         session.scalars(
             select(CompanionBatch.result).where(CompanionBatch.printer_id == identifier)
@@ -47,22 +48,27 @@ def idle_locked(request: Request, session: Session, identifier: str) -> None:
     )
     if any(result is None for result in results):
         raise HTTPException(
-            409, "Reconcile outstanding companion batches before changing this printer"
+            409,
+            Message("serverMessages.reconcileOutstandingCompanionBatchesBeforeChangingThisPrinter"),
         )
     link = session.get(CompanionPrinter, identifier)
     if link and link.blocked:
-        raise HTTPException(409, "Investigate and clear the companion printer block first")
+        raise HTTPException(
+            409, Message("serverMessages.investigateAndClearTheCompanionPrinterBlockFirst")
+        )
     worker = request.app.state.fleet.workers.get(identifier)
     if worker:
         if not worker.printer_lock.acquire(blocking=False):
-            raise HTTPException(409, "Printer is busy; try again when it is idle")
+            raise HTTPException(409, Message("serverMessages.printerIsBusyTryAgainWhenItIsIdle"))
         request.state.held_locks.append(worker.printer_lock)
 
 
 def require_empty(session: Session, identifier: str) -> None:
     # Do not change another group's routing or silently strand work.
     if any(identifier in group.printer_ids for group in session.scalars(select(PrinterGroup))):
-        raise HTTPException(409, "Remove this printer from its groups before retiring it")
+        raise HTTPException(
+            409, Message("serverMessages.removeThisPrinterFromItsGroupsBeforeRetiringIt")
+        )
     job_ids = (
         select(PrintJob.id)
         .outerjoin(PrintRun, PrintJob.run_id == PrintRun.id)
@@ -103,7 +109,9 @@ def require_empty(session: Session, identifier: str) -> None:
     ):
         raise HTTPException(
             409,
-            "Finish, reroute or cancel queued work, pending requests, flushes and drafts before retiring this printer",
+            Message(
+                "serverMessages.finishRerouteOrCancelQueuedWorkPendingRequestsFlushesAndDraftsBeforeRetiringThisPrinter"
+            ),
         )
 
 
@@ -145,17 +153,23 @@ def move_printer(identifier: str, body: MoveInput, request: Request, session: DB
     # A transport binding controls which machine receives rendered jobs. Only an
     # administrator may bind it, as with companion enrollment and user bindings.
     if not context.actor.is_admin:
-        raise HTTPException(403, "Administrator access is required to move a printer")
+        raise HTTPException(
+            403, Message("serverMessages.administratorAccessIsRequiredToMoveAPrinter")
+        )
     source = get(session, PrinterDevice, identifier)
     target = get(session, PrinterDevice, body.target_printer_id)
     if source.id == target.id or source.config.get("retired") or target.config.get("retired"):
-        raise HTTPException(409, "Select two different active printer registrations")
+        raise HTTPException(
+            409, Message("serverMessages.selectTwoDifferentActivePrinterRegistrations")
+        )
     if session.get(CompanionPrinter, source.id):
-        raise HTTPException(409, "Select a main-server printer to move to a companion")
+        raise HTTPException(
+            409, Message("serverMessages.selectAMainserverPrinterToMoveToACompanion")
+        )
     link = session.get(CompanionPrinter, target.id)
     companion = session.get(Companion, link.companion_id) if link else None
     if not link or not link.enabled or not companion or not companion.key_hash:
-        raise HTTPException(409, "Select an enabled companion printer")
+        raise HTTPException(409, Message("serverMessages.selectAnEnabledCompanionPrinter"))
     fleet = request.app.state.fleet
     source_definition, _ = fleet.backend_factory(source.driver, source.config)
     target_definition, _ = fleet.backend_factory(target.driver, target.config)
@@ -164,7 +178,8 @@ def move_printer(identifier: str, body: MoveInput, request: Request, session: DB
         or source_definition.capabilities != target_definition.capabilities
     ):
         raise HTTPException(
-            409, "Printer driver and rendering capabilities must match before moving"
+            409,
+            Message("serverMessages.printerDriverAndRenderingCapabilitiesMustMatchBeforeMoving"),
         )
     if session.scalar(
         select(FlushRequest.id)
@@ -172,14 +187,18 @@ def move_printer(identifier: str, body: MoveInput, request: Request, session: DB
         .limit(1)
     ):
         raise HTTPException(
-            409, "Cancel the pending flush before moving this printer; its labels remain queued"
+            409,
+            Message(
+                "serverMessages.cancelThePendingFlushBeforeMovingThisPrinterItsLabelsRemainQueued"
+            ),
         )
     idle_locked(request, session, source.id)
     idle_locked(request, session, target.id)
     require_empty(session, target.id)
     if printer_state(session, target.id).active_cartridge_id:
         raise HTTPException(
-            409, "Remove the cartridge from the duplicate companion registration first"
+            409,
+            Message("serverMessages.removeTheCartridgeFromTheDuplicateCompanionRegistrationFirst"),
         )
     # Keep the retired link for historical event attribution. The physical local
     # slot now resolves to the original printer ID during registration.

@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
+from app.i18n import Message
 from app.templates.element_geometry import element_geometry, local_geometry
 from app.templates.logic_engine import Evaluation, evaluate_program
 from app.templates.logic_schema import ImageValue, LogicInput, Program, Target, Value, ValueType
@@ -29,9 +30,7 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
                 "auto_length": "boolean",
                 **({} if document.auto_length else {"length_mm": "number"}),
             },
-            disabled_properties={
-                "length_mm": "Disable automatic label length before binding label.length_mm"
-            }
+            disabled_properties={"length_mm": Message("logicConstraints.automaticLength")}
             if document.auto_length
             else {},
         )
@@ -39,7 +38,9 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
     for element in document.elements:
         alias = element.logic_name
         if not alias or alias in targets or element.id == "label":
-            raise ValueError("Version 2 elements need unique logic names; label is reserved")
+            raise ValueError(
+                Message("domainMessages.version2ElementsNeedUniqueLogicNamesLabelIsReserved")
+            )
         properties: dict[str, ValueType] = {
             "x": "number",
             "y": "number",
@@ -93,13 +94,17 @@ def logic_targets(document: "TemplateDocument") -> dict[str, Target]:
                 properties["filled"] = "boolean"
         disabled = {}
         if element.kind == "text":
-            disabled["auto_width"] = "Configure automatic text width in Layout before running logic"
+            disabled["auto_width"] = Message("logicConstraints.configureWidth")
             if element.auto_width:
                 axis = "height" if element.rotation in (90, 270) else "width"
-                disabled[axis] = f"Disable automatic text width before binding {alias}.{axis}"
+                disabled[axis] = Message(
+                    "logicErrors.disableAutomaticTextWidthBeforeBindingValue1Value2",
+                    value1=alias,
+                    value2=axis,
+                )
         if element.kind == "line":
             axis = "width" if element.rotation in (90, 270) else "height"
-            disabled[axis] = "Use stroke to set line thickness"
+            disabled[axis] = Message("domainMessages.useStrokeToSetLineThickness")
         targets[alias] = Target(id=element.id, properties=properties, disabled_properties=disabled)
     return targets
 
@@ -135,7 +140,7 @@ def display_value(value: Value) -> str:
     if value is None:
         return ""
     if isinstance(value, ImageValue):
-        raise ValueError("Images cannot be used as text")
+        raise ValueError(Message("domainMessages.imagesCannotBeUsedAsText"))
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
@@ -277,12 +282,16 @@ def resolve_logic(
             axis = "height" if quarter_turn else "width"
             if axis in changes:
                 raise ValueError(
-                    f"Disable automatic text width before binding {original.logic_name}.{axis}"
+                    Message(
+                        "logicErrors.disableAutomaticTextWidthBeforeBindingValue1Value2",
+                        value1=original.logic_name,
+                        value2=axis,
+                    )
                 )
         if original.kind == "line":
             axis = "width" if quarter_turn else "height"
             if axis in changes:
-                raise ValueError("Use stroke to set line thickness")
+                raise ValueError(Message("domainMessages.useStrokeToSetLineThickness"))
             geometry[axis] = cast(float, changes.get("stroke", original.stroke))
         geometry_changed = any(
             name in changes for name in ("x", "y", "width", "height", "rotation")
@@ -333,15 +342,22 @@ def csv_values(
             result[name] = None
         elif field.type == "number":
             if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?", value):
-                raise ValueError(f"{field.label}: enter a number using a decimal point")
+                raise ValueError(
+                    Message("logicErrors.value1EnterANumberUsingADecimalPoint", value1=field.label)
+                )
             result[name] = field.check_value(float(value))
         elif field.type == "boolean":
             if value.casefold() not in ("true", "false", "1", "0"):
-                raise ValueError(f"{field.label}: use true, false, 1, or 0")
+                raise ValueError(Message("logicErrors.value1UseTrueFalse1Or0", value1=field.label))
             result[name] = value.casefold() in ("true", "1")
         else:
             image = image_mapping.get(name, {}).get(raw)
             if image is None:
-                raise ValueError(f"{field.label}: CSV image value has no uploaded-image mapping")
+                raise ValueError(
+                    Message(
+                        "logicErrors.value1CSVImageValueHasNoUploadedImageMapping",
+                        value1=field.label,
+                    )
+                )
             result[name] = image
     return result

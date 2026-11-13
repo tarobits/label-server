@@ -34,6 +34,7 @@ from app.http import (
     job_template_name,
     record,
 )
+from app.i18n import Message, error_detail, request_language, translate
 from app.maintenance.deletion import document_notices, retain
 from app.models import (
     Batch,
@@ -169,7 +170,8 @@ def update_profile(
             or session.scalar(select(PrintRun.id).where(PrintRun.profile_id == identifier).limit(1))
         ):
             raise HTTPException(
-                409, "Create a new profile to change the width or media of a used profile"
+                409,
+                Message("serverMessages.createANewProfileToChangeTheWidthOrMediaOfAUsedProfile"),
             )
     for key, value in body.model_dump().items():
         setattr(profile, key, value)
@@ -209,7 +211,7 @@ def delete_profile(
         for pending in session.scalars(select(PrintRequest))
         for label in pending.labels
     ):
-        raise HTTPException(409, "Profile is used by a saved print request")
+        raise HTTPException(409, Message("serverMessages.profileIsUsedByASavedPrintRequest"))
     for query in [
         select(Cartridge.id).where(Cartridge.profile_id == identifier),
         select(PrintJob.id).where(PrintJob.profile_id == identifier),
@@ -217,7 +219,9 @@ def delete_profile(
         select(PrintRun.id).where(PrintRun.profile_id == identifier),
     ]:
         if session.scalar(query.limit(1)):
-            raise HTTPException(409, "Profile has history or cartridges and cannot be deleted")
+            raise HTTPException(
+                409, Message("serverMessages.profileHasHistoryOrCartridgesAndCannotBeDeleted")
+            )
     session.delete(profile)
     return {"deleted": True}
 
@@ -228,7 +232,7 @@ def control_reminder(
 ) -> dict[str, Any]:
     profile = get(session, TapeProfile, identifier)
     if body.action == "snooze" and (body.until or 0) <= time.time():
-        raise HTTPException(422, "Snooze must end in the future")
+        raise HTTPException(422, Message("serverMessages.snoozeMustEndInTheFuture"))
     profile.reminder_silenced = body.action == "silence"
     profile.reminder_snoozed_until = body.until if body.action == "snooze" else None
     if body.action == "resume":
@@ -384,11 +388,11 @@ def tape_usage(
     if (all_users or user_id not in (None, context.actor.id)) and not context.has_permission(
         "usage.view_others"
     ):
-        raise HTTPException(403, "Viewing other users’ usage is not permitted")
+        raise HTTPException(403, Message("serverMessages.viewingOtherUsersUsageIsNotPermitted"))
     if all_users and user_id is not None:
-        raise HTTPException(422, "Choose all users or an individual user")
+        raise HTTPException(422, Message("serverMessages.chooseAllUsersOrAnIndividualUser"))
     if user_id is not None and user_id not in account_names(session, user_id):
-        raise HTTPException(404, "Usage account not found")
+        raise HTTPException(404, Message("serverMessages.usageAccountNotFound"))
     return usage_report(session, None if all_users else user_id or context.actor.id, cartridge_id)
 
 
@@ -398,7 +402,7 @@ def usage_users(
 ) -> list[dict[str, str]]:
     context = access_context(request)
     if not any(context.has_permission(key) for key in ("usage.view_others", "usage.edit_accounts")):
-        raise HTTPException(403, "Usage account access is not permitted")
+        raise HTTPException(403, Message("serverMessages.usageAccountAccessIsNotPermitted"))
     return [
         {"user_id": identifier, "username": name}
         for identifier, name in sorted(
@@ -413,7 +417,7 @@ def usage_adjustment(
 ) -> dict[str, Any]:
     context = access_context(request)
     if not context.has_permission("usage.edit_accounts"):
-        raise HTTPException(403, "Editing usage accounts is not permitted")
+        raise HTTPException(403, Message("serverMessages.editingUsageAccountsIsNotPermitted"))
     from app.accounts.accounting_api import record_repayment
 
     return record(record_repayment(request, session, body))
@@ -431,7 +435,9 @@ def cartridge_price(
         idle(session, state.printer_id)
     cartridge = get(session, Cartridge, identifier)
     if cartridge.archived:
-        raise HTTPException(409, "Restore this cartridge before changing its price")
+        raise HTTPException(
+            409, Message("serverMessages.restoreThisCartridgeBeforeChangingItsPrice")
+        )
     old_price, old_currency = cartridge.price_minor, cartridge.currency
     cartridge.price_minor, cartridge.currency = body.price_minor, body.currency
     record_action(
@@ -461,9 +467,11 @@ def correct_remaining(
         idle(session, state.printer_id)
     cartridge = get(session, Cartridge, identifier)
     if cartridge.archived:
-        raise HTTPException(409, "Restore this cartridge before correcting its remaining tape")
+        raise HTTPException(
+            409, Message("serverMessages.restoreThisCartridgeBeforeCorrectingItsRemainingTape")
+        )
     if body.remaining_mm > cartridge.nominal_length_mm:
-        raise HTTPException(422, "Remaining length exceeds nominal length")
+        raise HTTPException(422, Message("serverMessages.remainingLengthExceedsNominalLength"))
     previous = cartridge.remaining_mm
     cartridge.remaining_mm = body.remaining_mm
     record_action(
@@ -479,6 +487,7 @@ def correct_remaining(
             clear_empty_cartridge_alert(session, state)
             if state.blocker == EMPTY_TAPE_BLOCKER:
                 state.blocker = None
+                state.blocker_translation = None
     session.flush()
     return record(cartridge)
 
@@ -503,7 +512,9 @@ def active_tape(
         )
         .limit(1)
     ):
-        raise HTTPException(409, "Cancel or finish the pending flush before changing cartridges")
+        raise HTTPException(
+            409, Message("serverMessages.cancelOrFinishThePendingFlushBeforeChangingCartridges")
+        )
     cartridge = None
     if body.cartridge_id:
         cartridge = get(session, Cartridge, body.cartridge_id)
@@ -515,16 +526,20 @@ def active_tape(
                 request.app.state.registry.definition(printer_id).capabilities,
             )
         except ValueError as error:
-            raise HTTPException(422, str(error)) from error
+            raise HTTPException(422, error_detail(error)) from error
         if cartridge.archived:
-            raise HTTPException(409, "Restore this cartridge before installing it")
+            raise HTTPException(
+                409, Message("serverMessages.restoreThisCartridgeBeforeInstallingIt")
+            )
         if session.scalar(
             select(PrinterState.id).where(
                 PrinterState.active_cartridge_id == body.cartridge_id,
                 PrinterState.printer_id != printer_id,
             )
         ):
-            raise HTTPException(409, "Cartridge is already installed in another printer")
+            raise HTTPException(
+                409, Message("serverMessages.cartridgeIsAlreadyInstalledInAnotherPrinter")
+            )
     confirmation, verification = (
         check_cartridge(
             request,
@@ -558,6 +573,7 @@ def active_tape(
             state.cartridge_check_pending or worker.latest_status.media_changed
         ) and state.cartridge_check_enabled
     state.blocker = None
+    state.blocker_translation = None
     record_swap(
         session, printer_id, previous, body.cartridge_id, bool(verification or confirmation)
     )
@@ -604,6 +620,7 @@ def cartridge_check(
     if not body.enabled:
         state.cartridge_check_pending = False
         state.blocker = None
+        state.blocker_translation = None
     session.flush()
     if worker:
 
@@ -711,7 +728,9 @@ def automatic_printing(
     printer_id = resolve_destination(session, printer_id)
     access_context(request).require_printer(printer_id, "hold_resume")
     if automatic_printing_disabled(session, printer_id):
-        raise HTTPException(409, "Automatic printing is disabled in printer settings")
+        raise HTTPException(
+            409, Message("serverMessages.automaticPrintingIsDisabledInPrinterSettings")
+        )
     state = printer_state(session, printer_id)
     previous = state.automatic_printing_held
     state.automatic_printing_held = body.held
@@ -773,7 +792,9 @@ def template_thumbnail(
                 value, notices, request.app.state.fonts, request.app.state.images
             )
         except (ValueError, OSError) as error:
-            raise HTTPException(422, "Template preview is unavailable") from error
+            raise HTTPException(
+                422, Message("serverMessages.templatePreviewIsUnavailable")
+            ) from error
     return Response(content, media_type="image/webp")
 
 
@@ -790,7 +811,7 @@ def validate_layout(
             images=request.app.state.images,
         )
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
 
 
 @router.post("/templates", status_code=201)
@@ -830,9 +851,13 @@ def update_template(
             not access_context(request).actor.is_admin
             and value.owner_id != access_context(request).actor.id
         ):
-            raise HTTPException(403, "Only the owner or an administrator can change sharing")
+            raise HTTPException(
+                403, Message("serverMessages.onlyTheOwnerOrAnAdministratorCanChangeSharing")
+            )
     if value.archived or body.expected_revision != value.revision:
-        raise HTTPException(409, "Template changed or was archived; reload before saving")
+        raise HTTPException(
+            409, Message("serverMessages.templateChangedOrWasArchivedReloadBeforeSaving")
+        )
     with rendering(
         request, session, body.document.model_dump(), destination_id=body.destination_id
     ):
@@ -878,7 +903,7 @@ def delete_template(
     if not actor.is_admin and not (
         value.scope == "global" and context.has_permission("templates.delete_global")
     ):
-        raise HTTPException(403, "You cannot delete this template")
+        raise HTTPException(403, Message("serverMessages.youCannotDeleteThisTemplate"))
     require_record(request, value, Action.DELETE)
     retain(session, "templates", identifier, value.name, value.owner_id, actor.id)
     from app.printing.job_access import reconcile_access_holds
@@ -910,7 +935,7 @@ def revisions(
 def get_template_revision(session: Session, identifier: str, number: int) -> TemplateRevision:
     item = session.get(TemplateRevision, (identifier, number))
     if item is None:
-        raise HTTPException(404, "Template revision not found")
+        raise HTTPException(404, Message("serverMessages.templateRevisionNotFound"))
     return item
 
 
@@ -935,7 +960,9 @@ def revision_preview(
             allow_missing_assets=True,
         )
     except (ValueError, OSError) as error:
-        raise HTTPException(422, "This revision could not be previewed") from error
+        raise HTTPException(
+            422, Message("serverMessages.thisRevisionCouldNotBePreviewed")
+        ) from error
     tape = document.preview_tape
     return {
         "png": output.preview(
@@ -960,15 +987,17 @@ def restore_revision(
     require_record(request, value, Action.WRITE)
     if value.archived or body.expected_revision != value.revision:
         raise HTTPException(
-            409, "Template changed or was archived; reload history before restoring"
+            409, Message("serverMessages.templateChangedOrWasArchivedReloadHistoryBeforeRestoring")
         )
     if number == value.revision:
-        raise HTTPException(409, "This revision is already current")
+        raise HTTPException(409, Message("serverMessages.thisRevisionIsAlreadyCurrent"))
     source = get_template_revision(session, identifier, number)
     try:
         document = TemplateDocument.model_validate(source.document)
     except ValueError as error:
-        raise HTTPException(422, "This saved revision is no longer a valid template") from error
+        raise HTTPException(
+            422, Message("serverMessages.thisSavedRevisionIsNoLongerAValidTemplate")
+        ) from error
     with rendering(request, session, document.model_dump(), destination_id=body.destination_id):
         try:
             render_document(
@@ -980,7 +1009,9 @@ def restore_revision(
                 images=request.app.state.images,
             )
         except (ValueError, OSError) as error:
-            raise HTTPException(422, "This revision could not be restored") from error
+            raise HTTPException(
+                422, Message("serverMessages.thisRevisionCouldNotBeRestored")
+            ) from error
     value.name = source.name
     value.document = copy.deepcopy(source.document)
     value.revision += 1
@@ -1027,10 +1058,20 @@ def inspect_logic(
         for target_id, properties in evaluation.properties.items():
             property_values[target_id].update(properties)
     except ValueError as error:
-        sample_error = str(error)
+        sample_error = translate(error_detail(error), request_language(request))
     return {
-        "operations": [asdict(operation) for operation in OPERATIONS.values()],
-        "targets": {name: target.model_dump() for name, target in targets.items()},
+        "operations": translate(
+            [asdict(operation) for operation in OPERATIONS.values()], request_language(request)
+        ),
+        "targets": {
+            name: {
+                **target.model_dump(),
+                "disabled_properties": translate(
+                    target.disabled_properties, request_language(request)
+                ),
+            }
+            for name, target in targets.items()
+        },
         "types": types,
         "values": values,
         "property_values": property_values,
@@ -1067,10 +1108,15 @@ def compile_logic(
             error
             if isinstance(error, LogicError)
             else LogicError(
-                "The source is incompatible with this template. Check variables used in element text."
+                Message(
+                    "logicErrors.theSourceIsIncompatibleWithThisTemplateCheckVariablesUsedInElementText"
+                )
             )
         )
-        return {"valid": False, "diagnostics": [source_diagnostic(issue, body.source)]}
+        return {
+            "valid": False,
+            "diagnostics": [source_diagnostic(issue, body.source, request_language(request))],
+        }
     require_document_assets(request, session, resolved.model_dump(mode="json"))
     return {
         "valid": True,
@@ -1112,19 +1158,19 @@ def preview_record(body: PreviewInput, request: Request, session: Session) -> di
             allow_missing_assets=True,
         )
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
     backend = planning_backend(request, session, body.destination_id, allow_unassigned=True)
     cost = None
     if body.tape_profile is not None:
         profile = get(session, TapeProfile, body.tape_profile)
         if profile.width_mm != output.document.width_mm:
-            raise HTTPException(422, "Template and tape widths do not match")
+            raise HTTPException(422, Message("serverMessages.templateAndTapeWidthsDoNotMatch"))
         from app.media import require_matching_media
 
         try:
             require_matching_media(output.document.media, profile)
         except ValueError as error:
-            raise HTTPException(422, str(error)) from error
+            raise HTTPException(422, error_detail(error)) from error
         from app.authn.authorization import rendering_destination
 
         destination = rendering_destination(
@@ -1186,7 +1232,7 @@ def create_job(
     profile = get(session, TapeProfile, body.tape_profile)
     template = get(session, LabelTemplate, body.template)
     if template.archived:
-        raise HTTPException(409, "Template is archived")
+        raise HTTPException(409, Message("serverMessages.templateIsArchived"))
     with rendering(
         request, session, body.model_dump(mode="json"), destination_id=body.destination_id
     ):
@@ -1233,7 +1279,7 @@ def image_job_document(
             request.app.state.images,
         )
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
     return profile, document
 
 
@@ -1320,7 +1366,7 @@ def list_jobs(
     session: Session = Depends(db, scope="function"),
 ) -> list[dict[str, Any]]:
     if not 1 <= limit <= 500 or offset < 0:
-        raise HTTPException(422, "Invalid pagination")
+        raise HTTPException(422, Message("serverMessages.invalidPagination"))
     query = visible_jobs(request, session, select(PrintJob))
     if destination_id is not None:
         query = query.where(PrintJob.destination_id == destination_id)
@@ -1354,7 +1400,7 @@ def queue_groups(
     session: Session = Depends(db, scope="function"),
 ) -> list[dict[str, Any]]:
     if not 1 <= limit <= 100 or offset < 0:
-        raise HTTPException(422, "Invalid pagination")
+        raise HTTPException(422, Message("serverMessages.invalidPagination"))
     query = visible_jobs(request, session, select(PrintJob))
     if destination_id is not None:
         query = query.where(PrintJob.destination_id == destination_id)
@@ -1422,7 +1468,7 @@ def job_preview(
     item = get(session, PrintJob, identifier)
     label = session.scalar(select(LabelCopy).where(LabelCopy.job_id == identifier).limit(1))
     if label is None:
-        raise HTTPException(404, "Label copy not found")
+        raise HTTPException(404, Message("serverMessages.labelCopyNotFound"))
     return label_preview_response(request, session, item, label)
 
 
@@ -1443,12 +1489,14 @@ def update_job_copies(
     if blocker := copy_count_blocker(session, item, request.app.state.fleet.enforce_job_access):
         raise HTTPException(409, blocker)
     if body.expected_copies != item.copies:
-        raise HTTPException(409, "The copy count changed. Refresh the queue before editing it")
+        raise HTTPException(
+            409, Message("serverMessages.theCopyCountChangedRefreshTheQueueBeforeEditingIt")
+        )
     if (
         item.template_snapshot.get("pricing") or item.template_snapshot.get("retry")
     ) and body.copies > item.copies:
         raise HTTPException(
-            409, "Additional copies need a new price quote; submit them as a new label"
+            409, Message("serverMessages.additionalCopiesNeedANewPriceQuoteSubmitThemAsANewLabel")
         )
     labels = list(
         session.scalars(
@@ -1476,7 +1524,9 @@ def update_completion_notification(
 ) -> dict[str, Any]:
     item = get(session, PrintJob, identifier)
     if item.owner_id != access_context(request).actor.id:
-        raise HTTPException(403, "Only the owner can change this notification preference")
+        raise HTTPException(
+            403, Message("serverMessages.onlyTheOwnerCanChangeThisNotificationPreference")
+        )
     item.notify_on_completion = body.notify_on_completion
     if not body.notify_on_completion:
         from app.notifications.notification_routing import refresh_summary
@@ -1508,7 +1558,7 @@ def label_preview_response(
         raise RuntimeError("Saved label previews require a read-only transaction")
     profile = session.get(TapeProfile, item.profile_id)
     if profile is None:
-        raise HTTPException(404, "TapeProfile not found")
+        raise HTTPException(404, Message("serverMessages.tapeProfileNotFound"))
     foreground, background = profile.foreground, profile.background
     # Preview routes are read-only. Return their connection before asset stores
     # open short read transactions, otherwise concurrent previews can fill the
@@ -1524,7 +1574,9 @@ def label_preview_response(
             allow_missing_assets=True,
         )
     except (ValueError, OSError) as error:
-        raise HTTPException(422, "Saved label preview is unavailable") from error
+        raise HTTPException(
+            422, Message("serverMessages.savedLabelPreviewIsUnavailable")
+        ) from error
     # Use the same packed ink raster as printing, including legacy fixture jobs.
     ink = Image.frombytes("1", (rendered.pixel_width, rendered.pixel_height), rendered.raster)
     output = io.BytesIO()
@@ -1548,7 +1600,9 @@ def cancel_job(
     if not any(c.state == State.QUEUED for c in copies) and any(
         c.state in (State.PRINTING, State.NEEDS_REVIEW) for c in copies
     ):
-        raise HTTPException(409, "Use batch review for printing or uncertain copies")
+        raise HTTPException(
+            409, Message("serverMessages.useBatchReviewForPrintingOrUncertainCopies")
+        )
     for label in copies:
         if label.state == State.QUEUED:
             label.state = State.CANCELLED
@@ -1562,10 +1616,12 @@ def remove_selected(
 ) -> dict[str, int]:
     wanted = set(body.copy_ids)
     if len(wanted) != len(body.copy_ids):
-        raise HTTPException(422, "Select each copy only once")
+        raise HTTPException(422, Message("serverMessages.selectEachCopyOnlyOnce"))
     copies = list(session.scalars(select(LabelCopy).where(LabelCopy.id.in_(wanted))))
     if len(copies) != len(wanted) or any(copy.state != State.QUEUED for copy in copies):
-        raise HTTPException(409, "Selection changed; refresh the queue before removing items")
+        raise HTTPException(
+            409, Message("serverMessages.selectionChangedRefreshTheQueueBeforeRemovingItems")
+        )
     job_ids = {copy.job_id for copy in copies}
     for identifier in job_ids:
         require_record(request, get(session, PrintJob, identifier), Action.WRITE)
@@ -1590,7 +1646,7 @@ def cancel_flush(
 ) -> dict[str, bool]:
     pending = get(session, FlushRequest, identifier)
     if pending.completed:
-        raise HTTPException(409, "This flush has already started or completed")
+        raise HTTPException(409, Message("serverMessages.thisFlushHasAlreadyStartedOrCompleted"))
     pending.completed = True
     return {"cancelled": True}
 
@@ -1799,7 +1855,7 @@ def review(
             cartridge=get(session, Cartridge, body.cartridge_id) if body.cartridge_id else None,
         )
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
     save_review(
         session,
         request,
@@ -1829,7 +1885,7 @@ def batch_item_preview(
 
     batch = readable_batch(request, session, identifier)
     if session.get(BatchItem, (identifier, copy_id)) is None:
-        raise HTTPException(404, "Batch item not found")
+        raise HTTPException(404, Message("serverMessages.batchItemNotFound"))
     label = get(session, LabelCopy, copy_id)
     item = session.get(PrintJob, label.job_id)
     assert item is not None
@@ -1837,7 +1893,7 @@ def batch_item_preview(
         not full_activity(request, batch, review=True)
         and item.owner_id != access_context(request).actor.id
     ):
-        raise HTTPException(404, "Batch item not found")
+        raise HTTPException(404, Message("serverMessages.batchItemNotFound"))
     return label_preview_response(request, session, item, label)
 
 
@@ -1852,8 +1908,10 @@ def requeue_batch_item(
     access_context(request).require_printer(batch.printer_id, "submit_directly")
     attempt = session.get(BatchItem, (identifier, copy_id))
     if attempt is None:
-        raise HTTPException(404, "Batch item not found")
-    raise HTTPException(409, "Choose retry funding in the batch details before requeueing labels")
+        raise HTTPException(404, Message("serverMessages.batchItemNotFound"))
+    raise HTTPException(
+        409, Message("serverMessages.chooseRetryFundingInTheBatchDetailsBeforeRequeueingLabels")
+    )
 
 
 def notification_history_records(

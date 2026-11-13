@@ -15,6 +15,7 @@ from app.audit.audit import (
 )
 from app.authn.access import access_context
 from app.authn.resource_access import ResourceAccess, resolve_resource_access
+from app.i18n import Message, request_language
 from app.models import User, new_id
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
@@ -48,7 +49,7 @@ def audit_history(
             f"{kind}.view_audit" in permissions
             for (kind, _), permissions in rights.resources.items()
         ):
-            raise HTTPException(403, "Audit log access is required")
+            raise HTTPException(403, Message("serverMessages.auditLogAccessIsRequired"))
         result = audit_page(
             session,
             rights,
@@ -62,6 +63,7 @@ def audit_history(
             ),
             offset=offset,
             limit=limit,
+            language=request_language(request),
         )
         targets: tuple[tuple[ScopeKind, str | None], ...] = (
             ("printer", printer),

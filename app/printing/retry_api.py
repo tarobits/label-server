@@ -15,6 +15,7 @@ from app.accounts.pricing import accept_quote, job_geometry
 from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.authn.access import access_context
 from app.http import db, get, job_information, record
+from app.i18n import Message
 from app.models import (
     Batch,
     BatchItem,
@@ -81,14 +82,14 @@ def persist_job(request: Request, session: Session, offer: RetryOffer, job: Prin
     batch = session.get(Batch, offer.batch_id)
     assert batch is not None
     if not retry_eligible(session, job):
-        raise HTTPException(409, "The retry authorization is no longer valid")
+        raise HTTPException(409, Message("printErrors.retryAuthorization"))
     original = session.get(PrintJob, offer.source_job_id)
     assert original is not None
     if not job_eligible(session, original):
-        raise HTTPException(409, "The original work has an access or content hold")
+        raise HTTPException(409, Message("printErrors.originalHold"))
     fleet = request.app.state.fleet
     if batch.printer_id not in fleet.workers or not fleet.supports_geometry(job, batch.printer_id):
-        raise HTTPException(409, "The original printer cannot currently print these saved labels")
+        raise HTTPException(409, Message("printErrors.originalPrinter"))
     session.add(job)
     session.flush()
     session.add_all(LabelCopy(job_id=job.id, ordinal=index) for index in range(job.copies))
@@ -111,13 +112,13 @@ def create_retries(
         if any(
             row.actor_id != context.actor.id or row.request_hash != fingerprint for row in existing
         ):
-            raise HTTPException(409, "This retry reference already has different instructions")
+            raise HTTPException(409, Message("printErrors.retryReference"))
         return [record(row) for row in existing]
     if batch.state in (State.PRINTING, State.NEEDS_REVIEW):
-        raise HTTPException(409, "Review uncertain output before authorizing a retry")
+        raise HTTPException(409, Message("printErrors.reviewBeforeRetry"))
     selected = set(body.copy_ids)
     if len(selected) != len(body.copy_ids):
-        raise HTTPException(422, "Select each copy once")
+        raise HTTPException(422, Message("printErrors.uniqueCopies"))
     items = list(
         session.scalars(
             select(BatchItem)
@@ -126,30 +127,30 @@ def create_retries(
         )
     )
     if len(items) != len(selected):
-        raise HTTPException(404, "A selected copy is not part of this batch")
+        raise HTTPException(404, Message("printErrors.foreignCopy"))
     if any(item.outcome == State.PRINTED for item in items) and not body.include_printed:
-        raise HTTPException(409, "Explicitly include confirmed printed copies to retry them")
+        raise HTTPException(409, Message("printErrors.includePrinted"))
     for offer in session.scalars(
         select(RetryOffer).where(RetryOffer.batch_id == batch.id, RetryOffer.status != "declined")
     ):
         if selected.intersection(offer.copy_ids):
-            raise HTTPException(409, "A selected copy already has a retry offer or queued retry")
+            raise HTTPException(409, Message("printErrors.existingRetry"))
     cartridge = None
     if body.mode == "free":
         if not body.cartridge_id:
-            raise HTTPException(422, "Choose the cartridge funding this retry")
+            raise HTTPException(422, Message("printErrors.chooseFundingCartridge"))
         context.require_cartridge(body.cartridge_id, "approve_use")
         cartridge = session.get(Cartridge, body.cartridge_id)
         if cartridge is None or cartridge.archived:
-            raise HTTPException(409, "Choose an available retry cartridge")
+            raise HTTPException(409, Message("printErrors.availableRetryCartridge"))
     elif body.cartridge_id:
-        raise HTTPException(422, "Paid retries use the requester's eligible cartridges")
+        raise HTTPException(422, Message("printErrors.paidRetryCartridges"))
     grouped: dict[str, list[str]] = defaultdict(list)
     for item in items:
         label = session.get(LabelCopy, item.copy_id)
         assert label is not None
         if label.state in (State.QUEUED, State.PRINTING, State.NEEDS_REVIEW):
-            raise HTTPException(409, "This copy is already queued or awaiting review")
+            raise HTTPException(409, Message("printErrors.copyQueued"))
         original = session.get(PrintJob, label.job_id)
         assert original is not None
         context.require_printer(
@@ -162,9 +163,9 @@ def create_retries(
         )
         user = session.get(User, original.owner_id)
         if user is None or user.disabled:
-            raise HTTPException(409, "The requester is unavailable or disabled")
+            raise HTTPException(409, Message("printErrors.requesterDisabled"))
         if cartridge and cartridge.profile_id != original.profile_id:
-            raise HTTPException(422, "The retry cartridge must match the saved tape profile")
+            raise HTTPException(422, Message("printErrors.retryProfile"))
         grouped[original.id].append(label.id)
     offers = []
     for job_id, copies in grouped.items():
@@ -189,8 +190,12 @@ def create_retries(
             if cartridge and cartridge.owner_id:
                 enqueue(
                     session,
-                    "Cartridge-funded retry authorized",
-                    f"{len(copies)} copies will use {cartridge.name} at no additional charge to the requester. Actual tape cost will still be recorded.",
+                    Message("notificationMessages.retryFreeTitle"),
+                    Message(
+                        "notificationMessages.retryFreeBody",
+                        count=len(copies),
+                        cartridge=cartridge.name,
+                    ),
                     "/#/usage",
                     recipient_id=cartridge.owner_id,
                     context={"retry_id": offer.id},
@@ -198,8 +203,8 @@ def create_retries(
         else:
             enqueue(
                 session,
-                "Print retry needs your approval",
-                "Review a fresh quote before accepting a retry at your cost.",
+                Message("notificationMessages.retryApprovalTitle"),
+                Message("notificationMessages.retryApprovalBody"),
                 f"/#/retries/{offer.id}",
                 recipient_id=offer.requester_id,
                 context={"retry_id": offer.id},
@@ -217,7 +222,7 @@ def create_retries(
 def own_offer(request: Request, session: Session, identifier: str) -> RetryOffer:
     offer = session.get(RetryOffer, identifier)
     if offer is None or offer.requester_id != access_context(request).actor.id:
-        raise HTTPException(404, "Retry offer not found")
+        raise HTTPException(404, Message("printErrors.retryNotFound"))
     return offer
 
 
@@ -242,10 +247,10 @@ def retry_detail(identifier: str, request: Request, session: DB) -> dict[str, An
 def retry_quote(identifier: str, request: Request, session: DB) -> dict[str, Any]:
     offer = own_offer(request, session, identifier)
     if offer.status != "pending" or offer.mode != "paid":
-        raise HTTPException(409, "This retry no longer needs a price quote")
+        raise HTTPException(409, Message("printErrors.retryNoQuote"))
     job = clone_job(session, offer)
     if not retry_eligible(session, job):
-        raise HTTPException(409, "The retry authorization is no longer valid")
+        raise HTTPException(409, Message("printErrors.retryAuthorization"))
     return estimate_cost(request, session, job.destination_id, job.profile_id, job_geometry(job))
 
 
@@ -261,10 +266,10 @@ def accept_retry(
             pricing.get("quote_id") != body.quote_id
             or pricing.get("maximum") != body.maximum_price.model_dump()
         ):
-            raise HTTPException(409, "This retry was already accepted with different price consent")
+            raise HTTPException(409, Message("printErrors.retryConsentChanged"))
         return record(offer)
     if offer.status != "pending" or offer.mode != "paid":
-        raise HTTPException(409, "This retry no longer awaits acceptance")
+        raise HTTPException(409, Message("printErrors.retryNotPending"))
     job = clone_job(session, offer)
     accept_quote(request, session, job, body.quote_id, body.maximum_price.model_dump())
     persist_job(request, session, offer, job)
@@ -278,7 +283,7 @@ def decline_retry(identifier: str, request: Request, session: DB) -> dict[str, A
     if offer.status == "declined":
         return record(offer)
     if offer.status != "pending":
-        raise HTTPException(409, "This retry no longer awaits acceptance")
+        raise HTTPException(409, Message("printErrors.retryNotPending"))
     offer.status = "declined"
     evidence(session, request, offer, "retry.declined")
     return record(offer)

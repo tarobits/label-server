@@ -6,13 +6,14 @@ import time
 from typing import Any, Literal
 
 from fastapi import HTTPException, Request
-from pydantic import Field
+from pydantic import Field, model_validator
 from sqlalchemy import select
 
 from app.audit.action_audit import record_action
 from app.companion.companion_auth import DeviceDB, operator
 from app.companion.companion_dashboard import printer_dashboard
 from app.companion.companion_protocol import BatchReceipt, ExecutionResult
+from app.i18n import JoinedMessages, Message, error_detail
 from app.models import (
     Batch,
     BatchItem,
@@ -27,6 +28,7 @@ from app.models import (
     State,
 )
 from app.printer.factory import DeviceConfiguration
+from app.printer.messages import reason_descriptor, restore_reason
 from app.printer.remote import RemotePrinterBackend
 from app.schemas import Input
 from app.transaction_routes import TransactionRouter
@@ -67,7 +69,9 @@ def local_stop_event(body: LocalStopEvent, session: DeviceDB) -> dict[str, bool]
             },
         )
     except ValueError as error:
-        raise HTTPException(409, "Local event identity has conflicting evidence") from error
+        raise HTTPException(
+            409, Message("serverMessages.localEventIdentityHasConflictingEvidence")
+        ) from error
     return {"ok": True}
 
 
@@ -83,7 +87,7 @@ def require_management(request: Request, session: DeviceDB) -> None:
 
     actor = actor_for_user(session, operator(request, session))
     if not actor.is_admin and "printers.manage" not in actor.permissions:
-        raise HTTPException(403, "Printer management permission is required")
+        raise HTTPException(403, Message("serverMessages.printerManagementPermissionIsRequired"))
     session.info["companion_operator"] = actor
 
 
@@ -103,17 +107,26 @@ class DeviceStatus(Input):
     tape_width_mm: float | None = Field(default=None, gt=0, le=1000)
     error: str | None = Field(default=None, max_length=500)
     error_requires_investigation: bool = True
+    error_translation: dict[str, Any] | None = None
     media: MediaStatus | None = None
     media_confirmed: bool = False
     media_changed: bool = False
     diagnostics: dict[str, str] | None = None
+
+    @model_validator(mode="after")
+    def supported_translation(self):
+        # Metadata is optional across versions; it may never override the reported text.
+        self.error_translation = reason_descriptor(
+            restore_reason(self.error, self.error_translation)
+        )
+        return self
 
 
 def owned_printer(session: DeviceDB, identifier: str) -> CompanionPrinter:
     item: Companion = session.info["companion"]
     link = session.get(CompanionPrinter, identifier)
     if link is None or link.companion_id != item.id:
-        raise HTTPException(404, "Companion printer not found")
+        raise HTTPException(404, Message("serverMessages.companionPrinterNotFound"))
     return link
 
 
@@ -121,7 +134,7 @@ def owned_batch(session: DeviceDB, identifier: str) -> CompanionBatch:
     item: Companion = session.info["companion"]
     batch = session.get(CompanionBatch, identifier)
     if batch is None or batch.companion_id != item.id:
-        raise HTTPException(404, "Companion batch not found")
+        raise HTTPException(404, Message("serverMessages.companionBatchNotFound"))
     return batch
 
 
@@ -141,7 +154,9 @@ def register(body: Registration, request: Request, session: DeviceDB) -> dict[st
     try:
         request.app.state.fleet.backend_factory(body.driver, configuration)
     except ValueError as error:
-        raise HTTPException(422, "Unsupported printer configuration") from error
+        raise HTTPException(
+            422, Message("serverMessages.unsupportedPrinterConfiguration")
+        ) from error
     device = PrinterDevice(
         name=body.name, driver=body.driver, config=configuration, location_id=item.location_id
     )
@@ -185,7 +200,7 @@ def enable_printer(
     try:
         require_idle(session, identifier)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
     if body.enabled:
         from app.printing.fleet_api import validate_device
         from app.schemas import PrinterInput
@@ -193,7 +208,9 @@ def enable_printer(
         device = session.get(PrinterDevice, identifier)
         assert device is not None
         if device.config.get("retired"):
-            raise HTTPException(409, "This printer registration has been retired")
+            raise HTTPException(
+                409, Message("serverMessages.thisPrinterRegistrationHasBeenRetired")
+            )
         validate_device(
             PrinterInput(name=device.name, driver=device.driver, **device.config),
             session,
@@ -219,12 +236,14 @@ def heartbeat(
     link = owned_printer(session, identifier)
     device = session.get(PrinterDevice, identifier)
     if device and device.config.get("moved_to"):
-        raise HTTPException(409, "Printer moved; restart the companion to refresh its registration")
+        raise HTTPException(
+            409, Message("serverMessages.printerMovedRestartTheCompanionToRefreshItsRegistration")
+        )
     if body.diagnostics and (
         len(body.diagnostics) > 30
         or any(len(k) > 100 or len(v) > 500 for k, v in body.diagnostics.items())
     ):
-        raise HTTPException(422, "Diagnostic values exceed limits")
+        raise HTTPException(422, Message("serverMessages.diagnosticValuesExceedLimits"))
     link.status, link.last_seen_at = (
         body.model_dump(exclude={"local_blocked", "clearance_seen"}),
         time.time(),
@@ -235,18 +254,21 @@ def heartbeat(
         link.blocked = True
         reasons = []
         if hardware_fault:
-            reasons.append(f"Printer reported a fault: {body.error}")
-        if local_block:
             reasons.append(
-                "Companion reports an unresolved local print attempt requiring investigation"
+                Message(
+                    "printerMessages.reportedFault",
+                    reason=restore_reason(body.error, body.error_translation),
+                )
             )
+        if local_block:
+            reasons.append(Message("printerMessages.localUncertainty"))
         record_action(
             session,
             "companion.printer_blocked",
             "printer",
             identifier,
             {
-                "reason": "; ".join(reasons),
+                "reason": JoinedMessages(reasons),
                 "connected": body.connected,
                 "local_blocked": local_block,
             },
@@ -327,7 +349,7 @@ def authorized(session: DeviceDB, row: CompanionBatch) -> bool:
 def ready(identifier: str, body: BatchReceipt, session: DeviceDB) -> dict[str, Any]:
     row = owned_batch(session, identifier)
     if not hmac.compare_digest(row.digest, body.digest):
-        raise HTTPException(409, "Batch receipt does not match")
+        raise HTTPException(409, Message("serverMessages.batchReceiptDoesNotMatch"))
     if row.result:
         return {"cancelled": True, "go_token": None}
     if not row.go_token:
@@ -356,7 +378,7 @@ def result(identifier: str, body: ExecutionResult, session: DeviceDB) -> dict[st
         or not hmac.compare_digest(row.go_token, body.go_token)
         or not hmac.compare_digest(row.digest, body.digest)
     ):
-        raise HTTPException(409, "Batch authorization does not match")
+        raise HTTPException(409, Message("serverMessages.batchAuthorizationDoesNotMatch"))
     count = len(row.payload["labels"])
     if (
         body.confirmed_labels > count
@@ -365,11 +387,11 @@ def result(identifier: str, body: ExecutionResult, session: DeviceDB) -> dict[st
         or body.outcome == "not_started"
         and (body.confirmed_labels or body.consumed_mm)
     ):
-        raise HTTPException(422, "Result does not match the batch")
+        raise HTTPException(422, Message("serverMessages.resultDoesNotMatchTheBatch"))
     value = body.model_dump()
     if row.result is not None:
         if row.result != value:
-            raise HTTPException(409, "This batch already has a different result")
+            raise HTTPException(409, Message("serverMessages.thisBatchAlreadyHasADifferentResult"))
         return {"ok": True}
     row.result = value
     details: dict[str, Any] = {
@@ -379,9 +401,9 @@ def result(identifier: str, body: ExecutionResult, session: DeviceDB) -> dict[st
     }
     if body.outcome != "printed":
         details["reason"] = (
-            "Companion rejected the batch before printing; printer investigation is required"
+            Message("printerMessages.rejectedBatch")
             if body.outcome == "not_started"
-            else "Companion reported interrupted printing; unconfirmed output requires review"
+            else Message("printerMessages.interruptedBatch")
         )
         link = owned_printer(session, row.printer_id)
         if not link.blocked:

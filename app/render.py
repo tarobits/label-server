@@ -22,6 +22,7 @@ from app.assets.font_assets import FontStore
 from app.assets.font_variations import InvalidFontWeight, static_instance
 from app.assets.image_assets import ImageStore, image_svg
 from app.barcodes import encode_barcode, encode_matrix
+from app.i18n import Message
 from app.models import LabelCopy, PrintJob
 from app.printer.base import RenderedLabel
 from app.templates.element_geometry import element_geometry
@@ -107,15 +108,17 @@ def resolve_values(
     values = {}
     for field in document.fields:
         if not isinstance(field, TemplateField):
-            raise ValueError("Typed inputs require version 2 logic resolution")
+            raise ValueError(Message("domainMessages.typedInputsRequireVersion2LogicResolution"))
         value = data.get(field.name, (field.sample or field.default) if samples else field.default)
         if not isinstance(value, str):
-            raise ValueError(f"{field.label}: expected text")
+            raise ValueError(Message("logicErrors.value1ExpectedText", value1=field.label))
         if len(value) > 2000:
-            raise ValueError(f"{field.label}: input exceeds 2000 characters")
+            raise ValueError(
+                Message("logicErrors.value1InputExceeds2000Characters", value1=field.label)
+            )
         check_text_length(value, field.min_length, field.max_length, field.label)
         if field.required and not value.strip():
-            raise ValueError(f"{field.label} is required")
+            raise ValueError(Message("logicErrors.value1IsRequired", value1=field.label))
         values[field.name] = value
     return values
 
@@ -148,7 +151,7 @@ def font_path(element: Element, fonts: FontStore | None) -> str | None:
         )
         return str(static_instance(source, element.font_weight, fonts.root if fonts else None))
     if fonts is None:
-        raise ValueError("Font asset store is unavailable")
+        raise ValueError(Message("domainMessages.fontAssetStoreIsUnavailable"))
     source = fonts.path(element.font)
     with TTFont(source) as font:
         variable = "fvar" in font
@@ -213,7 +216,9 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
     else:
         family = f"LabelFont_{element.font[:48]}"
     if any(ord(char) not in supported_characters(path) for char in text if char not in "\n\r\t"):
-        raise ValueError("Text contains characters unsupported by the selected font")
+        raise ValueError(
+            Message("domainMessages.textContainsCharactersUnsupportedByTheSelectedFont")
+        )
     font = font_for(element.font_size, element.bold, path)
     paragraphs = text.replace("\t", "    ").splitlines() or [""]
     ascent, descent = font.getmetrics()
@@ -221,7 +226,9 @@ def text_svg(element: Element, text: str, fonts: FontStore | None = None) -> str
     inner_width = element.width - element.padding_left - element.padding_right
     inner_height = element.height - element.padding_top - element.padding_bottom
     if inner_width <= 0 or inner_height <= 0:
-        raise ValueError(f"Element {element.id}: text padding leaves no space for text")
+        raise ValueError(
+            Message("logicErrors.elementValue1TextPaddingLeavesNoSpaceForText", value1=element.id)
+        )
 
     def width(line: str, scale: float) -> float:
         return text_width(font, line, element.character_spacing) * scale
@@ -325,7 +332,9 @@ def matrix_svg(element: Element, content: str, spec: RenderSpec) -> str:
     )
     if pixels < 2:
         raise ValueError(
-            "Matrix code is too small: enlarge it or shorten its content (minimum 2 pixels per module)"
+            Message(
+                "domainMessages.matrixCodeIsTooSmallEnlargeItOrShortenItsContentMinimum2PixelsPerModule"
+            )
         )
     module = pixels * 25.4 / dpi
     x, y = (element.width - columns * module) / 2, (element.height - rows * module) / 2
@@ -347,7 +356,9 @@ def barcode_svg(element: Element, content: str, spec: RenderSpec, fonts: FontSto
     pixels = math.floor(element.width * dpi / 25.4 / (len(pattern) + quiet * 2))
     if pixels < 2:
         raise ValueError(
-            "Barcode is too narrow: widen it or shorten its content (minimum 2 pixels per module)"
+            Message(
+                "domainMessages.barcodeIsTooNarrowWidenItOrShortenItsContentMinimum2PixelsPerModule"
+            )
         )
     module = pixels * 25.4 / dpi
     offset = (element.width - len(pattern) * module) / 2
@@ -355,7 +366,7 @@ def barcode_svg(element: Element, content: str, spec: RenderSpec, fonts: FontSto
     height = element.height - caption_height
     if height < 3:
         raise ValueError(
-            "Barcode is too short: allow at least 3 mm for bars plus space for its caption"
+            Message("domainMessages.barcodeIsTooShortAllowAtLeast3MmForBarsPlusSpaceForItsCaption")
         )
     bars = "".join(
         f"M{offset + i * module},0h{module}v{height}h{-module}z"
@@ -382,9 +393,9 @@ def barcode_svg(element: Element, content: str, spec: RenderSpec, fonts: FontSto
 
 def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
     if not content:
-        raise ValueError("QR content cannot be empty")
+        raise ValueError(Message("domainMessages.qrContentCannotBeEmpty"))
     if len(content.encode("utf-8")) > 1000:
-        raise ValueError("QR content exceeds 1000 bytes")
+        raise ValueError(Message("domainMessages.qrContentExceeds1000Bytes"))
     explicit_margin = element.qr_fill_box and element.qr_margin_mm is not None
     qr = qrcode.QRCode(
         error_correction=qrcode.constants.ERROR_CORRECT_M, border=0 if explicit_margin else 4
@@ -398,7 +409,9 @@ def qr_svg(element: Element, content: str, spec: RenderSpec) -> str:
     module_pixels = math.floor(available * qr_dpi / 25.4 / len(matrix))
     if module_pixels < 2:
         raise ValueError(
-            "QR code is too small: enlarge it or shorten its content (minimum 2 pixels per module)"
+            Message(
+                "domainMessages.qrCodeIsTooSmallEnlargeItOrShortenItsContentMinimum2PixelsPerModule"
+            )
         )
     module = module_pixels * 25.4 / qr_dpi
     if element.qr_fill_box:
@@ -445,7 +458,12 @@ def resolve_layout(
             lines = content.replace("\t", "    ").splitlines() or [""]
             inner_height = element.height - element.padding_top - element.padding_bottom
             if inner_height <= 0:
-                raise ValueError(f"Element {element.id}: text padding leaves no space for text")
+                raise ValueError(
+                    Message(
+                        "logicErrors.elementValue1TextPaddingLeavesNoSpaceForText",
+                        value1=element.id,
+                    )
+                )
             # Rendering shrinks the entire block to fit its height. Measure at
             # that same scale so explicit line breaks do not leave unused width.
             scale = min(
@@ -466,7 +484,9 @@ def resolve_layout(
                 + element.padding_right
             )
             if element.width > 1000:
-                raise ValueError("Automatically sized text exceeds the maximum element width")
+                raise ValueError(
+                    Message("domainMessages.automaticallySizedTextExceedsTheMaximumElementWidth")
+                )
             element.auto_width = False
     elements = {element.id: element for element in resolved.elements}
     positioned: set[str] = set()
@@ -486,7 +506,11 @@ def resolve_layout(
             else:
                 element.y += bottom + gap - top
             if not -1000 <= element.x <= 1000 or not -100 <= element.y <= 100:
-                raise ValueError("Distance holder places an element beyond supported coordinates")
+                raise ValueError(
+                    Message(
+                        "domainMessages.distanceHolderPlacesAnElementBeyondSupportedCoordinates"
+                    )
+                )
             # Freeze the resolved geometry, not a relation that could move an old job later.
             element.distance_holder = None
         positioned.add(element.id)
@@ -495,7 +519,7 @@ def resolve_layout(
         position(element)
     if resolved.auto_length:
         if spec.media_kind != "continuous":
-            raise ValueError("Automatic label length requires continuous media")
+            raise ValueError(Message("domainMessages.automaticLabelLengthRequiresContinuousMedia"))
         natural_length = fitted_length(resolved, spec.margin_mm)
         if natural_length < 10 and warnings is not None:
             warnings.append(
@@ -504,7 +528,7 @@ def resolve_layout(
             )
         resolved.length_mm = max(10, math.ceil(natural_length * 100) / 100)
         if resolved.length_mm > 300:
-            raise ValueError("Automatic label length exceeds the 300 mm limit")
+            raise ValueError(Message("domainMessages.automaticLabelLengthExceedsThe300MmLimit"))
         resolved.auto_length = False
     return resolved
 
@@ -636,7 +660,7 @@ def render_document(
     allow_missing_assets: bool = False,
 ) -> RenderOutput:
     if document.auto_length and spec.media_kind != "continuous":
-        raise ValueError("Automatic label length requires continuous media")
+        raise ValueError(Message("domainMessages.automaticLabelLengthRequiresContinuousMedia"))
     resolved_inputs = None
     layout_warnings: list[str] = []
     automatic_length = document.auto_length
@@ -672,7 +696,7 @@ def render_document(
                     font_path(element, fonts)
                 elif element.kind == "image" and element.image_asset:
                     if images is None:
-                        raise ValueError("Image library unavailable")
+                        raise ValueError(Message("domainMessages.imageLibraryUnavailable"))
                     images.path(element.image_asset)
             except InvalidFontWeight:
                 raise
@@ -698,7 +722,9 @@ def render_document(
         document.media.media_kind == "fixed_label"
         and document.length_mm != document.media.label_length_mm
     ):
-        raise ValueError("Resolved design length must match the fixed-label stock length")
+        raise ValueError(
+            Message("domainMessages.resolvedDesignLengthMustMatchTheFixedLabelStockLength")
+        )
     if automatic_length:
         template_padding = max(0, 10 - fitted_length(document, spec.margin_mm))
     font_files = [str(FONT_DIR / "NotoSans.ttf"), str(FONT_DIR / "NotoSans-Bold.ttf")]
@@ -750,7 +776,11 @@ def render_document(
         if outside:
             if not clipping:
                 raise ValueError(
-                    f"Element {element.id} is outside the printable area ({spec.margin_mm} mm margins)"
+                    Message(
+                        "logicErrors.elementValue1IsOutsideThePrintableAreaValue2MmMargins",
+                        value1=element.id,
+                        value2=spec.margin_mm,
+                    )
                 )
         box = (x, y, right, bottom, element.id)
         boxes.append(box)

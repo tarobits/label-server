@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from app.i18n import Message
 from app.media import MediaProperties
 from app.schemas import Input
 from app.templates.logic_schema import (
@@ -36,7 +37,7 @@ class TemplateField(Input):
             and self.max_length is not None
             and self.min_length > self.max_length
         ):
-            raise ValueError("Minimum text length exceeds maximum")
+            raise ValueError(Message("domainMessages.minimumTextLengthExceedsMaximum"))
         for value in (self.default, self.sample):
             check_text_length(value, self.min_length, self.max_length, self.label)
         return self
@@ -115,9 +116,9 @@ class PreviewExample(Input):
     def bounded_values(self) -> "PreviewExample":
         for value in self.data.values():
             if isinstance(value, str) and len(value) > 2000:
-                raise ValueError("Preview text exceeds 2000 characters")
+                raise ValueError(Message("domainMessages.previewTextExceeds2000Characters"))
             if isinstance(value, (int, float)) and abs(value) > 1e12:
-                raise ValueError("Preview number exceeds supported limits")
+                raise ValueError(Message("domainMessages.previewNumberExceedsSupportedLimits"))
         return self
 
 
@@ -139,18 +140,22 @@ class TemplateDocument(Input):
     @model_validator(mode="after")
     def validate_document(self) -> "TemplateDocument":
         if len({example.id for example in self.preview_examples}) != len(self.preview_examples):
-            raise ValueError("Preview example IDs must be unique")
+            raise ValueError(Message("domainMessages.previewExampleIDsMustBeUnique"))
         if self.media.media_kind == "fixed_label":
             if self.auto_length:
-                raise ValueError("Automatic label length requires continuous media")
+                raise ValueError(
+                    Message("domainMessages.automaticLabelLengthRequiresContinuousMedia")
+                )
             if self.length_mm != self.media.label_length_mm:
-                raise ValueError("Design length must match the fixed-label stock length")
+                raise ValueError(
+                    Message("domainMessages.designLengthMustMatchTheFixedLabelStockLength")
+                )
         types: dict[str, ValueType | Literal["null"]] = {}
         names = {field.name for field in self.fields}
         if len(names) != len(self.fields):
-            raise ValueError("Variable names must be unique")
+            raise ValueError(Message("domainMessages.variableNamesMustBeUnique"))
         if len({element.id for element in self.elements}) != len(self.elements):
-            raise ValueError("Element IDs must be unique")
+            raise ValueError(Message("domainMessages.elementIDsMustBeUnique"))
         if self.version == 1:
             if (
                 self.logic is not None
@@ -162,7 +167,9 @@ class TemplateDocument(Input):
                 )
             ):
                 raise ValueError(
-                    "Typed variables, visibility, and logic require template version 2"
+                    Message(
+                        "domainMessages.typedVariablesVisibilityAndLogicRequireTemplateVersion2"
+                    )
                 )
         else:
             from app.templates.logic_engine import validate_program
@@ -175,35 +182,43 @@ class TemplateDocument(Input):
         for element in self.elements:
             tokens = set() if element.literal_content else set(TOKEN.findall(element.content))
             if tokens - names:
-                raise ValueError(f"Element {element.id} uses an undefined variable")
+                raise ValueError(
+                    Message("logicErrors.elementValue1UsesAnUndefinedVariable", value1=element.id)
+                )
             if self.version == 2 and any(types[name] == "image" for name in tokens):
-                raise ValueError("Image variables must bind an image property, not text content")
+                raise ValueError(
+                    Message("domainMessages.imageVariablesMustBindAnImagePropertyNotTextContent")
+                )
             if (
                 element.visible
                 and element.kind == "qr"
                 and abs(element.width - element.height) > 0.001
             ):
-                raise ValueError("QR elements must be square")
+                raise ValueError(Message("domainMessages.qrElementsMustBeSquare"))
             if (
                 element.visible
                 and element.kind in ("line", "rectangle")
                 and element.stroke > min(element.width, element.height)
             ):
-                raise ValueError("Stroke exceeds element dimensions")
+                raise ValueError(Message("domainMessages.strokeExceedsElementDimensions"))
         elements = {element.id: element for element in self.elements}
         visited: set[str] = set()
         visiting: set[str] = set()
 
         def visit(identifier: str) -> None:
             if identifier in visiting:
-                raise ValueError("Distance holders must not form a circular dependency")
+                raise ValueError(
+                    Message("domainMessages.distanceHoldersMustNotFormACircularDependency")
+                )
             if identifier in visited:
                 return
             visiting.add(identifier)
             holder = elements[identifier].distance_holder
             if holder:
                 if holder.element_id not in elements:
-                    raise ValueError("Distance holder references a missing element")
+                    raise ValueError(
+                        Message("domainMessages.distanceHolderReferencesAMissingElement")
+                    )
                 visit(holder.element_id)
             visiting.remove(identifier)
             visited.add(identifier)
@@ -246,5 +261,5 @@ class PreviewInput(Input):
     @model_validator(mode="after")
     def exactly_one_source(self) -> "PreviewInput":
         if (self.document is None) == (self.template_id is None):
-            raise ValueError("Provide a document or a template ID")
+            raise ValueError(Message("domainMessages.provideADocumentOrATemplateID"))
         return self

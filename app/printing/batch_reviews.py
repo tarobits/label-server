@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, defer
 from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.authn.access import access_context
 from app.http import db, get
+from app.i18n import Message
 from app.models import (
     AuthSettings,
     Batch,
@@ -50,22 +51,20 @@ def evidence_policy(session: Session) -> str:
 def normalize_photo(session: Session, encoded: str | None) -> str | None:
     policy = evidence_policy(session)
     if policy == "required" and not encoded:
-        raise HTTPException(422, "An evidence photo is required for batch reviews")
+        raise HTTPException(422, Message("printErrors.photoRequired"))
     if not encoded:
         return None
     if policy == "disabled":
-        raise HTTPException(422, "Evidence photos are disabled by the administrator")
+        raise HTTPException(422, Message("printErrors.photoDisabled"))
     try:
         raw = base64.b64decode(encoded, validate=True)
         if len(raw) > 5_000_000:
-            raise ValueError("Evidence photos are limited to 5 MB")
+            raise HTTPException(422, Message("printErrors.photoBytes"))
         with Image.open(io.BytesIO(raw)) as source:
             if source.format not in ("PNG", "JPEG", "WEBP") or getattr(source, "n_frames", 1) != 1:
-                raise ValueError("Choose a still PNG, JPEG or WebP photo")
+                raise HTTPException(422, Message("printErrors.photoFormat"))
             if source.width * source.height > 16_000_000 or max(source.size) > 8192:
-                raise ValueError(
-                    "Evidence photos are limited to 16 megapixels and 8192 pixels per side"
-                )
+                raise HTTPException(422, Message("printErrors.photoDimensions"))
             source.load()
             picture = ImageOps.exif_transpose(source).convert("RGBA")
             picture.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
@@ -81,12 +80,7 @@ def normalize_photo(session: Session, encoded: str | None) -> str | None:
         Image.DecompressionBombError,
         ValueError,
     ) as error:
-        message = (
-            str(error)
-            if isinstance(error, ValueError) and not isinstance(error, binascii.Error)
-            else "Evidence photo could not be decoded"
-        )
-        raise HTTPException(422, message) from error
+        raise HTTPException(422, Message("printErrors.photoDecode")) from error
 
 
 def repeated_review(
@@ -101,7 +95,7 @@ def repeated_review(
         existing.actor_id != access_context(request).actor.id
         or existing.request_hash != fingerprint
     ):
-        raise HTTPException(409, "This review reference already has different instructions")
+        raise HTTPException(409, Message("printErrors.reviewReference"))
     return True
 
 
@@ -200,7 +194,7 @@ def evidence_photo(identifier: str, review_id: str, request: Request, session: D
     get(session, Batch, identifier)
     review = session.get(BatchReview, review_id)
     if review is None or review.batch_id != identifier or not review.photo:
-        raise HTTPException(404, "Evidence photo not found")
+        raise HTTPException(404, Message("printErrors.photoNotFound"))
     return Response(
         base64.b64decode(review.photo),
         media_type="image/jpeg",
@@ -220,24 +214,24 @@ def report_misprints(
     if repeated_review(session, request, str(body.request_id), fingerprint):
         return {"id": batch.id, "state": batch.state}
     if batch.state in (State.PRINTING, State.NEEDS_REVIEW) or batch.finished_at is None:
-        raise HTTPException(409, "Finish reviewing uncertain output before reporting a misprint")
+        raise HTTPException(409, Message("printErrors.reviewBeforeMisprint"))
     if not body.reason.strip():
-        raise HTTPException(422, "Describe the misprint")
+        raise HTTPException(422, Message("printErrors.describeMisprint"))
     selected = set(body.copy_ids)
     if len(selected) != len(body.copy_ids):
-        raise HTTPException(422, "Select each copy once")
+        raise HTTPException(422, Message("printErrors.uniqueCopies"))
     items = list(
         session.scalars(
             select(BatchItem).where(BatchItem.batch_id == batch.id, BatchItem.copy_id.in_(selected))
         )
     )
     if len(items) != len(selected):
-        raise HTTPException(404, "A selected copy is not part of this batch")
+        raise HTTPException(404, Message("printErrors.foreignCopy"))
     if any(item.outcome != State.PRINTED for item in items):
-        raise HTTPException(409, "Only copies currently marked as printed can be reported")
+        raise HTTPException(409, Message("printErrors.onlyPrinted"))
     labels = [get(session, LabelCopy, item.copy_id) for item in items]
     if any(label.state in (State.QUEUED, State.PRINTING, State.NEEDS_REVIEW) for label in labels):
-        raise HTTPException(409, "A selected copy has an active or uncertain attempt")
+        raise HTTPException(409, Message("printErrors.activeAttempt"))
     photo = normalize_photo(session, body.evidence_photo)
     previous = {item.copy_id: item.outcome.value for item in items}
     for item, label in zip(items, labels, strict=True):
@@ -271,8 +265,8 @@ def report_misprints(
         assert job is not None
         enqueue(
             session,
-            "Misprint reported",
-            f"{count} previously confirmed copies were reported as misprinted. A retry has not been queued.",
+            Message("notificationMessages.misprintTitle"),
+            Message("notificationMessages.misprintBody", count=count),
             "/#/queue?state=failed",
             recipient_id=job.owner_id,
             context={"review_id": review.id, "job_id": job.id},

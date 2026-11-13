@@ -18,6 +18,7 @@ from app.audit.print_audit import actor_snapshot, approval_attribution
 from app.authn.access import Action, Resource, access_context
 from app.authn.authorization import rendering_destination, visible_requests
 from app.http import db, get, record
+from app.i18n import Message
 from app.models import AuthSettings, LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
 from app.printing.destinations import members
 from app.printing.preparation import rendering
@@ -96,7 +97,7 @@ def create_request(
     context = access_context(request)
     key = request.headers.get("Idempotency-Key")
     if key is not None and not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", key):
-        raise HTTPException(422, "Invalid Idempotency-Key")
+        raise HTTPException(422, Message("serverMessages.invalidIdempotencyKey"))
     fingerprint = input_fingerprint(body.model_dump())
 
     def existing_request() -> PrintRequest | None:
@@ -113,12 +114,16 @@ def create_request(
             return None
         matches = list(session.scalars(query))
         if len(matches) > 1:
-            raise HTTPException(409, "Request key already used for different inputs")
+            raise HTTPException(
+                409, Message("serverMessages.requestKeyAlreadyUsedForDifferentInputs")
+            )
         existing = matches[0] if matches else None
         if existing:
             require_request(request, existing)
             if existing.request_hash != fingerprint:
-                raise HTTPException(409, "Request key already used for different inputs")
+                raise HTTPException(
+                    409, Message("serverMessages.requestKeyAlreadyUsedForDifferentInputs")
+                )
         return existing
 
     if existing := existing_request():
@@ -127,9 +132,9 @@ def create_request(
     if body.kind == "run":
         run = get(session, PrintRun, body.run_id)
         if run.owner_id != context.actor.id and not context.actor.is_admin:
-            raise HTTPException(403, "Only the owner can submit this draft")
+            raise HTTPException(403, Message("serverMessages.onlyTheOwnerCanSubmitThisDraft"))
         if run.submitted_at is not None:
-            raise HTTPException(409, "Run already submitted")
+            raise HTTPException(409, Message("serverMessages.runAlreadySubmitted"))
         run_id, destination = run.id, run.destination_id
         labels = [
             {**copy.deepcopy(row), "profile_id": run.profile_id} for row in run.manifest["rows"]
@@ -163,7 +168,7 @@ def create_request(
             profile = get(session, TapeProfile, source.tape_profile)
             template = get(session, LabelTemplate, body.input.template)
             if template.archived:
-                raise HTTPException(409, "Template is archived")
+                raise HTTPException(409, Message("serverMessages.templateIsArchived"))
             job_input = body.input
         with rendering(
             request,
@@ -256,7 +261,7 @@ def request_preview(
     value = get(session, PrintRequest, identifier)
     require_request(request, value)
     if not 0 <= position < len(value.labels):
-        raise HTTPException(404, "Label not found")
+        raise HTTPException(404, Message("serverMessages.labelNotFound"))
     job = PrintJob(**value.labels[position])
     rendered = render_job(
         job,
@@ -292,18 +297,21 @@ def update_request_copies(
     if value.owner_id != access_context(request).actor.id:
         access_context(request).require_printer(value.destination_id, "manage_queue")
     if value.status != "pending":
-        raise HTTPException(409, "Only pending requests can be edited")
+        raise HTTPException(409, Message("serverMessages.onlyPendingRequestsCanBeEdited"))
     if value.revision != body.expected_revision:
-        raise HTTPException(409, "This request changed. Reload it before changing copies")
+        raise HTTPException(
+            409, Message("serverMessages.thisRequestChangedReloadItBeforeChangingCopies")
+        )
     if not 0 <= position < len(value.labels):
-        raise HTTPException(404, "Label not found")
+        raise HTTPException(404, Message("serverMessages.labelNotFound"))
     if value.labels[position]["copies"] != body.copies:
         if (
             value.labels[position]["template_snapshot"].get("pricing")
             and body.copies > value.labels[position]["copies"]
         ):
             raise HTTPException(
-                409, "Additional copies need a new price quote; submit them as a new label"
+                409,
+                Message("serverMessages.additionalCopiesNeedANewPriceQuoteSubmitThemAsANewLabel"),
             )
         labels = copy.deepcopy(value.labels)
         labels[position]["copies"] = body.copies
@@ -323,16 +331,18 @@ def approve_request(
     value = get(session, PrintRequest, identifier)
     reviewer = moderator(request, value)
     if value.revision != body.expected_revision:
-        raise HTTPException(409, "This request changed. Reload and review it before approving")
+        raise HTTPException(
+            409, Message("serverMessages.thisRequestChangedReloadAndReviewItBeforeApproving")
+        )
     if value.status == "approved":
         return request_record(session, value)
     if value.status != "pending":
-        raise HTTPException(409, "This request was already rejected")
+        raise HTTPException(409, Message("serverMessages.thisRequestWasAlreadyRejected"))
     from app.authn.auth import actor_for_user
 
     owner = session.get(User, value.owner_id)
     if owner is None or owner.disabled:
-        raise HTTPException(409, "The submitter is no longer active")
+        raise HTTPException(409, Message("serverMessages.theSubmitterIsNoLongerActive"))
     actor = actor_for_user(session, owner)
     device_ids = members(session, value.destination_id)
     from app.authn.access import AccountPolicy
@@ -341,16 +351,20 @@ def approve_request(
         AccountPolicy({value.destination_id: None}).can_printer(actor, value.destination_id, mode)
         for mode in ("submit_requests", "submit_directly")
     ):
-        raise HTTPException(409, "The submitter no longer has access to this destination")
+        raise HTTPException(
+            409, Message("serverMessages.theSubmitterNoLongerHasAccessToThisDestination")
+        )
     if not any(pid in request.app.state.fleet.workers for pid in device_ids):
-        raise HTTPException(409, "No configured printer is available at this destination")
+        raise HTTPException(
+            409, Message("serverMessages.noConfiguredPrinterIsAvailableAtThisDestination")
+        )
     require_document_assets(request, session, value.labels)
     now = time.time()
     jobs = []
     for position, label in enumerate(value.labels):
         profile = get(session, TapeProfile, label["profile_id"])
         if profile.width_mm != label["width_mm"]:
-            raise HTTPException(409, "Tape width changed; create a new request")
+            raise HTTPException(409, Message("serverMessages.tapeWidthChangedCreateANewRequest"))
         job = PrintJob(
             **copy.deepcopy(label),
             owner_id=value.owner_id,
@@ -375,9 +389,9 @@ def approve_request(
         # authoring draft. The request's frozen run reference is already authorized.
         run = session.get(PrintRun, value.run_id)
         if run is None:
-            raise HTTPException(409, "The submitted run no longer exists")
+            raise HTTPException(409, Message("serverMessages.theSubmittedRunNoLongerExists"))
         if run.submitted_at is not None:
-            raise HTTPException(409, "Run already submitted")
+            raise HTTPException(409, Message("serverMessages.runAlreadySubmitted"))
         run.submitted_at = now
     value.status, value.decided_by, value.decided_at, value.job_ids = (
         "approved",
@@ -401,7 +415,7 @@ def reject_request(
     if value.status == "rejected":
         return request_record(session, value)
     if value.status != "pending":
-        raise HTTPException(409, "This request was already approved")
+        raise HTTPException(409, Message("serverMessages.thisRequestWasAlreadyApproved"))
     value.status, value.reason, value.decided_by, value.decided_at = (
         "rejected",
         body.reason,

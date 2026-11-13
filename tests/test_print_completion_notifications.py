@@ -13,6 +13,7 @@ from test_notification_routing import endpoint
 from test_runs import run_body
 
 from app.config import Settings
+from app.i18n import notice_text
 from app.models import Batch, Notification, NotificationDelivery, PrintJob, Role, User
 from app.notifications.notification_routing import deliver_routed_pending, endpoint_message
 from app.notifications.notifications import enqueue_print_completions
@@ -28,6 +29,23 @@ def completions(client):
                 select(Notification).where(Notification.kind.in_(["job_printed", "batch_printed"]))
             )
         )
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_completion_translates_grammar_without_interpreting_label_names(client, count):
+    tape = profile(client, threshold=1)
+    install(client, tape["id"])
+    item = job(client, tape["id"], count)
+    name = "My {count} | @:account.language <b>Label</b>"
+    with client.app.state.factory.begin() as session:
+        record = session.get(PrintJob, item["id"])
+        record.template_snapshot = {**record.template_snapshot, "process_name": name}
+    client.app.state.fleet.workers["main"].tick()
+    notice = next(n for n in completions(client) if n.kind == "job_printed")
+    ending = "1 Kopie gedruckt." if count == 1 else "2 Kopien gedruckt."
+    assert notice_text(notice, "message", "de") == f"{name}: {ending}"
+    assert notice.context["i18n"]["message"]["parameters"]["name"] == name
+    assert notice.recipient_id == item["owner_id"]
 
 
 def test_success_is_once_per_item_and_batch_with_item_opt_out(client):
@@ -50,7 +68,10 @@ def test_success_is_once_per_item_and_batch_with_item_opt_out(client):
     notices = completions(client)
     assert sorted(n.kind for n in notices) == ["batch_printed", "job_printed"]
     personal = next(n for n in notices if n.kind == "job_printed")
-    assert personal.context == {"job_id": first["id"]}
+    assert set(personal.context) == {"job_id", "i18n"}
+    assert personal.context["job_id"] == first["id"]
+    assert notice_text(personal, "title", "de") == "Deine Etiketten wurden gedruckt"
+    assert "3 Kopien gedruckt" in notice_text(personal, "message", "de")
     assert "3 copies printed" in personal.message
     assert "4 labels printed" in next(n.message for n in notices if n.kind == "batch_printed")
     assert client.get(f"/api/jobs/{muted['id']}").json()["notify_on_completion"] is False
@@ -94,9 +115,10 @@ def test_uncertain_copies_wait_for_review_and_retries_do_not_duplicate(accounts,
         worker.tick()
         worker.tick()
         assert len(worker.backend.batches) == 2
-        assert next(n for n in completions(client) if n.kind == "job_printed").context == {
-            "job_id": retry.json()[0]["job_id"]
-        }
+        notice = next(n for n in completions(client) if n.kind == "job_printed")
+        assert set(notice.context) == {"job_id", "i18n"}
+        assert notice.context["job_id"] == retry.json()[0]["job_id"]
+        assert "1 Kopie gedruckt" in notice_text(notice, "message", "de")
     notices = completions(client)
     assert sorted(n.kind for n in notices) == (
         [] if decision == "cancelled" else ["batch_printed", "job_printed"]

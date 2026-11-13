@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.authn.auth import actor_for_user, token_hash
 from app.authn.resource_access import resolve_resource_access
+from app.i18n import Message
 from app.models import (
     Batch,
     Companion,
@@ -37,12 +38,12 @@ def revoke_sessions(session: Session, user_id: str, *, clear_pin: bool = False) 
 def installation(request: Request, session: Session) -> Companion:
     authorization = request.headers.get("authorization", "")
     if not authorization.startswith("Bearer ") or len(authorization) > 256:
-        raise HTTPException(401, "Invalid companion key")
+        raise HTTPException(401, Message("serverMessages.invalidCompanionKey"))
     companion = session.scalar(
         select(Companion).where(Companion.key_hash == token_hash(authorization[7:]))
     )
     if companion is None:
-        raise HTTPException(401, "Invalid companion key")
+        raise HTTPException(401, Message("serverMessages.invalidCompanionKey"))
     return companion
 
 
@@ -77,9 +78,9 @@ def accessible_user(session: Session, companion: Companion, identifier: str) -> 
             "companion", companion.id, "companion.access"
         )
     ):
-        raise HTTPException(403, "Companion access is not granted")
+        raise HTTPException(403, Message("serverMessages.companionAccessIsNotGranted"))
     if companion.bound_user_id and companion.bound_user_id != identifier:
-        raise HTTPException(403, "This companion is bound to a different user")
+        raise HTTPException(403, Message("serverMessages.thisCompanionIsBoundToADifferentUser"))
     return user
 
 
@@ -93,12 +94,12 @@ def operator(request: Request, session: Session) -> User:
         or stored.revision != companion.revision
         or stored.expires_at <= time.time()
     ):
-        raise HTTPException(401, "Unlock the companion to continue")
+        raise HTTPException(401, Message("serverMessages.unlockTheCompanionToContinue"))
     user = accessible_user(session, companion, stored.user_id)
     if stored.pin_fingerprint is not None:
         pin = session.get(CompanionPin, user.id)
         if not pin or token_hash(pin.pin_hash) != stored.pin_fingerprint:
-            raise HTTPException(401, "Unlock the companion to continue")
+            raise HTTPException(401, Message("serverMessages.unlockTheCompanionToContinue"))
     return user
 
 
@@ -164,7 +165,9 @@ def station_context(request: Request, session: Session) -> "AccessContext":
             printers.intersection(request.app.state.fleet._candidates(session, job))
         )
     if not allowed:
-        raise HTTPException(403, "This operation is not available through a companion")
+        raise HTTPException(
+            403, Message("serverMessages.thisOperationIsNotAvailableThroughACompanion")
+        )
     # Preserve the real user's granted capabilities, while removing the blanket
     # administrator bypass and every destination outside this installation.
     scoped = replace(

@@ -84,13 +84,15 @@ def reconcile_program(previous: Program, program: Program) -> Program:
     return result
 
 
-def source_diagnostic(error: LogicError, source: str) -> dict[str, str | int]:
+def source_diagnostic(error: LogicError, source: str, language: str = "en") -> dict[str, str | int]:
+    from app.i18n import error_detail, negotiate, translate
+
     start = max(0, min(error.offset or 0, len(source)))
     end = min(start + 1, len(source))
     prefix = source[:start]
     # Browser editors index UTF-16 code units, whereas Python indexes code points.
     return {
-        "message": str(error),
+        "message": translate(error_detail(error), negotiate(language)),
         "from": len(prefix.encode("utf-16-le", errors="surrogatepass")) // 2,
         "to": len(source[:end].encode("utf-16-le", errors="surrogatepass")) // 2,
         "line": prefix.count("\n") + 1,

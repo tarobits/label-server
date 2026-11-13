@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.print_audit import actor_snapshot
 from app.authn.access import access_context
+from app.i18n import Message
 from app.models import Cartridge, PrinterState, TapeProfile
 from app.printer.base import ConfirmableMediaBackend, MediaSelection, PrinterBackend, PrinterStatus
 from app.printer.remote import RemotePrinterBackend
@@ -25,7 +26,7 @@ def lock_media_configuration(request: Request, worker: "QueueWorker") -> None:
     if isinstance(worker.backend, RemotePrinterBackend):
         return
     if not worker.printer_lock.acquire(blocking=False):
-        raise HTTPException(409, "Printer is busy; try again when it is idle")
+        raise HTTPException(409, Message("serverMessages.printerIsBusyTryAgainWhenItIsIdle"))
     request.state.held_locks.append(worker.printer_lock)
 
 
@@ -99,7 +100,9 @@ def check_cartridge(
     assert profile is not None
     capabilities = request.app.state.registry.definition(state.printer_id).capabilities
     if profile.width_mm not in capabilities.supported_widths_mm:
-        raise HTTPException(422, "The selected cartridge width is not supported by this printer")
+        raise HTTPException(
+            422, Message("serverMessages.theSelectedCartridgeWidthIsNotSupportedByThisPrinter")
+        )
     mismatch = media_mismatch(hardware, profile)
     if (
         state.cartridge_check_enabled

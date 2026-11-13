@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from app.authn.identity import LOCAL_OWNER_ID
 from app.db import make_engine, session_factory
+from app.i18n import notice_text
 from app.models import AuthSettings, Notification, PrintJob, User
 from app.notifications.notifications import deliver_pending
 from app.printing.request_models import PrintRequest, RequestDigest
@@ -71,6 +72,10 @@ def test_fifty_requests_coalesce_into_fixed_persistent_window(client, monkeypatc
             assert len(notices) == 1
             assert notices[0].message == "50 print request(s) await administrator review."
             assert notices[0].recipient_id == "administrators"
+            assert notice_text(notices[0], "title", "de") == "Druckanfragen warten auf Freigabe"
+            assert notice_text(notices[0], "message", "de") == (
+                "50 Druckanfragen warten auf Prüfung durch die Administration."
+            )
             assert session.get(RequestDigest, 1) is None
         now[0] = 1070
         assert client.post("/api/requests", json=body).status_code == 201

@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.i18n import Message
 from app.models import Batch, Cartridge, PrinterDevice, PrinterGroup, PrinterState, State
 
 
@@ -15,28 +16,30 @@ def resolve_destination(session: Session, identifier: str | None) -> str:
         p.id for p in session.scalars(select(PrinterDevice)) if not p.config.get("retired")
     ]
     if not identifiers:
-        raise HTTPException(409, "Add a printer in Printers & groups first")
+        raise HTTPException(409, Message("serverMessages.addAPrinterInPrintersGroupsFirst"))
     if len(identifiers) != 1:
-        raise HTTPException(422, "Select a print destination")
+        raise HTTPException(422, Message("serverMessages.selectAPrintDestination"))
     return identifiers[0]
 
 
 def printer_state(session: Session, printer_id: str) -> PrinterState:
     state = session.scalar(select(PrinterState).where(PrinterState.printer_id == printer_id))
     if state is None:
-        raise HTTPException(404, "Printer not found")
+        raise HTTPException(404, Message("serverMessages.printerNotFound"))
     return state
 
 
 def members(session: Session, destination_id: str) -> list[str]:
     if device := session.get(PrinterDevice, destination_id):
         if device.config.get("retired"):
-            raise HTTPException(409, "This printer has been retired; select a configured printer")
+            raise HTTPException(
+                409, Message("serverMessages.thisPrinterHasBeenRetiredSelectAConfiguredPrinter")
+            )
         return [destination_id]
     group = session.get(PrinterGroup, destination_id)
     if group:
         return group.printer_ids
-    raise HTTPException(404, "Print destination not found")
+    raise HTTPException(404, Message("serverMessages.printDestinationNotFound"))
 
 
 def automatic_printing_disabled(session: Session, destination_id: str) -> bool:

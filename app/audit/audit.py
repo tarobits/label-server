@@ -21,7 +21,9 @@ from app.authn.resource_access import (
     OWNER_PERMISSIONS,
     ResourceAccess,
 )
+from app.i18n import Language, translate
 from app.models import AuditEvent
+from app.printer.messages import reason_descriptor, restore_reason
 
 ScopeKind = Literal["printer", "cartridge", "global"]
 FieldType = Literal["text", "integer", "number", "boolean", "identifiers", "permissions"]
@@ -379,6 +381,11 @@ def append_audit(
         encoded_fields[key] = {
             "value": field.value,
             "requires": [requirement.encoded() for requirement in field.requirements],
+            **(
+                {"translation": reason_descriptor(field.value)}
+                if reason_descriptor(field.value)
+                else {}
+            ),
         }
     payload = {
         "action": action,
@@ -419,7 +426,10 @@ def _can_read_scope(access: ResourceAccess, scope: dict[str, str]) -> bool:
 
 
 def _can_read_field(access: ResourceAccess, field: object) -> bool:
-    if not isinstance(field, dict) or set(field) != {"value", "requires"}:
+    if not isinstance(field, dict) or set(field) not in (
+        {"value", "requires"},
+        {"value", "requires", "translation"},
+    ):
         return False
     requirements = field["requires"]
     if not isinstance(requirements, list) or len(requirements) > 100:
@@ -446,7 +456,9 @@ def _can_read_field(access: ResourceAccess, field: object) -> bool:
     return True
 
 
-def project_audit(event: AuditEvent, access: ResourceAccess) -> dict[str, Any] | None:
+def project_audit(
+    event: AuditEvent, access: ResourceAccess, language: Language = "en"
+) -> dict[str, Any] | None:
     """Fail closed on unclassified/invalid persisted fields, including for admins."""
     if (
         event.action not in ACTION_FIELDS
@@ -465,7 +477,11 @@ def project_audit(event: AuditEvent, access: ResourceAccess) -> dict[str, Any] |
         if key not in COMMON_FIELDS and not field["requires"]:
             continue
         if _value_matches(field["value"], definitions[key]):
-            fields[key] = field["value"]
+            fields[key] = (
+                translate(restore_reason(field["value"], field.get("translation")), language)
+                if isinstance(field["value"], str)
+                else field["value"]
+            )
     return {
         "id": event.id,
         "action": event.action,
@@ -513,6 +529,7 @@ def audit_page(
     filters: AuditFilters = AuditFilters(),
     offset: int = 0,
     limit: int = 50,
+    language: Language = "en",
 ) -> dict[str, Any]:
     """Filter authorized projections before totals/pagination, never hidden fields.
 
@@ -528,7 +545,7 @@ def audit_page(
         key: {} for key in ("printer", "cartridge", "action", "actor", "victim")
     }
     for value in session.scalars(query.execution_options(yield_per=100)):
-        projection = project_audit(value, access)
+        projection = project_audit(value, access, language)
         if projection is None:
             continue
         fields = projection["fields"]

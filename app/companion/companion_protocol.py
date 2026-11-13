@@ -12,6 +12,11 @@ from app.printer.base import RenderedLabel
 from app.schemas import Input
 
 
+class OperatorLanguage(Input):
+    language: Literal["en", "de"]
+    browser_language: Literal["en", "de"]
+
+
 class WireLabel(Input):
     copy_id: str = Field(min_length=1, max_length=100)
     tape_width_mm: float = Field(gt=0, le=1000)

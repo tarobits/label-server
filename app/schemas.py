@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.i18n import Message
 from app.media import MediaProperties
 from app.templates.logic_schema import Value
 
@@ -40,7 +41,7 @@ class CartridgeInput(CartridgePriceInput):
     @model_validator(mode="after")
     def check_remaining(self) -> "CartridgeInput":
         if self.remaining_mm is not None and self.remaining_mm > self.nominal_length_mm:
-            raise ValueError("Remaining length exceeds nominal length")
+            raise ValueError(Message("domainMessages.remainingLengthExceedsNominalLength"))
         return self
 
 
@@ -123,7 +124,7 @@ class ReminderInput(Input):
     @model_validator(mode="after")
     def check_snooze(self) -> "ReminderInput":
         if self.action == "snooze" and self.until is None:
-            raise ValueError("Snooze requires a UTC epoch timestamp")
+            raise ValueError(Message("domainMessages.snoozeRequiresAUTCEpochTimestamp"))
         return self
 
 

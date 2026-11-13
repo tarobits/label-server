@@ -45,6 +45,89 @@ def unlock(client):
     return client.get("/api/station").json()
 
 
+def test_station_language_default_and_authenticated_save(accounts, tmp_path):
+    from app.models import User
+
+    admin, _, _ = accounts
+    settings, agent = local_station(admin, tmp_path)
+    settings.default_language = "de"
+    app = create_app(settings, agent)
+    with TestClient(app) as client:
+        state = client.get("/api/station").json()
+        assert state["default_language"] == "de"
+        payload = {"language": "de", "browser_language": "en"}
+        client.headers["X-CSRF-Token"] = state["csrf_token"]
+        assert client.put("/api/station/language", json=payload).status_code == 401
+        unlock(client)
+        assert (
+            client.put(
+                "/api/station/language", json=payload, headers={"X-CSRF-Token": "wrong"}
+            ).status_code
+            == 403
+        )
+        assert (
+            client.put("/api/station/language", json={**payload, "language": "fr"}).status_code
+            == 422
+        )
+        assert (
+            client.put(
+                "/api/station/language", json={**payload, "user_id": "someone-else"}
+            ).status_code
+            == 422
+        )
+        response = client.put("/api/station/language", json=payload)
+        assert response.status_code == 200, response.text
+        assert client.get("/api/station").json()["user"]["language"] == "de"
+        with admin.app.state.factory() as session:
+            assert session.get(User, "administrator").language == "de"
+        assert client.post("/api/station/lock").status_code == 200
+        locked = client.get("/api/station").json()
+        assert locked["user"] is None and locked["default_language"] == "de"
+        assert client.put("/api/station/language", json=payload).status_code == 401
+
+
+def test_station_stale_dashboard_cannot_overwrite_saved_language(accounts, tmp_path, monkeypatch):
+    admin, _, _ = accounts
+    settings, agent = local_station(admin, tmp_path)
+    with TestClient(create_app(settings, agent)) as client:
+        unlock(client)
+        original = agent.request
+        pending = True
+
+        def delayed(method, path, **kwargs):
+            nonlocal pending
+            response = original(method, path, **kwargs)
+            if pending and method == "GET" and path == "/api/companion/operator":
+                pending = False
+                saved = client.put(
+                    "/api/station/language",
+                    json={"language": "de", "browser_language": "en"},
+                )
+                assert saved.status_code == 200
+            return response
+
+        monkeypatch.setattr(agent, "request", delayed)
+        assert client.get("/api/station").json()["user"]["language"] == "de"
+        with monkeypatch.context() as offline:
+            offline.setattr(Agent, "online", property(lambda self: False))
+            assert client.get("/api/station").json()["user"]["language"] == "de"
+        assert (
+            client.put(
+                "/api/station/language", json={"language": "en", "browser_language": "en"}
+            ).status_code
+            == 200
+        )
+        assert client.get("/api/station").json()["user"]["language"] == "en"
+
+
+def test_companion_default_language_validates_deployment_configuration():
+    base = {"server_url": "http://localhost", "api_key": "test-only-key", "_env_file": None}
+    assert Settings(**base).default_language == "en"
+    assert Settings(**base, default_language="de").default_language == "de"
+    with pytest.raises(ValidationError):
+        Settings.model_validate({**base, "default_language": "browser"})
+
+
 @pytest.mark.parametrize(
     "failure,blocked",
     [
@@ -435,11 +518,24 @@ def test_locked_station_exposes_dashboard_but_no_controls_or_secrets(accounts, t
         )
         # Even a bound administrator is limited to this installation and explicit routes.
         assert local.get("/api/proxy/printers").json()[0]["id"] == identifier
+        denied = local.put(
+            "/api/proxy/printer/automatic-printing?printer_id=main",
+            json={"held": True},
+            headers={"Accept-Language": "de-DE"},
+        )
+        assert denied.status_code == 403
+        from app.i18n import render
+
+        assert denied.json()["detail"] == render(
+            "serverMessages.thisOperationIsNotAvailableThroughACompanion", "de"
+        )
         assert (
             local.put(
-                "/api/proxy/printer/automatic-printing?printer_id=main", json={"held": True}
+                f"/api/proxy/printer/automatic-printing?printer_id={identifier}",
+                json={"held": False},
+                headers={"Accept-Language": "en"},
             ).status_code
-            == 403
+            == 200
         )
         assert local.post("/api/proxy/companion/printers", json={}).status_code == 403
         assert local.get("/api/proxy/admin/users").status_code == 403

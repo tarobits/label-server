@@ -19,7 +19,9 @@ from app.authn.avatars import avatar_version, read_avatar
 from app.authn.resource_access import resolve_resource_access, validate_grant
 from app.authn.resource_api import GrantInput
 from app.companion.companion_auth import DeviceDB, accessible_user, installation, operator
+from app.companion.companion_protocol import OperatorLanguage
 from app.http import db
+from app.i18n import Message, error_detail
 from app.models import (
     AccessChangeConfirmation,
     Companion,
@@ -38,6 +40,16 @@ from app.transaction_routes import TransactionRouter
 
 router = TransactionRouter(prefix="/api", tags=["companions"])
 DB = Annotated[Session, Depends(db, scope="function")]
+
+
+@router.put("/companion/operator/language")
+def operator_language(
+    body: OperatorLanguage, request: Request, session: DeviceDB
+) -> dict[str, str]:
+    user = operator(request, session)
+    user.language = body.language
+    user.browser_language = body.browser_language
+    return {"language": user.language}
 
 
 @router.get("/companion/operator")
@@ -78,16 +90,16 @@ def operator_details(request: Request, session: DeviceDB) -> dict[str, Any]:
 def clear_printer(session: Session, identifier: str, user: User) -> dict[str, int]:
     link = session.get(CompanionPrinter, identifier)
     if not link:
-        raise HTTPException(404, "Companion printer not found")
+        raise HTTPException(404, Message("serverMessages.companionPrinterNotFound"))
     actor = actor_for_user(session, user)
     if not actor.is_admin and "printer.review" not in actor.destination_permissions.get(
         identifier, ()
     ):
-        raise HTTPException(403, "Review permission is required")
+        raise HTTPException(403, Message("serverMessages.reviewPermissionIsRequired"))
     try:
         require_idle(session, identifier)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
     link.blocked = False
     link.clearance += 1
     append_audit(
@@ -114,7 +126,7 @@ def local_clear(identifier: str, request: Request, session: DeviceDB) -> dict[st
 def main_clear(identifier: str, request: Request, session: DB) -> dict[str, int]:
     user = session.get(User, access_context(request).actor.id)
     if not user:
-        raise HTTPException(403, "An account is required")
+        raise HTTPException(403, Message("authMessages.anAccountIsRequired"))
     return clear_printer(session, identifier, user)
 
 
@@ -139,7 +151,7 @@ class UnlockInput(Input):
 
 def admin(request: Request) -> None:
     if not access_context(request).actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
 
 
 def public_companion(session: Session, item: Companion) -> dict[str, Any]:
@@ -180,11 +192,11 @@ def public_companion(session: Session, item: Companion) -> dict[str, Any]:
 
 def change(session: Session, item: Companion, body: CompanionInput) -> None:
     if session.get(Location, body.location_id) is None:
-        raise HTTPException(422, "Choose an existing location")
+        raise HTTPException(422, Message("serverMessages.chooseAnExistingLocation"))
     if body.bound_user_id:
         user = session.get(User, body.bound_user_id)
         if not user or user.disabled:
-            raise HTTPException(422, "Choose an enabled user")
+            raise HTTPException(422, Message("serverMessages.chooseAnEnabledUser"))
     grants = [
         ResourceGrant(scope_kind="companion", scope_id=item.id, **entry.model_dump())
         for entry in body.grants
@@ -193,10 +205,10 @@ def change(session: Session, item: Companion, body: CompanionInput) -> None:
         try:
             validate_grant(session, grant)
         except ValueError as error:
-            raise HTTPException(422, str(error)) from error
+            raise HTTPException(422, error_detail(error)) from error
     keys = {(g.principal_kind, g.principal_id, g.permission) for g in grants}
     if len(keys) != len(grants):
-        raise HTTPException(422, "Duplicate companion grants")
+        raise HTTPException(422, Message("serverMessages.duplicateCompanionGrants"))
     session.execute(
         delete(ResourceGrant).where(
             ResourceGrant.scope_kind == "companion", ResourceGrant.scope_id == item.id
@@ -227,7 +239,7 @@ def companions(request: Request, session: DB) -> list[dict[str, Any]]:
 def create_companion(body: CompanionInput, request: Request, session: DB) -> dict[str, Any]:
     admin(request)
     if session.get(Location, body.location_id) is None:
-        raise HTTPException(422, "Choose an existing location")
+        raise HTTPException(422, Message("serverMessages.chooseAnExistingLocation"))
     key = secrets.token_urlsafe(48)
     item = Companion(name=body.name, location_id=body.location_id, key_hash=token_hash(key))
     session.add(item)
@@ -246,9 +258,9 @@ def update_companion(
     admin(request)
     item = session.get(Companion, identifier)
     if not item:
-        raise HTTPException(404, "Companion not found")
+        raise HTTPException(404, Message("serverMessages.companionNotFound"))
     if body.expected_revision != item.revision:
-        raise HTTPException(409, "The companion changed; reload its settings")
+        raise HTTPException(409, Message("serverMessages.theCompanionChangedReloadItsSettings"))
     from app.authn.admin_api import state_hash
 
     receipt = session.get(
@@ -261,7 +273,9 @@ def update_companion(
         or receipt.state_hash != state_hash(session)
         or receipt.request_hash != companion_fingerprint(identifier, body)
     ):
-        raise HTTPException(409, "Review the companion access changes before saving")
+        raise HTTPException(
+            409, Message("serverMessages.reviewTheCompanionAccessChangesBeforeSaving")
+        )
     change(session, item, body)
     session.delete(receipt)
     item.revision += 1
@@ -297,9 +311,9 @@ def preview_companion(
     admin(request)
     item = session.get(Companion, identifier)
     if not item:
-        raise HTTPException(404, "Companion not found")
+        raise HTTPException(404, Message("serverMessages.companionNotFound"))
     if body.expected_revision != item.revision:
-        raise HTTPException(409, "The companion changed; reload its settings")
+        raise HTTPException(409, Message("serverMessages.theCompanionChangedReloadItsSettings"))
     resources = {("companion", identifier)} | {
         ("printer", value)
         for value in session.scalars(
@@ -341,7 +355,7 @@ def rotate_key(identifier: str, request: Request, session: DB) -> dict[str, str]
     admin(request)
     item = session.get(Companion, identifier)
     if not item:
-        raise HTTPException(404, "Companion not found")
+        raise HTTPException(404, Message("serverMessages.companionNotFound"))
     key = secrets.token_urlsafe(48)
     item.key_hash, item.revision = token_hash(key), item.revision + 1
     record_action(session, "companion.key_rotated", "global", "", {"companion_id": item.id})
@@ -353,7 +367,7 @@ def revoke_key(identifier: str, request: Request, session: DB) -> dict[str, bool
     admin(request)
     item = session.get(Companion, identifier)
     if not item:
-        raise HTTPException(404, "Companion not found")
+        raise HTTPException(404, Message("serverMessages.companionNotFound"))
     item.key_hash, item.revision = None, item.revision + 1
     record_action(session, "companion.revoked", "global", "", {"companion_id": item.id})
     return {"ok": True}
@@ -373,10 +387,10 @@ def prepare_pin(body: PinInput, request: Request) -> None:
     if identity is None or not verify_password(
         body.current_password.get_secret_value(), identity[1]
     ):
-        raise HTTPException(403, "Current password is incorrect")
+        raise HTTPException(403, Message("recoveryMessages.password"))
     value = body.pin.get_secret_value() if body.pin else None
     if value is not None and (not value.isascii() or not value.isdigit()):
-        raise HTTPException(422, "PIN must contain 4–12 digits")
+        raise HTTPException(422, Message("serverMessages.pINMustContain412Digits"))
     request.state.pin_proof = identity
     request.state.prepared_pin = hash_password(value) if value else None
 
@@ -386,10 +400,10 @@ def set_pin(body: PinInput, request: Request, session: DB) -> dict[str, bool]:
     actor = access_context(request).actor
     user = session.get(User, actor.id)
     if not user or (user.id, user.password_hash) != request.state.pin_proof:
-        raise HTTPException(409, "Account changed; sign in again")
+        raise HTTPException(409, Message("authMessages.accountChangedSignInAgain"))
     value = body.pin.get_secret_value() if body.pin else None
     if value is not None and (not value.isascii() or not value.isdigit()):
-        raise HTTPException(422, "PIN must contain 4–12 digits")
+        raise HTTPException(422, Message("serverMessages.pINMustContain412Digits"))
     session.execute(delete(CompanionPin).where(CompanionPin.user_id == user.id))
     session.execute(delete(CompanionSession).where(CompanionSession.user_id == user.id))
     if value:
@@ -431,11 +445,11 @@ def station_avatar(identifier: str, request: Request, session: DeviceDB) -> Resp
     item: Companion = session.info["companion"]
     user = accessible_user(session, item, identifier)
     if not item.bound_user_id and not session.get(CompanionPin, user.id):
-        raise HTTPException(404, "User is not available at this station")
+        raise HTTPException(404, Message("serverMessages.userIsNotAvailableAtThisStation"))
     try:
         data = read_avatar(session, user.id)
     except FileNotFoundError:
-        raise HTTPException(404, "No profile picture") from None
+        raise HTTPException(404, Message("authMessages.noProfilePicture")) from None
     return Response(data, media_type="image/png", headers={"Cache-Control": "private, no-store"})
 
 
@@ -452,7 +466,7 @@ def prepare_unlock(body: UnlockInput, request: Request) -> None:
         or not body.pin
         or not verify_password(body.pin.get_secret_value(), fingerprint)
     ):
-        raise HTTPException(401, "Invalid user or PIN")
+        raise HTTPException(401, Message("serverMessages.invalidUserOrPIN"))
     request.state.unlock_proof = proof
 
 
@@ -467,7 +481,7 @@ def unlock(body: UnlockInput, request: Request, session: DeviceDB) -> dict[str, 
         item.bound_user_id,
         pin.pin_hash if pin else None,
     ) != request.state.unlock_proof:
-        raise HTTPException(409, "Companion access changed; unlock again")
+        raise HTTPException(409, Message("serverMessages.companionAccessChangedUnlockAgain"))
     # A bound installation verifies its deployment PIN locally. This trust is
     # restricted to the exact administrator-approved identity, never a body override.
     token = secrets.token_urlsafe(32)
@@ -527,7 +541,7 @@ def revoke_station_session(request: Request, session: DeviceDB) -> dict[str, boo
     if stored is None:
         return {"ok": True}
     if stored.companion_id != item.id:
-        raise HTTPException(403, "Session belongs to another companion")
+        raise HTTPException(403, Message("serverMessages.sessionBelongsToAnotherCompanion"))
     user = session.get(User, stored.user_id)
     session.execute(
         delete(CompanionSession).where(

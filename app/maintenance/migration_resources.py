@@ -11,6 +11,8 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.i18n import Message
+
 
 def field(key: str, label: str, kind: str = "text", **options: Any) -> dict[str, Any]:
     return {"key": key, "label": label, "type": kind, **options}
@@ -131,14 +133,14 @@ def create_resource(
 ) -> dict[str, Any]:
     spec = RESOURCES[kind]
     if set(values) - {entry["key"] for entry in spec["fields"]}:
-        raise HTTPException(422, "Unsupported creation fields")
+        raise HTTPException(422, Message("serverMessages.unsupportedCreationFields"))
     if any(
         isinstance(value, (dict, list)) or isinstance(value, str) and len(value) > 1000
         for value in values.values()
     ):
-        raise HTTPException(422, "Invalid resource fields")
+        raise HTTPException(422, Message("serverMessages.invalidResourceFields"))
     if "name" in values and (not isinstance(values["name"], str) or not values["name"].strip()):
-        raise HTTPException(422, "Enter a name")
+        raise HTTPException(422, Message("serverMessages.enterAName"))
     try:
         if kind in {"users", "user_groups"}:
             from app.authn.admin_api import PreviewInput, apply_change
@@ -206,7 +208,7 @@ def create_resource(
 
             body = CompanionInput.model_validate(values)
             if session.get(Location, body.location_id) is None:
-                raise HTTPException(422, "Choose an existing location")
+                raise HTTPException(422, Message("serverMessages.chooseAnExistingLocation"))
             item = Companion(name=body.name, location_id=body.location_id, key_hash=None)
             session.add(item)
             session.flush()
@@ -217,7 +219,7 @@ def create_resource(
 
             result = create_account(AccountInput.model_validate(values), request, session)
         else:
-            raise HTTPException(422, "Restore historical records from a backup")
+            raise HTTPException(422, Message("serverMessages.restoreHistoricalRecordsFromABackup"))
     except ValidationError as error:
         # Never echo passwords or arbitrary rejected values into responses/logs.
         raise HTTPException(

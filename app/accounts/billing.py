@@ -17,6 +17,7 @@ from app.accounts.billing_models import (
     BillingRequest,
 )
 from app.authn.access import Actor
+from app.i18n import Message
 from app.models import (
     Batch,
     BatchItem,
@@ -70,11 +71,11 @@ def require(
 ) -> BillingAccount:
     account = session.get(BillingAccount, account_id)
     if account is None:
-        raise HTTPException(404, "Group account not found")
+        raise HTTPException(404, Message("billingMessages.errors.notFound"))
     if permission not in permissions(session, actor, account_id):
-        raise HTTPException(403, "This group account permission is not granted")
+        raise HTTPException(403, Message("billingMessages.errors.permission"))
     if active and account.archived:
-        raise HTTPException(409, "This group account is archived")
+        raise HTTPException(409, Message("billingMessages.errors.archived"))
     return account
 
 
@@ -152,8 +153,19 @@ def notify(session: Session, request: BillingRequest, *, decision: bool = False)
     for recipient in recipients:
         enqueue(
             session,
-            "Group account request updated" if decision else "Group account request",
-            f"Your request was {request.status}." if decision else "A request needs your review.",
+            Message("billingMessages.notifications.updated")
+            if decision
+            else Message("billingMessages.notifications.title"),
+            Message(
+                {
+                    "approved": "billingMessages.notifications.approved",
+                    "rejected": "billingMessages.notifications.rejected",
+                    "withdrawn": "billingMessages.notifications.withdrawn",
+                    "personal": "billingMessages.notifications.personal",
+                }[request.status]
+            )
+            if decision
+            else Message("billingMessages.notifications.review"),
             f"/#/group-accounts?account={request.account_id}&request={request.id}",
             recipient_id=recipient,
             context={"billing_request_id": request.id, "billing_actionable": not decision},
@@ -409,20 +421,20 @@ def fund_allocation(
         None,
     )
     if eligible is None or amount > eligible["available_micros"]:
-        raise HTTPException(409, "This charge has already been funded")
+        raise HTTPException(409, Message("billingMessages.errors.chargeFunded"))
     available = {unit["job_id"]: unit["available_micros"] for unit in eligible["labels"]}
     selected = request.details.get("job_amounts") if request.kind == "history" else None
     if selected is not None and (
         sum(int(cost) for cost in selected.values()) != amount
         or any(available.get(identifier) != int(cost) for identifier, cost in selected.items())
     ):
-        raise HTTPException(409, "Selected labels have already been funded or their costs changed")
+        raise HTTPException(409, Message("billingMessages.errors.selectionChanged"))
     if request.kind == "job" and available.get(request.source_id, 0) < amount:
-        raise HTTPException(409, "This label has already been funded")
+        raise HTTPException(409, Message("billingMessages.errors.labelFunded"))
     if retrospective and eligible["needs_payment_allocation"]:
         raise HTTPException(
             409,
-            "Allocate this member's existing payments to cartridges before transferring these costs",
+            Message("billingMessages.errors.allocatePayments"),
         )
     paid = min(amount, eligible["paid_micros"]) if retrospective else 0
     parts = (
@@ -653,24 +665,22 @@ def decide_request(
     session: Session, actor: Actor, request: BillingRequest, approve: bool, reason: str
 ) -> None:
     if not can_decide(session, actor, request):
-        raise HTTPException(
-            403, "You cannot decide this request; funding requests cannot be self-approved"
-        )
+        raise HTTPException(403, Message("billingMessages.errors.cannotDecide"))
     target = "approved" if approve else "rejected"
     if request.status == target:
         return
     if request.status != "pending":
-        raise HTTPException(409, "This request has already been decided")
+        raise HTTPException(409, Message("billingMessages.errors.alreadyDecided"))
     account = session.get(BillingAccount, request.account_id)
     if approve and request.kind != "payment" and (not account or account.archived):
-        raise HTTPException(409, "This group account is archived")
+        raise HTTPException(409, Message("billingMessages.errors.archived"))
     if approve:
         if request.kind != "payment":
             from app.authn.auth import actor_for_user
 
             requester = session.get(User, request.requester_id)
             if requester is None or requester.disabled:
-                raise HTTPException(409, "The requester is no longer active")
+                raise HTTPException(409, Message("billingMessages.errors.inactiveRequester"))
             require(
                 session,
                 actor_for_user(session, requester),
@@ -683,7 +693,7 @@ def decide_request(
         elif request.kind == "history":
             row = session.get(TapeAllocation, (request.source_id, request.requester_id))
             if row is None:
-                raise HTTPException(409, "Original charge is unavailable")
+                raise HTTPException(409, Message("billingMessages.errors.missingCharge"))
             fund_allocation(session, request, row, int(request.details["amount_micros"]), actor)
         else:
             available = {entry["id"]: entry for entry in outstanding(session, request.account_id)}
@@ -694,9 +704,7 @@ def decide_request(
                     or int(amount) > entry["outstanding_micros"]
                     or entry["recipient_id"] != request.details["recipient_id"]
                 ):
-                    raise HTTPException(
-                        409, "Outstanding debts changed; submit a new payment report"
-                    )
+                    raise HTTPException(409, Message("billingMessages.errors.debtsChanged"))
                 session.add(
                     BillingPayment(
                         request_id=request.id,
@@ -722,12 +730,12 @@ def resolve_personally(
     session: Session, actor: Actor, request: BillingRequest, cancel: bool
 ) -> None:
     if request.kind != "job" or actor.id != request.requester_id:
-        raise HTTPException(403, "Only the requester can change this print's funding")
+        raise HTTPException(403, Message("billingMessages.errors.onlyRequester"))
     if request.status not in ("pending", "rejected"):
-        raise HTTPException(409, "This funding request has already been resolved")
+        raise HTTPException(409, Message("billingMessages.errors.resolved"))
     job = session.get(PrintJob, request.source_id)
     if job is None:
-        raise HTTPException(409, "The print is unavailable")
+        raise HTTPException(409, Message("billingMessages.errors.missingPrint"))
     copies = list(session.scalars(select(LabelCopy).where(LabelCopy.job_id == job.id)))
     if cancel:
         for copy in copies:

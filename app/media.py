@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.i18n import Message
+
 MediaFamily = Literal["tze", "fixed_label"]
 if TYPE_CHECKING:
     from app.models import TapeProfile
@@ -18,9 +20,11 @@ class MediaProperties(BaseModel):
     @model_validator(mode="after")
     def valid_stock(self) -> "MediaProperties":
         if self.media_family == "fixed_label" and self.label_length_mm is None:
-            raise ValueError("Fixed-label media requires a label length")
+            raise ValueError(Message("domainMessages.fixedLabelMediaRequiresALabelLength"))
         if self.media_family == "tze" and self.label_length_mm is not None:
-            raise ValueError("Continuous TZe media cannot have a fixed stock length")
+            raise ValueError(
+                Message("domainMessages.continuousTZeMediaCannotHaveAFixedStockLength")
+            )
         return self
 
     @property
@@ -36,7 +40,9 @@ def profile_media(profile: "TapeProfile") -> MediaProperties:
 
 def require_matching_media(required: MediaProperties, profile: "TapeProfile") -> None:
     if required != profile_media(profile):
-        raise ValueError("Design and cartridge media do not match (family or fixed-label size)")
+        raise ValueError(
+            Message("domainMessages.designAndCartridgeMediaDoNotMatchFamilyOrFixedLabelSize")
+        )
 
 
 def require_profile_supported(profile: "TapeProfile", capabilities: "PrinterCapabilities") -> None:
@@ -60,11 +66,17 @@ def require_supported_media(
     fixed_label_sizes_mm: tuple[tuple[float, float], ...],
 ) -> None:
     if media.media_family != media_family or media.media_kind != media_kind:
-        raise ValueError("The selected printer does not support this media family or format")
+        raise ValueError(
+            Message("domainMessages.theSelectedPrinterDoesNotSupportThisMediaFamilyOrFormat")
+        )
     if supported_widths_mm is not None and width_mm not in supported_widths_mm:
-        raise ValueError("The selected printer does not support this physical tape width")
+        raise ValueError(
+            Message("domainMessages.theSelectedPrinterDoesNotSupportThisPhysicalTapeWidth")
+        )
     if (
         media.media_kind == "fixed_label"
         and (width_mm, media.label_length_mm) not in fixed_label_sizes_mm
     ):
-        raise ValueError("The selected printer does not support this fixed-label size")
+        raise ValueError(
+            Message("domainMessages.theSelectedPrinterDoesNotSupportThisFixedLabelSize")
+        )

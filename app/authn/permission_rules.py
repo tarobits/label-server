@@ -3,6 +3,8 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
+from app.i18n import Message
+
 
 @dataclass(frozen=True)
 class PermissionRule:
@@ -61,4 +63,4 @@ def decide(
 
 def validate_submission_modes(permissions: Iterable[str]) -> None:
     if {"printer.submit_requests", "printer.submit_directly"} <= set(permissions):
-        raise ValueError("Choose either Submit requests or Submit directly")
+        raise ValueError(Message("authValidation.chooseEitherSubmitRequestsOrSubmitDirectly"))

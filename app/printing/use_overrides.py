@@ -12,6 +12,7 @@ from app.accounts.pricing import job_geometry, remaining_allowance
 from app.accounts.usage import cost_micros, money
 from app.authn.access import access_context
 from app.authn.auth import actor_for_user
+from app.i18n import Message
 from app.models import Cartridge, FlushRequest, LabelCopy, PrintJob, User
 from app.schemas import CopySelectionInput
 
@@ -27,11 +28,15 @@ def confirm_use(
 ) -> dict[str, Any]:
     if not blocked:
         if body and body.approve_copy_ids:
-            raise HTTPException(409, "Cartridge permissions changed; refresh the print selection")
+            raise HTTPException(
+                409, Message("serverMessages.cartridgePermissionsChangedRefreshThePrintSelection")
+            )
         return {}
     context = access_context(request)
     if not context.can_cartridge(cartridge.id, "approve_use"):
-        raise HTTPException(409, "The queued requesters may not use the installed cartridge")
+        raise HTTPException(
+            409, Message("serverMessages.theQueuedRequestersMayNotUseTheInstalledCartridge")
+        )
     backend = request.app.state.registry.backend(printer_id)
     missing: set[str] = set()
     for label in copies:
@@ -42,7 +47,8 @@ def confirm_use(
         cap = remaining_allowance(session, job, cartridge.currency, override=True)
         if cartridge.price_minor is None:
             raise HTTPException(
-                409, "Set a price for this cartridge before requesting price approval"
+                409,
+                Message("serverMessages.setAPriceForThisCartridgeBeforeRequestingPriceApproval"),
             )
         if cap is None or cap < 0:
             missing.add(job.id)
@@ -67,7 +73,9 @@ def confirm_use(
         if cartridge.price_minor is None or cap is None or cap < 0:
             raise HTTPException(
                 409,
-                "These copies need requester acceptance of a price quote in the cartridge's currency",
+                Message(
+                    "serverMessages.theseCopiesNeedRequesterAcceptanceOfAPriceQuoteInTheCartridgesCurrency"
+                ),
             )
         estimate = cost_micros(
             backend.plan_batch(job_geometry(job, 1)).estimated_mm,

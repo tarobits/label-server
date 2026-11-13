@@ -15,6 +15,7 @@ from typing import Sequence
 
 from PIL import Image
 
+from app.i18n import JoinedMessages, Message
 from app.printer.base import (
     BatchPlan,
     DetectedMedia,
@@ -93,14 +94,25 @@ DPI = 180
 # Raster Command Reference, printed p.18: cutter position limits fed-out tape.
 MINIMUM_CUT_LENGTH_MM = 24.5
 ERROR_NAMES = (
-    {1: "No media", 4: "Cutter jam", 8: "Weak batteries", 0x40: "High-voltage adapter"},
-    {1: "Wrong media", 0x10: "Cover open", 0x20: "Overheating"},
+    {
+        1: Message("printerMessages.noMedia"),
+        4: Message("printerMessages.cutterJam"),
+        8: Message("printerMessages.weakBatteries"),
+        0x40: Message("printerMessages.highVoltage"),
+    },
+    {
+        1: Message("printerMessages.wrongMedia"),
+        0x10: Message("printerMessages.coverOpen"),
+        0x20: Message("printerMessages.overheating"),
+    },
 )
 
 
-def error_names(value: int, byte_index: int) -> list[str]:
+def error_names(value: int, byte_index: int) -> list[Message]:
     return [
-        ERROR_NAMES[byte_index].get(bit, f"Unknown error {byte_index + 1} bit 0x{bit:02x}")
+        ERROR_NAMES[byte_index].get(
+            bit, Message("printerMessages.unknownError", byte=byte_index + 1, bit=f"{bit:02x}")
+        )
         for bit in (1 << index for index in range(8))
         if value & bit
     ]
@@ -137,7 +149,7 @@ class StatusPacket:
     raw: bytes = b""
 
     @property
-    def hardware_problem(self) -> str | None:
+    def hardware_problem(self) -> Message | None:
         if any(self.errors):
             problems = [
                 name
@@ -145,12 +157,16 @@ class StatusPacket:
                 for name in error_names(value, index)
             ]
             if self.kind == 4:
-                problems.append("Printer powered off")
-            return f"Printer error {self.errors[0]:02x}/{self.errors[1]:02x}: {'; '.join(problems)}"
+                problems.append(Message("printerMessages.poweredOff"))
+            return Message(
+                "printerMessages.hardwareError",
+                code=f"{self.errors[0]:02x}/{self.errors[1]:02x}",
+                reasons=JoinedMessages(problems),
+            )
         if self.kind == 4:
-            return "Printer powered off"
+            return Message("printerMessages.poweredOff")
         if self.kind == 2:
-            return "Printer reported an error"
+            return Message("printerMessages.reportedError")
         return None
 
     @property
@@ -169,7 +185,7 @@ class StatusPacket:
     @property
     def media_problem(self) -> str | None:
         if self.media not in (1, 3) or self.width not in WIDTH_MM:
-            return "Install supported TZe tape"
+            return Message("printerMessages.installTape")
         return None
 
     @property
@@ -388,7 +404,7 @@ class BrotherPTP710BT:
         return (
             status.hardware_problem
             or (
-                "Printer was opened or tape changed; confirm the installed cartridge"
+                Message("printerMessages.confirmCartridge")
                 if self.selection and self._needs_verification(status)
                 else None
             )
@@ -478,7 +494,7 @@ class BrotherPTP710BT:
             status = self._query()
             confirmed = self._confirmed(status)
             problem = self._problem(status) or (
-                "Printer is busy" if status.phase or status.phase_number else None
+                Message("printerMessages.busy") if status.phase or status.phase_number else None
             )
             width = (
                 self.selection.width_mm

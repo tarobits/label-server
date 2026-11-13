@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
+from app.i18n import Message, error_detail
 from app.models import (
     Base,
     LabelCopy,
@@ -70,7 +71,7 @@ def db(request: Request) -> Generator[Session, None, None]:
 def get(session: Session, model: type[T], identifier: str | int) -> T:
     value = session.get(model, identifier)
     if value is None:
-        raise HTTPException(404, f"{model.__name__} not found")
+        raise HTTPException(404, Message("serverDetails.recordNotFound", resource=model.__name__))
     if request := session.info.get("request"):
         from app.authn.authorization import require_record
 
@@ -87,7 +88,7 @@ def idle(session: Session, printer_id: str | None = None) -> None:
     try:
         require_idle(session, printer_id)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
 
 
 def job_template_name(session: Session, job: PrintJob) -> str:

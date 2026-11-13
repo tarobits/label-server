@@ -16,6 +16,7 @@ from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_aud
 from app.authn.access import access_context
 from app.authn.auth import actor_for_user
 from app.http import db, get, job_information
+from app.i18n import Message, request_language, translate
 from app.models import (
     Cartridge,
     CartridgeQuoteOffer,
@@ -51,7 +52,7 @@ def receipt(request: Request, session: Session, offer: CartridgeQuoteOffer) -> d
     cartridge = session.get(Cartridge, offer.cartridge_id)
     authorizer = session.get(User, offer.actor_id)
     if not job or not cartridge or cartridge.archived or not authorizer or authorizer.disabled:
-        raise HTTPException(409, "The print or cartridge authorization is no longer available")
+        raise HTTPException(409, Message("printErrors.authorizationUnavailable"))
     actor = actor_for_user(session, authorizer)
     rights = actor.destination_permissions.get(offer.printer_id, ())
     start = "printer.start_own" if job.owner_id == actor.id else "printer.start_any"
@@ -59,26 +60,24 @@ def receipt(request: Request, session: Session, offer: CartridgeQuoteOffer) -> d
         not {start, "printer.start_any"}.intersection(rights)
         or "cartridge.approve_use" not in actor.cartridge_permissions.get(cartridge.id, ())
     ):
-        raise HTTPException(409, "The operator's cartridge authorization is no longer valid")
+        raise HTTPException(409, Message("printErrors.operatorAuthorization"))
     if not job_eligible(session, job):
-        raise HTTPException(409, "Resolve this print's access or content hold first")
+        raise HTTPException(409, Message("printErrors.resolveHold"))
     copies = list(
         session.scalars(
             select(LabelCopy).where(LabelCopy.job_id == job.id).order_by(LabelCopy.ordinal)
         )
     )
     if any(copy.state in (State.PRINTING, State.NEEDS_REVIEW) for copy in copies):
-        raise HTTPException(
-            409, "Resolve the active print or review before changing its price consent"
-        )
+        raise HTTPException(409, Message("printErrors.activePrint"))
     queued = [copy.id for copy in copies if copy.state == State.QUEUED]
     if not queued or cartridge.profile_id != job.profile_id or cartridge.price_minor is None:
-        raise HTTPException(409, "A priced matching cartridge and queued copies are required")
+        raise HTTPException(409, Message("printErrors.pricedCartridge"))
     fleet = request.app.state.fleet
     if offer.printer_id not in fleet._candidates(session, job) or not fleet.supports_geometry(
         job, offer.printer_id
     ):
-        raise HTTPException(409, "The selected printer cannot print this work")
+        raise HTTPException(409, Message("printErrors.unsupportedPrinter"))
     backend = request.app.state.registry.backend(offer.printer_id)
     plan = backend.plan_batch(job_geometry(job, len(queued)))
     amount = cost_micros(plan.estimated_mm, cartridge.price_minor, cartridge.nominal_length_mm)
@@ -152,7 +151,7 @@ def propose(body: Proposal, request: Request, session: DB) -> dict[str, Any]:
     context.require_cartridge(body.cartridge_id, "approve_use")
     cartridge = session.get(Cartridge, body.cartridge_id)
     if not cartridge:
-        raise HTTPException(404, "Cartridge not found")
+        raise HTTPException(404, Message("printErrors.cartridgeNotFound"))
     offers = []
     for identifier in dict.fromkeys(body.job_ids):
         job = get(session, PrintJob, identifier)
@@ -162,12 +161,10 @@ def propose(body: Proposal, request: Request, session: DB) -> dict[str, Any]:
         )
         requester = session.get(User, job.owner_id)
         if not requester or requester.disabled:
-            raise HTTPException(409, "The requester is unavailable")
+            raise HTTPException(409, Message("printErrors.requesterUnavailable"))
         cap = remaining_allowance(session, job, cartridge.currency, override=True)
         if cap is not None and cap >= 0:
-            raise HTTPException(
-                409, "This print already has price consent; refresh the print selection"
-            )
+            raise HTTPException(409, Message("printErrors.alreadyConsented"))
         offer = session.scalar(
             select(CartridgeQuoteOffer).where(
                 CartridgeQuoteOffer.job_id == job.id,
@@ -190,8 +187,8 @@ def propose(body: Proposal, request: Request, session: DB) -> dict[str, Any]:
             receipt(request, session, offer)
             enqueue(
                 session,
-                "Printing needs your price approval",
-                "An operator has proposed another cartridge for your queued labels. Review its price before printing.",
+                Message("notificationMessages.priceApprovalTitle"),
+                Message("notificationMessages.priceApprovalBody"),
                 f"/#/cartridge-quotes/{offer.id}",
                 recipient_id=job.owner_id,
                 context={"job_id": job.id},
@@ -204,7 +201,7 @@ def propose(body: Proposal, request: Request, session: DB) -> dict[str, Any]:
 def own_offer(request: Request, session: Session, identifier: str) -> CartridgeQuoteOffer:
     offer = session.get(CartridgeQuoteOffer, identifier)
     if not offer or offer.requester_id != access_context(request).actor.id:
-        raise HTTPException(404, "Price approval not found")
+        raise HTTPException(404, Message("printErrors.priceNotFound"))
     return offer
 
 
@@ -217,7 +214,7 @@ def detail(identifier: str, request: Request, session: DB) -> dict[str, Any]:
         try:
             quote = receipt(request, session, offer)
         except HTTPException as error:
-            unavailable = error.detail
+            unavailable = translate(error.detail, request_language(request))
     return {
         "id": offer.id,
         "status": offer.status,
@@ -245,16 +242,16 @@ def accept(identifier: str, body: Acceptance, request: Request, session: DB) -> 
     offer = own_offer(request, session, identifier)
     if offer.status == "accepted":
         if not offer.acceptance or offer.acceptance["request"] != body.model_dump():
-            raise HTTPException(409, "This price was already accepted with different consent")
+            raise HTTPException(409, Message("printErrors.priceConsentChanged"))
         return {"status": offer.status}
     if offer.status != "pending":
-        raise HTTPException(409, "This price approval is no longer pending")
+        raise HTTPException(409, Message("printErrors.priceNotPending"))
     quote = receipt(request, session, offer)
     if quote["quote_hash"] != body.quote_hash:
-        raise HTTPException(409, "The price or queued copies changed; refresh the quote")
+        raise HTTPException(409, Message("printErrors.quoteChanged"))
     maximum = body.maximum_price.model_dump()
     if maximum["currency"] != quote["currency"] or maximum["micros"] > quote["amount_micros"]:
-        raise HTTPException(422, "Choose a maximum within this quote's price and currency")
+        raise HTTPException(422, Message("printErrors.maximumPrice"))
     job = get(session, PrintJob, offer.job_id)
     pricing = job.template_snapshot.get("pricing", {})
     job.template_snapshot = {
@@ -277,8 +274,8 @@ def accept(identifier: str, body: Acceptance, request: Request, session: DB) -> 
     evidence(request, session, offer, "price.accepted", maximum)
     enqueue(
         session,
-        "Requester accepted the cartridge price",
-        "The requester accepted a price for their remaining queued labels. Review the selection to approve cartridge use.",
+        Message("notificationMessages.priceAcceptedTitle"),
+        Message("notificationMessages.priceAcceptedBody"),
         "/#/queue",
         recipient_id=offer.actor_id,
         context={"job_id": job.id},
@@ -292,7 +289,7 @@ def decline(identifier: str, request: Request, session: DB) -> dict[str, str]:
     if offer.status == "declined":
         return {"status": offer.status}
     if offer.status != "pending":
-        raise HTTPException(409, "This price approval is no longer pending")
+        raise HTTPException(409, Message("printErrors.priceNotPending"))
     offer.status = "declined"
     evidence(request, session, offer, "price.declined")
     return {"status": offer.status}

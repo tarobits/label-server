@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.accounts.usage import money
 from app.authn.ownership import owner_at
+from app.i18n import Message
 from app.models import Batch, Cartridge, ResourceOwnership, TapeAllocation, UsageAdjustment
 
 
@@ -207,7 +208,9 @@ def repayment_allocations(
         ) or abs(sum(selected.values())) > abs(amount):
             raise HTTPException(
                 422,
-                "Choose cartridges from this account and currency, with allocations within the payment amount",
+                Message(
+                    "serverMessages.chooseCartridgesFromThisAccountAndCurrencyWithAllocationsWithinThePaymentAmount"
+                ),
             )
         return selected
     if amount < 0:

@@ -231,6 +231,7 @@ def test_idle_disconnect_recovers_but_hardware_error_requires_human_clearance(ac
 
 def test_block_audit_records_faults_and_local_uncertainty_without_poll_duplicates(accounts):
     from app.models import ResourceGrant
+    from app.printer.brother import StatusPacket
 
     admin, alice, _ = accounts
     _, headers, _ = station(admin)
@@ -240,9 +241,12 @@ def test_block_audit_records_faults_and_local_uncertainty_without_poll_duplicate
         json={"local_id": "audit", "name": "Audit printer", "driver": "mock"},
     ).json()["printer_id"]
     path = f"/api/companion/printers/{identifier}/status"
+    fault = StatusPacket(24, 1, 0, 0, (4, 16)).hardware_problem
+    assert fault is not None
     body = {
         "connected": True,
         "error": "Printer error 04/10: Cutter jam; Cover open",
+        "error_translation": fault.descriptor(),
         "local_blocked": True,
     }
     for _ in range(2):
@@ -257,6 +261,12 @@ def test_block_audit_records_faults_and_local_uncertainty_without_poll_duplicate
     assert "unresolved local print attempt" in fields["reason"]
     assert fields["connected"] is True and fields["local_blocked"] is True
     assert "diagnostics" not in fields
+    translated = admin.get("/api/audit", params=query, headers={"Accept-Language": "de"}).json()[
+        "items"
+    ]
+    assert len(translated) == 1
+    assert "Schneidevorrichtung blockiert; Abdeckung offen" in translated[0]["fields"]["reason"]
+    assert "ungeklärten lokalen Druckversuch" in translated[0]["fields"]["reason"]
 
     # Seeing an event does not automatically grant access to printer details.
     with admin.app.state.factory.begin() as session:

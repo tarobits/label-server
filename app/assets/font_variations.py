@@ -13,6 +13,7 @@ from fontTools.varLib.instancer import instantiateVariableFont  # type: ignore[i
 
 from app.assets.asset_cache import touch, using_cache
 from app.assets.asset_store import AssetStore
+from app.i18n import Message
 
 _lock = RLock()
 
@@ -25,7 +26,7 @@ def weight_info(font: Any) -> dict[str, Any]:
     weight = int(getattr(font.get("OS/2"), "usWeightClass", 400))
     axes = font["fvar"].axes if "fvar" in font else []
     if len(axes) > 16 or len({axis.axisTag for axis in axes}) != len(axes):
-        raise ValueError("Font has invalid variation axes")
+        raise ValueError(Message("domainMessages.fontHasInvalidVariationAxes"))
     weight_axis = None
     for axis in axes:
         values = (axis.minValue, axis.defaultValue, axis.maxValue)
@@ -33,10 +34,10 @@ def weight_info(font: Any) -> dict[str, Any]:
             not all(math.isfinite(value) for value in values)
             or not values[0] <= values[1] <= values[2]
         ):
-            raise ValueError("Font has invalid variation limits")
+            raise ValueError(Message("domainMessages.fontHasInvalidVariationLimits"))
         if axis.axisTag == "wght":
             if not 1 <= axis.minValue <= axis.maxValue <= 1000:
-                raise ValueError("Font weight range must be between 1 and 1000")
+                raise ValueError(Message("domainMessages.fontWeightRangeMustBeBetween1And1000"))
             weight_axis = {
                 "min": axis.minValue,
                 "max": axis.maxValue,
@@ -107,6 +108,6 @@ def static_instance(source: Path, weight: float | None, root: Path | None = None
             output = io.BytesIO()
             font.save(output)
             if output.tell() > 5_000_000:
-                raise ValueError("Generated font instance exceeds 5 MB")
+                raise ValueError(Message("domainMessages.generatedFontInstanceExceeds5MB"))
         AssetStore(folder)._write(target, output.getvalue())
     return target

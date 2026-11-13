@@ -23,6 +23,7 @@ from app.authn.auth import (
 from app.authn.auth_api import Password, throttle
 from app.config import Settings
 from app.db import begin_write
+from app.i18n import Language, Message, render, request_language, user_language
 from app.models import AuthSession, NotificationEndpoint, RecoveryToken, User
 from app.notifications.email_delivery import EmailAddress, email_enabled, send_email
 from app.notifications.notification_api import (
@@ -71,14 +72,14 @@ class SubscriptionInput(RecoveryInput):
 def require_user(request: Request, session: Session) -> User:
     current = session_user(request, session)
     if current is None:
-        raise HTTPException(401, "Sign in to manage your account")
+        raise HTTPException(401, Message("recoveryMessages.signIn"))
     check_csrf(request, current[1])
     return current[0]
 
 
 def require_email(request: Request) -> None:
     if not email_enabled(request.app.state.settings):
-        raise HTTPException(503, "Email delivery is not configured; contact your administrator")
+        raise HTTPException(503, Message("recoveryMessages.unavailable"))
 
 
 def issue_token(session: Session, user: User, purpose: str, email: str) -> str:
@@ -104,16 +105,23 @@ def issue_token(session: Session, user: User, purpose: str, email: str) -> str:
     return token
 
 
-def deliver_link(settings: Settings, recipient: str, purpose: str, token: str) -> None:
+def deliver_link(
+    settings: Settings, recipient: str, purpose: str, token: str, language: Language = "en"
+) -> None:
     try:
         route = "verify-email" if purpose == "verify" else "reset-password"
-        action = "Verify your email address" if purpose == "verify" else "Reset your password"
+        action = render(
+            "recoveryMessages.verifyAction"
+            if purpose == "verify"
+            else "recoveryMessages.resetAction",
+            language,
+        )
         link = settings.public_url.rstrip("/") + f"/#/{route}?token={token}"
         send_email(
             settings,
             recipient,
-            f"{action} · Taro's Label Room",
-            f"{action}:\n\n{link}\n\nThis link expires in 30 minutes and can be used once. If you did not request it, ignore this email.",
+            render("recoveryMessages.subject", language, action=action),
+            render("recoveryMessages.linkBody", language, action=action, link=link),
         )
     except Exception:
         logger.warning("Account email delivery failed")
@@ -131,9 +139,10 @@ def send_reset_link(
             if user is None or user.disabled or not user.email:
                 return
             recipient = user.email
+            language = user_language(user)
             token = issue_token(session, user, "reset", recipient)
             record_account(session, "auth.reset_link_issued", user, system=True)
-        deliver_link(settings, recipient, "reset", token)
+        deliver_link(settings, recipient, "reset", token, language)
     except Exception:
         logger.warning("Account email delivery failed")
 
@@ -172,19 +181,19 @@ def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> 
         throttle(request, "email:" + user.username)
         identity = (user.id, user.password_hash)
     if not verify_password(body.current_password, identity[1]):
-        raise HTTPException(400, "Current password is incorrect")
+        raise HTTPException(400, Message("recoveryMessages.password"))
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         begin_write(session)
         user = require_user(request, session)
         if (user.id, user.password_hash) != identity:
-            raise HTTPException(409, "Account changed; sign in again")
+            raise HTTPException(409, Message("authMessages.accountChangedSignInAgain"))
         if body.email is None:
             user.email = None
             session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
             endpoint = session.get(NotificationEndpoint, f"personal-email:{user.id}")
             if endpoint:
                 update_configuration(session, endpoint, {"enabled": False, "email": ""})
-            message = "Account email removed."
+            message = "recoveryMessages.removed"
         else:
             require_email(request)
             token = issue_token(session, user, "verify", body.email)
@@ -194,11 +203,12 @@ def change_email(body: EmailInput, request: Request, tasks: BackgroundTasks) -> 
                 body.email,
                 "verify",
                 token,
+                user_language(user),
             )
-            message = "Check your email for a verification link."
+            message = "recoveryMessages.checkMail"
         record_account(session, "auth.email_changed", user, configured=body.email is not None)
         session.commit()
-        return {"message": message}
+        return {"message": render(message, request_language(request))}
 
 
 def consume_token(session: Session, value: str, purpose: str) -> tuple[RecoveryToken, User]:
@@ -213,7 +223,7 @@ def consume_token(session: Session, value: str, purpose: str) -> tuple[RecoveryT
         or not hmac.compare_digest(token.password_fingerprint, token_hash(user.password_hash))
         or (purpose == "reset" and token.email != user.email)
     ):
-        raise HTTPException(400, "This link is invalid or expired. Request a new one.")
+        raise HTTPException(400, Message("recoveryMessages.invalidLink"))
     return token, user
 
 
@@ -227,7 +237,7 @@ def verify_email(body: TokenInput, request: Request) -> None:
         if session.scalar(
             select(User.id).where(func.lower(User.email) == token.email, User.id != user.id)
         ):
-            raise HTTPException(409, "This email address is already used by another account")
+            raise HTTPException(409, Message("recoveryMessages.usedEmail"))
         user.email = token.email
         session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
         endpoint = session.get(NotificationEndpoint, f"personal-email:{user.id}")
@@ -247,16 +257,16 @@ def forgot_password(body: ForgotInput, request: Request, tasks: BackgroundTasks)
     tasks.add_task(
         send_reset_link, request.app.state.factory, request.app.state.settings, body.username
     )
-    return {"message": "If this account has a verified email address, a reset link will be sent."}
+    return {"message": render("recoveryMessages.resetRequested", request_language(request))}
 
 
-def password_changed_email(settings: Settings, recipient: str) -> None:
+def password_changed_email(settings: Settings, recipient: str, language: Language = "en") -> None:
     try:
         send_email(
             settings,
             recipient,
-            "Password reset · Taro's Label Room",
-            "Your password was reset and all sessions were signed out. If you did not make this change, contact your administrator.",
+            render("recoveryMessages.changedSubject", language),
+            render("recoveryMessages.changedBody", language),
         )
     except Exception:
         logger.warning("Account email delivery failed")
@@ -278,7 +288,9 @@ def reset_password(body: ResetInput, request: Request, tasks: BackgroundTasks) -
 
         revoke_sessions(session, user.id)
         session.execute(delete(RecoveryToken).where(RecoveryToken.user_id == user.id))
-        tasks.add_task(password_changed_email, request.app.state.settings, token.email)
+        tasks.add_task(
+            password_changed_email, request.app.state.settings, token.email, user_language(user)
+        )
         record_account(session, "auth.password_reset", user)
         session.commit()
 
@@ -294,16 +306,14 @@ def save_subscription(body: SubscriptionInput, request: Request) -> None:
         if body.enabled:
             require_email(request)
             if not user.email:
-                raise HTTPException(
-                    409, "Verify an email address before enabling email notifications"
-                )
+                raise HTTPException(409, Message("recoveryMessages.verifyFirst"))
         if not user.email:
             record_account(session, "auth.subscription_changed", user, configured=False)
             session.commit()
             return
         actor = actor_for_user(session, user)
         if "approval_digest" in body.kinds and not actor.is_admin:
-            raise HTTPException(403, "Only administrators can subscribe to pending print requests")
+            raise HTTPException(403, Message("recoveryMessages.adminOnly"))
         if any(
             not actor.is_admin
             and not AccountPolicy({identifier: None}).can_printer(
@@ -311,18 +321,16 @@ def save_subscription(body: SubscriptionInput, request: Request) -> None:
             )
             for identifier in {*body.destination_ids, *body.printer_kinds}
         ):
-            raise HTTPException(403, "Choose destinations whose print activity you can view")
+            raise HTTPException(403, Message("recoveryMessages.destinations"))
         try:
             values = EndpointInput(
-                name="Personal email",
+                name=render("recoveryMessages.personal", user_language(user)),
                 transport="email",
                 email=user.email,
                 **body.model_dump(),
             )
         except ValidationError as error:
-            raise HTTPException(
-                422, "Choose valid notification types and printer scopes"
-            ) from error
+            raise HTTPException(422, Message("recoveryMessages.invalidSubscription")) from error
         validate_references(session, values)
         identifier = f"personal-email:{user.id}"
         endpoint = session.get(NotificationEndpoint, identifier)

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.authn.access import Actor
+from app.i18n import Message
 from app.models import TapeAllocation, UsageAdjustment, User
 
 
@@ -66,16 +67,18 @@ def adjust_account(session: Session, actor: Actor, body: AdjustmentInput) -> Usa
                 for key in ("user_id", "recipient_id", "amount_minor", "currency", "note")
             )
         ):
-            raise HTTPException(409, "This adjustment reference has already been used")
+            raise HTTPException(
+                409, Message("serverMessages.thisAdjustmentReferenceHasAlreadyBeenUsed")
+            )
         return existing  # Retrying an uncertain response never records another payment.
     name = account_names(session, body.user_id).get(body.user_id)
     if name is None:
-        raise HTTPException(404, "Usage account not found")
+        raise HTTPException(404, Message("serverMessages.usageAccountNotFound"))
     recipient = account_names(session, body.recipient_id).get(body.recipient_id)
     if recipient is None:
-        raise HTTPException(404, "Recipient account not found")
+        raise HTTPException(404, Message("serverMessages.recipientAccountNotFound"))
     if body.recipient_id == body.user_id:
-        raise HTTPException(422, "Choose a different payer and recipient")
+        raise HTTPException(422, Message("serverMessages.chooseADifferentPayerAndRecipient"))
     from app.accounts.cartridge_debts import repayment_allocations
 
     allocations = repayment_allocations(

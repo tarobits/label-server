@@ -22,9 +22,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
+from app.companion.companion_protocol import OperatorLanguage
 from app.deployment import require_role
+from app.i18n import Message, error_detail, render, request_language, validation_details
 from app.maintenance.releases import REPOSITORY, release_version, stable_version
 from app.printer.base import ControlledPrinterBackend, StopMode
+from app.printer.messages import localize_status
 from companion.agent import Agent
 from companion.config import LocalPrinter, Settings
 from companion.journal import Journal
@@ -84,6 +87,7 @@ class StationSession:
         self.last_activity = 0.0
         self.operator: dict[str, Any] | None = None
         self.generation = 0
+        self.language_revision = 0
         self.csrf = secrets.token_urlsafe(32)
         self.attempts: deque[float] = deque()
 
@@ -134,6 +138,11 @@ def create_app(
                 await run_in_threadpool(agent.close, sync_threads=(thread,) if start_agent else ())
 
     app = FastAPI(title="Label Room companion", lifespan=lifespan)
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    from app.i18n import http_error
+
+    app.add_exception_handler(StarletteHTTPException, http_error)
     from app.http_security import HttpSecurity
 
     app.state.agent, app.state.station = agent, station
@@ -148,9 +157,9 @@ def create_app(
         return JSONResponse(
             status_code=422,
             content={
-                "detail": [
-                    {key: issue[key] for key in ("type", "loc", "msg")} for issue in error.errors()
-                ]
+                "detail": validation_details(
+                    error.errors(), request_language(request), sensitive=True
+                )
             },
         )
 
@@ -163,7 +172,14 @@ def create_app(
                 )
             except ValueError:
                 pass
-        return JSONResponse(status_code=503, content={"detail": "The main server is unavailable"})
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": render(
+                    "serverMessages.theMainServerIsUnavailable", request_language(request)
+                )
+            },
+        )
 
     @app.middleware("http")
     async def headers(request: Request, call_next: Any) -> Response:
@@ -188,11 +204,11 @@ def create_app(
             and origin.rstrip("/") not in allowed
             or request.headers.get("sec-fetch-site") == "cross-site"
         ):
-            raise HTTPException(403, "Cross-site requests are not permitted")
+            raise HTTPException(403, Message("requestErrors.crossSite"))
         if not hmac.compare_digest(
             request.headers.get("x-csrf-token", "").encode(), station.csrf.encode()
         ):
-            raise HTTPException(403, "Invalid station CSRF token")
+            raise HTTPException(403, Message("serverMessages.invalidStationCSRFToken"))
 
     def current(request: Request, *, touch: bool = False) -> str:
         expired = False
@@ -217,7 +233,7 @@ def create_app(
         if expired:
             agent.flush_revocations()
         if not valid:
-            raise HTTPException(401, "Unlock the station to continue")
+            raise HTTPException(401, Message("serverMessages.unlockTheStationToContinue"))
         return token
 
     @app.get("/api/health")
@@ -234,13 +250,21 @@ def create_app(
         user = None
         with station.lock:
             generation = station.generation
+            language_revision = station.language_revision
             if token != station.remote_token:
                 token = None
         if token and agent.online:
             try:
-                user = agent.request("GET", "/api/companion/operator", token=token).json()
+                user = agent.request(
+                    "GET",
+                    "/api/companion/operator",
+                    token=token,
+                    headers={"Accept-Language": request_language(request)},
+                ).json()
                 with station.lock:
                     if generation == station.generation and token == station.remote_token:
+                        if language_revision != station.language_revision and station.operator:
+                            user = {**user, "language": station.operator["language"]}
                         station.operator = user
                     else:
                         token, user = None, None
@@ -267,7 +291,10 @@ def create_app(
                 "no_automatic_printing": agent.dashboards.get(device.local_id, {}).get(
                     "no_automatic_printing"
                 ),
-                "status": agent.statuses.get(device.local_id, {"connected": False}),
+                "status": localize_status(
+                    agent.statuses.get(device.local_id, {"connected": False}),
+                    request_language(request),
+                ),
                 **(
                     {
                         "dashboard": agent.dashboards.get(device.local_id),
@@ -300,6 +327,7 @@ def create_app(
         ]
         return {
             "name": agent.users.get("name", "Companion"),
+            "default_language": settings.default_language,
             "version": __version__,
             "update": available_update(agent.users.get("latest_release"))
             if settings.show_update_notice
@@ -340,13 +368,17 @@ def create_app(
         }
 
     @app.get("/api/station/users/{identifier}/avatar")
-    def user_avatar(identifier: str) -> Response:
+    def user_avatar(identifier: str, request: Request) -> Response:
         if not agent.online:
-            raise HTTPException(503, "The main server is unavailable")
+            raise HTTPException(503, Message("serverMessages.theMainServerIsUnavailable"))
         if not any(user["id"] == identifier for user in agent.users.get("users", [])):
-            raise HTTPException(404, "User is not available at this station")
+            raise HTTPException(404, Message("serverMessages.userIsNotAvailableAtThisStation"))
         # The main server rechecks current station access, including revocations.
-        result = agent.request("GET", f"/api/companion/users/{quote(identifier, safe='')}/avatar")
+        result = agent.request(
+            "GET",
+            f"/api/companion/users/{quote(identifier, safe='')}/avatar",
+            headers={"Accept-Language": request_language(request)},
+        )
         return Response(result.content, media_type="image/png")
 
     @app.post("/api/station/unlock")
@@ -357,7 +389,7 @@ def create_app(
             while station.attempts and station.attempts[0] <= now - 300:
                 station.attempts.popleft()
             if len(station.attempts) >= 10:
-                raise HTTPException(429, "Too many PIN attempts; try again later")
+                raise HTTPException(429, Message("serverMessages.tooManyPINAttemptsTryAgainLater"))
             station.attempts.append(now)
             station.generation += 1
             generation = station.generation
@@ -370,10 +402,11 @@ def create_app(
                     pin.encode(), settings.shared_pin.get_secret_value().encode()
                 )
             ):
-                raise HTTPException(401, "Invalid user or PIN")
+                raise HTTPException(401, Message("serverMessages.invalidUserOrPIN"))
         result = agent.request(
             "POST",
             "/api/companion/unlock",
+            headers={"Accept-Language": request_language(request)},
             json={
                 "user_id": body.user_id,
                 "pin": None if settings.single_user_id else pin,
@@ -403,7 +436,7 @@ def create_app(
                 )
         if superseded:
             agent.revoke_session(result["session_token"])
-            raise HTTPException(409, "Station changed; unlock again")
+            raise HTTPException(409, Message("serverMessages.stationChangedUnlockAgain"))
         if previous:
             agent.revoke_session(previous)
         return {"ok": True}
@@ -413,11 +446,11 @@ def create_app(
         csrf(request)
         token = current(request, touch=True)
         if not agent.online:
-            raise HTTPException(503, "The main server is unavailable")
+            raise HTTPException(503, Message("serverMessages.theMainServerIsUnavailable"))
         try:
             agent.add_printer(body, token)
         except ValueError as error:
-            raise HTTPException(409, str(error)) from error
+            raise HTTPException(409, error_detail(error)) from error
         return {"ok": True}
 
     @app.put("/api/station/printers/{local_id}/enabled")
@@ -425,11 +458,11 @@ def create_app(
         csrf(request)
         token = current(request, touch=True)
         if not agent.online:
-            raise HTTPException(503, "The main server is unavailable")
+            raise HTTPException(503, Message("serverMessages.theMainServerIsUnavailable"))
         try:
             agent.enable_printer(local_id, body.enabled, token)
         except ValueError as error:
-            raise HTTPException(409, str(error)) from error
+            raise HTTPException(409, error_detail(error)) from error
         return {"ok": True}
 
     @app.post("/api/station/lock")
@@ -445,7 +478,9 @@ def create_app(
             return {"ok": True}
         with station.lock:
             if token != station.remote_token:
-                raise HTTPException(409, "Station changed; refresh the dashboard")
+                raise HTTPException(
+                    409, Message("serverMessages.stationChangedRefreshTheDashboard")
+                )
             station.clear()
         response.delete_cookie(COOKIE, path="/")
         agent.revoke_session(token)
@@ -457,14 +492,41 @@ def create_app(
         current(request, touch=True)
         return {"ok": True, "lock_remaining_seconds": settings.lock_timeout_seconds}
 
+    @app.put("/api/station/language")
+    def language(body: OperatorLanguage, request: Request) -> dict[str, str]:
+        csrf(request)
+        token = current(request, touch=True)
+        if not agent.online:
+            raise HTTPException(503, Message("serverMessages.theMainServerIsUnavailable"))
+        with station.lock:
+            generation = station.generation
+        result = agent.request(
+            "PUT",
+            "/api/companion/operator/language",
+            token=token,
+            json=body.model_dump(),
+            headers={"Accept-Language": request_language(request)},
+        ).json()
+        with station.lock:
+            if (
+                generation == station.generation
+                and token == station.remote_token
+                and station.operator
+            ):
+                station.language_revision += 1
+                station.operator = {**station.operator, "language": body.language}
+        return result
+
     @app.post("/api/station/printers/{local_id}/stop")
     def local_stop(local_id: str, body: Stop, request: Request) -> dict[str, bool]:
         csrf(request)
         executor = agent.executors.get(local_id)
         if not executor:
-            raise HTTPException(404, "Local printer not found")
+            raise HTTPException(404, Message("serverMessages.localPrinterNotFound"))
         if not isinstance(executor.backend, ControlledPrinterBackend):
-            raise HTTPException(409, "This printer does not support stopping a running batch")
+            raise HTTPException(
+                409, Message("serverMessages.thisPrinterDoesNotSupportStoppingARunningBatch")
+            )
         mode: StopMode = body.mode
         token = None
         try:
@@ -483,17 +545,25 @@ def create_app(
         )
         if not agent.online:
             if not offline_allowed or not token and not locked_allowed:
-                raise HTTPException(403, "This local stop is disabled while offline or locked")
+                raise HTTPException(
+                    403, Message("serverMessages.thisLocalStopIsDisabledWhileOfflineOrLocked")
+                )
         elif token:
             identifier = agent.identifiers.get(local_id)
             agent.request(
-                "POST", f"/api/printers/{identifier}/stop", token=token, json={"mode": mode}
+                "POST",
+                f"/api/printers/{identifier}/stop",
+                token=token,
+                json={"mode": mode},
+                headers={"Accept-Language": request_language(request)},
             )
         elif not locked_allowed:
-            raise HTTPException(403, "This local stop is disabled while locked")
+            raise HTTPException(403, Message("serverMessages.thisLocalStopIsDisabledWhileLocked"))
         identifier = agent.identifiers.get(local_id)
         if not identifier:
-            raise HTTPException(409, "Printer has not registered with the main server")
+            raise HTTPException(
+                409, Message("serverMessages.printerHasNotRegisteredWithTheMainServer")
+            )
         journal.record_stop(
             identifier,
             mode,
@@ -509,20 +579,25 @@ def create_app(
         if not (
             PROXY_PATH.fullmatch(path) or request.method == "GET" and PACKING_PATH.fullmatch(path)
         ):
-            raise HTTPException(403, "This operation is not available through the station")
+            raise HTTPException(
+                403, Message("serverMessages.thisOperationIsNotAvailableThroughTheStation")
+            )
         if request.method != "GET":
             csrf(request)
         token = current(request, touch=request.method != "GET")
         if not agent.online:
-            raise HTTPException(503, "The main server is unavailable")
+            raise HTTPException(503, Message("serverMessages.theMainServerIsUnavailable"))
         content = bytearray()
         async for chunk in request.stream():
             content.extend(chunk)
             if len(content) > 1_000_000:
-                raise HTTPException(413, "Request is too large")
+                raise HTTPException(413, Message("serverMessages.requestIsTooLarge"))
         from starlette.concurrency import run_in_threadpool
 
-        forwarded = {"Content-Type": "application/json"}
+        forwarded = {
+            "Content-Type": "application/json",
+            "Accept-Language": request_language(request),
+        }
         if confirmation := request.headers.get("x-tape-shortage-confirmation"):
             forwarded["X-Tape-Shortage-Confirmation"] = confirmation
         result = await run_in_threadpool(
@@ -549,7 +624,7 @@ def create_app(
     @app.get("/")
     def root() -> FileResponse:
         if not (assets / "companion.html").exists():
-            raise HTTPException(503, "Build the companion web interface first")
+            raise HTTPException(503, Message("serverMessages.buildTheCompanionWebInterfaceFirst"))
         return FileResponse(assets / "companion.html")
 
     app.add_middleware(HttpSecurity, allowed_frames=settings.frame_ancestors)

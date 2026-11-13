@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.authn.authorization import rendering_destination
 from app.http import record
+from app.i18n import Message
 from app.models import Base, LabelTemplate, PrinterDevice, PrinterGroup
 from app.printing.destinations import members
 
@@ -68,7 +69,9 @@ def rendering(
     session.commit()
     authorize_current_request(request)
     if access_context(request).actor != actor_before:
-        raise HTTPException(409, "Access changed during preparation; retry the request")
+        raise HTTPException(
+            409, Message("serverMessages.accessChangedDuringPreparationRetryTheRequest")
+        )
     request.app.state.fleet.lock.release()
     try:
         yield
@@ -77,7 +80,9 @@ def rendering(
     session.commit()
     authorize_current_request(request)
     if access_context(request).actor != actor_before:
-        raise HTTPException(409, "Access changed during preparation; retry the request")
+        raise HTTPException(
+            409, Message("serverMessages.accessChangedDuringPreparationRetryTheRequest")
+        )
     for value, values in inputs:
         identity = tuple(
             values[column.key]
@@ -85,18 +90,25 @@ def rendering(
             if column.key is not None
         )
         if session.get(type(value), identity, populate_existing=True) is None:
-            raise HTTPException(409, "Inputs changed during preparation; retry the request")
+            raise HTTPException(
+                409, Message("serverMessages.inputsChangedDuringPreparationRetryTheRequest")
+            )
         session.refresh(value)
         if isinstance(value, LabelTemplate):
             from app.maintenance.deletion import is_deleted
 
             if is_deleted(session, "templates", value.id):
-                raise HTTPException(409, "Template was deleted during preparation")
+                raise HTTPException(
+                    409, Message("serverMessages.templateWasDeletedDuringPreparation")
+                )
         if record(value) != values:
-            raise HTTPException(409, "Inputs changed during preparation; retry the request")
+            raise HTTPException(
+                409, Message("serverMessages.inputsChangedDuringPreparationRetryTheRequest")
+            )
     if request.app.state.registry.definitions() != definitions:
         raise HTTPException(
-            409, "Printer configuration changed during preparation; retry the request"
+            409,
+            Message("serverMessages.printerConfigurationChangedDuringPreparationRetryTheRequest"),
         )
     try:
         for identifier in assets:
@@ -107,7 +119,7 @@ def rendering(
             request.app.state.images.metadata(identifier)
     except ValueError as error:
         raise HTTPException(
-            409, "An image was removed during preparation; choose it again"
+            409, Message("serverMessages.anImageWasRemovedDuringPreparationChooseItAgain")
         ) from error
     require_document_assets(request, session, list(documents))
     require_document_assets(

@@ -10,6 +10,7 @@ from test_granular_printer_permissions import set_permissions
 from test_price_consent import submission
 from test_runs import run_body
 
+from app.i18n import notice_text
 from app.models import LabelCopy, Notification, PrintJob, ResourceGrant, TapeAllocation
 
 
@@ -103,6 +104,14 @@ def test_paid_retry_only_queues_after_requester_accepts_new_quote(accounts):
     assert offer["status"] == "pending" and offer["job_id"] is None
     with admin.app.state.factory() as session:
         assert len(list(session.scalars(select(PrintJob)))) == 1
+        notice = session.scalar(
+            select(Notification).where(Notification.title == "Print retry needs your approval")
+        )
+        assert notice.recipient_id == "alice"
+        assert notice_text(notice, "title", "de") == "Wiederholungsdruck benötigt deine Zustimmung"
+        assert notice_text(notice, "message", "de") == (
+            "Prüfe ein neues Preisangebot, bevor du einem Wiederholungsdruck auf deine Kosten zustimmst."
+        )
         assert session.scalar(
             select(Notification).where(
                 Notification.recipient_id == "alice",
@@ -110,7 +119,9 @@ def test_paid_retry_only_queues_after_requester_accepts_new_quote(accounts):
             )
         )
     path = f"/api/retries/{offer['id']}"
-    assert bob.get(path).status_code == 404
+    denied = bob.get(path, headers={"Accept-Language": "de"})
+    assert denied.status_code == 404
+    assert denied.json()["detail"] == "Wiederholungsangebot nicht gefunden."
     assert admin.post(path + "/quote").status_code == 404
     quote = alice.post(path + "/quote").json()
     accept = {

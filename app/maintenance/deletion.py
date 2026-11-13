@@ -8,6 +8,7 @@ from sqlalchemy import delete, select, tuple_, update
 from sqlalchemy.orm import Session
 
 from app.assets.asset_store import AssetStore
+from app.i18n import Message
 from app.models import (
     AccessChangeConfirmation,
     AuthSession,
@@ -115,9 +116,11 @@ def delete_account(
     session: Session, user: User, actor_id: str, fonts: AssetStore, images: AssetStore
 ) -> None:
     if is_deleted(session, "users", user.id):
-        raise HTTPException(404, "Account has been deleted")
+        raise HTTPException(404, Message("authMessages.accountHasBeenDeleted"))
     if session.scalar(select(Companion.id).where(Companion.bound_user_id == user.id).limit(1)):
-        raise HTTPException(409, "Rebind or unbind this account's companions before deleting it")
+        raise HTTPException(
+            409, Message("serverMessages.rebindOrUnbindThisAccountsCompanionsBeforeDeletingIt")
+        )
     release_inventory(session, user.id, actor_id)
     memberships = []
     for group in session.scalars(select(UserGroup)):
@@ -174,9 +177,9 @@ def delete_account(
 def restorable(session: Session, kind: str, identifier: str) -> DeletedContent:
     item = session.get(DeletedContent, (kind, identifier))
     if item is None:
-        raise HTTPException(404, "Deleted item not found")
+        raise HTTPException(404, Message("serverMessages.deletedItemNotFound"))
     if item.purged_at is not None or item.purge_after <= time.time():
-        raise HTTPException(409, "The 30-day restoration period has expired")
+        raise HTTPException(409, Message("serverMessages.the30dayRestorationPeriodHasExpired"))
     return item
 
 
@@ -184,7 +187,7 @@ def restore_account(session: Session, identifier: str) -> User:
     item = restorable(session, "users", identifier)
     user = session.get(User, identifier)
     if user is None:
-        raise HTTPException(409, "The account is no longer available")
+        raise HTTPException(409, Message("serverMessages.theAccountIsNoLongerAvailable"))
     user.disabled = item.details["disabled"]
     for membership in item.details["memberships"]:
         group = session.get(UserGroup, membership["group_id"])
@@ -203,7 +206,9 @@ def restore_account(session: Session, identifier: str) -> User:
 def restore_content(session: Session, kind: str, identifier: str) -> None:
     item = restorable(session, kind, identifier)
     if item.account_id and is_deleted(session, "users", item.account_id):
-        raise HTTPException(409, "Restore the owning account to restore this content")
+        raise HTTPException(
+            409, Message("serverMessages.restoreTheOwningAccountToRestoreThisContent")
+        )
     session.delete(item)
     session.flush()
 
@@ -283,9 +288,9 @@ def purge_now(
 ) -> None:
     item = session.get(DeletedContent, (kind, identifier))
     if item is None:
-        raise HTTPException(404, "Deleted item not found")
+        raise HTTPException(404, Message("serverMessages.deletedItemNotFound"))
     if kind not in ("users", "templates", "images", "fonts"):
-        raise HTTPException(422, "Unsupported deleted item")
+        raise HTTPException(422, Message("serverMessages.unsupportedDeletedItem"))
     if item.purged_at is not None:
         return
     items = [item]
@@ -293,7 +298,9 @@ def purge_now(
         if session.scalar(
             select(Companion.id).where(Companion.bound_user_id == identifier).limit(1)
         ):
-            raise HTTPException(409, "Rebind or unbind this account's companions before purging it")
+            raise HTTPException(
+                409, Message("serverMessages.rebindOrUnbindThisAccountsCompanionsBeforePurgingIt")
+            )
         items += list(
             session.scalars(
                 select(DeletedContent).where(

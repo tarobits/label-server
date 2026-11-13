@@ -17,6 +17,7 @@ from app.audit.print_audit import direct_attribution
 from app.authn.access import AccessContext, Action, Resource, access_context
 from app.authn.authorization import rendering_destination
 from app.http import get, job_record
+from app.i18n import Message, error_detail
 from app.models import JobSubmission, LabelCopy, LabelTemplate, PrintJob, TapeProfile
 from app.printing.destinations import members
 from app.printing.print_planning import geometry_plan, planning_backend
@@ -66,7 +67,9 @@ def rendering_spec(
         identifier for identifier in identifiers if identifier in request.app.state.fleet.workers
     ]
     if not configured_members:
-        raise HTTPException(409, "No configured printer is available at this destination")
+        raise HTTPException(
+            409, Message("serverMessages.noConfiguredPrinterIsAvailableAtThisDestination")
+        )
     capabilities = request.app.state.registry.definition(configured_members[0]).capabilities
     mode = (
         document.print_resolution
@@ -78,7 +81,8 @@ def rendering_spec(
         supported = capabilities.resolution_modes or {}
         if mode not in supported:
             raise HTTPException(
-                422, "The selected printer does not support this template resolution"
+                422,
+                Message("serverMessages.theSelectedPrinterDoesNotSupportThisTemplateResolution"),
             )
         dpi_x, dpi_y = supported[mode]
     return RenderSpec(
@@ -106,7 +110,9 @@ def build_job(
     context: AccessContext,
 ) -> PrintJob:
     if profile.available is False:
-        raise HTTPException(409, "Tape profile is unavailable; choose another profile")
+        raise HTTPException(
+            409, Message("serverMessages.tapeProfileIsUnavailableChooseAnotherProfile")
+        )
     context.require(
         Action.READ,
         Resource(
@@ -134,7 +140,7 @@ def build_job(
             document["elements"][0]["y"] = top
             document["elements"][0]["height"] = bottom - top
     if document["width_mm"] != profile.width_mm:
-        raise HTTPException(422, "Template and tape widths do not match")
+        raise HTTPException(422, Message("serverMessages.templateAndTapeWidthsDoNotMatch"))
     try:
         parsed = TemplateDocument.model_validate(document)
         from app.media import require_matching_media
@@ -148,7 +154,7 @@ def build_job(
         ):
             document = output.document.model_dump()
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
     context.require(
         Action.SUBMIT,
         Resource("destination", body.destination_id, destination_id=body.destination_id),
@@ -225,12 +231,16 @@ def submitted_job(request: Request, session: Session, fingerprint: str) -> dict[
         if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", key):
             raise HTTPException(
                 422,
-                "Idempotency-Key must be 1–128 letters, digits, dots, colons, underscores or hyphens",
+                Message(
+                    "serverMessages.idempotencyKeyMustBe1128LettersDigitsDotsColonsUnderscoresOrHyphens"
+                ),
             )
         receipt = session.get(JobSubmission, (owner, key))
         if receipt:
             if receipt.request_hash != fingerprint:
-                raise HTTPException(409, "Idempotency-Key already used with different inputs")
+                raise HTTPException(
+                    409, Message("serverMessages.idempotencyKeyAlreadyUsedWithDifferentInputs")
+                )
             return job_record(session, get(session, PrintJob, receipt.job_id))
     return None
 

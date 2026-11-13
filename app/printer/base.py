@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from threading import Event
 from typing import Literal, Protocol, Sequence, runtime_checkable
 
+from app.printer.messages import reason_descriptor, restore_reason
+
 StopMode = Literal["after_current", "emergency"]
 
 
@@ -65,6 +67,18 @@ class PrinterStatus:
     # Adapters may distinguish an actionable media check from a hardware fault.
     # Unknown/older reports remain faults; this never clears an existing block.
     error_requires_investigation: bool = True
+    error_translation: dict | None = None
+
+    def __post_init__(self) -> None:
+        # Keep the wire text plain: dataclass serialization must not copy a str subclass.
+        descriptor = reason_descriptor(self.error) or self.error_translation
+        object.__setattr__(self, "error_translation", descriptor)
+        if self.error is not None:
+            object.__setattr__(self, "error", str(self.error))
+
+    @property
+    def localized_error(self) -> str | None:
+        return restore_reason(self.error, self.error_translation)
 
 
 @dataclass(frozen=True)

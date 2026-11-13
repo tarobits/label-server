@@ -26,6 +26,7 @@ from app.authn.auth import (
 )
 from app.authn.identity import LOCAL_OWNER_ID
 from app.db import begin_write
+from app.i18n import Message
 from app.maintenance.releases import release_version
 from app.models import (
     AuthSession,
@@ -80,7 +81,7 @@ def save_language(body: LanguageInput, request: Request, response: Response) -> 
     with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to change your language")
+            raise HTTPException(401, Message("authMessages.signInToChangeYourLanguage"))
         check_csrf(request, current[1])
         user = current[0]
         user.language = body.language
@@ -121,7 +122,7 @@ def list_sessions(request: Request, response: Response) -> list[dict[str, Any]]:
     with request.app.state.factory() as session:
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to view your sessions")
+            raise HTTPException(401, Message("authMessages.signInToViewYourSessions"))
         return [
             {
                 "id": record.id,
@@ -149,7 +150,7 @@ def revoke_other_sessions(request: Request, response: Response) -> None:
     with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to manage your sessions")
+            raise HTTPException(401, Message("authMessages.signInToManageYourSessions"))
         check_csrf(request, current[1])
         for record in session.scalars(
             select(AuthSession).where(
@@ -169,7 +170,7 @@ def revoke_one_session(session_id: str, request: Request, response: Response) ->
     with request.app.state.fleet.lock, request.app.state.factory.begin() as session:
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to manage your sessions")
+            raise HTTPException(401, Message("authMessages.signInToManageYourSessions"))
         check_csrf(request, current[1])
         record = session.scalar(
             select(AuthSession).where(
@@ -177,7 +178,7 @@ def revoke_one_session(session_id: str, request: Request, response: Response) ->
             )
         )
         if record is None:
-            raise HTTPException(404, "Session not found")
+            raise HTTPException(404, Message("authMessages.sessionNotFound"))
         if record.token_hash == current[1].token_hash:
             response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="strict")
         revoke_session(session, record)
@@ -192,14 +193,18 @@ def setup(body: SetupInput, request: Request, response: Response) -> dict[str, A
     try:
         secret = setup_path(request).read_text().strip()
     except FileNotFoundError:
-        raise HTTPException(409, "Initial administrator setup is not available") from None
+        raise HTTPException(
+            409, Message("authMessages.initialAdministratorSetupIsNotAvailable")
+        ) from None
     if not hmac.compare_digest(secret.encode(), body.setup_token.encode()):
-        raise HTTPException(403, "Invalid setup token")
+        raise HTTPException(403, Message("authMessages.invalidSetupToken"))
     encoded = hash_password(body.password)
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         begin_write(session)
         if session.scalar(select(User.id).limit(1)) is not None:
-            raise HTTPException(409, "Initial administrator setup is already complete")
+            raise HTTPException(
+                409, Message("authMessages.initialAdministratorSetupIsAlreadyComplete")
+            )
         user = User(
             id=LOCAL_OWNER_ID,
             username=body.username,
@@ -224,14 +229,14 @@ def login(body: LoginInput, request: Request, response: Response) -> dict[str, A
         identity = (user.id, user.password_hash) if user else None
     if identity is None:
         hash_password(body.password)
-        raise HTTPException(401, "Invalid sign-in details")
+        raise HTTPException(401, Message("authMessages.invalidSigninDetails"))
     valid = verify_password(body.password, identity[1])
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         # Recheck the exact credential after hashing without a transaction or lock.
         begin_write(session)
         user = find_login_user(session, body.username)
         if not valid or user is None or user.disabled or (user.id, user.password_hash) != identity:
-            raise HTTPException(401, "Invalid sign-in details")
+            raise HTTPException(401, Message("authMessages.invalidSigninDetails"))
         result = new_session(request, response, session, user)
         record_account(session, "auth.signed_in", user)
         session.commit()
@@ -247,7 +252,9 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
         with request.app.state.fleet.lock, request.app.state.factory() as session:
             begin_write(session)
             if session.scalar(select(User.id).limit(1)) is None:
-                raise HTTPException(409, "An administrator must complete initial setup first")
+                raise HTTPException(
+                    409, Message("authMessages.anAdministratorMustCompleteInitialSetupFirst")
+                )
             settings = session.get(AuthSettings, 1)
             code = None
             if body.registration_code:
@@ -262,9 +269,11 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
                     or code.redeemed_at is not None
                     or code.expires_at <= time.time()
                 ):
-                    raise HTTPException(400, "Invalid or expired registration code")
+                    raise HTTPException(
+                        400, Message("authMessages.invalidOrExpiredRegistrationCode")
+                    )
             elif settings is None or settings.registration_code_required:
-                raise HTTPException(400, "A registration code is required")
+                raise HTTPException(400, Message("authMessages.aRegistrationCodeIsRequired"))
             role_ids = code.role_ids if code else ["member"]
             role_ids = [
                 role.id for role in session.scalars(select(Role).where(Role.id.in_(role_ids)))
@@ -301,7 +310,7 @@ def register(body: RegistrationInput, request: Request, response: Response) -> d
             session.commit()
             return result
     except IntegrityError as error:
-        raise HTTPException(409, "That username is not available") from error
+        raise HTTPException(409, Message("authMessages.thatUsernameIsNotAvailable")) from error
 
 
 @router.post("/password", status_code=204)
@@ -309,7 +318,7 @@ def change_password(body: PasswordChangeInput, request: Request, response: Respo
     with request.app.state.factory() as session:
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to change your password")
+            raise HTTPException(401, Message("authMessages.signInToChangeYourPassword"))
         user, record = current
         check_csrf(request, record)
         throttle(request, user.username)
@@ -324,7 +333,7 @@ def change_password(body: PasswordChangeInput, request: Request, response: Respo
         begin_write(session)
         current = session_user(request, session)
         if current is None or (current[0].id, current[0].password_hash) != identity:
-            raise HTTPException(409, "Account changed; sign in again")
+            raise HTTPException(409, Message("authMessages.accountChangedSignInAgain"))
         user, record = current
         check_csrf(request, record)
         user.password_hash = encoded
@@ -351,7 +360,7 @@ def visit_release(request: Request) -> dict[str, str | None]:
         begin_write(session)
         current = session_user(request, session)
         if current is None:
-            raise HTTPException(401, "Sign in to view your changelog")
+            raise HTTPException(401, Message("authMessages.signInToViewYourChangelog"))
         user, record = current
         check_csrf(request, record)
         previous = user.last_seen_version

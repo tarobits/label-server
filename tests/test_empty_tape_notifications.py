@@ -9,6 +9,7 @@ from test_notifications import Sender
 
 from app.authn.identity import LOCAL_OWNER_ID
 from app.db import make_engine, session_factory
+from app.i18n import notice_text
 from app.models import AuthSettings, Notification, User
 from app.notifications.notifications import deliver_pending, enqueue
 
@@ -43,7 +44,13 @@ def test_admin_empty_alert_delivers_without_pending_requests_or_approval_notific
     with client.app.state.factory() as session:
         notice = session.get(Notification, identifier)
         assert notice.recipient_id == "administrators"
-        assert notice.context == {"printer_id": "main", "cartridge_id": cartridge["id"]}
+        assert set(notice.context) == {"printer_id", "cartridge_id", "i18n"}
+        assert notice.context["printer_id"] == "main"
+        assert notice.context["cartridge_id"] == cartridge["id"]
+        assert notice_text(notice, "title", "de") == "Die eingelegte Kassette ist leer"
+        assert "Mock printer: In Cassette 1 sind schätzungsweise noch 0 mm" in notice_text(
+            notice, "message", "de"
+        )
         assert "Mock printer" in notice.message
         assert "Cassette 1" in notice.message
         assert "0 mm" in notice.message

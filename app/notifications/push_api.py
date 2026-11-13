@@ -15,6 +15,7 @@ from app.authn.access import AccountPolicy
 from app.authn.auth import actor_for_user, session_user
 from app.authn.auth_api import throttle
 from app.db import begin_write
+from app.i18n import Message, render, user_language
 from app.maintenance.recovery_api import RecoveryInput, SubscriptionInput, require_user
 from app.models import Notification, NotificationEndpoint
 from app.notifications.notification_api import (
@@ -90,7 +91,7 @@ def owned_device(session: Session, identifier: str, owner: str) -> NotificationE
         or endpoint.transport != "push"
         or endpoint.deleted_at is not None
     ):
-        raise HTTPException(404, "Device not found")
+        raise HTTPException(404, Message("serverMessages.deviceNotFound"))
     return endpoint
 
 
@@ -122,7 +123,7 @@ def register_push(body: RegisterPush, request: Request) -> dict[str, Any]:
         begin_write(session)
         user = require_user(request, session)
         if not public_key(request.app.state.settings):
-            raise HTTPException(409, "Push delivery has not been configured")
+            raise HTTPException(409, Message("serverMessages.pushDeliveryHasNotBeenConfigured"))
         current = session_user(request, session)
         assert current is not None
         identifier = "push:" + hashlib.sha256(body.subscription.endpoint.encode()).hexdigest()
@@ -134,7 +135,8 @@ def register_push(body: RegisterPush, request: Request) -> dict[str, Any]:
         )
         if endpoint and endpoint.owner_id != user.id:
             raise HTTPException(
-                409, "Renew this browser subscription before enabling notifications"
+                409,
+                Message("serverMessages.renewThisBrowserSubscriptionBeforeEnablingNotifications"),
             )
         values = {
             "name": body.name,
@@ -157,7 +159,9 @@ def register_push(body: RegisterPush, request: Request) -> dict[str, Any]:
                 or 0
             )
             if count - bool(previous) >= 20:
-                raise HTTPException(409, "Remove an old device before adding another")
+                raise HTTPException(
+                    409, Message("serverMessages.removeAnOldDeviceBeforeAddingAnother")
+                )
         if endpoint is None:
             endpoint = NotificationEndpoint(
                 id=identifier,
@@ -197,22 +201,20 @@ def save_preferences(identifier: str, body: SubscriptionInput, request: Request)
         user = require_user(request, session)
         endpoint = owned_device(session, identifier, user.id)
         if body.enabled and not active_push_session(session, endpoint):
-            raise HTTPException(409, "Enable notifications on this device again")
+            raise HTTPException(409, Message("serverMessages.enableNotificationsOnThisDeviceAgain"))
         actor = actor_for_user(session, user)
         if "approval_digest" in body.kinds and not actor.is_admin:
-            raise HTTPException(403, "Only administrators can subscribe to pending print requests")
+            raise HTTPException(403, Message("recoveryMessages.adminOnly"))
         if any(
             not actor.is_admin
             and not AccountPolicy({item: None}).can_printer(actor, item, "view_activity")
             for item in {*body.destination_ids, *body.printer_kinds}
         ):
-            raise HTTPException(403, "Choose destinations whose print activity you can view")
+            raise HTTPException(403, Message("recoveryMessages.destinations"))
         try:
             preferences = NotificationPreferences(**body.model_dump())
         except ValidationError as error:
-            raise HTTPException(
-                422, "Choose valid notification types and printer scopes"
-            ) from error
+            raise HTTPException(422, Message("recoveryMessages.invalidSubscription")) from error
         validate_references(session, preferences)
         update_configuration(session, endpoint, body.model_dump())
 
@@ -242,7 +244,8 @@ def test_device(identifier: str, request: Request) -> None:
         throttle(request, "push-test:" + user.id)
         endpoint = owned_device(session, identifier, user.id)
         if not endpoint.enabled or not active_push_session(session, endpoint):
-            raise HTTPException(409, "Enable notifications on this device first")
+            raise HTTPException(409, Message("serverMessages.enableNotificationsOnThisDeviceFirst"))
+        language = user_language(user)
         session.expunge(endpoint)
     try:
         send_push(
@@ -251,7 +254,7 @@ def test_device(identifier: str, request: Request) -> None:
             Notification(
                 id="push-test",
                 title="Taro's Label Room",
-                message="Push notifications are working.",
+                message=render("notificationMessages.pushTest", language),
                 path="/#/account",
             ),
         )
@@ -260,6 +263,10 @@ def test_device(identifier: str, request: Request) -> None:
             current_endpoint = session.get(NotificationEndpoint, identifier)
             if current_endpoint and current_endpoint.revision == endpoint.revision:
                 update_configuration(session, current_endpoint, {"enabled": False})
-        raise HTTPException(410, "This subscription expired. Enable notifications again.") from None
+        raise HTTPException(
+            410, Message("serverMessages.thisSubscriptionExpiredEnableNotificationsAgain")
+        ) from None
     except Exception:
-        raise HTTPException(502, "Could not send the test notification. Try again.") from None
+        raise HTTPException(
+            502, Message("serverMessages.couldNotSendTheTestNotificationTryAgain")
+        ) from None

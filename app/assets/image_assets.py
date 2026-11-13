@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.assets.asset_cache import touch, using_cache
 from app.assets.asset_store import AssetStore
 from app.authn.identity import LOCAL_OWNER_ID
+from app.i18n import Message
 from app.templates.template_schema import Element
 
 MAX_IMAGE_BYTES = 5_000_000
@@ -43,46 +44,52 @@ def sanitize_svg(data: bytes) -> tuple[bytes, int, int]:
         source = data.decode("utf-8-sig")
         if "<!" in source or "<?" in source.replace('<?xml version="1.0" encoding="UTF-8"?>', ""):
             raise ValueError(
-                "SVG declarations, entities and processing instructions are not supported"
+                Message(
+                    "domainMessages.svgDeclarationsEntitiesAndProcessingInstructionsAreNotSupported"
+                )
             )
         root = ET.fromstring(source)
         nodes = list(root.iter())
         if len(nodes) > 1000 or len(source) > 200_000:
-            raise ValueError("SVG exceeds 1000 elements or 200 KB of markup")
+            raise ValueError(Message("domainMessages.svgExceeds1000ElementsOr200KBOfMarkup"))
         for node in nodes:
             tag = node.tag.removeprefix(f"{{{SVG_NS}}}")
             if tag not in SVG_TAGS or (node is not root and tag == "svg"):
-                raise ValueError(f"Unsupported SVG element: {tag}")
+                raise ValueError(Message("logicErrors.unsupportedSVGElementValue1", value1=tag))
             node.tag = f"{{{SVG_NS}}}{tag}"
             for key, value in node.attrib.items():
                 if key not in SVG_ATTRIBUTES or re.search(r"url\s*\(|[<>\\]|@", value, re.I):
-                    raise ValueError(f"Unsupported SVG attribute or reference: {key}")
+                    raise ValueError(
+                        Message("logicErrors.unsupportedSVGAttributeOrReferenceValue1", value1=key)
+                    )
                 if len(value) > 100_000:
-                    raise ValueError("SVG attribute is too large")
+                    raise ValueError(Message("domainMessages.svgAttributeIsTooLarge"))
             if tag not in ("title", "desc") and (node.text or "").strip():
-                raise ValueError("SVG text must be converted to paths before uploading")
+                raise ValueError(
+                    Message("domainMessages.svgTextMustBeConvertedToPathsBeforeUploading")
+                )
         if root.tag != f"{{{SVG_NS}}}svg":
-            raise ValueError("SVG must have an svg root")
+            raise ValueError(Message("domainMessages.svgMustHaveAnSvgRoot"))
         view = root.get("viewBox")
         if view:
             values = [float(v) for v in re.split(r"[\s,]+", view.strip())]
             if len(values) != 4 or not all(
                 math.isfinite(v) and abs(v) <= 1_000_000 for v in values
             ):
-                raise ValueError("Invalid SVG viewBox")
+                raise ValueError(Message("domainMessages.invalidSVGViewBox"))
             width, height = values[2:]
         else:
             width = float(root.get("width", "").removesuffix("px"))
             height = float(root.get("height", "").removesuffix("px"))
             root.set("viewBox", f"0 0 {width} {height}")
         if not all(math.isfinite(v) and 0 < v <= 8192 for v in (width, height)):
-            raise ValueError("SVG dimensions must be positive and at most 8192")
+            raise ValueError(Message("domainMessages.svgDimensionsMustBePositiveAndAtMost8192"))
         root.set("width", str(width))
         root.set("height", str(height))
         ET.register_namespace("", SVG_NS)
         return ET.tostring(root), max(1, round(width)), max(1, round(height))
     except (ET.ParseError, UnicodeError, OverflowError) as error:
-        raise ValueError("Invalid SVG file") from error
+        raise ValueError(Message("domainMessages.invalidSVGFile")) from error
 
 
 class ImageStore(AssetStore):
@@ -133,7 +140,7 @@ class ImageStore(AssetStore):
         session: Session | None = None,
     ) -> dict[str, Any]:
         if not data or len(data) > MAX_IMAGE_BYTES:
-            raise ValueError("Upload an image of at most 5 MB")
+            raise ValueError(Message("domainMessages.uploadAnImageOfAtMost5MB"))
         # Identical uploads by different accounts must not disclose metadata or
         # acquire control of another account's library entry. Existing IDs stay valid.
         identifier = self.identifier(data, owner_id, scope, group_id)
@@ -150,12 +157,16 @@ class ImageStore(AssetStore):
             else:
                 with Image.open(io.BytesIO(data)) as source:
                     if source.format not in ("PNG", "JPEG", "WEBP", "BMP", "GIF"):
-                        raise ValueError("Use PNG, JPEG, WebP, BMP, GIF or a simple SVG")
+                        raise ValueError(Message("domainMessages.usePNGJPEGWebPBMPGIFOrASimpleSVG"))
                     if getattr(source, "n_frames", 1) != 1:
-                        raise ValueError("Animated images are not supported; upload a still image")
+                        raise ValueError(
+                            Message("domainMessages.animatedImagesAreNotSupportedUploadAStillImage")
+                        )
                     if source.width * source.height > MAX_PIXELS or max(source.size) > 8192:
                         raise ValueError(
-                            "Images are limited to 16 megapixels and 8192 pixels per side"
+                            Message(
+                                "domainMessages.imagesAreLimitedTo16MegapixelsAnd8192PixelsPerSide"
+                            )
                         )
                     source.load()
                     decoded = ImageOps.exif_transpose(source).convert("RGBA")
@@ -167,7 +178,7 @@ class ImageStore(AssetStore):
         except ValueError:
             raise
         except Exception as error:
-            raise ValueError("Image could not be decoded") from error
+            raise ValueError(Message("domainMessages.imageCouldNotBeDecoded")) from error
         metadata = {
             "id": identifier,
             "owner_id": owner_id,
@@ -232,7 +243,7 @@ def image_svg(
     element: Element, store: ImageStore | None, dpi: int, dpi_y: int | None = None
 ) -> str:
     if store is None or not element.image_asset:
-        raise ValueError("Select an uploaded image for this element")
+        raise ValueError(Message("domainMessages.selectAnUploadedImageForThisElement"))
     path = store.path(element.image_asset)
     metadata = store.metadata(element.image_asset)
     width, height = element.width * element.image_scale, element.height * element.image_scale
@@ -244,7 +255,7 @@ def image_svg(
         dpi, dpi_y = dpi_y, dpi
     pixels = max(1, round(width * dpi / 25.4)), max(1, round(height * dpi_y / 25.4))
     if pixels[0] * pixels[1] > 2_000_000:
-        raise ValueError("Image output exceeds 2 megapixels")
+        raise ValueError(Message("domainMessages.imageOutputExceeds2Megapixels"))
     encoded = converted_image(
         str(path),
         *pixels,

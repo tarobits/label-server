@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.print_audit import actor_snapshot
 from app.http import get, idle, record
+from app.i18n import Message
 from app.models import (
     Cartridge,
     FlushRequest,
@@ -61,10 +62,10 @@ def select_flush(
         if request_context.app.state.fleet.enforce_job_access:
             reconcile_access_holds(session)
     if printer_id not in members(session, destination_id):
-        raise HTTPException(422, "Printer is not a member of the destination")
+        raise HTTPException(422, Message("serverMessages.printerIsNotAMemberOfTheDestination"))
     state = printer_state(session, printer_id)
     if not state.active_cartridge_id:
-        raise HTTPException(409, "Select an installed cartridge first")
+        raise HTTPException(409, Message("serverMessages.selectAnInstalledCartridgeFirst"))
     cartridge = get(session, Cartridge, state.active_cartridge_id)
     profile = get(session, TapeProfile, cartridge.profile_id)
     pending = session.scalar(
@@ -73,7 +74,9 @@ def select_flush(
         .limit(1)
     )
     if pending:
-        raise HTTPException(409, "A manual flush is already pending for this cartridge")
+        raise HTTPException(
+            409, Message("serverMessages.aManualFlushIsAlreadyPendingForThisCartridge")
+        )
     compatible = compatible_copies(session, profile, destination_id)
     reserved = {
         identifier
@@ -103,7 +106,10 @@ def select_flush(
             ):
                 if body is None or label.id in body.copy_ids:
                     raise HTTPException(
-                        409, "The installed cartridge exceeds the requester's remaining maximum"
+                        409,
+                        Message(
+                            "serverMessages.theInstalledCartridgeExceedsTheRequestersRemainingMaximum"
+                        ),
                     )
                 continue
         run = session.get(PrintRun, job.run_id) if job.run_id else None
@@ -113,11 +119,13 @@ def select_flush(
     if body is not None:
         wanted = set(body.copy_ids)
         if len(wanted) != len(body.copy_ids):
-            raise HTTPException(422, "Select each copy only once")
+            raise HTTPException(422, Message("serverMessages.selectEachCopyOnlyOnce"))
         if not wanted.issubset({copy.id for copy in compatible}):
             raise HTTPException(
                 409,
-                "Selection changed or includes copies incompatible with the installed tape; refresh the queue",
+                Message(
+                    "serverMessages.selectionChangedOrIncludesCopiesIncompatibleWithTheInstalledTapeRefreshTheQueue"
+                ),
             )
         compatible = [copy for copy in compatible if copy.id in wanted]
     authorizations = {}
@@ -164,11 +172,13 @@ def check_tape_shortage(session: Session, selections: list[FlushSelection]) -> N
         backend = request_context.app.state.registry.backend(selection.printer_id)
         estimate = backend.estimate_consumption(labels) if labels else 0.0
         if not math.isfinite(estimate) or estimate < 0:
-            raise HTTPException(422, "Invalid printer tape consumption estimate")
+            raise HTTPException(
+                422, Message("serverMessages.invalidPrinterTapeConsumptionEstimate")
+            )
         # The authorized group may route to members the user cannot access directly.
         device = session.get(PrinterDevice, selection.printer_id)
         if device is None:
-            raise HTTPException(409, "Printer is unavailable")
+            raise HTTPException(409, Message("serverMessages.printerIsUnavailable"))
         plan = {
             "printer_id": selection.printer_id,
             "printer_name": device.name,

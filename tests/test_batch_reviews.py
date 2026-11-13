@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from conftest import install, profile
+from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import func, select
 from test_access_security import accounts as accounts
@@ -14,7 +15,9 @@ from test_retry_funding import body as retry_body
 from test_retry_funding import interrupted
 from test_review_cartridge import interrupted as uncertain_batch
 
+from app.i18n import notice_text, translate
 from app.models import Base, BatchReview, Cartridge, LabelCopy, Notification, State
+from app.printing.batch_reviews import normalize_photo
 
 
 def photo():
@@ -28,6 +31,49 @@ def photo():
 
 def report(copy_id, **values):
     return {"request_id": str(uuid4()), "copy_ids": [copy_id], "reason": "Tape ran out", **values}
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [
+        ("format", "Wähle ein nicht animiertes PNG-, JPEG- oder WebP-Foto."),
+        ("dimensions", "Beweisfotos sind auf 16 Megapixel und 8192 Pixel pro Seite begrenzt."),
+        ("bytes", "Beweisfotos dürfen höchstens 5 MB groß sein."),
+    ],
+)
+def test_evidence_validation_keeps_translation_and_recovers(client, kind, expected):
+    stream = io.BytesIO()
+    if kind == "bytes":
+        raw = b"x" * 5_000_001
+    else:
+        Image.new("RGB", (8193, 1) if kind == "dimensions" else (1, 1)).save(
+            stream, "GIF" if kind == "format" else "PNG"
+        )
+        raw = stream.getvalue()
+    with client.app.state.factory() as session:
+        with pytest.raises(HTTPException) as error:
+            normalize_photo(session, base64.b64encode(raw).decode())
+        assert error.value.status_code == 422
+        assert translate(error.value.detail, "de") == expected
+        assert normalize_photo(session, photo())
+
+
+def test_unexpected_decoder_errors_do_not_leak_and_allow_a_later_photo(client, monkeypatch):
+    encoded = photo()
+    with client.app.state.factory() as session:
+        with monkeypatch.context() as patch:
+
+            def fail(*args, **kwargs):
+                raise ValueError("internal decoder detail /private/path")
+
+            patch.setattr("app.printing.batch_reviews.Image.open", fail)
+            with pytest.raises(HTTPException) as error:
+                normalize_photo(session, encoded)
+            assert (
+                translate(error.value.detail, "de") == "Das Beweisfoto konnte nicht gelesen werden."
+            )
+            assert "private" not in str(error.value.detail)
+        assert normalize_photo(session, encoded)
 
 
 def test_misprint_preserves_settlement_and_requires_start_permission_for_retry(accounts):
@@ -48,6 +94,16 @@ def test_misprint_preserves_settlement_and_requires_start_permission_for_retry(a
     assert bob.post(path + "/misprints", json=payload).status_code == 200
     assert bob.post(path + "/misprints", json={**payload, "reason": "Different"}).status_code == 409
     after = admin.get(path).json()
+    with admin.app.state.factory() as session:
+        notice = session.scalar(
+            select(Notification).where(Notification.title == "Misprint reported")
+        )
+        assert notice.recipient_id == "alice"
+        assert notice_text(notice, "title", "de") == "Fehldruck gemeldet"
+        assert notice_text(notice, "message", "de") == (
+            "1 zuvor bestätigte Kopie wurde als Fehldruck gemeldet. "
+            "Ein Wiederholungsdruck wurde noch nicht eingereiht."
+        )
     assert after["items"][0]["outcome"] == "failed"
     for key in ("consumed_mm", "consumption_source", "finished_at", "print_plan"):
         assert after[key] == before[key]
@@ -149,16 +205,38 @@ def test_invalid_evidence_and_copy_selection_do_not_change_outcomes(accounts):
     copy_id = original["labels"][0]["id"]
     path = f"/api/batches/{batch['id']}"
     before = admin.get(path).json()
-    for payload, status in (
-        (report(copy_id, evidence_photo="not base64"), 422),
-        (report(copy_id, evidence_photo=base64.b64encode(b"not an image").decode()), 422),
-        (report(copy_id, copy_ids=[copy_id, copy_id]), 422),
-        (report(copy_id, copy_ids=["foreign-copy"]), 404),
-        (report(copy_id, copy_ids=failed), 409),
-        (report(copy_id, reason="   "), 422),
+    for payload, status, message in (
+        (
+            report(copy_id, evidence_photo="not base64"),
+            422,
+            "Das Beweisfoto konnte nicht gelesen werden.",
+        ),
+        (
+            report(copy_id, evidence_photo=base64.b64encode(b"not an image").decode()),
+            422,
+            "Das Beweisfoto konnte nicht gelesen werden.",
+        ),
+        (report(copy_id, copy_ids=[copy_id, copy_id]), 422, "Wähle jede Kopie nur einmal aus."),
+        (
+            report(copy_id, copy_ids=["foreign-copy"]),
+            404,
+            "Eine ausgewählte Kopie gehört nicht zu diesem Stapel.",
+        ),
+        (
+            report(copy_id, copy_ids=failed),
+            409,
+            "Nur derzeit als gedruckt markierte Kopien können gemeldet werden.",
+        ),
+        (report(copy_id, reason="   "), 422, "Beschreibe den Fehldruck."),
     ):
-        assert admin.post(path + "/misprints", json=payload).status_code == status
+        response = admin.post(path + "/misprints", json=payload, headers={"Accept-Language": "de"})
+        assert response.status_code == status
+        assert response.json()["detail"] == message
         assert admin.get(path).json() == before
+    assert (
+        admin.post(path + "/misprints", json=report(copy_id, evidence_photo=photo())).status_code
+        == 200
+    )
 
 
 def test_settings_policy_preserved_for_older_clients_and_admin_only(accounts):

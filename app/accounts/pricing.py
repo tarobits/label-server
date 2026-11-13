@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.authn.access import access_context
+from app.i18n import Message
 from app.models import Cartridge, LabelCopy, PriceQuote, PrintJob, State, UnitCharge
 from app.printer.base import LabelGeometry, PrinterBackend
 
@@ -73,10 +74,12 @@ def accept_quote(
     selection = job.template_snapshot.get("billing")
     validate_selection(session, access_context(request).actor, selection)
     if selection and not quote_id:
-        raise HTTPException(422, "Group funding requires a current price quote")
+        raise HTTPException(422, Message("serverMessages.groupFundingRequiresACurrentPriceQuote"))
     if not quote_id:
         if maximum is not None:
-            raise HTTPException(422, "Refresh the price quote before setting a maximum")
+            raise HTTPException(
+                422, Message("serverMessages.refreshThePriceQuoteBeforeSettingAMaximum")
+            )
         return
     quote = session.get(PriceQuote, quote_id)
     if (
@@ -86,13 +89,14 @@ def accept_quote(
         or quote.geometry_key != geometry_key(job.destination_id, job.profile_id, job_geometry(job))
     ):
         raise HTTPException(
-            409, "Price quote expired or label quantities changed; refresh the preview"
+            409,
+            Message("serverMessages.priceQuoteExpiredOrLabelQuantitiesChangedRefreshThePreview"),
         )
     quotes = {row["currency"]: int(Decimal(row["maximum"]) * 1000000) for row in quote.quotes}
     if selection and not quotes:
-        raise HTTPException(422, "Group funding requires a priced cartridge")
+        raise HTTPException(422, Message("serverMessages.groupFundingRequiresAPricedCartridge"))
     if maximum is not None and maximum["currency"] not in quotes:
-        raise HTTPException(422, "Choose a currency with an available price quote")
+        raise HTTPException(422, Message("serverMessages.chooseACurrencyWithAnAvailablePriceQuote"))
     job.template_snapshot = {
         **job.template_snapshot,
         "pricing": {

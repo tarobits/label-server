@@ -10,6 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.authn.admin_api import DB, AdminInput
+from app.i18n import Message
 from app.models import (
     Notification,
     NotificationDelivery,
@@ -53,24 +54,32 @@ class NotificationPreferences(AdminInput):
     def validate_filters(self) -> "NotificationPreferences":
         for values in (self.destination_ids, self.kinds):
             if len(values) != len(set(values)):
-                raise ValueError("Choose each destination and notification kind only once")
+                raise ValueError(
+                    Message("domainMessages.chooseEachDestinationAndNotificationKindOnlyOnce")
+                )
         for identifier, kinds in self.printer_kinds.items():
             if len(kinds) != len(set(kinds)):
-                raise ValueError("Choose each printer event type only once")
+                raise ValueError(Message("domainMessages.chooseEachPrinterEventTypeOnlyOnce"))
             self.printer_kinds[identifier] = sorted(kinds)
         if not self.kinds and not any(self.printer_kinds.values()):
-            raise ValueError("Select at least one event type")
+            raise ValueError(Message("domainMessages.selectAtLeastOneEventType"))
         if self.all_printers and self.destination_ids:
-            raise ValueError("Choose all current and future printers or specific destinations")
+            raise ValueError(
+                Message("domainMessages.chooseAllCurrentAndFuturePrintersOrSpecificDestinations")
+            )
         if (
             not self.all_printers
             and not self.destination_ids
             and PRINTER_NOTIFICATION_KINDS.intersection(self.kinds)
         ):
-            raise ValueError("Select printers or distribution groups for printer notifications")
+            raise ValueError(
+                Message("domainMessages.selectPrintersOrDistributionGroupsForPrinterNotifications")
+            )
         self.priorities = {**DEFAULT_NOTIFICATION_PRIORITIES, **self.priorities}
         if self.printer_priorities.keys() - self.printer_kinds.keys():
-            raise ValueError("Customize a printer's events before setting its priorities")
+            raise ValueError(
+                Message("domainMessages.customizeAPrinterSEventsBeforeSettingItsPriorities")
+            )
         self.printer_priorities = {
             identifier: priorities
             for identifier, priorities in self.printer_priorities.items()
@@ -92,7 +101,7 @@ class EndpointInput(NotificationPreferences):
     def normalize_name(cls, value: str) -> str:
         value = value.strip()
         if not value:
-            raise ValueError("Enter a notification endpoint name")
+            raise ValueError(Message("domainMessages.enterANotificationEndpointName"))
         return value
 
     @field_validator("url")
@@ -107,7 +116,9 @@ class EndpointInput(NotificationPreferences):
             or "?" in value
             or "#" in value
         ):
-            raise ValueError("Use an HTTP or HTTPS server URL without query or fragment")
+            raise ValueError(
+                Message("domainMessages.useAnHTTPOrHTTPSServerURLWithoutQueryOrFragment")
+            )
         try:
             parsed = urlsplit(value)
             if (
@@ -116,21 +127,23 @@ class EndpointInput(NotificationPreferences):
                 or parsed.username is not None
                 or parsed.password is not None
             ):
-                raise ValueError("Invalid URL")
+                raise ValueError(Message("domainMessages.invalidURL"))
             parsed.port  # Validate the optional port without opening a connection.
         except ValueError as error:
-            raise ValueError("Use an HTTP or HTTPS server URL without credentials") from error
+            raise ValueError(
+                Message("domainMessages.useAnHTTPOrHTTPSServerURLWithoutCredentials")
+            ) from error
         return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path.rstrip("/"), "", ""))
 
     @model_validator(mode="after")
     def unique_filters(self) -> "EndpointInput":
         if self.transport == "ntfy":
             if not self.url or not self.topic:
-                raise ValueError("Enter an ntfy server URL and topic")
+                raise ValueError(Message("domainMessages.enterAnNtfyServerURLAndTopic"))
             self.email = ""
         else:
             if not self.email:
-                raise ValueError("Enter a recipient email address")
+                raise ValueError(Message("domainMessages.enterARecipientEmailAddress"))
             self.url, self.topic, self.token = "", "", ""
             self.printer_priorities = {}
         self.validate_filters()
@@ -143,15 +156,21 @@ def validate_references(session: Session, body: NotificationPreferences) -> None
         device = session.get(PrinterDevice, identifier)
         group = session.get(PrinterGroup, identifier)
         if (device is None or device.config.get("retired")) and group is None:
-            raise HTTPException(422, "Choose existing, active printers or distribution groups")
+            raise HTTPException(
+                422, Message("serverMessages.chooseExistingActivePrintersOrDistributionGroups")
+            )
         if group:
             covered.update(group.printer_ids)
     for identifier in body.printer_kinds:
         printer = session.get(PrinterDevice, identifier)
         if printer is None or printer.config.get("retired"):
-            raise HTTPException(422, "Choose an existing, active printer for custom event types")
+            raise HTTPException(
+                422, Message("serverMessages.chooseAnExistingActivePrinterForCustomEventTypes")
+            )
         if not body.all_printers and identifier not in covered:
-            raise HTTPException(422, "Custom printer event types must be within the selected scope")
+            raise HTTPException(
+                422, Message("serverMessages.customPrinterEventTypesMustBeWithinTheSelectedScope")
+            )
 
 
 def endpoint_record(endpoint: NotificationEndpoint) -> dict[str, Any]:
@@ -178,7 +197,7 @@ def endpoint_record(endpoint: NotificationEndpoint) -> dict[str, Any]:
 def existing_endpoint(session: Session, identifier: str) -> NotificationEndpoint:
     endpoint = session.get(NotificationEndpoint, identifier)
     if endpoint is None or endpoint.deleted_at is not None or endpoint.owner_id is not None:
-        raise HTTPException(404, "Notification endpoint not found")
+        raise HTTPException(404, Message("serverMessages.notificationEndpointNotFound"))
     return endpoint
 
 

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
+from app.i18n import notice_text, render, user_language
 from app.models import (
     Notification,
     NotificationDelivery,
@@ -126,7 +127,11 @@ def endpoint_message(
         endpoint.all_printers or endpoint.destination_ids
     ):
         return None
-    message, path = notice.message, notice.path
+    # Resolve per endpoint after access checks. Shared channels retain English;
+    # personal channels follow the owner's current preference, including retries.
+    language = user_language(session.get(User, endpoint.owner_id)) if endpoint.owner_id else "en"
+    title = notice_text(notice, "title", language)
+    message, path = notice_text(notice, "message", language), notice.path
     context = dict(notice.context)
     if notice.kind == "approval_digest":
         # Unrestricted summaries are global; selected destinations narrow them.
@@ -141,7 +146,7 @@ def endpoint_message(
             ]
         if not pending:
             return None
-        message = f"{len(pending)} print request(s) await review."
+        message = render("notificationMessages.approvalScoped", language, count=len(pending))
     elif notice.kind == "tape_waiting":
         from app.models import TapeProfile
 
@@ -159,8 +164,14 @@ def endpoint_message(
         if not waiting:
             return None
         context["destination_ids"] = [identifier for identifier, _, _ in waiting]
-        message = f"{profile.name} is needed: " + "; ".join(
-            f"{count} queued copies at {name}" for _, name, count in waiting
+        message = render(
+            "notificationMessages.tapeNeeded",
+            language,
+            profile=profile.name,
+            destinations="; ".join(
+                render("notificationMessages.queuedAt", language, count=count, name=name)
+                for _, name, count in waiting
+            ),
         )
     elif notice.kind == "job_printed":
         # Personal completion does not require moderation or a printer subscription.
@@ -176,7 +187,7 @@ def endpoint_message(
         return None
     return Notification(
         id=notice.id,
-        title=notice.title,
+        title=title,
         message=message,
         path=path,
         kind=notice.kind,

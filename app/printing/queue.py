@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.assets.font_assets import FontStore
 from app.assets.image_assets import ImageStore
+from app.i18n import Message, error_detail
 from app.models import (
     Base,
     Batch,
@@ -44,15 +45,14 @@ from app.printer.base import (
     PrintNotStarted,
     RenderedLabel,
 )
+from app.printer.messages import reason_descriptor
 from app.printing.cartridge_confirmation import configure_media
 from app.printing.destinations import automatic_printing_disabled, printer_state
 from app.render import render_job
 
 Record = TypeVar("Record", bound=Base)
 logger = logging.getLogger(__name__)
-EMPTY_TAPE_BLOCKER = (
-    "Installed cartridge is estimated empty; automatic printing is waiting for replacement tape."
-)
+EMPTY_TAPE_BLOCKER = Message("printerMessages.emptyTape")
 
 
 def required(session: Session, model: type[Record], identifier: str) -> Record:
@@ -145,13 +145,14 @@ def record_blocker(session: Session, state: PrinterState, reason: str | None) ->
     if reason and state.blocker != reason:
         enqueue(
             session,
-            "Printing blocked",
+            Message("notificationMessages.blockedTitle"),
             reason,
             f"/#/printers?printer={state.printer_id}",
             kind="printer_blocked",
             context={"printer_id": state.printer_id, "reason": reason},
         )
     state.blocker = reason
+    state.blocker_translation = reason_descriptor(reason)
 
 
 @dataclass(frozen=True)
@@ -405,7 +406,7 @@ class QueueWorker:
                             target = group or printer_state(session, destination)
                             target.automatic_printing_held = True
                     state = printer_state(session, self.printer_id)
-                    record_blocker(session, state, str(error))
+                    record_blocker(session, state, error_detail(error))
                     from app.audit.action_audit import record_batch_event
 
                     record_batch_event(session, batch, "batch.not_started", failed=True)
@@ -477,6 +478,7 @@ class QueueWorker:
                 state.empty_alert_cartridge_id = None
                 if state.blocker == EMPTY_TAPE_BLOCKER:
                     state.blocker = None
+                    state.blocker_translation = None
                 return None
             cartridge = required(session, Cartridge, state.active_cartridge_id)
             profile = required(session, TapeProfile, cartridge.profile_id)
@@ -493,9 +495,11 @@ class QueueWorker:
             sync_empty_cartridge_alert(session, state, cartridge, stamp)
             if request is None and cartridge.remaining_mm <= 0:
                 state.blocker = EMPTY_TAPE_BLOCKER
+                state.blocker_translation = EMPTY_TAPE_BLOCKER.descriptor()
                 return None
             if cartridge.remaining_mm > 0 and state.blocker == EMPTY_TAPE_BLOCKER:
                 state.blocker = None
+                state.blocker_translation = None
             destinations = [self.printer_id] + [
                 group.id
                 for group in session.scalars(select(PrinterGroup))
@@ -597,16 +601,20 @@ class QueueWorker:
                 return None
             status = self.latest_status
             if not status.connected:
-                record_blocker(session, state, "Printer disconnected")
+                record_blocker(session, state, Message("printerMessages.disconnected"))
                 return None
             if status.error:
-                record_blocker(session, state, status.error)
+                record_blocker(session, state, status.localized_error)
                 return None
             if status.tape_width_mm != profile.width_mm:
                 record_blocker(
                     session,
                     state,
-                    f"Expected {profile.width_mm} mm tape; detected {status.tape_width_mm or 'unknown'}",
+                    Message(
+                        "printerMessages.expectedTape",
+                        expected=profile.width_mm,
+                        detected=status.tape_width_mm or Message("printerMessages.unknown"),
+                    ),
                 )
                 return None
             record_blocker(session, state, None)
@@ -692,8 +700,8 @@ class QueueWorker:
         enqueue_print_completions(session, batch)
         enqueue(
             session,
-            "Print batch needs review",
-            "Printing may have stopped partway through. Review the batch before printing again.",
+            Message("notificationMessages.reviewTitle"),
+            Message("notificationMessages.reviewBody"),
             f"/#/batches/{batch.id}",
             kind="batch_review",
             context={"printer_id": batch.printer_id, "batch_id": batch.id},

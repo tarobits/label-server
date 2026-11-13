@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.authn.authorization import rendering_destination
+from app.i18n import Message
 from app.printer.base import LabelGeometry, PrinterBackend
 from app.printer.registry import PrinterRegistry
 from app.printing.destinations import members
@@ -28,7 +29,9 @@ def planning_backend(
     for identifier in members(session, destination_id):
         if identifier in request.app.state.fleet.workers:
             return registry.backend(identifier)
-    raise HTTPException(409, "No configured printer is available at this destination")
+    raise HTTPException(
+        409, Message("serverMessages.noConfiguredPrinterIsAvailableAtThisDestination")
+    )
 
 
 def geometry_plan(

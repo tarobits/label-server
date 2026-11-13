@@ -6,7 +6,7 @@ from threading import Lock, Thread
 from typing import Any, AsyncGenerator
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,7 @@ from app.authn.auth import AuthRateLimiter, initialize_auth, session_user
 from app.config import Settings
 from app.database_lock import database_owner
 from app.db import make_engine, session_factory
+from app.i18n import Message, request_language, validation_details
 from app.maintenance.deletion import is_deleted, purge_expired
 from app.maintenance.releases import ReleaseChecker
 from app.notifications.notification_routing import deliver_routed_pending
@@ -203,6 +204,11 @@ def create_app(
             lock_file.close()
 
     app = FastAPI(title="Taro's Label Room", version=__version__, lifespan=lifespan)
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    from app.i18n import http_error
+
+    app.add_exception_handler(StarletteHTTPException, http_error)
     from app.http_security import HttpSecurity
 
     app.state.relationship_maintenance = False
@@ -212,20 +218,19 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> Response:
-        if request.url.path.startswith(
+        sensitive = request.url.path.startswith(
             ("/api/auth/", "/api/companion/", "/api/companions/", "/api/admin/", "/api/migration/")
-        ):
-            # Recovery credentials and passwords must not be echoed in errors.
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "detail": [
-                        {key: issue[key] for key in ("type", "loc", "msg")}
-                        for issue in error.errors()
-                    ]
-                },
-            )
-        return await request_validation_exception_handler(request, error)
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": jsonable_encoder(
+                    validation_details(
+                        error.errors(), request_language(request), sensitive=sensitive
+                    )
+                )
+            },
+        )
 
     releases = ReleaseChecker(settings)
     app.state.releases = releases
@@ -356,7 +361,7 @@ def create_app(
 
         with factory() as session:
             if session_user(request, session) is None:
-                raise HTTPException(401, "Sign in to view version information")
+                raise HTTPException(401, Message("serverMessages.signInToViewVersionInformation"))
         return releases.status()
 
     app.mount("/fonts", StaticFiles(directory=FONT_DIR), name="fonts")
@@ -375,7 +380,7 @@ def create_app(
     def browser_icon(request: Request) -> FileResponse:
         icon = settings.frontend_dist / request.url.path.lstrip("/")
         if not icon.is_file():
-            raise HTTPException(404, "Icon not found")
+            raise HTTPException(404, Message("serverMessages.iconNotFound"))
         return FileResponse(icon, headers={"Cache-Control": "public, max-age=86400"})
 
     @app.get("/manifest.webmanifest", include_in_schema=False)
@@ -384,7 +389,7 @@ def create_app(
         name = request.url.path.lstrip("/")
         asset = settings.frontend_dist / name
         if not asset.is_file():
-            raise HTTPException(404, "App asset not found")
+            raise HTTPException(404, Message("serverMessages.appAssetNotFound"))
         media_type = (
             "application/manifest+json" if name == "manifest.webmanifest" else "text/javascript"
         )

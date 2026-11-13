@@ -9,6 +9,7 @@ from typing import Callable, Literal
 
 from pydantic import TypeAdapter, ValidationError
 
+from app.i18n import Message
 from app.templates.logic_schema import (
     MAX_DEPTH,
     MAX_NODES,
@@ -58,40 +59,36 @@ class Operation:
 OPERATIONS = {
     item.name: item
     for item in (
-        Operation("add", 2, 2, "numeric", "Add two numbers."),
-        Operation("subtract", 2, 2, "numeric", "Subtract the second number from the first."),
-        Operation("multiply", 2, 2, "numeric", "Multiply two numbers."),
-        Operation("divide", 2, 2, "numeric", "Divide numbers; a zero divisor is an error."),
-        Operation("negate", 1, 1, "numeric", "Negate a number."),
-        Operation("min", 2, 2, "numeric", "Return the smaller of two numbers."),
-        Operation("max", 2, 2, "numeric", "Return the larger of two numbers."),
-        Operation("abs", 1, 1, "numeric", "Return the absolute value."),
-        Operation("round", 1, 1, "numeric", "Round to the nearest integer; ties round to even."),
-        Operation("less", 2, 2, "comparison", "Test whether the first number is smaller."),
+        Operation("add", 2, 2, "numeric", Message("logicOperations.add.description")),
+        Operation("subtract", 2, 2, "numeric", Message("logicOperations.subtract.description")),
+        Operation("multiply", 2, 2, "numeric", Message("logicOperations.multiply.description")),
+        Operation("divide", 2, 2, "numeric", Message("logicOperations.divide.description")),
+        Operation("negate", 1, 1, "numeric", Message("logicOperations.negate.description")),
+        Operation("min", 2, 2, "numeric", Message("logicOperations.min.description")),
+        Operation("max", 2, 2, "numeric", Message("logicOperations.max.description")),
+        Operation("abs", 1, 1, "numeric", Message("logicOperations.abs.description")),
+        Operation("round", 1, 1, "numeric", Message("logicOperations.round.description")),
+        Operation("less", 2, 2, "comparison", Message("logicOperations.less.description")),
         Operation(
-            "less_equal", 2, 2, "comparison", "Test whether the first number is smaller or equal."
+            "less_equal", 2, 2, "comparison", Message("logicOperations.lessEqual.description")
         ),
-        Operation("greater", 2, 2, "comparison", "Test whether the first number is larger."),
+        Operation("greater", 2, 2, "comparison", Message("logicOperations.greater.description")),
         Operation(
-            "greater_equal", 2, 2, "comparison", "Test whether the first number is larger or equal."
+            "greater_equal", 2, 2, "comparison", Message("logicOperations.greaterEqual.description")
         ),
-        Operation("equal", 2, 2, "equality", "Compare values of the same type, or test for null."),
-        Operation("not_equal", 2, 2, "equality", "Test values for inequality, or test for null."),
-        Operation(
-            "and", 2, 2, "boolean", "True when both inputs are true; short-circuits on false."
-        ),
-        Operation("or", 2, 2, "boolean", "True when either input is true; short-circuits on true."),
-        Operation("not", 1, 1, "boolean", "Invert a boolean."),
+        Operation("equal", 2, 2, "equality", Message("logicOperations.equal.description")),
+        Operation("not_equal", 2, 2, "equality", Message("logicOperations.notEqual.description")),
+        Operation("and", 2, 2, "boolean", Message("logicOperations.and.description")),
+        Operation("or", 2, 2, "boolean", Message("logicOperations.or.description")),
+        Operation("not", 1, 1, "boolean", Message("logicOperations.not.description")),
         Operation(
             "if",
             3,
             3,
             "conditional",
-            "Choose one of two compatible values using a boolean condition.",
+            Message("logicOperations.if.description"),
         ),
-        Operation(
-            "filled", 1, 1, "presence", "False for null or blank text; zero and false are filled."
-        ),
+        Operation("filled", 1, 1, "presence", Message("logicOperations.filled.description")),
     )
 }
 
@@ -122,11 +119,13 @@ def resolve_inputs(
 ) -> dict[str, Value]:
     names = {field.name for field in fields}
     if len(names) != len(fields):
-        raise LogicError("Input names must be unique")
+        raise LogicError(Message("logicErrors.inputNamesMustBeUnique"))
     if len(fields) > 20:
-        raise LogicError("At most 20 inputs are supported")
+        raise LogicError(Message("logicErrors.atMost20InputsAreSupported"))
     if unknown := set(data) - names:
-        raise LogicError("Unknown inputs: " + ", ".join(sorted(unknown)))
+        raise LogicError(
+            Message("logicConstraints.unknownInputs", names=", ".join(sorted(unknown)))
+        )
     values: dict[str, Value] = {}
     for field in fields:
         fallback = field.sample if samples and field.sample is not None else field.default
@@ -135,10 +134,14 @@ def resolve_inputs(
         except (ValueError, ValidationError) as error:
             # Never echo uploaded values or arbitrary payloads in validation errors.
             raise LogicError(
-                f"{field.label}: invalid {field.type} input or value outside its limits"
+                Message(
+                    "logicErrors.value1InvalidValue2InputOrValueOutsideItsLimits",
+                    value1=field.label,
+                    value2=field.type,
+                )
             ) from error
         if field.required and not filled(value):
-            raise LogicError(f"{field.label} is required")
+            raise LogicError(Message("logicErrors.value1IsRequired", value1=field.label))
         values[field.name] = value
     return values
 
@@ -148,35 +151,45 @@ def validate_program(
 ) -> dict[str, ResolvedType]:
     types: dict[str, ResolvedType] = {field.name: field.type for field in fields}
     if len(types) != len(fields) or len(fields) > 20:
-        raise LogicError("Input names must be unique, with at most 20 inputs")
+        raise LogicError(Message("logicErrors.inputNamesMustBeUniqueWithAtMost20Inputs"))
     for alias in targets:
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,39}", alias) or (
             alias in RESERVED and alias != "label"
         ):
-            raise LogicError("Target aliases must be valid, non-reserved identifiers")
+            raise LogicError(Message("logicErrors.targetAliasesMustBeValidNonReservedIdentifiers"))
         if alias in types:
-            raise LogicError(f"Input {alias} conflicts with an output target")
+            raise LogicError(
+                Message("logicErrors.inputValue1ConflictsWithAnOutputTarget", value1=alias)
+            )
     for name in program.variables:
         if name in types or name in RESERVED or name in targets:
             raise LogicError(
-                f"Intermediate variable {name} conflicts with an existing or reserved name"
+                Message(
+                    "logicErrors.intermediateVariableValue1ConflictsWithAnExistingOrReservedName",
+                    value1=name,
+                )
             )
     target_ids = {target.id: target for target in targets.values()}
     if len(target_ids) != len(targets):
-        raise LogicError("Target IDs must be unique")
+        raise LogicError(Message("logicErrors.targetIDsMustBeUnique"))
     aliases = {target.id: alias for alias, target in targets.items()}
     bindings = {}
     for binding in program.bindings:
         target = target_ids.get(binding.target)
         if target is None or binding.property not in target.properties:
             raise LogicError(
-                f"Unknown target property {binding.target}.{binding.property}", binding.expression
+                Message(
+                    "logicErrors.unknownTargetPropertyValue1Value2",
+                    value1=binding.target,
+                    value2=binding.property,
+                ),
+                binding.expression,
             )
         if reason := target.disabled_properties.get(binding.property):
             raise LogicError(reason, binding.expression)
         key = (binding.target, binding.property)
         if key in bindings:
-            raise LogicError("A property may only be bound once", binding.expression)
+            raise LogicError(Message("logicErrors.aPropertyMayOnlyBeBoundOnce"), binding.expression)
         bindings[key] = binding
     visiting: set[str] = set()
     property_types: dict[tuple[str, str], ResolvedType] = {}
@@ -187,15 +200,19 @@ def validate_program(
     def remember_height(expression: Expression, height: int) -> None:
         # Include cached dependencies so declaration order cannot bypass this limit.
         if height > MAX_DEPTH:
-            raise LogicError("Logic exceeds the dependency-depth limit", expression)
+            raise LogicError(Message("logicErrors.logicExceedsTheDependencyDepthLimit"), expression)
         heights[id(expression)] = height
 
     def reference(name: str, expression: Expression, depth: int) -> ResolvedType:
         if name in visiting:
-            raise LogicError(f"Circular dependency involving {name}", expression)
+            raise LogicError(
+                Message("logicErrors.circularDependencyInvolvingValue1", value1=name), expression
+            )
         if name not in types:
             if name not in program.variables:
-                raise LogicError(f"Undefined variable {name}", expression)
+                raise LogicError(
+                    Message("logicErrors.undefinedVariableValue1", value1=name), expression
+                )
             visiting.add(name)
             types[name] = infer(program.variables[name], depth + 1)
             visiting.remove(name)
@@ -205,7 +222,9 @@ def validate_program(
         nonlocal nodes
         nodes += 1
         if nodes > MAX_NODES or depth > MAX_DEPTH:
-            raise LogicError("Logic exceeds the node or dependency-depth limit", expression)
+            raise LogicError(
+                Message("logicErrors.logicExceedsTheNodeOrDependencyDepthLimit"), expression
+            )
         if isinstance(expression, LiteralExpression):
             remember_height(expression, 0)
             source_sizes[id(expression)] = (
@@ -233,7 +252,11 @@ def validate_program(
             )
             if expression.property not in readable:
                 raise LogicError(
-                    f"Property {aliases.get(expression.target, expression.target)}.{expression.property} cannot be read during logic",
+                    Message(
+                        "logicErrors.propertyValue1Value2CannotBeReadDuringLogic",
+                        value1=aliases.get(expression.target, expression.target),
+                        value2=expression.property,
+                    ),
                     expression,
                 )
             result = infer_property(expression.target, expression.property, depth, expression)
@@ -245,13 +268,19 @@ def validate_program(
             return result
         operation = OPERATIONS.get(expression.operation)
         if operation is None:
-            raise LogicError(f"Unknown operation {expression.operation}", expression)
+            raise LogicError(
+                Message("logicErrors.unknownOperationValue1", value1=expression.operation),
+                expression,
+            )
         if (
             not operation.minimum_arguments
             <= len(expression.arguments)
             <= operation.maximum_arguments
         ):
-            raise LogicError(f"Incorrect argument count for {operation.name}", expression)
+            raise LogicError(
+                Message("logicErrors.incorrectArgumentCountForValue1", value1=operation.name),
+                expression,
+            )
         args: list[ResolvedType] = [infer(arg, depth + 1) for arg in expression.arguments]
         remember_height(expression, 1 + max(heights[id(arg)] for arg in expression.arguments))
         overhead = (
@@ -270,17 +299,26 @@ def validate_program(
             return "boolean"
         if operation.signature == "conditional":
             if args[0] != "boolean":
-                raise LogicError("if requires a boolean condition", expression)
+                raise LogicError(Message("logicErrors.ifRequiresABooleanCondition"), expression)
             if args[1] != args[2] and "null" not in args[1:]:
-                raise LogicError("Both if branches must have compatible types", expression)
+                raise LogicError(
+                    Message("logicErrors.bothIfBranchesMustHaveCompatibleTypes"), expression
+                )
             return args[2] if args[1] == "null" else args[1]
         if operation.signature == "equality":
             if args[0] != args[1] and "null" not in args:
-                raise LogicError("Equality requires compatible types", expression)
+                raise LogicError(Message("logicErrors.equalityRequiresCompatibleTypes"), expression)
             return "boolean"
         required = "boolean" if operation.signature == "boolean" else "number"
         if any(arg != required for arg in args):
-            raise LogicError(f"{operation.name} requires {required} arguments", expression)
+            raise LogicError(
+                Message(
+                    "logicErrors.value1RequiresValue2Arguments",
+                    value1=operation.name,
+                    value2=required,
+                ),
+                expression,
+            )
         return "number" if operation.signature == "numeric" else "boolean"
 
     def infer_property(
@@ -290,7 +328,12 @@ def validate_program(
         marker = f"property:{target_id}.{name}"
         if marker in visiting:
             raise LogicError(
-                f"Circular dependency involving {aliases[target_id]}.{name}", expression
+                Message(
+                    "logicErrors.circularDependencyInvolvingValue1Value2",
+                    value1=aliases[target_id],
+                    value2=name,
+                ),
+                expression,
             )
         if key in property_types:
             return property_types[key]
@@ -308,7 +351,10 @@ def validate_program(
         visiting.remove(marker)
         expected = target.properties[name]
         if result_type != expected and not (expected == "image" and result_type == "null"):
-            raise LogicError(f"{name} requires a {expected} value", binding.expression)
+            raise LogicError(
+                Message("logicErrors.value1RequiresAValue2Value", value1=name, value2=expected),
+                binding.expression,
+            )
         property_types[key] = expected
         return expected
 
@@ -330,7 +376,7 @@ def validate_program(
         for binding in program.bindings
     )
     if sum(lines) + max(0, len(lines) - 1) > MAX_SOURCE:
-        raise LogicError("Formatted logic exceeds the source-size limit")
+        raise LogicError(Message("logicErrors.formattedLogicExceedsTheSourceSizeLimit"))
     return types
 
 
@@ -392,7 +438,14 @@ def evaluate_program(
         else:
             available = (property_values or {}).get(target, {})
             if name not in available:
-                raise LogicError(f"No saved value for property {target}.{name}", expression)
+                raise LogicError(
+                    Message(
+                        "logicErrors.noSavedValueForPropertyValue1Value2",
+                        value1=target,
+                        value2=name,
+                    ),
+                    expression,
+                )
             value = available[name]
             definition = target_ids[target]
             expected = (
@@ -404,7 +457,12 @@ def evaluate_program(
         if value_type(value) != expected and not (
             value is None and (expected == "image" or binding is None)
         ):
-            raise LogicError(f"{name} requires a present {expected} value", expression)
+            raise LogicError(
+                Message(
+                    "logicErrors.value1RequiresAPresentValue2Value", value1=name, value2=expected
+                ),
+                expression,
+            )
         resolved_properties[key] = value
         return value
 
@@ -412,7 +470,7 @@ def evaluate_program(
         nonlocal steps
         steps += 1
         if steps > MAX_NODES * 2 or depth > MAX_DEPTH:
-            raise LogicError("Logic exceeds the evaluation limit", expression)
+            raise LogicError(Message("logicErrors.logicExceedsTheEvaluationLimit"), expression)
         if isinstance(expression, LiteralExpression):
             return expression.value
         if isinstance(expression, ReferenceExpression):
@@ -429,7 +487,10 @@ def evaluate_program(
             return filled(first)
         if operation in ("if", "and", "or", "not"):
             if not isinstance(first, bool):
-                raise LogicError(f"{operation} requires a present boolean condition", expression)
+                raise LogicError(
+                    Message("logicErrors.value1RequiresAPresentBooleanCondition", value1=operation),
+                    expression,
+                )
             if operation == "if":
                 return evaluate(args[1] if first else args[2], depth + 1)
             if operation == "not":
@@ -438,7 +499,10 @@ def evaluate_program(
                 return first
             second = evaluate(args[1], depth + 1)
             if not isinstance(second, bool):
-                raise LogicError(f"{operation} requires present boolean arguments", expression)
+                raise LogicError(
+                    Message("logicErrors.value1RequiresPresentBooleanArguments", value1=operation),
+                    expression,
+                )
             return second
         values = [first, *(evaluate(arg, depth + 1) for arg in args[1:])]
         if operation in ("equal", "not_equal"):
@@ -447,7 +511,10 @@ def evaluate_program(
         numbers: list[float] = []
         for value in values:
             if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise LogicError(f"{operation} requires present number arguments", expression)
+                raise LogicError(
+                    Message("logicErrors.value1RequiresPresentNumberArguments", value1=operation),
+                    expression,
+                )
             numbers.append(float(value))
         if operation in _COMPARISONS:
             return _COMPARISONS[operation](*numbers)
@@ -460,7 +527,10 @@ def evaluate_program(
             return bounded_value(result)
         except (ArithmeticError, ValueError) as error:
             raise LogicError(
-                f"{operation} produced an invalid number (check division by zero and numeric limits)",
+                Message(
+                    "logicErrors.value1ProducedAnInvalidNumberCheckDivisionByZeroAndNumericLimits",
+                    value1=operation,
+                ),
                 expression,
             ) from error
 

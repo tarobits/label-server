@@ -3,6 +3,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.i18n import Message
 from app.models import ReleaseMigration
 
 
@@ -16,5 +17,6 @@ def migration_pending(session: Session) -> bool:
 def require_migration_complete(session: Session) -> None:
     if migration_pending(session):
         raise HTTPException(
-            409, "Printing is paused until an administrator completes the 0.13.0 migration"
+            409,
+            Message("serverMessages.printingIsPausedUntilAnAdministratorCompletesThe0130Migration"),
         )

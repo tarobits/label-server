@@ -13,6 +13,7 @@ from app.audit.print_audit import actor_snapshot
 from app.authn.access import access_context
 from app.authn.authorization import visible_copy_count
 from app.http import db, get, record
+from app.i18n import Message, error_detail
 from app.models import (
     Batch,
     FlushRequest,
@@ -75,10 +76,12 @@ def validate_device(body: PrinterInput, session: Session, identifier: str | None
     if others and (not body.usb_serial or any(not d.config.get("usb_serial") for d in others)):
         raise HTTPException(
             422,
-            "Set a USB serial number for each Brother printer in its configuration before adding another",
+            Message(
+                "serverMessages.setAUSBSerialNumberForEachBrotherPrinterInItsConfigurationBeforeAddingAnother"
+            ),
         )
     if body.usb_serial and any(d.config.get("usb_serial") == body.usb_serial for d in others):
-        raise HTTPException(409, "This USB printer is already registered")
+        raise HTTPException(409, Message("serverMessages.thisUSBPrinterIsAlreadyRegistered"))
 
 
 @router.post("/printers", status_code=201)
@@ -90,7 +93,7 @@ def register_printer(
             body.driver, body.model_dump(exclude={"no_automatic_printing"})
         )
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
     validate_device(body, session)
     device = PrinterDevice(
         name=body.name,
@@ -129,13 +132,13 @@ def edit_printer(
 
     device = get(session, PrinterDevice, identifier)
     if device.config.get("retired"):
-        raise HTTPException(409, "This printer registration has been retired")
+        raise HTTPException(409, Message("serverMessages.thisPrinterRegistrationHasBeenRetired"))
     try:
         definition, _ = request.app.state.fleet.backend_factory(
             body.driver, body.model_dump(exclude={"no_automatic_printing"})
         )
     except ValueError as error:
-        raise HTTPException(422, str(error)) from error
+        raise HTTPException(422, error_detail(error)) from error
     validate_device(body, session, identifier)
     config = body.model_dump(exclude={"name", "driver", "no_automatic_printing"})
     changed = device.driver != body.driver or device.config != config
@@ -178,7 +181,9 @@ def edit_printer(
         ):
             raise HTTPException(
                 409,
-                "Finish queued work, pending flushes and drafts before changing printer configuration",
+                Message(
+                    "serverMessages.finishQueuedWorkPendingFlushesAndDraftsBeforeChangingPrinterConfiguration"
+                ),
             )
         for group in session.scalars(select(PrinterGroup)):
             if identifier in group.printer_ids:
@@ -190,13 +195,15 @@ def edit_printer(
                     ):
                         raise HTTPException(
                             409,
-                            "Remove this printer from its groups before changing rendering capabilities",
+                            Message(
+                                "serverMessages.removeThisPrinterFromItsGroupsBeforeChangingRenderingCapabilities"
+                            ),
                         )
     reconfigure = changed or device.name != body.name
     worker = request.app.state.fleet.workers.get(identifier)
     if worker and reconfigure:
         if not worker.printer_lock.acquire(blocking=False):
-            raise HTTPException(409, "Printer is busy; try again when it is idle")
+            raise HTTPException(409, Message("serverMessages.printerIsBusyTryAgainWhenItIsIdle"))
         request.state.held_locks.append(worker.printer_lock)
     device.name, device.driver, device.config = body.name, body.driver, config
     if "no_automatic_printing" in body.model_fields_set:
@@ -300,20 +307,22 @@ def validate_group(
     existing_members: list[str] | None = None,
 ) -> None:
     if len(set(body.printer_ids)) != len(body.printer_ids):
-        raise HTTPException(422, "Select each printer once")
+        raise HTTPException(422, Message("serverMessages.selectEachPrinterOnce"))
     capabilities = []
     for identifier in body.printer_ids:
         if identifier not in (existing_members or []):
             access_context(request).require_printer(identifier, "configure")
         if session.get(PrinterDevice, identifier) is None:
-            raise HTTPException(404, "Printer not found")
+            raise HTTPException(404, Message("serverMessages.printerNotFound"))
         if identifier not in request.app.state.fleet.workers:
-            raise HTTPException(422, "Select a configured printer")
+            raise HTTPException(422, Message("serverMessages.selectAConfiguredPrinter"))
         capabilities.append(asdict(request.app.state.registry.definition(identifier).capabilities))
     if any(value != capabilities[0] for value in capabilities):
         raise HTTPException(
             422,
-            "Group members must have matching media, printable geometry and resolution capabilities",
+            Message(
+                "serverMessages.groupMembersMustHaveMatchingMediaPrintableGeometryAndResolutionCapabilities"
+            ),
         )
 
 
@@ -344,7 +353,9 @@ def edit_group(
             .where(PrintRequest.destination_id == identifier, PrintRequest.status == "pending")
             .limit(1)
         ):
-            raise HTTPException(409, "Resolve pending print requests before changing group members")
+            raise HTTPException(
+                409, Message("serverMessages.resolvePendingPrintRequestsBeforeChangingGroupMembers")
+            )
         if session.scalar(
             select(PrintJob.id)
             .join(LabelCopy)
@@ -359,7 +370,8 @@ def edit_group(
             .limit(1)
         ):
             raise HTTPException(
-                409, "Finish queued work and saved drafts before changing group members"
+                409,
+                Message("serverMessages.finishQueuedWorkAndSavedDraftsBeforeChangingGroupMembers"),
             )
     group.name, group.printer_ids = body.name, body.printer_ids
     session.flush()
@@ -371,7 +383,9 @@ def hold_destination(
     identifier: str, body: AutomaticPrintingInput, session: Session = Depends(db, scope="function")
 ) -> dict[str, Any]:
     if automatic_printing_disabled(session, identifier):
-        raise HTTPException(409, "Automatic printing is disabled in printer settings")
+        raise HTTPException(
+            409, Message("serverMessages.automaticPrintingIsDisabledInPrinterSettings")
+        )
     group = session.get(PrinterGroup, identifier)
     target = group or printer_state(session, identifier)
     previous = target.automatic_printing_held
@@ -413,7 +427,7 @@ def stop_printer(
     fleet = request.app.state.fleet
     worker = fleet.workers.get(identifier)
     if worker is None:
-        raise HTTPException(409, "Printer is unavailable")
+        raise HTTPException(409, Message("serverMessages.printerIsUnavailable"))
     caps = fleet.registry.definition(identifier).capabilities
     supported = (
         caps.supports_emergency_stop
@@ -425,7 +439,9 @@ def stop_printer(
     if not supported or not isinstance(
         worker.backend, (ControlledPrinterBackend, DurablePrinterBackend)
     ):
-        raise HTTPException(409, "This printer driver does not support the requested stop mode")
+        raise HTTPException(
+            409, Message("serverMessages.thisPrinterDriverDoesNotSupportTheRequestedStopMode")
+        )
     state = printer_state(session, identifier)
     state.automatic_printing_held = True
     for pending in session.scalars(
@@ -489,7 +505,7 @@ def print_destination(
         reconcile_access_holds(session)
     wanted = set(body.copy_ids) if body else None
     if body and wanted is not None and len(wanted) != len(body.copy_ids):
-        raise HTTPException(422, "Select each copy once")
+        raise HTTPException(422, Message("printErrors.uniqueCopies"))
     copies = list(
         session.scalars(
             select(LabelCopy)
@@ -505,7 +521,9 @@ def print_destination(
     if wanted is not None and not wanted.issubset({copy.id for copy in copies}):
         raise HTTPException(
             409,
-            "Some selected copies are no longer queued or available to you. Refresh the queue",
+            Message(
+                "serverMessages.someSelectedCopiesAreNoLongerQueuedOrAvailableToYouRefreshTheQueue"
+            ),
         )
     choices: dict[str, list[str]] = {}
     blockers: dict[str, str] = {}

@@ -52,6 +52,56 @@ def reset_link(client, mailbox):
     return email_token(mailbox)
 
 
+def test_recovery_mail_uses_account_language_without_disclosing_account_existence(
+    auth_client, tmp_path, mailbox
+):
+    client = auth_client
+    setup_admin(client, tmp_path)
+    assert (
+        client.put(
+            "/api/auth/language", json={"language": "de", "browser_language": "en"}
+        ).status_code
+        == 200
+    )
+    verify_address(client, mailbox)
+    assert mailbox[-1][1] == "Bestätige deine E-Mail-Adresse · Taro's Label Room"
+    assert "läuft nach 30 Minuten ab" in mailbox[-1][2]
+    assert client.post("/api/auth/logout").status_code == 204
+    known = client.post(
+        "/api/auth/password/forgot", json={"username": "admin"}, headers={"Accept-Language": "en"}
+    )
+    token = email_token(mailbox)
+    assert mailbox[-1][1] == "Setze dein Passwort zurück · Taro's Label Room"
+    assert f"token={token}" in mailbox[-1][2]
+    count = len(mailbox)
+    unknown = client.post(
+        "/api/auth/password/forgot",
+        json={"username": "nonexistent"},
+        headers={"Accept-Language": "en"},
+    )
+    assert known.status_code == unknown.status_code == 202
+    assert known.json() == unknown.json()
+    assert len(mailbox) == count
+    reset = client.post(
+        "/api/auth/password/reset",
+        json={"token": token, "new_password": "new-secure-password-123"},
+        headers={"Accept-Language": "en"},
+    )
+    assert reset.status_code == 204
+    assert mailbox[-1][1] == "Passwort zurückgesetzt · Taro's Label Room"
+    assert "alle Sitzungen wurden abgemeldet" in mailbox[-1][2]
+    replay = client.post(
+        "/api/auth/password/reset",
+        json={"token": token, "new_password": "another-secure-password-123"},
+        headers={"Accept-Language": "de"},
+    )
+    assert replay.status_code == 400
+    assert (
+        replay.json()["detail"]
+        == "Dieser Link ist ungültig oder abgelaufen. Fordere einen neuen an."
+    )
+
+
 @pytest.mark.parametrize(
     "address", ["admin@example.invalid", "a" * 64 + "@" + "b" * 50 + ".example.invalid"]
 )

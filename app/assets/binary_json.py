@@ -3,6 +3,8 @@
 import base64
 from typing import Any
 
+from app.i18n import Message
+
 
 def encode_binary(value: Any) -> dict[str, str]:
     if isinstance(value, (bytes, bytearray, memoryview)):
@@ -31,5 +33,8 @@ def check_packet_size(values: list[Any] | tuple[Any, ...], limit: int | None) ->
     )
     if needed > limit:
         raise ValueError(
-            f"MariaDB max_allowed_packet is too small for an asset; increase it to at least {needed} bytes and retry"
+            Message(
+                "logicErrors.mariadbMaxAllowedPacketIsTooSmallForAnAssetIncreaseItToAtLeastValue1BytesAndRetry",
+                value1=needed,
+            )
         )

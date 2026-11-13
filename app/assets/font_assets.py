@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.assets.asset_store import AssetStore
 from app.assets.font_variations import rename_face, weight_info
 from app.authn.identity import LOCAL_OWNER_ID
+from app.i18n import Message
 
 MAX_FONT_BYTES = 5_000_000
 
@@ -27,9 +28,9 @@ class FontStore(AssetStore):
         session: Session | None = None,
     ) -> dict[str, Any]:
         if not data or len(data) > MAX_FONT_BYTES:
-            raise ValueError("Upload a font of at most 5 MB")
+            raise ValueError(Message("domainMessages.uploadAFontOfAtMost5MB"))
         if data[:4] not in (b"\x00\x01\x00\x00", b"OTTO"):
-            raise ValueError("Upload a TTF or OTF font (not a collection or web font)")
+            raise ValueError(Message("domainMessages.uploadATTFOrOTFFontNotACollectionOrWebFont"))
         identifier = self.identifier(data, owner_id, scope, group_id)
         if self.exists(identifier):
             return self.metadata(identifier)
@@ -38,15 +39,19 @@ class FontStore(AssetStore):
             with TTFont(io.BytesIO(data), lazy=False, recalcTimestamp=False) as font:
                 weights = weight_info(font)
                 if not {"name", "cmap", "head", "hhea", "hmtx", "maxp"}.issubset(font.keys()):
-                    raise ValueError("Font is missing required metrics or character tables")
+                    raise ValueError(
+                        Message("domainMessages.fontIsMissingRequiredMetricsOrCharacterTables")
+                    )
                 if not 1 <= font["maxp"].numGlyphs <= 20000:
-                    raise ValueError("Font must contain between 1 and 20000 glyphs")
+                    raise ValueError(
+                        Message("domainMessages.fontMustContainBetween1And20000Glyphs")
+                    )
                 if not font.getBestCmap():
-                    raise ValueError("Font must have a Unicode character map")
+                    raise ValueError(Message("domainMessages.fontMustHaveAUnicodeCharacterMap"))
                 if not any(table in font for table in ("glyf", "CFF ", "CFF2")):
-                    raise ValueError("Font must contain scalable outlines")
+                    raise ValueError(Message("domainMessages.fontMustContainScalableOutlines"))
                 if any(table in font for table in ("SVG ", "CBDT", "sbix", "COLR")):
-                    raise ValueError("Color/bitmap fonts are not supported")
+                    raise ValueError(Message("domainMessages.colorBitmapFontsAreNotSupported"))
                 names = font["name"]
                 family = (names.getBestFamilyName() or "Uploaded font")[:120]
                 style = (names.getBestSubFamilyName() or "Regular")[:120]
@@ -64,12 +69,14 @@ class FontStore(AssetStore):
                 font.save(output)
                 normalized = output.getvalue()
                 if len(normalized) > MAX_FONT_BYTES:
-                    raise ValueError("Normalized font exceeds 5 MB")
+                    raise ValueError(Message("domainMessages.normalizedFontExceeds5MB"))
                 ImageFont.truetype(io.BytesIO(normalized), 100).getmetrics()
         except ValueError:
             raise
         except Exception as error:
-            raise ValueError("Font could not be read; upload a valid TTF or OTF") from error
+            raise ValueError(
+                Message("domainMessages.fontCouldNotBeReadUploadAValidTTFOrOTF")
+            ) from error
         metadata = {
             "id": identifier,
             "owner_id": owner_id,

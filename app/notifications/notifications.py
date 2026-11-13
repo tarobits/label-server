@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.authn.identity import LOCAL_OWNER_ID
 from app.config import Settings
+from app.i18n import JoinedMessages, Message
 from app.models import (
     Batch,
     BatchItem,
@@ -45,8 +46,6 @@ def enqueue(
     kind: str = "general",
     context: dict[str, Any] | None = None,
 ) -> None:
-    from app.i18n import Message
-
     context = dict(context or {})
     messages = {
         name: value.descriptor()
@@ -107,9 +106,8 @@ def sync_empty_cartridge_alert(
     state.empty_alert_cartridge_id = cartridge.id
     enqueue(
         session,
-        "Installed cartridge is empty",
-        f"{device.name}: {cartridge.name} has an estimated 0 mm of tape remaining. "
-        "Automatic printing will wait for replacement tape or a remaining-length correction.",
+        Message("notificationMessages.emptyTitle"),
+        Message("notificationMessages.emptyBody", printer=device.name, cartridge=cartridge.name),
         f"/#/printers?printer={device.id}",
         now=now,
         recipient_id="administrators",
@@ -254,9 +252,17 @@ def schedule_reminders(session: Session, now: float) -> None:
             continue
         enqueue(
             session,
-            "Tape swap needed",
-            f"{profile.name} is needed: "
-            + "; ".join(f"{count} queued copies at {name}" for _, name, count in waiting),
+            Message("notificationMessages.tapeSwapTitle"),
+            Message(
+                "notificationMessages.tapeNeeded",
+                profile=profile.name,
+                destinations=JoinedMessages(
+                    [
+                        Message("notificationMessages.queuedAt", count=count, name=name)
+                        for _, name, count in waiting
+                    ]
+                ),
+            ),
             "/#/printers",
             profile,
             now,
@@ -350,15 +356,13 @@ def enqueue_print_completions(session: Session, batch: Batch) -> None:
             continue
         job.completion_notified_at = now
         if job.notify_on_completion:
-            name = (
-                job.template_snapshot.get("process_name")
-                or job.template_snapshot.get("name")
-                or "Label"
-            )
+            name = job.template_snapshot.get("process_name") or job.template_snapshot.get("name")
             enqueue(
                 session,
-                "Your labels have printed",
-                f"{name}: {job.copies} {'copy' if job.copies == 1 else 'copies'} printed.",
+                Message("notificationMessages.printedTitle"),
+                Message("notificationMessages.printedNamed", name=name, count=job.copies)
+                if name
+                else Message("notificationMessages.printedUnnamed", count=job.copies),
                 "/#/queue?state=printed",
                 now=now,
                 recipient_id=job.owner_id,
@@ -375,8 +379,8 @@ def enqueue_print_completions(session: Session, batch: Batch) -> None:
         )
         enqueue(
             session,
-            "Print batch finished",
-            f"{count} {'label' if count == 1 else 'labels'} printed.",
+            Message("notificationMessages.batchTitle"),
+            Message("notificationMessages.batchBody", count=count),
             f"/#/batches/{batch.id}",
             now=now,
             kind="batch_printed",

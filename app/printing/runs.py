@@ -16,6 +16,7 @@ from app.audit.print_audit import delegated_attribution, direct_attribution
 from app.authn.access import Action, Resource, access_context
 from app.authn.authorization import rendering_destination, require_record, visible_runs
 from app.http import db, get, job_record
+from app.i18n import Message, error_detail, request_language, translate
 from app.models import LabelCopy, LabelTemplate, PrintJob, PrintRun, TapeProfile, User
 from app.printer.base import LabelGeometry, RenderedLabel
 from app.printing.destinations import members
@@ -68,7 +69,7 @@ class SubmitRunInput(Input):
 
 def parse_csv(body: CsvInput) -> dict[str, Any]:
     if len(body.csv_text.encode("utf-8")) > 1_000_000:
-        raise HTTPException(422, "CSV must not exceed 1 MB")
+        raise HTTPException(422, Message("serverMessages.cSVMustNotExceed1MB"))
     try:
         reader = csv.reader(
             io.StringIO(body.csv_text.lstrip("\ufeff"), newline=""),
@@ -77,25 +78,34 @@ def parse_csv(body: CsvInput) -> dict[str, Any]:
         )
         header = next(reader)
         if not 1 <= len(header) <= 40 or any(not h.strip() or len(h) > 100 for h in header):
-            raise ValueError("Use 1–40 named columns (at most 100 characters each)")
+            raise ValueError(Message("domainMessages.use140NamedColumnsAtMost100CharactersEach"))
         if len(set(header)) != len(header):
-            raise ValueError("CSV column names must be unique")
+            raise ValueError(Message("domainMessages.csvColumnNamesMustBeUnique"))
         rows = []
         for number, values in enumerate(reader, 2):
             if number > 251:
-                raise ValueError("Import at most 250 data records at a time")
+                raise ValueError(Message("domainMessages.importAtMost250DataRecordsAtATime"))
             if len(values) != len(header):
                 raise ValueError(
-                    f"Record {number}: expected {len(header)} columns, got {len(values)}"
+                    Message(
+                        "logicErrors.recordValue1ExpectedValue2ColumnsGotValue3",
+                        value1=number,
+                        value2=len(header),
+                        value3=len(values),
+                    )
                 )
             if any(len(value) > 2000 for value in values):
-                raise ValueError(f"Record {number}: a cell exceeds 2000 characters")
+                raise ValueError(
+                    Message("logicErrors.recordValue1ACellExceeds2000Characters", value1=number)
+                )
             rows.append({"source_row": number, "values": values})
         if not rows:
-            raise ValueError("CSV contains no data records")
+            raise ValueError(Message("domainMessages.csvContainsNoDataRecords"))
         return {"headers": header, "rows": rows}
     except (csv.Error, ValueError, StopIteration) as error:
-        raise HTTPException(422, str(error) or "CSV is empty") from error
+        raise HTTPException(
+            422, error_detail(error) or Message("logicConstraints.emptyCsv")
+        ) from error
 
 
 @router.post("/csv/parse")
@@ -189,15 +199,21 @@ def prepare_run(
     if existing:
         require_record(request, existing)
         if existing.request_hash != fingerprint:
-            raise HTTPException(409, "Request key already used for different run inputs")
+            raise HTTPException(
+                409, Message("serverMessages.requestKeyAlreadyUsedForDifferentRunInputs")
+            )
         return {"valid": True, "run": quoted_run(existing, request, session), "errors": []}
     parsed = parse_csv(body)
     profile = get(session, TapeProfile, body.tape_profile)
     if not profile.available:
-        raise HTTPException(409, "Tape profile is unavailable; choose another profile")
+        raise HTTPException(
+            409, Message("serverMessages.tapeProfileIsUnavailableChooseAnotherProfile")
+        )
     template = get(session, LabelTemplate, body.template)
     if template.archived or template.revision != body.expected_revision:
-        raise HTTPException(409, "Template changed or was archived; reload before preparing")
+        raise HTTPException(
+            409, Message("serverMessages.templateChangedOrWasArchivedReloadBeforePreparing")
+        )
     fields = {f["name"] for f in template.document["fields"]}
     document = TemplateDocument.model_validate(template.document)
     image_fields = (
@@ -206,13 +222,15 @@ def prepare_run(
         else set()
     )
     if set(body.image_mapping) - image_fields:
-        raise HTTPException(422, "Image mappings must refer to image variables")
+        raise HTTPException(422, Message("serverMessages.imageMappingsMustReferToImageVariables"))
     if set(body.mapping) - fields or set(body.mapping.values()) - set(parsed["headers"]):
-        raise HTTPException(422, "Mapping contains an unknown field or CSV column")
+        raise HTTPException(422, Message("serverMessages.mappingContainsAnUnknownFieldOrCSVColumn"))
     if len({row.source_row for row in body.rows}) != len(body.rows):
-        raise HTTPException(422, "Select each source record once; use copies for duplicates")
+        raise HTTPException(
+            422, Message("serverMessages.selectEachSourceRecordOnceUseCopiesForDuplicates")
+        )
     if sum(row.copies for row in body.rows) > 1000:
-        raise HTTPException(422, "A run may contain at most 1000 copies")
+        raise HTTPException(422, Message("serverMessages.aRunMayContainAtMost1000Copies"))
     source = {row["source_row"]: row["values"] for row in parsed["rows"]}
     errors: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
@@ -226,7 +244,9 @@ def prepare_run(
         None,
     )
     if configured_member is None:
-        raise HTTPException(409, "No configured printer is available at this destination")
+        raise HTTPException(
+            409, Message("serverMessages.noConfiguredPrinterIsAvailableAtThisDestination")
+        )
     backend = request.app.state.registry.backend(configured_member)
     with rendering(
         request,
@@ -236,7 +256,7 @@ def prepare_run(
     ):
         for selected in body.rows:
             if selected.source_row not in source:
-                raise HTTPException(422, "Selected CSV record does not exist")
+                raise HTTPException(422, Message("serverMessages.selectedCSVRecordDoesNotExist"))
             data = {
                 field: source[selected.source_row][parsed["headers"].index(column)]
                 for field, column in body.mapping.items()
@@ -288,9 +308,19 @@ def prepare_run(
                     }
                 )
             except HTTPException as error:
-                errors.append({"source_row": selected.source_row, "message": str(error.detail)})
+                errors.append(
+                    {
+                        "source_row": selected.source_row,
+                        "message": translate(error.detail, request_language(request)),
+                    }
+                )
             except ValueError as error:
-                errors.append({"source_row": selected.source_row, "message": str(error)})
+                errors.append(
+                    {
+                        "source_row": selected.source_row,
+                        "message": translate(error_detail(error), request_language(request)),
+                    }
+                )
         if errors:
             return {"valid": False, "errors": errors, "run": None}
         labels: list[RenderedLabel] = []
@@ -311,7 +341,9 @@ def prepare_run(
     )
     if existing:
         if existing.request_hash != fingerprint:
-            raise HTTPException(409, "Request key already used for different run inputs")
+            raise HTTPException(
+                409, Message("serverMessages.requestKeyAlreadyUsedForDifferentRunInputs")
+            )
         return {"valid": True, "run": quoted_run(existing, request, session), "errors": []}
     run = PrintRun(
         owner_id=access_context(request).actor.id,
@@ -361,7 +393,7 @@ def preview_run_row(
     run = get(session, PrintRun, identifier)
     rows = run.manifest["rows"]
     if not 0 <= position < len(rows):
-        raise HTTPException(404, "Run row not found")
+        raise HTTPException(404, Message("serverMessages.runRowNotFound"))
     row = rows[position]
     snapshot = row["template_snapshot"]
     output = render_document(
@@ -394,7 +426,9 @@ def submit_run(
     context = access_context(request)
     override_requested = body is not None and body.authorization_override
     if override_requested and not context.actor.is_admin:
-        raise HTTPException(403, "Only administrators may override the author's print access")
+        raise HTTPException(
+            403, Message("serverMessages.onlyAdministratorsMayOverrideTheAuthorsPrintAccess")
+        )
     context.require_printer(run.destination_id, "submit_directly")
     if run.owner_id != context.actor.id:
         context.require_printer(run.destination_id, "manage_queue")
@@ -404,12 +438,12 @@ def submit_run(
     from app.printing.request_models import PrintRequest
 
     if session.scalar(select(PrintRequest.id).where(PrintRequest.run_id == run.id)):
-        raise HTTPException(409, "This run belongs to an approval request")
+        raise HTTPException(409, Message("serverMessages.thisRunBelongsToAnApprovalRequest"))
     members(session, run.destination_id)
     if run.submitted_at is None:
         profile = get(session, TapeProfile, run.profile_id)
         if any(row["width_mm"] != profile.width_mm for row in run.manifest["rows"]):
-            raise HTTPException(409, "Tape width changed; prepare a new run")
+            raise HTTPException(409, Message("serverMessages.tapeWidthChangedPrepareANewRun"))
         author = session.get(User, run.owner_id)
         delegated = run.owner_id != context.actor.id
         discrepancy = (
@@ -459,7 +493,9 @@ def submit_run(
             if job.template_snapshot.get("billing"):
                 owner = session.get(User, job.owner_id)
                 if owner is None:
-                    raise HTTPException(409, "The original requester is unavailable")
+                    raise HTTPException(
+                        409, Message("serverMessages.theOriginalRequesterIsUnavailable")
+                    )
                 register_job(session, job, actor_for_user(session, owner))
             session.add_all([LabelCopy(job_id=job.id, ordinal=i) for i in range(job.copies)])
         run.submitted_at = stamp
@@ -481,7 +517,9 @@ def delete_draft(
 ) -> dict[str, bool]:
     run = get(session, PrintRun, identifier)
     if run.submitted_at is not None:
-        raise HTTPException(409, "Submitted runs cannot be deleted; cancel queued copies instead")
+        raise HTTPException(
+            409, Message("serverMessages.submittedRunsCannotBeDeletedCancelQueuedCopiesInstead")
+        )
     from app.printing.request_models import PrintRequest
 
     if session.scalar(
@@ -489,6 +527,6 @@ def delete_draft(
             PrintRequest.run_id == run.id, PrintRequest.status == "pending"
         )
     ):
-        raise HTTPException(409, "This draft has a pending approval request")
+        raise HTTPException(409, Message("serverMessages.thisDraftHasAPendingApprovalRequest"))
     session.delete(run)
     return {"deleted": True}

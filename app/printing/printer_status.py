@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.authn.access import Action, Resource, access_context
 from app.authn.authorization import visible_copy_count, visible_jobs
 from app.http import get, record
+from app.i18n import request_language
 from app.models import (
     Batch,
     Cartridge,
@@ -22,6 +23,7 @@ from app.models import (
 )
 from app.notifications.notification_routing import notifications_enabled
 from app.printer.base import PrinterStatus
+from app.printer.messages import localize_status
 from app.printing.cartridge_confirmation import media_mismatch
 from app.printing.destinations import printer_state, resolve_destination
 
@@ -53,71 +55,78 @@ def status_record(
     profile = session.get(TapeProfile, cartridge.profile_id) if cartridge else None
     warning = media_mismatch(hardware, profile) if profile else None
     companion = session.get(CompanionPrinter, printer_id)
-    return {
-        **record(state),
-        "no_automatic_printing": device.no_automatic_printing,
-        "automatic_printing_held": state.automatic_printing_held
-        and not device.no_automatic_printing,
-        "media_confirmation": None,
-        "media_verified_fingerprint": None,
-        "cartridge_check_pending": state.cartridge_check_enabled
-        and bool(
-            state.active_cartridge_id and (state.cartridge_check_pending or hardware.media_changed)
-        ),
-        "cartridge_check_key": hardware.media.verification_key if hardware.media else None,
-        "cartridge_check_ready": bool(
-            hardware.connected and hardware.media and hardware.media.confirmable
-        ),
-        "backend": device.driver,
-        "printer_name": device.name,
-        "printer_error": hardware.error,
-        "companion_blocked": bool(companion and companion.blocked),
-        "renderer": "svg",
-        "connected": hardware.connected,
-        "detected_width_mm": hardware.media.width_mm if hardware.media else hardware.tape_width_mm,
-        "effective_width_mm": hardware.tape_width_mm,
-        "detected_media": hardware.media.description if hardware.media else None,
-        "media_warning": warning,
-        "media_confirmed": hardware.media_confirmed,
-        "diagnostics": hardware.diagnostics,
-        "needs_review": list(
-            session.scalars(
-                select(Batch.id).where(
-                    Batch.printer_id == printer_id, Batch.state == State.NEEDS_REVIEW
+    return localize_status(
+        {
+            **record(state),
+            "no_automatic_printing": device.no_automatic_printing,
+            "automatic_printing_held": state.automatic_printing_held
+            and not device.no_automatic_printing,
+            "media_confirmation": None,
+            "media_verified_fingerprint": None,
+            "cartridge_check_pending": state.cartridge_check_enabled
+            and bool(
+                state.active_cartridge_id
+                and (state.cartridge_check_pending or hardware.media_changed)
+            ),
+            "cartridge_check_key": hardware.media.verification_key if hardware.media else None,
+            "cartridge_check_ready": bool(
+                hardware.connected and hardware.media and hardware.media.confirmable
+            ),
+            "backend": device.driver,
+            "printer_name": device.name,
+            "printer_error": hardware.error,
+            "printer_error_translation": hardware.error_translation,
+            "companion_blocked": bool(companion and companion.blocked),
+            "renderer": "svg",
+            "connected": hardware.connected,
+            "detected_width_mm": hardware.media.width_mm
+            if hardware.media
+            else hardware.tape_width_mm,
+            "effective_width_mm": hardware.tape_width_mm,
+            "detected_media": hardware.media.description if hardware.media else None,
+            "media_warning": warning,
+            "media_confirmed": hardware.media_confirmed,
+            "diagnostics": hardware.diagnostics,
+            "needs_review": list(
+                session.scalars(
+                    select(Batch.id).where(
+                        Batch.printer_id == printer_id, Batch.state == State.NEEDS_REVIEW
+                    )
                 )
             )
-        )
-        if context.can_printer(printer_id, "review")
-        else [],
-        "notifications_enabled": notifications_enabled(session),
-        "printing": active.id if active else None,
-        "stop_requested": (active.trigger or {}).get("stop_request", {}).get("mode")
-        if active
-        else None,
-        "pending_flush": session.scalar(
-            select(FlushRequest.id)
-            .where(
-                FlushRequest.printer_id == printer_id,
-                FlushRequest.completed.is_(False),
+            if context.can_printer(printer_id, "review")
+            else [],
+            "notifications_enabled": notifications_enabled(session),
+            "printing": active.id if active else None,
+            "stop_requested": (active.trigger or {}).get("stop_request", {}).get("mode")
+            if active
+            else None,
+            "pending_flush": session.scalar(
+                select(FlushRequest.id)
+                .where(
+                    FlushRequest.printer_id == printer_id,
+                    FlushRequest.completed.is_(False),
+                )
+                .limit(1)
             )
-            .limit(1)
-        )
-        if any(
-            context.can_printer(printer_id, permission)
-            for permission in ("manage_queue", "stop_after_label", "emergency_stop")
-        )
-        else None,
-        "total_queued": session.scalar(
-            visible_jobs(
-                request, session, select(func.count()).select_from(LabelCopy).join(PrintJob)
-            ).where(LabelCopy.state == State.QUEUED)
-        ),
-        "queues": [
-            {
-                "profile_id": p.id,
-                "queued_copies": visible_copy_count(request, session, printer_id, p),
-                "threshold": p.auto_print_threshold,
-            }
-            for p in session.scalars(select(TapeProfile))
-        ],
-    }
+            if any(
+                context.can_printer(printer_id, permission)
+                for permission in ("manage_queue", "stop_after_label", "emergency_stop")
+            )
+            else None,
+            "total_queued": session.scalar(
+                visible_jobs(
+                    request, session, select(func.count()).select_from(LabelCopy).join(PrintJob)
+                ).where(LabelCopy.state == State.QUEUED)
+            ),
+            "queues": [
+                {
+                    "profile_id": p.id,
+                    "queued_copies": visible_copy_count(request, session, printer_id, p),
+                    "threshold": p.auto_print_threshold,
+                }
+                for p in session.scalars(select(TapeProfile))
+            ],
+        },
+        request_language(request),
+    )

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.audit.audit import AuditField, AuditRequirement, AuditScope, append_audit
 from app.authn.access import access_context
 from app.db import begin_write
+from app.i18n import Message
 from app.maintenance.migration_resources import RESOURCES, allowed_resources, create_resource
 from app.models import ReleaseMigration, new_id
 from app.schemas import Input
@@ -43,7 +44,7 @@ def migration_db(request: Request) -> Iterator[Session]:
     with request.app.state.factory() as session:
         actor = access_context(request).actor
         if not actor.is_admin:
-            raise HTTPException(403, "Administrator access is required")
+            raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
         yield session
 
 
@@ -53,17 +54,21 @@ def writing(request: Request, session: Session) -> Generator[None]:
     # yield: waiting requests must not starve the worker needed by the lock owner.
     with request.app.state.fleet.lock:
         if not access_context(request).actor.is_admin:
-            raise HTTPException(403, "Administrator access is required")
+            raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
         begin_write(session)
         session.info["request"] = request
         if not pending(session) or not request.app.state.relationship_maintenance:
-            raise HTTPException(409, "Relationship repairs require migration mode")
+            raise HTTPException(
+                409, Message("serverMessages.relationshipRepairsRequireMigrationMode")
+            )
         try:
             yield
             session.commit()
         except IntegrityError as error:
             session.rollback()
-            raise HTTPException(409, "This assignment conflicts with an existing record") from error
+            raise HTTPException(
+                409, Message("serverMessages.thisAssignmentConflictsWithAnExistingRecord")
+            ) from error
 
 
 DB = Annotated[Session, Depends(migration_db, scope="function")]
@@ -73,7 +78,7 @@ def relation_for(session: Session, key: str) -> dict[str, Any]:
     for relation in relationships(session.connection()):
         if key == f"{relation['table']}.{relation['column']}":
             return relation
-    raise HTTPException(404, "Unknown relationship")
+    raise HTTPException(404, Message("serverMessages.unknownRelationship"))
 
 
 def row_token(table: sa.Table, row: Any, column: str) -> str:
@@ -180,15 +185,16 @@ def creation_context(body: Creation, session: Session) -> None:
     child, condition = orphan_query(session.connection(), relation)
     if child.name in REVOKE_ONLY or body.kind not in allowed_resources(relation["parent"]):
         raise HTTPException(
-            422, "This relationship requires an existing record or backup restoration"
+            422,
+            Message("serverMessages.thisRelationshipRequiresAnExistingRecordOrBackupRestoration"),
         )
     if not body.reason.strip():
-        raise HTTPException(422, "Provide a reason for creating the replacement")
+        raise HTTPException(422, Message("serverMessages.provideAReasonForCreatingTheReplacement"))
     if not any(
         row_token(child, row, relation["column"]) == body.token
         for row in session.execute(sa.select(child).where(condition)).mappings()
     ):
-        raise HTTPException(409, "This reference changed; refresh the migration")
+        raise HTTPException(409, Message("serverMessages.thisReferenceChangedRefreshTheMigration"))
 
 
 def creation_hash(body: Creation) -> str:
@@ -213,7 +219,7 @@ def creation_targets(
 ) -> list[dict[str, Any]]:
     relation = relation_for(session, key)
     if kind not in allowed_resources(relation["parent"]):
-        raise HTTPException(422, "Unsupported resource")
+        raise HTTPException(422, Message("serverMessages.unsupportedResource"))
     table = sa.Table(kind, sa.MetaData(), autoload_with=session.connection(), resolve_fks=False)
     name = table.c.username if kind == "users" else table.c.name
     query = sa.select(table.c.id, name.label("name"))
@@ -279,7 +285,9 @@ def create_replacement(body: Creation, request: Request, session: DB) -> dict[st
             or receipt.request_hash != creation_hash(body)
             or receipt.state_hash != state_hash(session)
         ):
-            raise HTTPException(409, "Review the current replacement details before creating it")
+            raise HTTPException(
+                409, Message("serverMessages.reviewTheCurrentReplacementDetailsBeforeCreatingIt")
+            )
         result = create_resource(body.kind, body.values, request, session, relationship=body.key)
         session.delete(receipt)
         item = session.get(ReleaseMigration, VERSION)
@@ -313,7 +321,7 @@ def repair(body: Repair, request: Request, session: DB) -> dict[str, bool]:
 
 def apply_repair(body: Repair, request: Request, session: Session) -> dict[str, bool]:
     if not body.reason.strip():
-        raise HTTPException(422, "Provide a reason for the repair")
+        raise HTTPException(422, Message("serverMessages.provideAReasonForTheRepair"))
     relation = relation_for(session, body.key)
     child, condition = orphan_query(session.connection(), relation)
     column = relation["column"]
@@ -327,17 +335,21 @@ def apply_repair(body: Repair, request: Request, session: Session) -> dict[str, 
         None,
     )
     if row is None:
-        raise HTTPException(409, "This reference changed; refresh the migration")
+        raise HTTPException(409, Message("serverMessages.thisReferenceChangedRefreshTheMigration"))
     where = sa.and_(*(child.c[c.name] == row[c.name] for c in child.primary_key))
     if child.name in REVOKE_ONLY:
         if not body.revoke or body.target is not None:
-            raise HTTPException(422, "Revoke invalid credentials; they cannot be reassigned")
+            raise HTTPException(
+                422, Message("serverMessages.revokeInvalidCredentialsTheyCannotBeReassigned")
+            )
         session.execute(sa.delete(child).where(where))
     else:
         if body.revoke:
-            raise HTTPException(422, "This record must be retained and reassigned")
+            raise HTTPException(
+                422, Message("serverMessages.thisRecordMustBeRetainedAndReassigned")
+            )
         if body.target is None and not can_clear(child, row, column):
-            raise HTTPException(422, "Select an existing replacement")
+            raise HTTPException(422, Message("serverMessages.selectAnExistingReplacement"))
         if body.target is not None:
             parent = sa.Table(
                 relation["parent"],
@@ -353,13 +365,17 @@ def apply_repair(body: Repair, request: Request, session: Session) -> dict[str, 
                 .first()
             )
             if target_row is None or relation["parent"] == "users" and target_row.get("disabled"):
-                raise HTTPException(422, "Select an existing, enabled replacement")
+                raise HTTPException(
+                    422, Message("serverMessages.selectAnExistingEnabledReplacement")
+                )
             if child.name == "locations" and column == "parent_id":
                 seen = {row["id"]}
                 cursor: str | None = body.target
                 while cursor:
                     if cursor in seen:
-                        raise HTTPException(422, "Location assignment would create a cycle")
+                        raise HTTPException(
+                            422, Message("serverMessages.locationAssignmentWouldCreateACycle")
+                        )
                     seen.add(cursor)
                     cursor = session.scalar(
                         sa.select(child.c.parent_id).where(child.c.id == cursor)
@@ -406,7 +422,9 @@ def apply_repair(body: Repair, request: Request, session: Session) -> dict[str, 
 def complete(request: Request, session: DB) -> dict[str, bool]:
     with writing(request, session):
         if violations(session.connection()):
-            raise HTTPException(409, "Repair every missing reference before finishing")
+            raise HTTPException(
+                409, Message("serverMessages.repairEveryMissingReferenceBeforeFinishing")
+            )
         item = session.get(ReleaseMigration, VERSION)
         assert item is not None
         item.draft = {"ready": True}

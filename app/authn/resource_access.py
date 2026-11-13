@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.authn.auth import actor_for_user
 from app.authn.permission_rules import PermissionDecision, PermissionRule, decide
+from app.i18n import Message
 from app.models import (
     Cartridge,
     Companion,
@@ -106,9 +107,9 @@ def location_ancestors(parents: Mapping[str, str | None], identifier: str) -> fr
     current: str | None = identifier
     while current is not None:
         if current in seen:
-            raise ValueError("Location hierarchy contains a cycle")
+            raise ValueError(Message("authValidation.locationHierarchyContainsACycle"))
         if current not in parents:
-            raise ValueError("Location does not exist")
+            raise ValueError(Message("authValidation.locationDoesNotExist"))
         seen.add(current)
         current = parents[current]
     return frozenset(seen)
@@ -125,14 +126,14 @@ def validate_grant(session: Session, grant: ResourceGrant) -> None:
     if grant.principal_kind == "user":
         user = session.get(User, grant.principal_id)
         if user is None or user.disabled:
-            raise ValueError("Grant recipient must be an enabled user")
+            raise ValueError(Message("authValidation.grantRecipientMustBeAnEnabledUser"))
     elif grant.principal_kind == "role":
         if session.get(Role, grant.principal_id) is None:
-            raise ValueError("Grant role does not exist")
+            raise ValueError(Message("authValidation.grantRoleDoesNotExist"))
     else:
-        raise ValueError("Unknown grant principal kind")
+        raise ValueError(Message("authValidation.unknownGrantPrincipalKind"))
     if grant.effect not in (None, "allow", "deny"):
-        raise ValueError("Unknown permission effect")
+        raise ValueError(Message("authValidation.unknownPermissionEffect"))
     allowed: frozenset[str]
     exists: bool
     if grant.scope_kind == "printer":
@@ -152,15 +153,15 @@ def validate_grant(session: Session, grant: ResourceGrant) -> None:
         allowed = PRINTER_PERMISSIONS | CARTRIDGE_PERMISSIONS
     elif grant.scope_kind == "companion":
         if grant.effect == "deny":
-            raise ValueError("Companion access uses allow grants only")
+            raise ValueError(Message("authValidation.companionAccessUsesAllowGrantsOnly"))
         exists = session.get(Companion, grant.scope_id) is not None
         allowed = frozenset({"companion.access"})
     else:
-        raise ValueError("Unknown grant scope kind")
+        raise ValueError(Message("authValidation.unknownGrantScopeKind"))
     if not exists:
-        raise ValueError("Grant scope does not exist")
+        raise ValueError(Message("authValidation.grantScopeDoesNotExist"))
     if grant.permission not in allowed:
-        raise ValueError("Permission does not apply to this scope")
+        raise ValueError(Message("authValidation.permissionDoesNotApplyToThisScope"))
 
 
 @dataclass(frozen=True)

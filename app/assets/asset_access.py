@@ -13,6 +13,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.assets.asset_store import ASSET_ID
 from app.authn.access import Action, Resource, access_context
+from app.i18n import Message, error_detail, render, request_language
 from app.models import LabelTemplate, PrintJob, PrintRun, TemplateRevision, User, UserGroup
 from app.printing.request_models import PrintRequest
 
@@ -50,7 +51,11 @@ def asset_record(request: Request, kind: AssetKind, metadata: dict[str, Any]) ->
     if metadata.get("group_id"):
         with request.app.state.factory() as session:
             group = session.get(UserGroup, metadata["group_id"])
-            group_name = group.name if group else "Deleted group"
+            group_name = (
+                group.name
+                if group
+                else render("serverDetails.deletedGroup", request_language(request))
+            )
     return {
         **metadata,
         **owner,
@@ -68,19 +73,32 @@ def require_asset_scope(
     namespace = "images" if kind == "image_asset" else "fonts"
     if scope == "group":
         if not group_id or session.get(UserGroup, group_id) is None:
-            raise HTTPException(422, "Choose a user group")
+            raise HTTPException(422, Message("authMessages.chooseAUserGroup"))
         member = context.actor.group_memberships.get(group_id)
         if not context.actor.is_admin and (
             member is None or not getattr(member, namespace).can_create
         ):
-            raise HTTPException(403, f"You cannot upload {namespace} in this group")
+            raise HTTPException(
+                403,
+                Message(
+                    "serverDetails.groupImages"
+                    if kind == "image_asset"
+                    else "serverDetails.groupFonts"
+                ),
+            )
     else:
         if group_id is not None:
-            raise HTTPException(422, "Only group assets may select a user group")
+            raise HTTPException(422, Message("serverMessages.onlyGroupAssetsMaySelectAUserGroup"))
         if scope not in ("personal", "global"):
-            raise HTTPException(422, "Invalid asset visibility")
+            raise HTTPException(422, Message("serverMessages.invalidAssetVisibility"))
         if not context.has_permission(f"{namespace}.create_{scope}"):
-            raise HTTPException(403, f"You cannot upload {scope} {namespace}")
+            key = {
+                ("personal", "images"): "serverDetails.personalImages",
+                ("personal", "fonts"): "serverDetails.personalFonts",
+                ("global", "images"): "serverDetails.globalImages",
+                ("global", "fonts"): "serverDetails.globalFonts",
+            }[(scope, namespace)]
+            raise HTTPException(403, Message(key))
 
 
 def share_asset(
@@ -89,7 +107,9 @@ def share_asset(
     metadata = require_asset(request, session, kind, identifier, Action.WRITE)
     actor = access_context(request).actor
     if not actor.is_admin and metadata["owner_id"] != actor.id:
-        raise HTTPException(403, "Only the owner or an administrator can change asset sharing")
+        raise HTTPException(
+            403, Message("serverMessages.onlyTheOwnerOrAnAdministratorCanChangeAssetSharing")
+        )
     if (metadata["scope"], metadata["group_id"]) != (body.scope, body.group_id):
         require_asset_scope(request, session, kind, body.scope, body.group_id)
         store = request.app.state.images if kind == "image_asset" else request.app.state.fonts
@@ -124,7 +144,9 @@ def delete_asset(
             if any((kind, identifier) in asset_references(value) for value in documents):
                 raise HTTPException(
                     409,
-                    "Asset is used by a saved template, template revision, job, CSV run or print request. Hide it instead to preserve existing labels.",
+                    Message(
+                        "serverMessages.assetIsUsedByASavedTemplateTemplateRevisionJobCSVRunOrPrintRequestHideItInsteadToPreserveExistingLabels"
+                    ),
                 )
     retain(
         session,
@@ -221,7 +243,7 @@ def require_asset(
     try:
         metadata = dict(store.metadata(identifier))
     except ValueError as error:
-        raise HTTPException(404, str(error)) from error
+        raise HTTPException(404, error_detail(error)) from error
     context = access_context(request)
     resource = asset_resource(kind, metadata)
     if context.policy.allows(context.actor, action, resource):
@@ -248,5 +270,7 @@ def require_document_assets(
                     session, "images" if kind == "image_asset" else "fonts", identifier
                 ):
                     continue
-                raise HTTPException(422, "A referenced image or font is missing") from error
+                raise HTTPException(
+                    422, Message("serverMessages.aReferencedImageOrFontIsMissing")
+                ) from error
             raise

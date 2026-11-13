@@ -59,6 +59,36 @@ def decision(client, identifier, approve):
     )
 
 
+def test_german_funding_errors_and_notifications_preserve_permissions(accounts):
+    admin, alice, bob = accounts
+    tape, _, account = setup(accounts)
+    alice.headers["Accept-Language"] = "de"
+    bob.headers["Accept-Language"] = "de"
+    job = submit_group(alice, tape, account)
+    funding = job["billing_request"]["id"]
+    grant(admin, account, "alice", "approve")
+    denied = decision(alice, funding, True)
+    assert denied.status_code == 403
+    assert denied.json()["detail"] == (
+        "Du kannst diese Anfrage nicht entscheiden; Finanzierungsanfragen dürfen nicht selbst genehmigt werden."
+    )
+    notices = bob.get("/api/inbox").json()["items"]
+    notice = next(n for n in notices if n["path"].endswith(f"request={funding}"))
+    assert notice["title"] == "Anfrage für ein Gruppenkonto"
+    assert notice["message"] == "Eine Anfrage wartet auf deine Prüfung."
+    assert decision(bob, funding, False).status_code == 200
+    notices = alice.get("/api/inbox").json()["items"]
+    notice = next(n for n in notices if n["path"].endswith(f"request={funding}"))
+    assert notice["message"] == "Deine Anfrage wurde abgelehnt."
+    assert decision(bob, funding, True).status_code == 409
+    # Changing the language must not change stored status or user-entered content.
+    alice.headers["Accept-Language"] = "en"
+    notices = alice.get("/api/inbox").json()["items"]
+    notice = next(n for n in notices if n["path"].endswith(f"request={funding}"))
+    assert notice["message"] == "Your request was rejected."
+    assert admin.get(f"{ROOT}/{account}").json()["name"] == "Verein"
+
+
 def test_funding_preview_is_scoped_to_current_approvers_and_rechecks_access(accounts):
     admin, alice, bob = accounts
     tape, _, account = setup(accounts)

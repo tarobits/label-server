@@ -18,6 +18,7 @@ from app.accounts.billing_models import (
 )
 from app.authn.access import access_context
 from app.http import db, job_summary, record
+from app.i18n import Message
 from app.models import Batch, BatchItem, LabelCopy, PrintJob, Role, TapeAllocation, User
 from app.schemas import Input
 from app.transaction_routes import TransactionRouter
@@ -142,7 +143,7 @@ def print_details(
     from app.printing.print_activity import readable_batch
 
     if not can_preview_request(session, value, request):
-        raise HTTPException(404, "Funding prints are unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPrintsAreUnavailable"))
     prefix = (
         f"/api/accounts/groups/charges/{charge.id}"
         if charge
@@ -191,7 +192,7 @@ def print_source(
     charge = session.get(BillingCharge, identifier) if is_charge else None
     value = session.get(BillingRequest, charge.request_id if charge else identifier)
     if value is None or (is_charge and charge is None):
-        raise HTTPException(404, "Funding prints are unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPrintsAreUnavailable"))
     return value, charge
 
 
@@ -214,14 +215,14 @@ def scoped_preview(
 
     value, charge = print_source(session, identifier, is_charge=is_charge)
     if not can_preview_request(session, value, request):
-        raise HTTPException(404, "Funding preview is unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPreviewIsUnavailable"))
     row = session.execute(
         funded_prints(value, charge.batch_id if charge else None)
         .where(LabelCopy.id == copy_id)
         .limit(1)
     ).first()
     if row is None:
-        raise HTTPException(404, "Funding preview is unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPreviewIsUnavailable"))
     return label_preview_response(request, session, row[0], row[1])
 
 
@@ -242,12 +243,12 @@ def funding_preview(identifier: str, request: Request, session: DB) -> Response:
     value = session.get(BillingRequest, identifier)
     job = preview_job(session, value, request) if value else None
     if job is None:
-        raise HTTPException(404, "Funding preview is unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPreviewIsUnavailable"))
     label = session.scalar(
         select(LabelCopy).where(LabelCopy.job_id == job.id).order_by(LabelCopy.ordinal).limit(1)
     )
     if label is None:
-        raise HTTPException(404, "Funding preview is unavailable")
+        raise HTTPException(404, Message("serverMessages.fundingPreviewIsUnavailable"))
     return label_preview_response(request, session, job, label)
 
 
@@ -285,9 +286,9 @@ def accounts(request: Request, session: DB) -> dict[str, Any]:
 def create_account(body: AccountInput, request: Request, session: DB) -> dict[str, Any]:
     actor = access_context(request).actor
     if not actor.is_admin and "billing.create" not in actor.permissions:
-        raise HTTPException(403, "Creating group accounts is not permitted")
+        raise HTTPException(403, Message("serverMessages.creatingGroupAccountsIsNotPermitted"))
     if not body.name.strip():
-        raise HTTPException(422, "Enter an account name")
+        raise HTTPException(422, Message("serverMessages.enterAnAccountName"))
     account = BillingAccount(name=body.name.strip(), archived=body.archived)
     session.add(account)
     session.flush()
@@ -347,7 +348,7 @@ def historical_preview(batch_id: str, copy_id: str, request: Request, session: D
     label = session.get(LabelCopy, copy_id) if item else None
     job = session.get(PrintJob, label.job_id) if label else None
     if allocation is None or job is None or label is None or job.owner_id != user_id:
-        raise HTTPException(404, "Historical label preview is unavailable")
+        raise HTTPException(404, Message("serverMessages.historicalLabelPreviewIsUnavailable"))
     return label_preview_response(request, session, job, label)
 
 
@@ -356,7 +357,7 @@ def details(identifier: str, request: Request, session: DB) -> dict[str, Any]:
     actor = access_context(request).actor
     account = session.get(BillingAccount, identifier)
     if account is None:
-        raise HTTPException(404, "Group account not found")
+        raise HTTPException(404, Message("billingMessages.errors.notFound"))
     rights = billing.permissions(session, actor, identifier)
     charges = billing.visible_outstanding(session, actor, identifier)
     for charge in charges:
@@ -377,7 +378,7 @@ def details(identifier: str, request: Request, session: DB) -> dict[str, Any]:
         if billing.can_read_request(session, actor, entry)
     ]
     if not rights and not charges and not requests:
-        raise HTTPException(403, "Group account access is not granted")
+        raise HTTPException(403, Message("serverMessages.groupAccountAccessIsNotGranted"))
     return {
         **record(account),
         "permissions": sorted(rights),
@@ -393,7 +394,7 @@ def update_account(
     actor = access_context(request).actor
     account = billing.require(session, actor, identifier, "edit")
     if not body.name.strip():
-        raise HTTPException(422, "Enter an account name")
+        raise HTTPException(422, Message("serverMessages.enterAnAccountName"))
     account.name, account.archived = body.name.strip(), body.archived
     billing.audit(
         session, actor, identifier, "account.updated", name=account.name, archived=account.archived
@@ -425,10 +426,10 @@ def set_access(identifier: str, body: GrantInput, request: Request, session: DB)
     actor = access_context(request).actor
     billing.require(session, actor, identifier, "manage_access")
     if body.permission not in billing.PERMISSIONS:
-        raise HTTPException(422, "Unknown group account permission")
+        raise HTTPException(422, Message("serverMessages.unknownGroupAccountPermission"))
     principal = session.get(User if body.principal_kind == "user" else Role, body.principal_id)
     if principal is None:
-        raise HTTPException(422, "Choose an existing user or role")
+        raise HTTPException(422, Message("serverMessages.chooseAnExistingUserOrRole"))
     key = (identifier, body.principal_kind, body.principal_id, body.permission)
     grant = session.get(BillingGrant, key)
     if body.effect == "inherit":
@@ -472,7 +473,7 @@ def receipt(
         or existing.source_id != source
         or existing.details.get("input") != inputs
     ):
-        raise HTTPException(409, "This request reference has already been used")
+        raise HTTPException(409, Message("serverMessages.thisRequestReferenceHasAlreadyBeenUsed"))
     return existing
 
 
@@ -496,20 +497,23 @@ def transfer(identifier: str, body: HistoryInput, request: Request, session: DB)
         None,
     )
     if not entry or entry["available_micros"] <= 0:
-        raise HTTPException(409, "No unfunded charges remain for this print")
+        raise HTTPException(409, Message("serverMessages.noUnfundedChargesRemainForThisPrint"))
     if entry["needs_payment_allocation"]:
         raise HTTPException(
-            409, "Allocate existing payments to cartridges before transferring these costs"
+            409,
+            Message(
+                "serverMessages.allocateExistingPaymentsToCartridgesBeforeTransferringTheseCosts"
+            ),
         )
     units = {unit["job_id"]: unit for unit in entry["labels"] if unit["available_micros"] > 0}
     identifiers = body.job_ids if body.job_ids is not None else list(units)
     if len(set(identifiers)) != len(identifiers):
-        raise HTTPException(422, "Select each label only once")
+        raise HTTPException(422, Message("serverMessages.selectEachLabelOnlyOnce"))
     if any(identifier not in units for identifier in identifiers):
-        raise HTTPException(409, "Selected labels are unavailable for transfer")
+        raise HTTPException(409, Message("serverMessages.selectedLabelsAreUnavailableForTransfer"))
     if any(units[identifier]["pending"] for identifier in identifiers):
         raise HTTPException(
-            409, "Resolve the existing funding request for the selected labels first"
+            409, Message("serverMessages.resolveTheExistingFundingRequestForTheSelectedLabelsFirst")
         )
     selected_amounts = {
         identifier: str(units[identifier]["available_micros"]) for identifier in identifiers
@@ -525,7 +529,9 @@ def transfer(identifier: str, body: HistoryInput, request: Request, session: DB)
             BillingRequest.status == "pending",
         )
     ):
-        raise HTTPException(409, "Resolve the existing funding request for this print first")
+        raise HTTPException(
+            409, Message("serverMessages.resolveTheExistingFundingRequestForThisPrintFirst")
+        )
     value = BillingRequest(
         id=str(body.request_id),
         account_id=identifier,
@@ -594,7 +600,9 @@ def payment(identifier: str, body: PaymentInput, request: Request, session: DB) 
             allocations[entry["id"]] = str(amount)
             remaining -= amount
     if remaining:
-        raise HTTPException(422, "The payment exceeds the selected outstanding debts")
+        raise HTTPException(
+            422, Message("serverMessages.thePaymentExceedsTheSelectedOutstandingDebts")
+        )
     value = BillingRequest(
         id=str(body.request_id),
         account_id=identifier,
@@ -626,7 +634,7 @@ def payment(identifier: str, body: PaymentInput, request: Request, session: DB) 
 def decide(identifier: str, body: DecisionInput, request: Request, session: DB) -> dict[str, Any]:
     value = session.get(BillingRequest, identifier)
     if value is None:
-        raise HTTPException(404, "Billing request not found")
+        raise HTTPException(404, Message("serverMessages.billingRequestNotFound"))
     billing.decide_request(session, access_context(request).actor, value, body.approve, body.reason)
     return request_record(session, value, request)
 
@@ -635,6 +643,6 @@ def decide(identifier: str, body: DecisionInput, request: Request, session: DB) 
 def resolve(identifier: str, body: PersonalInput, request: Request, session: DB) -> dict[str, Any]:
     value = session.get(BillingRequest, identifier)
     if value is None:
-        raise HTTPException(404, "Billing request not found")
+        raise HTTPException(404, Message("serverMessages.billingRequestNotFound"))
     billing.resolve_personally(session, access_context(request).actor, value, body.cancel)
     return request_record(session, value, request)

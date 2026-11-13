@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.audit.print_audit import actor_snapshot
 from app.authn.access import access_context
 from app.http import db, job_record, record
+from app.i18n import Message
 from app.maintenance.deletion import content_hold_reason
 from app.models import LabelCopy, PrintJob, State, User
 from app.printing.job_access_models import JobAccessHold
@@ -21,7 +22,7 @@ router = TransactionRouter(prefix="/api/access-holds")
 def administrator(request: Request) -> str:
     actor = access_context(request).actor
     if not actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
     return actor.id
 
 
@@ -67,18 +68,18 @@ def resolve_hold(
             raise HTTPException(409, reason)
     hold = session.get(JobAccessHold, identifier)
     if hold is None:
-        raise HTTPException(404, "Access hold not found")
+        raise HTTPException(404, Message("serverMessages.accessHoldNotFound"))
     if hold.status == decision:
         return hold_record(session, hold)
     if hold.status != "held":
-        raise HTTPException(409, "This hold has already been resolved")
+        raise HTTPException(409, Message("serverMessages.thisHoldHasAlreadyBeenResolved"))
     copies = list(
         session.scalars(
             select(LabelCopy).where(LabelCopy.job_id == identifier, LabelCopy.state == State.QUEUED)
         )
     )
     if not copies:
-        raise HTTPException(409, "This job no longer has queued copies")
+        raise HTTPException(409, Message("serverMessages.thisJobNoLongerHasQueuedCopies"))
     if decision == "cancelled":
         for label in copies:
             label.state = State.CANCELLED

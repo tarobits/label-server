@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.authn.auth import active_administrators
+from app.i18n import Message
 from app.models import AuthSettings
 from app.notifications.notifications import enqueue
 from app.printing.request_models import PrintRequest, RequestDigest
@@ -24,8 +25,8 @@ def schedule_request_digest(session: Session, now: float) -> None:
     if settings and settings.approval_notifications_enabled and pending and has_admin:
         enqueue(
             session,
-            "Print requests awaiting approval",
-            f"{pending} print request(s) await administrator review.",
+            Message("notificationMessages.approvalTitle"),
+            Message("notificationMessages.approvalBody", count=pending),
             "/#/requests",
             now=now,
             recipient_id="administrators",

@@ -20,6 +20,7 @@ from app.authn.access import ADMINISTRATOR_ROLE_ID, access_context
 from app.authn.auth import PERMISSIONS, actor_for_user, hash_password, token_hash
 from app.authn.auth_api import Credentials, Password, Username
 from app.db import begin_write
+from app.i18n import Message, error_detail, request_language, translate
 from app.maintenance.deletion import (
     delete_account,
     is_deleted,
@@ -58,7 +59,7 @@ async def prepare_admin_password(request: Request) -> None:
     ):
         return
     if not (await run_in_threadpool(access_context, request)).actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
     raw = await request.json()
     try:
         body = (CreateUserInput if request.method == "POST" else UserInput).model_validate(raw)
@@ -78,12 +79,12 @@ CONFIRMATION_SECONDS = 300
 @transaction_dependency
 def admin_session(request: Request) -> Generator[Session, None, None]:
     if not access_context(request).actor.is_admin:
-        raise HTTPException(403, "Administrator access is required")
+        raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
     with request.app.state.fleet.lock, request.app.state.factory() as session:
         if request.method not in ("GET", "HEAD"):
             begin_write(session)
         if not access_context(request).actor.is_admin:
-            raise HTTPException(403, "Administrator access is required")
+            raise HTTPException(403, Message("authMessages.administratorAccessIsRequired"))
         try:
             yield session
             if request.method not in ("GET", "HEAD"):
@@ -94,7 +95,7 @@ def admin_session(request: Request) -> Generator[Session, None, None]:
             session.commit()
         except IntegrityError as error:
             session.rollback()
-            raise HTTPException(409, "That name is already in use") from error
+            raise HTTPException(409, Message("authMessages.thatNameIsAlreadyInUse")) from error
 
 
 DB = Annotated[Session, Depends(admin_session)]
@@ -118,7 +119,7 @@ def purge_history_duplicates(body: HistoryPurgeInput, session: DB) -> dict[str, 
     try:
         return purge_duplicate_history(session, body.confirmation)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise HTTPException(409, error_detail(error)) from error
 
 
 class ApplicationPermission(AdminInput):
@@ -242,18 +243,18 @@ def record(value: Any, fields: str) -> dict[str, Any]:
 def get(session: Session, model: Any, identifier: str | None) -> Any:
     value = session.get(model, identifier) if identifier else None
     if value is None:
-        raise HTTPException(404, "Record not found")
+        raise HTTPException(404, Message("authMessages.recordNotFound"))
     return value
 
 
 def require_ids(session: Session, model: Any, identifiers: list[str]) -> None:
     if len(set(identifiers)) != len(identifiers):
-        raise HTTPException(422, "Duplicate identifiers are not permitted")
+        raise HTTPException(422, Message("authMessages.duplicateIdentifiersAreNotPermitted"))
     known: set[str] = set(session.scalars(select(model.id).where(model.id.in_(identifiers))))
     if model is User:
         known = {identifier for identifier in known if not is_deleted(session, "users", identifier)}
     if known != set(identifiers):
-        raise HTTPException(422, "One or more referenced records do not exist")
+        raise HTTPException(422, Message("authMessages.oneOrMoreReferencedRecordsDoNotExist"))
 
 
 def user_record(session: Session, user: User) -> dict[str, Any]:
@@ -340,7 +341,7 @@ def normalized_payload(change: PreviewInput) -> dict[str, Any]:
             or not change.identifier
             or (change.method == "RESTORE" and change.resource != "users")
         ):
-            raise HTTPException(422, "Invalid access change")
+            raise HTTPException(422, Message("authMessages.invalidAccessChange"))
         return {}
     if (
         change.method == "POST"
@@ -348,7 +349,7 @@ def normalized_payload(change: PreviewInput) -> dict[str, Any]:
         or change.method == "PUT"
         and not change.identifier
     ):
-        raise HTTPException(422, "Invalid access change identifier")
+        raise HTTPException(422, Message("authMessages.invalidAccessChangeIdentifier"))
     model: type[BaseModel]
     if change.resource == "roles":
         model = RoleInput
@@ -361,7 +362,7 @@ def normalized_payload(change: PreviewInput) -> dict[str, Any]:
     try:
         return model.model_validate(change.payload).model_dump()
     except ValidationError as error:
-        raise HTTPException(422, "Invalid access change payload") from error
+        raise HTTPException(422, Message("authMessages.invalidAccessChangePayload")) from error
 
 
 def change_hash(change: PreviewInput) -> str:
@@ -390,7 +391,7 @@ def validate_role(session: Session, body: RoleInput) -> None:
                 PrinterGroup, permission.destination_id
             )
             if target is None or isinstance(target, PrinterDevice) and target.config.get("retired"):
-                raise HTTPException(422, "Unknown or retired print destination")
+                raise HTTPException(422, Message("authMessages.unknownOrRetiredPrintDestination"))
             key = ("destination", permission.destination_id)
             if isinstance(permission, DestinationPermissions):
                 from app.authn.resource_access import GROUP_PERMISSIONS, PRINTER_PERMISSIONS
@@ -405,18 +406,22 @@ def validate_role(session: Session, body: RoleInput) -> None:
                     or len(set(permission.permissions)) != len(permission.permissions)
                     or not set(permission.permissions) <= allowed
                 ):
-                    raise HTTPException(422, "Invalid or duplicate printer permission")
+                    raise HTTPException(
+                        422, Message("authMessages.invalidOrDuplicatePrinterPermission")
+                    )
         elif isinstance(permission, LocationPermissions):
             from app.authn.resource_access import CARTRIDGE_PERMISSIONS, PRINTER_PERMISSIONS
 
             if session.get(Location, permission.location_id) is None:
-                raise HTTPException(422, "Unknown location")
+                raise HTTPException(422, Message("authMessages.unknownLocation"))
             allowed = PRINTER_PERMISSIONS | CARTRIDGE_PERMISSIONS
             if set(permission.permissions) & set(permission.denied_permissions) or any(
                 len(values) != len(set(values)) or not set(values) <= allowed
                 for values in (permission.permissions, permission.denied_permissions)
             ):
-                raise HTTPException(422, "Invalid or conflicting location permissions")
+                raise HTTPException(
+                    422, Message("authMessages.invalidOrConflictingLocationPermissions")
+                )
             key = ("location", permission.location_id)
         else:
             key = ("application", permission.permission)
@@ -426,9 +431,9 @@ def validate_role(session: Session, body: RoleInput) -> None:
             try:
                 validate_submission_modes(permission.permissions)
             except ValueError as error:
-                raise HTTPException(422, str(error)) from error
+                raise HTTPException(422, error_detail(error)) from error
         if key in unique:
-            raise HTTPException(422, "Duplicate permission scope")
+            raise HTTPException(422, Message("authMessages.duplicatePermissionScope"))
         unique.add(key)
 
 
@@ -500,7 +505,7 @@ def ensure_administrator_remains(session: Session) -> None:
 
     session.flush()
     if not active_administrators(session):
-        raise HTTPException(409, "Keep at least one enabled Administrator")
+        raise HTTPException(409, Message("authMessages.keepAtLeastOneEnabledAdministrator"))
 
 
 def apply_change(
@@ -516,10 +521,12 @@ def apply_change(
         else:
             role = get(session, Role, change.identifier)
             if role.protected or role.id == ADMINISTRATOR_ROLE_ID:
-                raise HTTPException(409, "The Administrator role is protected")
+                raise HTTPException(409, Message("authMessages.theAdministratorRoleIsProtected"))
             if change.method == "DELETE":
                 if role.id == "member":
-                    raise HTTPException(409, "The default registration role cannot be deleted")
+                    raise HTTPException(
+                        409, Message("authMessages.theDefaultRegistrationRoleCannotBeDeleted")
+                    )
                 models: tuple[Any, ...] = (User, RegistrationCode)
                 for model in models:
                     value: Any
@@ -553,14 +560,16 @@ def apply_change(
             if session.scalar(
                 select(LabelTemplate.id).where(LabelTemplate.group_id == group.id).limit(1)
             ):
-                raise HTTPException(409, "Reassign this group's templates before deleting it")
+                raise HTTPException(
+                    409, Message("authMessages.reassignThisGroupsTemplatesBeforeDeletingIt")
+                )
             if session.scalar(
                 select(StoredAsset.id)
                 .where(StoredAsset.details["group_id"].as_string() == group.id)
                 .limit(1)
             ):
                 raise HTTPException(
-                    409, "Reassign this group's images and fonts before deleting it"
+                    409, Message("authMessages.reassignThisGroupsImagesAndFontsBeforeDeletingIt")
                 )
             for code in session.scalars(select(RegistrationCode)):
                 code.group_ids = [
@@ -615,7 +624,7 @@ def apply_change(
         user_update = UserInput.model_validate(payload)
         user = get(session, User, change.identifier)
         if is_deleted(session, "users", user.id):
-            raise HTTPException(404, "Account has been deleted")
+            raise HTTPException(404, Message("authMessages.accountHasBeenDeleted"))
         require_ids(session, Role, user_update.role_ids)
         if user_update.username is not None:
             if session.scalar(
@@ -623,7 +632,7 @@ def apply_change(
                     func.lower(User.username) == user_update.username, User.id != user.id
                 )
             ):
-                raise HTTPException(409, "That username is not available")
+                raise HTTPException(409, Message("authMessages.thatUsernameIsNotAvailable"))
             user.username = user_update.username
         user.disabled, user.role_ids = user_update.disabled, user_update.role_ids
         if user_update.password is not None:
@@ -656,12 +665,13 @@ def confirmed_change(
         or confirmation.actor_id != actor.id
         or confirmation.expires_at <= time.time()
     ):
-        raise HTTPException(409, "Preview and confirm this access change first")
+        raise HTTPException(409, Message("authMessages.previewAndConfirmThisAccessChangeFirst"))
     if confirmation.request_hash != change_hash(change) or confirmation.state_hash != state_hash(
         session
     ):
         raise HTTPException(
-            409, "Access configuration changed; recalculate the preview before confirming"
+            409,
+            Message("authMessages.accessConfigurationChangedRecalculateThePreviewBeforeConfirming"),
         )
     # Consume first: deleting the acting account also removes its other receipts.
     session.delete(confirmation)
@@ -746,8 +756,11 @@ def preview_access(body: PreviewInput, request: Request, session: DB) -> dict[st
 
 
 @router.get("/permissions")
-def permissions(session: DB) -> list[dict[str, str]]:
-    return [{"id": key, "label": label} for key, label in PERMISSIONS.items()]
+def permissions(session: DB, request: Request) -> list[dict[str, str]]:
+    return [
+        {"id": key, "label": translate(label, request_language(request))}
+        for key, label in PERMISSIONS.items()
+    ]
 
 
 @router.get("/users")
@@ -806,7 +819,9 @@ def deleted_content(session: DB) -> list[dict[str, Any]]:
 @router.post("/trash/{kind}/{identifier}/restore", status_code=204)
 def restore_deleted_content(kind: str, identifier: str, session: DB) -> None:
     if kind not in ("images", "fonts", "templates"):
-        raise HTTPException(422, "Restore accounts using the account access preview")
+        raise HTTPException(
+            422, Message("authMessages.restoreAccountsUsingTheAccountAccessPreview")
+        )
     restore_content(session, kind, identifier)
 
 
@@ -820,7 +835,7 @@ def purge_deleted_content(
     kind: str, identifier: str, body: PurgeDeletedInput, request: Request, session: DB
 ) -> None:
     if body.confirmation != identifier:
-        raise HTTPException(422, "Confirm the item to permanently purge")
+        raise HTTPException(422, Message("authMessages.confirmTheItemToPermanentlyPurge"))
     item = session.get(DeletedContent, (kind, identifier))
     already_purged = item is not None and item.purged_at is not None
     purge_now(session, kind, identifier, request.app.state.fonts, request.app.state.images)
@@ -915,9 +930,11 @@ def create_code(body: CodeInput, session: DB) -> dict[str, Any]:
     require_ids(session, Role, body.role_ids)
     require_ids(session, UserGroup, body.group_ids)
     if not set(body.group_permissions).issubset(body.group_ids):
-        raise HTTPException(422, "Group permissions require a selected content group")
+        raise HTTPException(
+            422, Message("authMessages.groupPermissionsRequireASelectedContentGroup")
+        )
     if ADMINISTRATOR_ROLE_ID in body.role_ids:
-        raise HTTPException(422, "Registration codes cannot grant Administrator")
+        raise HTTPException(422, Message("authMessages.registrationCodesCannotGrantAdministrator"))
     secret = secrets.token_urlsafe(32)
     code = RegistrationCode(
         token_hash=token_hash(secret),

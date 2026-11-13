@@ -12,6 +12,7 @@ from app.companion.companion_protocol import (
     WireLabel,
     payload_digest,
 )
+from app.i18n import Message
 from app.models import Companion, CompanionBatch, CompanionPrinter, PrinterDevice
 from app.printer.base import (
     BatchPlan,
@@ -26,6 +27,7 @@ from app.printer.base import (
     RenderedLabel,
     StopMode,
 )
+from app.printer.messages import restore_reason
 
 
 class RemotePrinterBackend:
@@ -59,9 +61,11 @@ class RemotePrinterBackend:
             if data.get("media"):
                 data["media"] = DetectedMedia(**data["media"])
             if link.blocked:
-                problem = data.get("error")
-                data["error"] = "Companion printer requires investigation" + (
-                    f": {problem}" if problem else ""
+                problem = restore_reason(data.get("error"), data.get("error_translation"))
+                data["error"] = (
+                    Message("printerMessages.investigationReason", reason=problem)
+                    if problem
+                    else Message("printerMessages.investigation")
                 )
                 data["error_requires_investigation"] = True
             return PrinterStatus(**data)

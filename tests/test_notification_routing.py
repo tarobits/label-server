@@ -60,6 +60,72 @@ def endpoint(session, identifier, **filters):
     return result
 
 
+def test_localized_delivery_uses_current_owner_language_without_changing_history(client):
+    from app.authn.identity import LOCAL_OWNER_ID
+    from app.i18n import Message
+
+    factory = client.app.state.factory
+    now = time.time()
+    with factory.begin() as session:
+        owner = session.get(User, LOCAL_OWNER_ID)
+        owner.language = "de"
+        endpoint(session, "personal", owner_id=owner.id)
+        enqueue(
+            session,
+            Message("notificationMessages.approvalTitle"),
+            Message("notificationMessages.approvalBody", count=2),
+            "/#/requests",
+            now=now,
+        )
+    received = []
+
+    def fail_once(channel, notice):
+        received.append((notice.title, notice.message))
+        raise OSError("temporary failure")
+
+    deliver_routed_pending(factory, Settings(), now, fail_once)
+    assert received == [
+        (
+            "Druckanfragen warten auf Freigabe",
+            "2 Druckanfragen warten auf Prüfung durch die Administration.",
+        )
+    ]
+    with factory.begin() as session:
+        owner = session.get(User, LOCAL_OWNER_ID)
+        owner.language = "en"
+        stored = session.scalar(select(Notification))
+        assert stored.title == "Print requests awaiting approval"
+        assert stored.context["i18n"]["message"]["parameters"] == {"count": 2}
+    deliver_routed_pending(
+        factory,
+        Settings(),
+        now + 30,
+        lambda channel, notice: received.append((notice.title, notice.message)),
+    )
+    assert received[-1] == (
+        "Print requests awaiting approval",
+        "2 print request(s) await administrator review.",
+    )
+    with factory.begin() as session:
+        owner = session.get(User, LOCAL_OWNER_ID)
+        owner.language = "de"
+        channel = session.get(NotificationEndpoint, "personal")
+        legacy = Notification(
+            kind="general",
+            context={},
+            recipient_id=owner.id,
+            title="My {title}",
+            message="Original user text",
+            path="/",
+        )
+        rendered = endpoint_message(session, legacy, channel)
+        assert rendered is not None
+        assert rendered.title == "My {title}"
+        assert rendered.message == "Original user text"
+        channel.owner_id = "missing-user"
+        assert endpoint_message(session, legacy, channel) is None
+
+
 def test_independent_delivery_retry_restart_and_no_replay(client):
     factory = client.app.state.factory
     now = time.time()

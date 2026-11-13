@@ -9,6 +9,7 @@ from typing import Any, Callable
 import httpx
 
 from app import __version__
+from app.i18n import Message
 from app.printer.base import ConfirmableMediaBackend, MediaSelection, PrinterBackend, PrinterStatus
 from app.printer.factory import configured_printer
 from app.printer.registry import PrinterDefinition
@@ -174,7 +175,7 @@ class Agent:
                         status = PrinterStatus(
                             False,
                             None,
-                            "Could not read printer status",
+                            Message("printerMessages.readFailed"),
                             error_requires_investigation=not isinstance(error, OSError),
                         )
                     self.statuses[local_id] = asdict(status)

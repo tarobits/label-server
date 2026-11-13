@@ -8,6 +8,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.i18n import Message
 from app.models import StoredAsset
 
 MAX_UPLOAD = 5_000_000
@@ -41,14 +42,16 @@ def remove_avatar(session: Session, user_id: str) -> None:
 
 def normalize_avatar(data: bytes) -> bytes:
     if not data or len(data) > MAX_UPLOAD:
-        raise ValueError("Choose a PNG, JPEG or WebP image of at most 5 MB")
+        raise ValueError(Message("authValidation.chooseAPNGJPEGOrWebPImageOfAtMost5MB"))
     try:
         with Image.open(io.BytesIO(data)) as source:
             if source.format not in ("PNG", "JPEG", "WEBP") or getattr(source, "n_frames", 1) != 1:
-                raise ValueError("Choose a still PNG, JPEG or WebP image")
+                raise ValueError(Message("authValidation.chooseAStillPNGJPEGOrWebPImage"))
             if source.width * source.height > 16_000_000 or max(source.size) > 8192:
                 raise ValueError(
-                    "Profile pictures are limited to 16 megapixels and 8192 pixels per side"
+                    Message(
+                        "authValidation.profilePicturesAreLimitedTo16MegapixelsAnd8192PixelsPerSide"
+                    )
                 )
             source.load()
             picture = ImageOps.fit(
@@ -62,7 +65,7 @@ def normalize_avatar(data: bytes) -> bytes:
             clean.save(output, format="PNG")
             return output.getvalue()
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
-        raise ValueError("Image could not be decoded") from error
+        raise ValueError(Message("authValidation.imageCouldNotBeDecoded")) from error
 
 
 def save_avatar(session: Session, user_id: str, normalized: bytes) -> None:

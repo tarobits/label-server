@@ -15,8 +15,12 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StrictStr,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
     model_validator,
 )
+
+from app.i18n import Message
 
 MAX_NUMBER = 1_000_000_000_000
 MAX_NODES = 512
@@ -72,10 +76,16 @@ def value_type(value: Value) -> ValueType | Literal["null"]:
 
 def bounded_value(value: Value) -> Value:
     if isinstance(value, str) and len(value) > MAX_TEXT:
-        raise ValueError(f"Text exceeds {MAX_TEXT} characters")
+        raise ValueError(Message("logicErrors.textExceedsValue1Characters", value1=MAX_TEXT))
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if abs(value) > MAX_NUMBER or not math.isfinite(value):
-            raise ValueError(f"Numbers must be finite and between {-MAX_NUMBER} and {MAX_NUMBER}")
+            raise ValueError(
+                Message(
+                    "logicErrors.numbersMustBeFiniteAndBetweenValue1AndValue2",
+                    value1=-MAX_NUMBER,
+                    value2=MAX_NUMBER,
+                )
+            )
     return value
 
 
@@ -83,9 +93,13 @@ def check_text_length(value: str, minimum: int | None, maximum: int | None, labe
     # Empty optional inputs and unconfigured defaults remain empty. Requiredness
     # is checked when resolving the values for a preview or submission.
     if value and minimum is not None and len(value) < minimum:
-        raise ValueError(f"{label}: enter at least {minimum} characters")
+        raise ValueError(
+            Message("logicErrors.value1EnterAtLeastValue2Characters", value1=label, value2=minimum)
+        )
     if maximum is not None and len(value) > maximum:
-        raise ValueError(f"{label}: enter at most {maximum} characters")
+        raise ValueError(
+            Message("logicErrors.value1EnterAtMostValue2Characters", value1=label, value2=maximum)
+        )
 
 
 class LogicInput(LogicModel):
@@ -105,32 +119,46 @@ class LogicInput(LogicModel):
         if value is None:
             return value
         if value_type(value) != self.type:
-            raise ValueError(f"{self.label}: expected {self.type}")
+            raise ValueError(
+                Message("logicErrors.value1ExpectedValue2", value1=self.label, value2=self.type)
+            )
         if isinstance(value, str):
             check_text_length(value, self.min_length, self.max_length, self.label)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if self.minimum is not None and value < self.minimum:
-                raise ValueError(f"{self.label}: value is below {self.minimum:g}")
+                raise ValueError(
+                    Message(
+                        "logicErrors.value1ValueIsBelowValue2",
+                        value1=self.label,
+                        value2=f"{self.minimum:g}",
+                    )
+                )
             if self.maximum is not None and value > self.maximum:
-                raise ValueError(f"{self.label}: value is above {self.maximum:g}")
+                raise ValueError(
+                    Message(
+                        "logicErrors.value1ValueIsAboveValue2",
+                        value1=self.label,
+                        value2=f"{self.maximum:g}",
+                    )
+                )
         return value
 
     @model_validator(mode="after")
     def valid_input(self) -> "LogicInput":
         if self.name in RESERVED:
-            raise ValueError(f"{self.name} is reserved")
+            raise ValueError(Message("logicErrors.value1IsReserved", value1=self.name))
         if self.type != "number" and (self.minimum is not None or self.maximum is not None):
-            raise ValueError("Only number inputs may define numeric limits")
+            raise ValueError(Message("domainMessages.onlyNumberInputsMayDefineNumericLimits"))
         if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
-            raise ValueError("Minimum exceeds maximum")
+            raise ValueError(Message("domainMessages.minimumExceedsMaximum"))
         if self.type != "text" and (self.min_length is not None or self.max_length is not None):
-            raise ValueError("Only text inputs may define length limits")
+            raise ValueError(Message("domainMessages.onlyTextInputsMayDefineLengthLimits"))
         if (
             self.min_length is not None
             and self.max_length is not None
             and self.min_length > self.max_length
         ):
-            raise ValueError("Minimum text length exceeds maximum")
+            raise ValueError(Message("domainMessages.minimumTextLengthExceedsMaximum"))
         self.check_value(self.default)
         self.check_value(self.sample)
         return self
@@ -143,7 +171,7 @@ class Span(LogicModel):
     @model_validator(mode="after")
     def ordered(self) -> "Span":
         if self.end < self.start:
-            raise ValueError("Invalid source span")
+            raise ValueError(Message("domainMessages.invalidSourceSpan"))
         return self
 
 
@@ -198,13 +226,20 @@ class Program(LogicModel):
     bindings: list[Binding] = Field(default_factory=list, max_length=128)
 
 
+def preserve_message(value: object, handler: ValidatorFunctionWrapHandler) -> str:
+    checked = handler(value)
+    return value if isinstance(value, Message) else checked
+
+
 class Target(LogicModel):
     """A renderer-owned allowlist, keyed by source alias when compiling a program."""
 
     id: str = Field(min_length=1, max_length=80)
     properties: dict[Symbol, ValueType] = Field(min_length=1, max_length=64)
     readable_properties: dict[Symbol, ValueType] | None = Field(default=None, max_length=64)
-    disabled_properties: dict[Symbol, str] = Field(default_factory=dict, max_length=64)
+    disabled_properties: dict[Symbol, Annotated[str, WrapValidator(preserve_message)]] = Field(
+        default_factory=dict, max_length=64
+    )
 
 
 class EditorNode(LogicModel):
@@ -244,5 +279,5 @@ class LogicEditorState(LogicModel):
     @model_validator(mode="after")
     def unique_nodes(self) -> "LogicEditorState":
         if len({node.id for node in self.nodes}) != len(self.nodes):
-            raise ValueError("Editor node IDs must be unique")
+            raise ValueError(Message("domainMessages.editorNodeIDsMustBeUnique"))
         return self
