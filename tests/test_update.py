@@ -347,13 +347,20 @@ def test_prebuilt_failure_keeps_service_code_and_data_untouched(deployment, monk
 
 
 @pytest.mark.parametrize("mode", ["native", "docker"])
+@pytest.mark.parametrize("bundle_change", [False, True])
 def test_changed_updater_exits_before_download_and_can_resume(
-    deployment, monkeypatch, capsys, mode
+    deployment, monkeypatch, capsys, mode, bundle_change
 ):
     root, data, previous, newest = deployment
     git(root, "switch", "--detach", newest)
     revised = Path(update.__file__).read_text() + "\n# A newer release updater.\n"
     (root / "scripts/update.py").write_text(revised)
+    original_bundle = (root / update.DEPLOYMENT_LANGUAGE_BUNDLE).read_text()
+    if bundle_change:
+        bundle = json.loads(original_bundle)
+        bundle["messages"]["en"]["handoffTest"] = "Release language bundle"
+        bundle["messages"]["de"]["handoffTest"] = "Sprachpaket der Version"
+        (root / update.DEPLOYMENT_LANGUAGE_BUNDLE).write_text(json.dumps(bundle))
     git(root, "commit", "-am", "Revise updater")
     newest = git(root, "rev-parse", "HEAD")
     git(root, "tag", "--force", "v2.0.0")
@@ -387,7 +394,12 @@ def test_changed_updater_exits_before_download_and_can_resume(
     assert resumed.tag == "v2.0.0" and resumed.prebuilt_frontend == (mode == "native")
     assert resumed.checkout == root and resumed.install_dir == root
     assert git(root, "rev-parse", "HEAD") == previous
-    assert git(root, "status", "--porcelain") == "M scripts/update.py"
+    assert git(root, "status", "--porcelain").splitlines() == (
+        ["M lang/deployment.json", " M scripts/update.py"]
+        if bundle_change
+        else ["M scripts/update.py"]
+    )
+    assert Path(str(saved) + ".language.json").read_text() == original_bundle
     assert (data / "labels.db").read_bytes() == b"original database"
     assert not list(args.backup_dir.glob("*/update.json"))
     # Simulate the wrapper executing its replaced updater on the next invocation.
@@ -497,6 +509,12 @@ def deployment(tmp_path, monkeypatch):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("placeholder")
     (root / "scripts/update.py").write_text(Path(update.__file__).read_text())
+    (root / "lang").mkdir()
+    (root / update.DEPLOYMENT_LANGUAGE_BUNDLE).write_bytes(
+        (
+            Path(update.__file__).resolve().parents[1] / update.DEPLOYMENT_LANGUAGE_BUNDLE
+        ).read_bytes()
+    )
     (root / "app").mkdir(exist_ok=True)
     (root / "app/main.py").write_text("UPDATE_VALIDATION_PROTOCOL = 1\n")
     (root / "companion/web.py").write_text("UPDATE_VALIDATION_PROTOCOL = 1\n")

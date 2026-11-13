@@ -41,6 +41,103 @@ FRONTEND_METADATA = "frontend-build.json"
 MAX_FRONTEND_DOWNLOAD = 64 * 1024 * 1024
 MAX_FRONTEND_UNPACKED = 256 * 1024 * 1024
 UPDATE_MARKER = ".update-in-progress"
+DEPLOYMENT_LANGUAGE_BUNDLE = "lang/deployment.json"
+_deployment_root = Path(__file__).resolve().parents[1]
+_deployment_language = "en"
+_deployment_messages: dict[str, Any] | None = None
+
+
+def configure_language(invocation: list[str]) -> str:
+    """Select a locale without importing the application or changing unattended behavior."""
+    global _deployment_language, _deployment_messages
+    locale = next(
+        (os.environ[key] for key in ("LC_ALL", "LC_MESSAGES", "LANG") if os.environ.get(key)), "en"
+    )
+    selected = "de" if re.split(r"[-_.@]", locale.lower())[0] == "de" else "en"
+    for index, argument in enumerate(invocation):
+        if argument.startswith("--language="):
+            selected = argument.split("=", 1)[1]
+        elif argument == "--language" and index + 1 < len(invocation):
+            selected = invocation[index + 1]
+    _deployment_language = selected if selected in {"en", "de"} else "en"
+    if _deployment_messages is None:
+        _deployment_messages = deployment_catalog(
+            (_deployment_root / DEPLOYMENT_LANGUAGE_BUNDLE).read_text(encoding="utf-8")
+        )
+    return _deployment_language
+
+
+def tr(message_key: str, **parameters: Any) -> str:
+    global _deployment_messages
+    if _deployment_messages is None:
+        configure_language([])
+    assert _deployment_messages is not None
+    message = _deployment_messages[_deployment_language][message_key]
+    return re.sub(r"\{(\w+)\}", lambda match: str(parameters.get(match[1], match[0])), message)
+
+
+def deployment_catalog(source: str) -> dict[str, Any]:
+    """Validate the non-executable language bundle before replacing deployment tools."""
+    if not source or len(source.encode("utf-8")) > 1024 * 1024:
+        raise UpdateError("Invalid deployment language bundle")
+    try:
+
+        def unique_object(items: list[tuple[str, Any]]) -> dict[str, Any]:
+            result = {}
+            for key, value in items:
+                if key in result:
+                    raise ValueError
+                result[key] = value
+            return result
+
+        data = json.loads(source, object_pairs_hook=unique_object)
+        if not isinstance(data, dict) or data.get("schema") != 1:
+            raise ValueError
+        messages = data["messages"]
+        if set(messages) != {"en", "de"}:
+            raise ValueError
+
+        def flatten(value: Any, prefix: str = "") -> dict[str, str]:
+            if not isinstance(value, dict):
+                raise ValueError
+            result = {}
+            for key, child in value.items():
+                if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", key):
+                    raise ValueError
+                name = f"{prefix}.{key}" if prefix else key
+                if isinstance(child, dict):
+                    result.update(flatten(child, name))
+                elif isinstance(child, str) and child:
+                    result[name] = child
+                else:
+                    raise ValueError
+            return result
+
+        en, de = (flatten(messages[language]) for language in ("en", "de"))
+        if not en or en.keys() != de.keys():
+            raise ValueError
+        for key in en:
+            if set(re.findall(r"\{(\w+)\}", en[key])) != set(re.findall(r"\{(\w+)\}", de[key])):
+                raise ValueError
+        return {"en": en, "de": de}
+    except (ValueError, KeyError, TypeError, RecursionError) as error:
+        raise UpdateError("Invalid deployment language bundle") from error
+
+
+def release_language_bundle(source: str) -> bool:
+    """Older releases have standalone updaters and do not require a bundle."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "DEPLOYMENT_LANGUAGE_BUNDLE"
+            for target in node.targets
+        ):
+            if (
+                not isinstance(node.value, ast.Constant)
+                or node.value.value != DEPLOYMENT_LANGUAGE_BUNDLE
+            ):
+                raise UpdateError("Unsupported deployment language bundle path")
+            return True
+    return False
 
 
 def frontend_file(name: str, role: str = "main") -> bool:
@@ -87,7 +184,7 @@ class AssetRedirectHandler(urllib.request.HTTPRedirectHandler):
             "release-assets.githubusercontent.com",
             "objects.githubusercontent.com",
         }:
-            raise UpdateError("Unexpected GitHub asset redirect")
+            raise UpdateError(tr("messages.unexpectedGitHubAssetRedirect"))
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected is not None and url.netloc != urllib.parse.urlsplit(req.full_url).netloc:
             redirected.remove_header("Authorization")
@@ -100,15 +197,16 @@ def download_frontend(
     asset_name = COMPANION_FRONTEND_ASSET if role == "companion" else FRONTEND_ASSET
     release = release_request(repository, f"/tags/{urllib.parse.quote(tag, safe='')}", token)
     if release_tag(release) != tag:
-        raise UpdateError("GitHub returned a different release tag than requested")
+        raise UpdateError(tr("messages.githubReturnedADifferentReleaseTagThanRequested"))
     assets = release.get("assets", [])
     if not isinstance(assets, list):
-        raise UpdateError("GitHub returned an invalid release asset list")
+        raise UpdateError(tr("messages.githubReturnedAnInvalidReleaseAssetList"))
     matches = [a for a in assets if isinstance(a, dict) and a.get("name") == asset_name]
     if len(matches) != 1:
         raise UpdateError(
-            "Selected release has no unique prebuilt frontend. Wait for its release workflow "
-            "to finish, or use --build-frontend to build locally."
+            tr(
+                "messages.selectedReleaseHasNoUniquePrebuiltFrontendWaitForItsReleaseWorkflowToFinishOrUseBuildFrontendToBuildLocally"
+            )
         )
     asset = matches[0]
     asset_id, size, digest = asset.get("id"), asset.get("size"), asset.get("digest")
@@ -121,7 +219,7 @@ def download_frontend(
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
         or asset.get("state") != "uploaded"
     ):
-        raise UpdateError("Prebuilt frontend has missing or invalid size/SHA-256 metadata")
+        raise UpdateError(tr("messages.prebuiltFrontendHasMissingOrInvalidSizeSHA256Metadata"))
     headers = {"Accept": "application/octet-stream", "User-Agent": "label-server-updater"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -137,14 +235,14 @@ def download_frontend(
             while chunk := response.read(1024 * 1024):
                 received += len(chunk)
                 if received > size:
-                    raise UpdateError("Prebuilt frontend exceeds its declared size")
+                    raise UpdateError(tr("messages.prebuiltFrontendExceedsItsDeclaredSize"))
                 checksum.update(chunk)
                 output.write(chunk)
     except (OSError, urllib.error.URLError) as error:
         # Do not expose credentials, response bodies or signed redirect URLs.
-        raise UpdateError("Could not download the prebuilt frontend from GitHub") from error
+        raise UpdateError(tr("messages.couldNotDownloadThePrebuiltFrontendFromGitHub")) from error
     if received != size or checksum.hexdigest() != digest.removeprefix("sha256:"):
-        raise UpdateError("Prebuilt frontend size or SHA-256 verification failed")
+        raise UpdateError(tr("messages.prebuiltFrontendSizeOrSHA256VerificationFailed"))
     return archive
 
 
@@ -166,7 +264,7 @@ def unpack_frontend(archive: Path, destination: Path, commit: str, role: str = "
                 or not required <= set(names)
                 or not any(name.startswith("assets/") and name.endswith(".js") for name in names)
             ):
-                raise UpdateError("Prebuilt frontend has an invalid file list or size")
+                raise UpdateError(tr("messages.prebuiltFrontendHasAnInvalidFileListOrSize"))
             for entry in entries:
                 mode = stat.S_IFMT(entry.external_attr >> 16)
                 if (
@@ -175,9 +273,9 @@ def unpack_frontend(archive: Path, destination: Path, commit: str, role: str = "
                     or mode not in {0, stat.S_IFREG}
                     or entry.flag_bits & 1
                 ):
-                    raise UpdateError("Prebuilt frontend contains an unsafe file")
+                    raise UpdateError(tr("messages.prebuiltFrontendContainsAnUnsafeFile"))
             if bundle.getinfo(FRONTEND_METADATA).file_size > 4096:
-                raise UpdateError("Prebuilt frontend build metadata is too large")
+                raise UpdateError(tr("messages.prebuiltFrontendBuildMetadataIsTooLarge"))
             metadata = json.loads(bundle.read(FRONTEND_METADATA))
             if (
                 not isinstance(metadata, dict)
@@ -185,7 +283,9 @@ def unpack_frontend(archive: Path, destination: Path, commit: str, role: str = "
                 or metadata.get("commit") != commit
                 or metadata.get("role", "main") != role
             ):
-                raise UpdateError("Prebuilt frontend does not match the selected source commit")
+                raise UpdateError(
+                    tr("messages.prebuiltFrontendDoesNotMatchTheSelectedSourceCommit")
+                )
             destination.mkdir(mode=0o755)
             destination.chmod(0o755)
             for entry in entries:
@@ -204,14 +304,14 @@ def unpack_frontend(archive: Path, destination: Path, commit: str, role: str = "
         UnicodeError,
         ValueError,
     ) as error:
-        raise UpdateError("Prebuilt frontend archive is invalid") from error
+        raise UpdateError(tr("messages.prebuiltFrontendArchiveIsInvalid")) from error
 
 
 def install_frontend(staged: Path, install_dir: Path, role: str = "main") -> None:
     frontend = install_dir / "frontend"
     target = frontend / ("dist-companion" if role == "companion" else "dist")
     if target.is_symlink() or (target.exists() and not target.is_dir()):
-        raise UpdateError("Frontend dist must be a directory, not a file or symlink")
+        raise UpdateError(tr("messages.frontendDistMustBeADirectoryNotAFileOrSymlink"))
     with tempfile.TemporaryDirectory(prefix=".frontend-install-", dir=frontend) as temporary:
         temporary_path = Path(temporary)
         replacement, previous = temporary_path / "dist", temporary_path / "previous"
@@ -229,15 +329,30 @@ def install_frontend(staged: Path, install_dir: Path, role: str = "main") -> Non
 def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
     """Run each release with its own updater, without switching live application code."""
     source = command(["git", "show", f"{commit}:scripts/update.py"], args.checkout, capture=True)
-    if source == Path(__file__).read_text().strip():
-        return False
     if not source or len(source.encode()) > 1024 * 1024:
-        raise UpdateError("Selected release has an invalid updater")
+        raise UpdateError(tr("messages.selectedReleaseHasAnInvalidUpdater"))
     try:
         compile(source, "release-updater", "exec")
     except SyntaxError as error:
-        raise UpdateError("Selected release updater is not compatible with this Python") from error
+        raise UpdateError(
+            tr("messages.selectedReleaseUpdaterIsNotCompatibleWithThisPython")
+        ) from error
     target = Path(__file__).resolve()
+    bundle_target = target.parent.parent / DEPLOYMENT_LANGUAGE_BUNDLE
+    bundle_source = None
+    if release_language_bundle(source):
+        bundle_source = command(
+            ["git", "show", f"{commit}:{DEPLOYMENT_LANGUAGE_BUNDLE}"], args.checkout, capture=True
+        )
+        deployment_catalog(bundle_source)
+        if bundle_target.is_symlink() or bundle_target.parent.is_symlink():
+            raise UpdateError(tr("messages.deploymentLanguageBundleMustNotBeASymlink"))
+    if source == target.read_text().strip() and (
+        bundle_source is None
+        or bundle_target.is_file()
+        and bundle_target.read_text().strip() == bundle_source
+    ):
+        return False
     descriptor, filename = tempfile.mkstemp(
         prefix=f"updater-{commit[:12]}-", suffix=".py", dir=args.backup_dir
     )
@@ -245,18 +360,58 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
         output.write(target.read_text())
         output.flush()
         os.fsync(output.fileno())
+    previous_bundle = (
+        bundle_target.read_bytes() if bundle_source is not None and bundle_target.exists() else None
+    )
+    if previous_bundle is not None:
+        Path(filename + ".language.json").write_bytes(previous_bundle)
     # Publish atomically only after the old updater has been backed up. A failed
     # write leaves the wrapper's existing target usable.
     descriptor, replacement = tempfile.mkstemp(prefix=".update-", dir=target.parent)
+    bundle_replaced = False
+    bundle_replacement = None
     try:
         with os.fdopen(descriptor, "w") as output:
             output.write(source + "\n")
             output.flush()
             os.fsync(output.fileno())
         shutil.copymode(target, replacement)
+        if bundle_source is not None:
+            bundle_target.parent.mkdir(parents=True, exist_ok=True)
+            bundle_descriptor, bundle_replacement = tempfile.mkstemp(
+                prefix=".deployment-", dir=bundle_target.parent
+            )
+            with os.fdopen(bundle_descriptor, "w") as output:
+                output.write(bundle_source + "\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(bundle_replacement, 0o644)
+            os.replace(bundle_replacement, bundle_target)
+            bundle_replaced = True
         os.replace(replacement, target)
+    except BaseException:
+        if bundle_replaced:
+            if previous_bundle is None:
+                bundle_target.unlink()
+            else:
+                # Restore the previous bundle before returning to the old updater.
+                descriptor, restored = tempfile.mkstemp(
+                    prefix=".deployment-", dir=bundle_target.parent
+                )
+                try:
+                    with os.fdopen(descriptor, "wb") as output:
+                        output.write(previous_bundle)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.chmod(restored, 0o644)
+                    os.replace(restored, bundle_target)
+                finally:
+                    Path(restored).unlink(missing_ok=True)
+        raise
     finally:
         Path(replacement).unlink(missing_ok=True)
+        if bundle_replacement is not None:
+            Path(bundle_replacement).unlink(missing_ok=True)
     invocation = [
         *(["sudo"] if args.mode == "native" else []),
         str(
@@ -277,9 +432,7 @@ def handoff_updater(args: argparse.Namespace, commit: str, tag: str) -> bool:
         args.mode,
     ]
     print(
-        f"Updater replaced; previous updater saved to {filename}. "
-        "The service has not been stopped. Rerun update.sh to continue:\n\n"
-        + shlex.join(invocation),
+        tr("progress.handoff", filename=filename, command=shlex.join(invocation)),
         flush=True,
     )
     return True
@@ -322,7 +475,7 @@ def environment_entries(text: str) -> Generator[tuple[str, str], None, None]:
                 continuation = next(lines, None)
                 if continuation is None:
                     raise UpdateError(
-                        "Unterminated quoted environment value; configuration unchanged"
+                        tr("messages.unterminatedQuotedEnvironmentValueConfigurationUnchanged")
                     )
                 pending.append(continuation)
                 remainder = continuation
@@ -338,7 +491,7 @@ def sync_environment_files(args: argparse.Namespace) -> None:
         target = args.install_dir / name
         example = args.checkout / f"{name}.example"
         if target.is_symlink():
-            raise UpdateError(f"Cannot update symlinked {name}; use --no-env-update")
+            raise UpdateError(tr("progress.symlinkEnv", name=name))
         if not target.is_file() or not example.is_file():
             continue
         original = target.read_bytes()
@@ -380,11 +533,11 @@ def sync_environment_files(args: argparse.Namespace) -> None:
                 or target.read_bytes() != original
                 or any(getattr(latest, field) != getattr(metadata, field) for field in identity)
             ):
-                raise UpdateError(f"{name} changed during update; refusing to overwrite it")
+                raise UpdateError(tr("progress.envChanged", name=name))
             os.replace(temporary, target)
         finally:
             Path(temporary).unlink(missing_ok=True)
-        print(f"Updated {name}: added {len(additions)} missing settings.", flush=True)
+        print(tr("progress.envAdded", name=name, count=len(additions)), flush=True)
 
 
 def confirm_operation(question: str, *, yes: bool) -> bool:
@@ -392,14 +545,16 @@ def confirm_operation(question: str, *, yes: bool) -> bool:
         return True
     if not sys.stdin.isatty():
         raise UpdateError(
-            "Confirmation requires an interactive terminal; use --yes for unattended operation"
+            tr("messages.confirmationRequiresAnInteractiveTerminalUseYesForUnattendedOperation")
         )
     try:
-        accepted = input(question + " [y/N] ").strip().lower() in {"y", "yes"}
+        accepted = input(tr("progress.confirm", question=question)).strip().lower() in (
+            {"y", "yes", "j", "ja"} if _deployment_language == "de" else {"y", "yes"}
+        )
     except EOFError:
         accepted = False
     if not accepted:
-        print("Cancelled. No installation or update was performed.")
+        print(tr("messages.cancelledNoInstallationOrUpdateWasPerformed"))
     return accepted
 
 
@@ -411,10 +566,14 @@ def prompt_value(question: str, default: str = "", choices: tuple[str, ...] = ()
         try:
             value = input(question + suffix + ": ").strip() or default
         except (EOFError, KeyboardInterrupt):
-            raise UpdateError("Cancelled; no deployment changes made") from None
+            raise UpdateError(tr("messages.cancelledNoDeploymentChangesMade")) from None
         if value and (not choices or value in choices):
             return value
-        print("Choose " + ", ".join(choices) if choices else "A value is required.")
+        print(
+            tr("progress.choose", choices=", ".join(choices))
+            if choices
+            else tr("progress.required")
+        )
 
 
 def command(
@@ -429,7 +588,9 @@ def command(
     result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=capture, input=input)
     if result.returncode:
         # Captured configuration/inspection output can contain credentials.
-        raise UpdateError(f"Command failed (exit {result.returncode}): {shlex.join(args)}")
+        raise UpdateError(
+            tr("progress.commandFailed", code=result.returncode, command=shlex.join(args))
+        )
     return result.stdout.strip() if capture else ""
 
 
@@ -439,13 +600,13 @@ def github_repository(remote: str) -> str:
         remote,
     )
     if not match:
-        raise UpdateError("origin must be a GitHub HTTPS or SSH repository URL")
+        raise UpdateError(tr("messages.originMustBeAGitHubHTTPSOrSSHRepositoryURL"))
     return match[1]
 
 
 def release_request(repository: str, path: str, token: str | None = None) -> Any:
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
-        raise UpdateError("Repository must be OWNER/REPOSITORY")
+        raise UpdateError(tr("messages.repositoryMustBeOWNERREPOSITORY"))
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "label-server-updater"}
     if token := token or os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {token}"
@@ -458,11 +619,11 @@ def release_request(repository: str, path: str, token: str | None = None) -> Any
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise UpdateError(
-                "No published release found, or repository access is unavailable"
+                tr("messages.noPublishedReleaseFoundOrRepositoryAccessIsUnavailable")
             ) from error
-        raise UpdateError(f"GitHub release lookup failed (HTTP {error.code})") from error
+        raise UpdateError(tr("progress.releaseHttp", code=error.code)) from error
     except (OSError, ValueError) as error:
-        raise UpdateError("Could not read GitHub release information") from error
+        raise UpdateError(tr("messages.couldNotReadGitHubReleaseInformation")) from error
 
 
 def valid_tag(tag: str) -> bool:
@@ -485,8 +646,7 @@ def release_tag(release: Any, *, stable: bool = False) -> str:
         or release.get("draft")
         or (stable and release.get("prerelease"))
     ):
-        kind = "stable " if stable else ""
-        raise UpdateError(f"GitHub did not return a published {kind}release tag")
+        raise UpdateError(tr("progress.noStableTag" if stable else "progress.noTag"))
     return tag
 
 
@@ -501,7 +661,7 @@ def beta_release(repository: str, token: str | None = None) -> str:
     while True:
         releases = release_request(repository, f"?per_page=100&page={page}", token)
         if not isinstance(releases, list):
-            raise UpdateError("GitHub did not return a release list")
+            raise UpdateError(tr("messages.githubDidNotReturnAReleaseList"))
         for release in releases:
             if isinstance(release, dict) and release.get("draft"):
                 continue
@@ -511,7 +671,9 @@ def beta_release(repository: str, token: str | None = None) -> str:
                 if published.utcoffset() is None:
                     raise ValueError("Missing timezone")
             except (KeyError, TypeError, ValueError) as error:
-                raise UpdateError("GitHub returned an invalid release publication date") from error
+                raise UpdateError(
+                    tr("messages.githubReturnedAnInvalidReleasePublicationDate")
+                ) from error
             candidate = (published, not bool(release.get("prerelease")), tag)
             if newest is None or candidate > newest:
                 newest = candidate
@@ -519,18 +681,18 @@ def beta_release(repository: str, token: str | None = None) -> str:
             break
         page += 1
     if newest is None:
-        raise UpdateError("No published release found for the beta channel")
+        raise UpdateError(tr("messages.noPublishedReleaseFoundForTheBetaChannel"))
     return newest[2]
 
 
 def tagged_release(repository: str, tag: str, token: str | None = None) -> str:
     if not valid_tag(tag):
-        raise UpdateError("Invalid release tag")
+        raise UpdateError(tr("messages.invalidReleaseTag"))
     selected = release_tag(
         release_request(repository, f"/tags/{urllib.parse.quote(tag, safe='')}", token)
     )
     if selected != tag:
-        raise UpdateError("GitHub returned a different release tag than requested")
+        raise UpdateError(tr("messages.githubReturnedADifferentReleaseTagThanRequested"))
     return selected
 
 
@@ -548,9 +710,9 @@ def installation_token(args: argparse.Namespace) -> str | None:
                 try:
                     parts = shlex.split(match[2], comments=True)
                 except ValueError as error:
-                    raise UpdateError("Invalid GitHub credential setting in .env") from error
+                    raise UpdateError(tr("messages.invalidGitHubCredentialSettingInEnv")) from error
                 if len(parts) > 1:
-                    raise UpdateError("Invalid GitHub credential setting in .env")
+                    raise UpdateError(tr("messages.invalidGitHubCredentialSettingInEnv"))
                 values[match[1]] = parts[0] if parts else ""
     token_file = args.github_token_file or os.environ.get("LABEL_GITHUB_TOKEN_FILE")
     token = os.environ.get("LABEL_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -565,11 +727,11 @@ def installation_token(args: argparse.Namespace) -> str | None:
         try:
             token = path.read_text().strip()
         except OSError as error:
-            raise UpdateError("Cannot read the GitHub token file") from error
+            raise UpdateError(tr("messages.cannotReadTheGitHubTokenFile")) from error
         if not token:
-            raise UpdateError("The GitHub token file is empty")
+            raise UpdateError(tr("messages.theGitHubTokenFileIsEmpty"))
     if token and not re.fullmatch(r"[A-Za-z0-9_]+", token):
-        raise UpdateError("Invalid GitHub token format")
+        raise UpdateError(tr("messages.invalidGitHubTokenFormat"))
     return token or None
 
 
@@ -598,15 +760,15 @@ def deployment_role(directory: Path) -> str:
     """A role is installation state, never inferred from source files present in both builds."""
     marker = directory / ROLE_MARKER
     if marker.is_symlink():
-        raise UpdateError("The installation role marker must not be a symlink")
+        raise UpdateError(tr("messages.theInstallationRoleMarkerMustNotBeASymlink"))
     role = marker.read_text().strip() if marker.exists() else None
     if role is not None and role not in {"main", "companion"}:
-        raise UpdateError("Invalid installation role marker")
+        raise UpdateError(tr("messages.invalidInstallationRoleMarker"))
     main = (directory / ".env").exists()
     companion = (directory / ".env.companion").exists()
     if (main and companion) or (role == "main" and companion) or (role == "companion" and main):
         raise UpdateError(
-            "Conflicting main and companion configuration; one server role is allowed per machine"
+            tr("messages.conflictingMainAndCompanionConfigurationOneServerRoleIsAllowedPerMachine")
         )
     return role or ("companion" if companion else "main")
 
@@ -630,11 +792,9 @@ def probe_deployment(command: list[str], directory: Path) -> str:
             timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise UpdateError(
-            f"Could not inspect {command[0]}; specify --mode native or --mode docker"
-        ) from error
+        raise UpdateError(tr("progress.inspect", command=command[0])) from error
     if result.returncode:
-        raise UpdateError(f"Could not inspect {command[0]}; specify --mode native or --mode docker")
+        raise UpdateError(tr("progress.inspect", command=command[0]))
     return result.stdout.strip()
 
 
@@ -688,44 +848,42 @@ def detect_mode(args: argparse.Namespace) -> str:
             unavailable.append("Docker")
     if len(detected) == 1:
         return detected.pop()
-    reason = (
-        "Both native and Docker installations match"
-        if detected
-        else "No installed service or Compose container matched the selected paths"
-    )
+    reason = tr("progress.ambiguous" if detected else "progress.notFound")
     if unavailable:
-        reason += "; could not inspect " + ", ".join(unavailable)
-    raise UpdateError(
-        reason
-        + ". Specify --mode native or --mode docker (and --install-dir for a separate native installation)."
-    )
+        reason = tr("progress.unavailable", reason=reason, tools=", ".join(unavailable))
+    raise UpdateError(tr("progress.modeAdvice", reason=reason))
 
 
 def options(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    invocation = list(sys.argv[1:] if argv is None else argv)
+    language = configure_language(invocation)
+    parser = argparse.ArgumentParser(description=tr("update.description"))
+    parser.add_argument(
+        "--language", choices=("en", "de"), default=language, help=tr("common.language")
+    )
     parser.add_argument(
         "--mode",
         default="auto",
         choices=("auto", "native", "docker"),
-        help="Detect the installed runtime (default), or explicitly select native/docker",
+        help=tr("messages.detectTheInstalledRuntimeDefaultOrExplicitlySelectNativeDocker"),
     )
     parser.add_argument(
         "-y",
         "--yes",
         action="store_true",
-        help="Accepted for compatibility; updates already run without prompting",
+        help=tr("messages.acceptedForCompatibilityUpdatesAlreadyRunWithoutPrompting"),
     )
     parser.add_argument(
         "--channel",
         choices=("stable", "beta"),
         default="stable",
-        help="Release channel: stable (default), or newest publication including prereleases",
+        help=tr("messages.releaseChannelStableDefaultOrNewestPublicationIncludingPrereleases"),
     )
-    parser.add_argument("--tag", help="Published release tag to install; overrides --channel")
+    parser.add_argument("--tag", help=tr("messages.publishedReleaseTagToInstallOverridesChannel"))
     parser.add_argument(
         "--no-env-update",
         action="store_true",
-        help="Do not compare existing environment files with release examples or add settings",
+        help=tr("messages.doNotCompareExistingEnvironmentFilesWithReleaseExamplesOrAddSettings"),
     )
     frontend = parser.add_mutually_exclusive_group()
     frontend.add_argument(
@@ -736,42 +894,47 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     frontend.add_argument(
         "--build-frontend",
         action="store_true",
-        help="Build the native frontend locally instead of downloading release assets",
+        help=tr("messages.buildTheNativeFrontendLocallyInsteadOfDownloadingReleaseAssets"),
     )
     parser.add_argument(
         "--checkout",
         type=Path,
         default=Path(__file__).resolve().parents[1],
-        help="Git checkout; a missing directory is cloned automatically",
+        help=tr("messages.gitCheckoutAMissingDirectoryIsClonedAutomatically"),
     )
     parser.add_argument(
         "--install-dir",
         type=Path,
-        help="Native application directory, if separate from the source checkout",
+        help=tr("messages.nativeApplicationDirectoryIfSeparateFromTheSourceCheckout"),
     )
-    parser.add_argument("--repository", help="GitHub OWNER/REPOSITORY (defaults to origin)")
-    parser.add_argument("--github-token-file", type=Path, help="File containing a raw GitHub token")
+    parser.add_argument("--repository", help=tr("messages.githubOWNERREPOSITORYDefaultsToOrigin"))
     parser.add_argument(
-        "--backup-dir", type=Path, help="Backup parent, outside application/data paths"
+        "--github-token-file", type=Path, help=tr("messages.fileContainingARawGitHubToken")
+    )
+    parser.add_argument(
+        "--backup-dir", type=Path, help=tr("messages.backupParentOutsideApplicationDataPaths")
     )
     parser.add_argument("--service", default="labels.service")
     parser.add_argument(
         "--compose-file",
         action="append",
         default=[],
-        help="Compose file; repeat for USB/local overrides",
+        help=tr("messages.composeFileRepeatForUSBLocalOverrides"),
     )
-    parser.add_argument("--project-name", help="Existing Compose project name, if explicitly set")
-    parser.add_argument("--health-url", help="Override the service's local health URL")
+    parser.add_argument(
+        "--project-name", help=tr("messages.existingComposeProjectNameIfExplicitlySet")
+    )
+    parser.add_argument("--health-url", help=tr("messages.overrideTheServiceSLocalHealthURL"))
     parser.add_argument("--health-timeout", type=float, default=60)
     parser.add_argument(
-        "--check", action="store_true", help="Show the release and plan without changing anything"
+        "--check",
+        action="store_true",
+        help=tr("messages.showTheReleaseAndPlanWithoutChangingAnything"),
     )
-    invocation = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(invocation)
     args.invocation = invocation
     if args.tag is not None and not valid_tag(args.tag):
-        parser.error("--tag must be a valid release tag name")
+        parser.error(tr("messages.tagMustBeAValidReleaseTagName"))
     args.checkout = args.checkout.resolve()
     args.install_dir = (args.install_dir or args.checkout).resolve()
     args.role = deployment_role(args.install_dir)
@@ -789,18 +952,18 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         args.install_dir.is_relative_to(args.checkout)
         or args.checkout.is_relative_to(args.install_dir)
     ):
-        parser.error("Separate source and installation directories must not be nested")
+        parser.error(tr("messages.separateSourceAndInstallationDirectoriesMustNotBeNested"))
     if args.health_timeout <= 0:
-        parser.error("--health-timeout must be positive")
+        parser.error(tr("messages.healthTimeoutMustBePositive"))
     if not args.service or args.service.startswith("-"):
-        parser.error("Invalid service name")
+        parser.error(tr("messages.invalidServiceName"))
     args.mode_detected = args.mode == "auto"
     if args.mode_detected:
         args.mode = detect_mode(args)
     if args.mode == "docker" and args.install_dir != args.checkout:
-        parser.error("--install-dir is for native deployments; Compose runs from --checkout")
+        parser.error(tr("messages.installDirIsForNativeDeploymentsComposeRunsFromCheckout"))
     if args.mode == "docker" and args.prebuilt_frontend:
-        parser.error("--prebuilt-frontend is for native deployments only")
+        parser.error(tr("messages.prebuiltFrontendIsForNativeDeploymentsOnly"))
     args.prebuilt_frontend = args.mode == "native" and not args.build_frontend
     return args
 
@@ -816,13 +979,13 @@ def compose(args: argparse.Namespace, *tail: str, capture: bool = False) -> str:
 
 def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str, str]]:
     if os.geteuid() != 0:
-        raise UpdateError("Native updates must run as root (sudo) to manage systemd and ownership")
+        raise UpdateError(tr("messages.nativeUpdatesMustRunAsRootSudoToManageSystemdAndOwnership"))
     python = args.install_dir / ".venv/bin/python"
     if (args.install_dir / ".venv").is_symlink():
-        raise UpdateError("Automatic rollback requires a local .venv directory, not a symlink")
+        raise UpdateError(tr("messages.automaticRollbackRequiresALocalVenvDirectoryNotASymlink"))
     if not python.is_file():
         raise UpdateError(
-            "Existing native installation needs .venv/bin/python; this is an updater, not an installer"
+            tr("messages.existingNativeInstallationNeedsVenvBinPythonThisIsAnUpdaterNotAnInstaller")
         )
     unit = command(
         ["systemctl", "show", args.service, "--property=WorkingDirectory", "--value"],
@@ -830,7 +993,7 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
         capture=True,
     )
     if not unit or Path(unit).resolve() != args.install_dir:
-        raise UpdateError("The systemd WorkingDirectory must match --install-dir")
+        raise UpdateError(tr("messages.theSystemdWorkingDirectoryMustMatchInstallDir"))
     executable = command(
         ["systemctl", "show", args.service, "--property=ExecStart", "--value"],
         args.install_dir,
@@ -838,7 +1001,7 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
     )
     expected_entrypoint = "-m companion" if args.role == "companion" else "app.main:create_app"
     if expected_entrypoint not in executable:
-        raise UpdateError("The systemd service does not match the detected server role")
+        raise UpdateError(tr("messages.theSystemdServiceDoesNotMatchTheDetectedServerRole"))
     user = (
         command(
             ["systemctl", "show", args.service, "--property=User", "--value"],
@@ -867,7 +1030,9 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
     expected = str(args.install_dir / configuration_file)
     if files and files not in (f"{expected} (ignore_errors=no)", f"{expected} (ignore_errors=yes)"):
         raise UpdateError(
-            "Custom systemd EnvironmentFiles are unsupported; use the installation's role-specific configuration"
+            tr(
+                "messages.customSystemdEnvironmentFilesAreUnsupportedUseTheInstallationSRoleSpecificConfiguration"
+            )
         )
     if (args.install_dir / configuration_file).is_file():
         values = json.loads(
@@ -919,7 +1084,7 @@ def native_configuration(args: argparse.Namespace) -> tuple[Path, str, dict[str,
         host = f"[{host}]" if ":" in host else host
         args.health_url = f"http://{host}:{configuration['port']}/api/health"
     if not data.is_dir():
-        raise UpdateError("Configured data directory is missing")
+        raise UpdateError(tr("messages.configuredDataDirectoryIsMissing"))
     return data, user, env
 
 
@@ -929,7 +1094,7 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
     ).splitlines()
     if len(identifiers) != 1:
         raise UpdateError(
-            "Expected one existing labels container; check Compose files/project name"
+            tr("messages.expectedOneExistingLabelsContainerCheckComposeFilesProjectName")
         )
     container = json.loads(
         command(["docker", "inspect", identifiers[0]], args.checkout, capture=True)
@@ -942,7 +1107,9 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
         )
     if not url.startswith("sqlite:///") or "?" in url:
         raise UpdateError(
-            "Automatic Docker updates require SQLite. MariaDB updates currently use the native updater; do not replace the image without a coordinated database backup."
+            tr(
+                "messages.automaticDockerUpdatesRequireSQLiteMariaDBUpdatesCurrentlyUseTheNativeUpdaterDoNotReplaceTheImageWithoutACoord"
+            )
         )
     path = url.removeprefix("sqlite:///")
     database = Path(
@@ -956,16 +1123,16 @@ def docker_configuration(args: argparse.Namespace) -> dict[str, Any]:
         if database.parent.is_relative_to(Path(mount["Destination"]))
     ]
     if not candidates:
-        raise UpdateError("Database/assets must be in a persistent Docker volume or bind mount")
+        raise UpdateError(tr("messages.databaseAssetsMustBeInAPersistentDockerVolumeOrBindMount"))
     mount = max(candidates, key=lambda item: len(item["Destination"]))
     if mount["Type"] not in ("volume", "bind"):
-        raise UpdateError("Unsupported Docker data mount")
+        raise UpdateError(tr("messages.unsupportedDockerDataMount"))
     if any(
         other is not mount and Path(other["Destination"]).is_relative_to(Path(mount["Destination"]))
         for other in container["Mounts"]
     ):
         raise UpdateError(
-            "Nested data mounts need a separate backup strategy; refusing an incomplete backup"
+            tr("messages.nestedDataMountsNeedASeparateBackupStrategyRefusingAnIncompleteBackup")
         )
     return {
         "image": container["Image"],
@@ -982,16 +1149,23 @@ def backup_progress(label: str, target: Path, interval: float = 10) -> Generator
     """Report slow compression without exposing archived filenames or contents."""
     started = time.monotonic()
     finished = Event()
-    print(f"Backing up {label}...", flush=True)
+    print(tr("progress.backupStart", label=label), flush=True)
 
     def report() -> None:
         while not finished.wait(interval):
             try:
-                size = f", {target.stat().st_size / (1024 * 1024):.1f} MiB written"
+                size = tr(
+                    "progress.backupSize", size=f"{target.stat().st_size / (1024 * 1024):.1f}"
+                )
             except OSError:
                 size = ""
             print(
-                f"Backing up {label}: {time.monotonic() - started:.0f}s elapsed{size}",
+                tr(
+                    "progress.backupProgress",
+                    label=label,
+                    seconds=f"{time.monotonic() - started:.0f}",
+                    size=size,
+                ),
                 flush=True,
             )
 
@@ -1004,8 +1178,14 @@ def backup_progress(label: str, target: Path, interval: float = 10) -> Generator
     finally:
         finished.set()
         reporter.join()
-        outcome = "complete" if succeeded else "interrupted"
-        print(f"Backup of {label} {outcome} ({time.monotonic() - started:.0f}s).", flush=True)
+        print(
+            tr(
+                "progress.backupComplete" if succeeded else "progress.backupInterrupted",
+                label=label,
+                seconds=f"{time.monotonic() - started:.0f}",
+            ),
+            flush=True,
+        )
 
 
 def archive_source(root: Path, target: Path, data: Path | None) -> None:
@@ -1035,7 +1215,7 @@ def docker_backup(args: argparse.Namespace, config: dict[str, Any], backup: Path
     source = mount["Name"] if mount["Type"] == "volume" else mount["Source"]
     data_mount = f"type={mount['Type']},source={source},target=/update-data,readonly"
     if "," in source or "," in str(backup):
-        raise UpdateError("Docker backup paths must not contain commas")
+        raise UpdateError(tr("messages.dockerBackupPathsMustNotContainCommas"))
     code = (
         "import tarfile; "
         "a=tarfile.open('/update-backup/data.tar.gz','w:gz'); "
@@ -1168,7 +1348,7 @@ def docker_data_command(
     mount = config["mount"]
     source = mount["Name"] if mount["Type"] == "volume" else mount["Source"]
     if "," in source or (backup and "," in str(backup)):
-        raise UpdateError("Docker recovery paths must not contain commas")
+        raise UpdateError(tr("messages.dockerRecoveryPathsMustNotContainCommas"))
     mounts = ["--mount", f"type={mount['Type']},source={source},target=/update-data"]
     if backup:
         mounts += ["--mount", f"type=bind,source={backup},target=/update-backup"]
@@ -1203,7 +1383,7 @@ def validation_marker(
         marker = data / UPDATE_MARKER
         if enabled is None:
             if marker.exists() or marker.is_symlink():
-                raise UpdateError("An unfinished update needs recovery before updating again")
+                raise UpdateError(tr("messages.anUnfinishedUpdateNeedsRecoveryBeforeUpdatingAgain"))
         elif enabled:
             marker.touch(mode=0o644, exist_ok=False)
         else:
@@ -1235,7 +1415,7 @@ def require_validation_protocol(source: str) -> None:
             and statement.value.value == 1
         ):
             return
-    raise UpdateError("Selected release does not support safe update validation")
+    raise UpdateError(tr("messages.selectedReleaseDoesNotSupportSafeUpdateValidation"))
 
 
 def running(args: argparse.Namespace) -> bool:
@@ -1244,7 +1424,7 @@ def running(args: argparse.Namespace) -> bool:
             ["systemctl", "is-active", "--quiet", args.service], cwd=args.install_dir
         )
         if result.returncode not in (0, 3):
-            raise UpdateError("Could not determine the systemd service state")
+            raise UpdateError(tr("messages.couldNotDetermineTheSystemdServiceState"))
         return result.returncode == 0
     return bool(compose(args, "ps", "--quiet", compose_service(args), capture=True))
 
@@ -1253,10 +1433,10 @@ def stop_application(args: argparse.Namespace) -> None:
     if args.mode == "native":
         command(["systemctl", "stop", args.service], args.install_dir)
         if running(args):
-            raise UpdateError("Application remained running after stop; recovery is unsafe")
+            raise UpdateError(tr("messages.applicationRemainedRunningAfterStopRecoveryIsUnsafe"))
     else:
         if not args.project_name:
-            raise UpdateError("Cannot safely stop Docker without its existing project name")
+            raise UpdateError(tr("messages.cannotSafelyStopDockerWithoutItsExistingProjectName"))
         query = [
             "docker",
             "ps",
@@ -1270,7 +1450,7 @@ def stop_application(args: argparse.Namespace) -> None:
         if identifiers:
             command(["docker", "stop", *identifiers], args.checkout)
         if command(query, args.checkout, capture=True):
-            raise UpdateError("Application remained running after stop; recovery is unsafe")
+            raise UpdateError(tr("messages.applicationRemainedRunningAfterStopRecoveryIsUnsafe"))
 
 
 def restore_checkout(args: argparse.Namespace, metadata: dict[str, Any]) -> None:
@@ -1367,7 +1547,7 @@ def wait_healthy(url: str, timeout: float) -> None:
         except (OSError, ValueError, AttributeError):
             pass
         time.sleep(min(1, max(0, deadline - time.monotonic())))
-    raise UpdateError(f"Health check did not become healthy within {timeout:g} seconds: {url}")
+    raise UpdateError(tr("progress.healthTimeout", seconds=f"{timeout:g}", url=url))
 
 
 @contextmanager
@@ -1377,7 +1557,7 @@ def update_lock(path: Path) -> Generator[None, None, None]:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise UpdateError("Another update is running for this installation") from error
+            raise UpdateError(tr("messages.anotherUpdateIsRunningForThisInstallation")) from error
         yield
 
 
@@ -1397,7 +1577,7 @@ class RemoteDatabase:
         try:
             result = self.response()
             if not result.get("ready") or not isinstance(result.get("owner"), int):
-                raise UpdateError("MariaDB maintenance did not acquire ownership")
+                raise UpdateError(tr("messages.mariadbMaintenanceDidNotAcquireOwnership"))
             self.owner = str(result["owner"])
         except BaseException:
             self.close()
@@ -1407,11 +1587,13 @@ class RemoteDatabase:
         assert self.process.stdout is not None
         line = self.process.stdout.readline()
         if not line:
-            raise UpdateError("MariaDB maintenance stopped; no automatic activation is allowed")
+            raise UpdateError(
+                tr("messages.mariadbMaintenanceStoppedNoAutomaticActivationIsAllowed")
+            )
         result = json.loads(line)
         if not isinstance(result, dict) or result.get("error"):
             raise UpdateError(
-                "MariaDB maintenance failed; check access, schema, and available backup space"
+                tr("messages.mariadbMaintenanceFailedCheckAccessSchemaAndAvailableBackupSpace")
             )
         return result
 
@@ -1420,7 +1602,7 @@ class RemoteDatabase:
         self.process.stdin.write(json.dumps({"action": action, "path": str(path)}) + "\n")
         self.process.stdin.flush()
         if self.response().get("ok") is not True:
-            raise UpdateError("MariaDB maintenance did not complete")
+            raise UpdateError(tr("messages.mariadbMaintenanceDidNotComplete"))
 
     def close(self) -> None:
         if self.process.stdin is not None and not self.process.stdin.closed:
@@ -1439,33 +1621,57 @@ def update(args: argparse.Namespace) -> None:
     existing = (checkout / ".git").exists()
     if checkout.exists() and not existing:
         raise UpdateError(
-            "--checkout must be a Git checkout or a new directory. For a copied native installation, use --checkout /opt/labels-source --install-dir /opt/labels"
+            tr(
+                "messages.checkoutMustBeAGitCheckoutOrANewDirectoryForACopiedNativeInstallationUseCheckoutOptLabelsSourceInstallDirOptLa"
+            )
         )
     repository = args.repository or DEFAULT_REPOSITORY
     changes = ""
+    handoff_paths: set[str] = set()
     if existing:
         remote = command(["git", "remote", "get-url", "origin"], checkout, capture=True)
         actual = github_repository(remote)
         if args.repository and repository.lower() != actual.lower():
-            raise UpdateError("--repository does not match origin")
+            raise UpdateError(tr("messages.repositoryDoesNotMatchOrigin"))
         repository = actual
         changes = command(
             ["git", "status", "--porcelain", "--untracked-files=all"], checkout, capture=True
         )
-        # The preceding invocation may have replaced only the updater. Accept
-        # that exception only when it is the exact script currently executing;
-        # verify it against the fetched release again before doing any work.
+        # Handoff changes must match the executing tools and the selected release.
+        handoff_paths = {
+            line.strip()[3:] if line.strip().startswith("?? ") else line.strip()[2:]
+            for line in changes.splitlines()
+        }
         refreshed_updater = (
-            changes == "M scripts/update.py"
+            bool(changes)
+            and all(
+                line.strip()
+                in {
+                    "M scripts/update.py",
+                    f"M {DEPLOYMENT_LANGUAGE_BUNDLE}",
+                    f"?? {DEPLOYMENT_LANGUAGE_BUNDLE}",
+                }
+                for line in changes.splitlines()
+            )
             and (checkout / "scripts/update.py").read_bytes() == Path(__file__).read_bytes()
+            and (
+                DEPLOYMENT_LANGUAGE_BUNDLE not in handoff_paths
+                or (
+                    not (checkout / DEPLOYMENT_LANGUAGE_BUNDLE).is_symlink()
+                    and (checkout / DEPLOYMENT_LANGUAGE_BUNDLE).read_bytes()
+                    == (
+                        Path(__file__).resolve().parents[1] / DEPLOYMENT_LANGUAGE_BUNDLE
+                    ).read_bytes()
+                )
+            )
             and not command(["git", "diff", "--cached", "--name-only"], checkout, capture=True)
         )
         if changes and not refreshed_updater:
-            raise UpdateError("Checkout has local changes; commit or move them before updating")
+            raise UpdateError(tr("messages.checkoutHasLocalChangesCommitOrMoveThemBeforeUpdating"))
         if command(["git", "rev-parse", "--show-toplevel"], checkout, capture=True) != str(
             checkout
         ):
-            raise UpdateError("--checkout must be the repository root")
+            raise UpdateError(tr("messages.checkoutMustBeTheRepositoryRoot"))
     token = installation_token(args)
     if args.tag:
         tag = tagged_release(repository, args.tag, token)
@@ -1475,17 +1681,31 @@ def update(args: argparse.Namespace) -> None:
         tag = latest_release(repository, token) if token else latest_release(repository)
     for protected in (checkout, args.install_dir):
         if args.backup_dir.is_relative_to(protected):
-            raise UpdateError("Backup directory must be outside the checkout and installation")
+            raise UpdateError(tr("messages.backupDirectoryMustBeOutsideTheCheckoutAndInstallation"))
     print(
-        f"Selected release: {repository} {tag}\nServer role: {args.role}\nSelection: {'explicit tag' if args.tag else args.channel}\nMode: {args.mode}{' (detected)' if args.mode_detected else ' (override)'}\nCheckout: {checkout}\nInstallation: {args.install_dir}\nBackups: {args.backup_dir}",
+        tr(
+            "progress.selection",
+            repository=repository,
+            tag=tag,
+            role=args.role,
+            selection=tr("progress.explicitTag") if args.tag else args.channel,
+            mode=args.mode,
+            detection=tr("progress.detected" if args.mode_detected else "progress.override"),
+            checkout=checkout,
+            installation=args.install_dir,
+            backups=args.backup_dir,
+        ),
         flush=True,
     )
     print(
-        ("Plan: download and verify prebuilt frontend; " if args.prebuilt_frontend else "Plan: ")
-        + "stop app; back up code/config/data; switch release branch; install"
-        + (" prebuilt frontend" if args.prebuilt_frontend else "/build")
-        + ("; migrate" if args.role == "main" else "; preserve companion journal")
-        + "; start with printing paused; verify health; resume. Roll back on failure."
+        tr(
+            "progress.updatePlan",
+            frontend=tr("progress.downloadFrontend") if args.prebuilt_frontend else "",
+            install=tr(
+                "progress.installFrontend" if args.prebuilt_frontend else "progress.buildFrontend"
+            ),
+            database=tr("progress.migrate" if args.role == "main" else "progress.preserveJournal"),
+        )
     )
     if args.check:
         return
@@ -1496,25 +1716,32 @@ def update(args: argparse.Namespace) -> None:
         required.append("rsync")
     for executable in required:
         if not shutil.which(executable):
-            raise UpdateError(f"Required command is missing: {executable}")
+            raise UpdateError(tr("progress.missingCommand", command=executable))
     if args.mode == "native":
         data, user, env = native_configuration(args)
         if args.install_dir.is_relative_to(data) or checkout.is_relative_to(data):
             raise UpdateError(
-                "Use a dedicated data directory, separate from the application/source directories"
+                tr("messages.useADedicatedDataDirectorySeparateFromTheApplicationSourceDirectories")
             )
         if args.backup_dir.is_relative_to(data):
-            raise UpdateError("Backup directory must be outside configured data")
+            raise UpdateError(tr("messages.backupDirectoryMustBeOutsideConfiguredData"))
         docker = None
     else:
         data, user, env = None, "", None
         docker = docker_configuration(args) if existing else None
         if docker is None:
-            raise UpdateError("Docker updates require an existing checkout and Compose container")
+            raise UpdateError(
+                tr("messages.dockerUpdatesRequireAnExistingCheckoutAndComposeContainer")
+            )
         # Pin the old project even if a later release changes the top-level Compose name.
         args.project_name = docker["project"] or args.project_name
     print(
-        f"Target: {args.service if args.mode == 'native' else 'Compose project ' + str(args.project_name)}"
+        tr(
+            "progress.target",
+            target=args.service
+            if args.mode == "native"
+            else tr("progress.composeProject", project=args.project_name),
+        )
     )
     args.backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = args.install_dir.parent / f".{args.install_dir.name}.update.lock"
@@ -1548,10 +1775,13 @@ def update(args: argparse.Namespace) -> None:
         if (
             existing
             and changes
-            and command(["git", "show", f"{commit}:scripts/update.py"], checkout, capture=True)
-            != (checkout / "scripts/update.py").read_text().strip()
+            and any(
+                command(["git", "show", f"{commit}:{path}"], checkout, capture=True)
+                != (checkout / path).read_text().strip()
+                for path in handoff_paths
+            )
         ):
-            raise UpdateError("Locally changed updater does not match the selected release")
+            raise UpdateError(tr("messages.locallyChangedUpdaterDoesNotMatchTheSelectedRelease"))
         # Refuse a release that tries to overwrite deployment state or use submodules.
         files = command(
             ["git", "ls-tree", "-r", "--name-only", commit], checkout, capture=True
@@ -1575,9 +1805,7 @@ def update(args: argparse.Namespace) -> None:
         if args.mode == "docker":
             required_files.add("Dockerfile.companion" if args.role == "companion" else "Dockerfile")
         if missing := required_files - set(files):
-            raise UpdateError(
-                "Release is missing required deployment files: " + ", ".join(sorted(missing))
-            )
+            raise UpdateError(tr("progress.missingFiles", files=", ".join(sorted(missing))))
         protected = [
             ".env",
             ".env.companion",
@@ -1592,7 +1820,7 @@ def update(args: argparse.Namespace) -> None:
                     relative_token = args.github_token_path.relative_to(directory).as_posix()
                     if any(relative_token.startswith(path + "/") for path in files):
                         raise UpdateError(
-                            "Release would overwrite the GitHub token file's directory"
+                            tr("messages.releaseWouldOverwriteTheGitHubTokenFileSDirectory")
                         )
                     protected.append(relative_token)
         if (
@@ -1604,12 +1832,14 @@ def update(args: argparse.Namespace) -> None:
             or ".gitmodules" in files
         ):
             raise UpdateError(
-                "Release contains deployment state or submodules; refusing automatic update"
+                tr("messages.releaseContainsDeploymentStateOrSubmodulesRefusingAutomaticUpdate")
             )
         if data and data.is_relative_to(args.install_dir):
             relative_data = data.relative_to(args.install_dir).as_posix()
             if any(path == relative_data or path.startswith(relative_data + "/") for path in files):
-                raise UpdateError("Release contains files inside the configured data directory")
+                raise UpdateError(
+                    tr("messages.releaseContainsFilesInsideTheConfiguredDataDirectory")
+                )
         branch = subprocess.run(
             ["git", "rev-parse", "--verify", "refs/heads/release"],
             cwd=checkout,
@@ -1622,7 +1852,9 @@ def update(args: argparse.Namespace) -> None:
             )
             if ancestor.returncode:
                 raise UpdateError(
-                    "The release branch diverged from the selected release; refusing to discard commits"
+                    tr(
+                        "messages.theReleaseBranchDivergedFromTheSelectedReleaseRefusingToDiscardCommits"
+                    )
                 )
         old_commit = (
             command(["git", "rev-parse", "HEAD"], checkout, capture=True) if existing else None
@@ -1660,7 +1892,9 @@ def update(args: argparse.Namespace) -> None:
             temporary = Path(
                 runtime_locks.enter_context(tempfile.TemporaryDirectory(prefix="label-frontend-"))
             )
-            print("Downloading and verifying the release frontend before shutdown...", flush=True)
+            print(
+                tr("messages.downloadingAndVerifyingTheReleaseFrontendBeforeShutdown"), flush=True
+            )
             archive = (
                 download_frontend(repository, tag, temporary, token, args.role)
                 if args.role == "companion"
@@ -1672,7 +1906,7 @@ def update(args: argparse.Namespace) -> None:
             datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         )
         backup.mkdir(mode=0o700)
-        print(f"Backup: {backup}", flush=True)
+        print(tr("progress.backupPath", backup=backup), flush=True)
         metadata = {
             "repository": repository,
             "release": tag,
@@ -1704,7 +1938,7 @@ def update(args: argparse.Namespace) -> None:
         try:
             stop_application(args)
             record("stopped")
-            print("Service stopped. Preparing rollback backups...", flush=True)
+            print(tr("messages.serviceStoppedPreparingRollbackBackups"), flush=True)
             if args.mode == "native" and getattr(args, "database_lock", None):
                 if not args.database_lock.exists():
                     # A freshly migrated installation may not have started yet.
@@ -1728,7 +1962,9 @@ def update(args: argparse.Namespace) -> None:
                     database_locked = True
                 except UpdateError as error:
                     raise UpdateError(
-                        "Another process still owns the database; no backup or migration was attempted"
+                        tr(
+                            "messages.anotherProcessStillOwnsTheDatabaseNoBackupOrMigrationWasAttempted"
+                        )
                     ) from error
             archive_data = (
                 Path(docker["mount"]["Source"])
@@ -1737,9 +1973,9 @@ def update(args: argparse.Namespace) -> None:
             )
             if getattr(args, "database_kind", "sqlite") == "mariadb":
                 remote_database = RemoteDatabase(args, env)
-                with backup_progress("MariaDB database", backup / "database.json.gz"):
+                with backup_progress(tr("progress.databaseBackup"), backup / "database.json.gz"):
                     remote_database.perform("backup", backup / "database.json.gz")
-            with backup_progress("application files", backup / "source.tar.gz"):
+            with backup_progress(tr("progress.applicationBackup"), backup / "source.tar.gz"):
                 archive_source(args.install_dir, backup / "source.tar.gz", archive_data)
             if (args.install_dir / config_name(args)).is_file():
                 shutil.copy2(args.install_dir / config_name(args), backup / "environment.env")
@@ -1757,21 +1993,25 @@ def update(args: argparse.Namespace) -> None:
                         {"original": str(source), "backup": str(target)}
                     )
             if data:
-                with backup_progress("database and assets", backup / "data.tar.gz"):
+                with backup_progress(tr("progress.dataBackup"), backup / "data.tar.gz"):
                     with tarfile.open(backup / "data.tar.gz", "w:gz") as bundle:
                         bundle.add(data, arcname="data")
-                with backup_progress("Python environment", backup / "venv.tar.gz"):
+                with backup_progress(tr("progress.pythonBackup"), backup / "venv.tar.gz"):
                     with tarfile.open(backup / "venv.tar.gz", "w:gz") as bundle:
                         bundle.add(args.install_dir / ".venv", arcname=".venv")
             elif docker:
-                with backup_progress("database and assets", backup / "data.tar.gz"):
+                with backup_progress(tr("progress.dataBackup"), backup / "data.tar.gz"):
                     docker_backup(args, docker, backup)
             record("backed_up")
             changed = True  # Even a failed Git switch may have touched application files.
             if existing and changes:
                 # The refreshed script is verified above and included in the source
                 # backup. Restore only this path so Git can switch releases normally.
-                command(["git", "restore", "--worktree", "--", "scripts/update.py"], checkout)
+                for path in handoff_paths:
+                    if f"?? {path}" in changes:
+                        (checkout / path).unlink()
+                    else:
+                        command(["git", "restore", "--worktree", "--", path], checkout)
             command(["git", "switch", "--force-create", "release", commit], checkout)
             sync_environment_files(args)
             if args.mode == "native":
@@ -1883,7 +2123,7 @@ def update(args: argparse.Namespace) -> None:
                 start_application(args)
             wait_healthy(args.health_url, args.health_timeout)
             if not running(args):
-                raise UpdateError("Application is not running after startup")
+                raise UpdateError(tr("messages.applicationIsNotRunningAfterStartup"))
             record("complete")
             # This is the commit point: once activation is attempted, a remote
             # Docker error cannot prove that printing has not already resumed.
@@ -1893,13 +2133,18 @@ def update(args: argparse.Namespace) -> None:
             try:
                 record("rolling_back")
             except OSError:
-                print("Could not save failure status; attempting recovery anyway.", file=sys.stderr)
+                print(
+                    tr("messages.couldNotSaveFailureStatusAttemptingRecoveryAnyway"),
+                    file=sys.stderr,
+                )
             recovery_args = args
             try:
                 stop_application(args)
                 if activated:
                     raise UpdateError(
-                        "Activation outcome is uncertain; automatic data restore could replay prints"
+                        tr(
+                            "messages.activationOutcomeIsUncertainAutomaticDataRestoreCouldReplayPrints"
+                        )
                     )
                 if changed:
                     if data and getattr(args, "database_lock", None) and not database_locked:
@@ -1916,14 +2161,16 @@ def update(args: argparse.Namespace) -> None:
                     start_application(recovery_args)
                     wait_healthy(args.health_url, args.health_timeout)
                     if not running(recovery_args):
-                        raise UpdateError("Previous application did not remain running")
+                        raise UpdateError(tr("messages.previousApplicationDidNotRemainRunning"))
             except BaseException as recovery_error:
                 if remote_database:
                     try:
                         remote_database.close()
                     except Exception:
                         print(
-                            "Database maintenance did not shut down cleanly; inspect it before recovery.",
+                            tr(
+                                "messages.databaseMaintenanceDidNotShutDownCleanlyInspectItBeforeRecovery"
+                            ),
                             file=sys.stderr,
                         )
                     remote_database = None
@@ -1931,7 +2178,7 @@ def update(args: argparse.Namespace) -> None:
                     stop_application(recovery_args)
                 except BaseException:
                     print(
-                        "Could not confirm shutdown; check the service state before recovery.",
+                        tr("messages.couldNotConfirmShutdownCheckTheServiceStateBeforeRecovery"),
                         file=sys.stderr,
                     )
                 status = "rollback_failed"
@@ -1941,32 +2188,34 @@ def update(args: argparse.Namespace) -> None:
                     else type(recovery_error).__name__
                 )
                 print(
-                    f"Automatic rollback failed: {reason}. "
-                    f"Application must remain stopped; recovery backup: {backup}",
+                    tr("progress.rollbackFailed", reason=reason, backup=backup),
                     file=sys.stderr,
                 )
             else:
                 status = "rolled_back"
                 print(
-                    f"Update failed; previous deployment restored{' and healthy' if was_running else ' (left stopped)'}. Backup: {backup}",
+                    tr(
+                        "progress.restoredRunning" if was_running else "progress.restoredStopped",
+                        backup=backup,
+                    ),
                     file=sys.stderr,
                 )
             try:
                 record(status)
             except OSError:
-                print("Could not save recovery status; the backup is retained.", file=sys.stderr)
+                print(tr("messages.couldNotSaveRecoveryStatusTheBackupIsRetained"), file=sys.stderr)
             raise
-        print(f"Updated to {tag} ({commit[:12]}). Health check passed. Backup: {backup}")
+        print(tr("progress.updated", tag=tag, commit=commit[:12], backup=backup))
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
         update(options(argv))
     except (UpdateError, OSError, ValueError) as error:
-        print(f"Update aborted: {error}", file=sys.stderr)
+        print(tr("progress.aborted", error=error), file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("Update interrupted", file=sys.stderr)
+        print(tr("messages.updateInterrupted"), file=sys.stderr)
         return 130
     return 0
 

@@ -34,85 +34,116 @@ SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 def options(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    invocation = list(sys.argv[1:] if argv is None else argv)
+    language = update.configure_language(invocation)
+    parser = argparse.ArgumentParser(description=update.tr("install.description"))
     parser.add_argument(
-        "-y", "--yes", action="store_true", help="Confirm installation without prompting"
+        "--language", choices=("en", "de"), default=language, help=update.tr("common.language")
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help=update.tr("messages.confirmInstallationWithoutPrompting"),
     )
     parser.add_argument("--install-dir", type=Path, default=Path("/opt/labels"))
     parser.add_argument("--role", choices=("main", "companion"), default="main")
     parser.add_argument(
         "--database-url-file",
         type=Path,
-        help="Main only: private file containing the MariaDB database URL",
+        help=update.tr("messages.mainOnlyPrivateFileContainingTheMariaDBDatabaseURL"),
     )
     parser.add_argument(
         "--companion-config",
         type=Path,
-        help="Private companion environment file to copy into the installation",
+        help=update.tr("messages.privateCompanionEnvironmentFileToCopyIntoTheInstallation"),
     )
     parser.add_argument(
         "--repository",
         default=update.DEFAULT_REPOSITORY,
-        help="GitHub OWNER/REPOSITORY (default: tarobits/label-server)",
+        help=update.tr("messages.githubOWNERREPOSITORYDefaultTarobitsLabelServer"),
     )
     parser.add_argument(
         "--ref",
-        help="Explicit branch or tag; otherwise install the latest published stable release",
+        help=update.tr(
+            "messages.explicitBranchOrTagOtherwiseInstallTheLatestPublishedStableRelease"
+        ),
     )
     parser.add_argument(
-        "--github-token-file", type=Path, help="Read a private-repository token from a file"
+        "--github-token-file",
+        type=Path,
+        help=update.tr("messages.readAPrivateRepositoryTokenFromAFile"),
     )
-    parser.add_argument("--host", help="Bind address; use 0.0.0.0 for LAN access")
+    parser.add_argument("--host", help=update.tr("messages.bindAddressUse0000ForLANAccess"))
     parser.add_argument("--port", type=int)
     parser.add_argument(
-        "--public-url", help="Browser-reachable HTTP(S) origin for notification links"
+        "--public-url", help=update.tr("messages.browserReachableHTTPSOriginForNotificationLinks")
     )
     parser.add_argument(
-        "--skip-packages", action="store_true", help="Use already installed system dependencies"
+        "--skip-packages",
+        action="store_true",
+        help=update.tr("messages.useAlreadyInstalledSystemDependencies"),
     )
     parser.add_argument(
-        "--no-start", action="store_true", help="Install and enable the service without starting it"
+        "--no-start",
+        action="store_true",
+        help=update.tr("messages.installAndEnableTheServiceWithoutStartingIt"),
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Resolve the GitHub version and show the plan without changing anything",
+        help=update.tr("messages.resolveTheGitHubVersionAndShowThePlanWithoutChangingAnything"),
     )
-    invocation = list(sys.argv[1:] if argv is None else argv)
     args = parser.parse_args(invocation)
     if not invocation and sys.stdin.isatty():
-        print("Installation setup — press Enter to accept the displayed default.")
-        print("1. Service and installation directory")
-        args.role = update.prompt_value("Server role", "main", ("main", "companion"))
-        args.install_dir = Path(update.prompt_value("Installation directory", "/opt/labels"))
-        print("2. Configuration")
+        print(update.tr("messages.installationSetupPressEnterToAcceptTheDisplayedDefault"))
+        print(update.tr("messages.step1ServiceAndInstallationDirectory"))
+        args.role = update.prompt_value(
+            update.tr("messages.serverRole"), "main", ("main", "companion")
+        )
+        args.install_dir = Path(
+            update.prompt_value(update.tr("messages.installationDirectory"), "/opt/labels")
+        )
+        print(update.tr("messages.step2Configuration"))
         if args.role == "companion":
             args.companion_config = Path(
-                update.prompt_value("Private companion configuration file")
+                update.prompt_value(update.tr("messages.privateCompanionConfigurationFile"))
             )
         else:
-            database = update.prompt_value("Database", "sqlite", ("sqlite", "mariadb"))
+            database = update.prompt_value(
+                update.tr("messages.database"), "sqlite", ("sqlite", "mariadb")
+            )
             if database == "mariadb":
-                args.database_url_file = Path(update.prompt_value("Private database URL file"))
-            args.host = update.prompt_value("Bind address", "127.0.0.1")
+                args.database_url_file = Path(
+                    update.prompt_value(update.tr("messages.privateDatabaseURLFile"))
+                )
+            args.host = update.prompt_value(update.tr("messages.bindAddress"), "127.0.0.1")
             while True:
-                port = update.prompt_value("Port", "8000")
+                port = update.prompt_value(update.tr("messages.port"), "8000")
                 if port.isdecimal() and 1024 <= int(port) <= 65535:
                     args.port = int(port)
                     break
-                print("Enter a port between 1024 and 65535.")
-            args.public_url = update.prompt_value("Public URL", f"http://localhost:{args.port}")
-        print("3. Release")
-        release = update.prompt_value("Release selection", "stable", ("stable", "specific"))
+                print(update.tr("messages.enterAPortBetween1024And65535"))
+            args.public_url = update.prompt_value(
+                update.tr("messages.publicURL"), f"http://localhost:{args.port}"
+            )
+        print(update.tr("messages.step3Release"))
+        release = update.prompt_value(
+            update.tr("messages.releaseSelection"), "stable", ("stable", "specific")
+        )
         if release == "specific":
-            args.ref = update.prompt_value("Release tag or branch")
-        print("4. Installation options")
+            args.ref = update.prompt_value(update.tr("messages.releaseTagOrBranch"))
+        print(update.tr("messages.step4InstallationOptions"))
         args.skip_packages = (
-            update.prompt_value("System dependencies", "install", ("install", "existing"))
+            update.prompt_value(
+                update.tr("messages.systemDependencies"), "install", ("install", "existing")
+            )
             == "existing"
         )
         args.no_start = (
-            update.prompt_value("Start the service after installation", "yes", ("yes", "no"))
+            update.prompt_value(
+                update.tr("messages.startTheServiceAfterInstallation"), "yes", ("yes", "no")
+            )
             == "no"
         )
     args.companion_overrides = {
@@ -124,28 +155,30 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
     args.port = args.port if args.port is not None else (8001 if args.role == "companion" else 8000)
     if args.role == "companion" and not args.companion_config and not args.check:
         parser.error(
-            "--role companion requires --companion-config with the main server URL and API key"
+            update.tr("messages.roleCompanionRequiresCompanionConfigWithTheMainServerURLAndAPIKey")
         )
     if args.role == "main" and args.companion_config:
-        parser.error("--companion-config is only for companion installations")
+        parser.error(update.tr("messages.companionConfigIsOnlyForCompanionInstallations"))
     if args.role == "companion" and args.database_url_file:
-        parser.error("Companions use their local SQLite journal")
+        parser.error(update.tr("messages.companionsUseTheirLocalSQLiteJournal"))
     if args.companion_config:
         args.companion_config = args.companion_config.resolve()
     raw = args.install_dir.absolute()
     if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(raw)) or len(raw.parts) < 3:
         parser.error(
-            "Use a dedicated absolute installation path without spaces or special characters"
+            update.tr(
+                "messages.useADedicatedAbsoluteInstallationPathWithoutSpacesOrSpecialCharacters"
+            )
         )
     if raw.resolve() != raw:
-        parser.error("The installation path must not contain symlinks or '..'")
+        parser.error(update.tr("messages.theInstallationPathMustNotContainSymlinksOr"))
     args.install_dir = raw
     try:
         validate_network(args)
     except update.UpdateError as error:
         parser.error(str(error))
     if args.ref and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", args.ref):
-        parser.error("--ref must be a branch or tag name")
+        parser.error(update.tr("messages.refMustBeABranchOrTagName"))
     return args
 
 
@@ -153,9 +186,9 @@ def validate_network(args: argparse.Namespace) -> None:
     try:
         args.host = str(ipaddress.ip_address(args.host))
     except ValueError:
-        raise update.UpdateError("--host must be an IPv4 or IPv6 address")
+        raise update.UpdateError(update.tr("messages.hostMustBeAnIPv4OrIPv6Address"))
     if not 1024 <= args.port <= 65535:
-        raise update.UpdateError("--port must be between 1024 and 65535")
+        raise update.UpdateError(update.tr("messages.portMustBeBetween1024And65535"))
     args.public_url = args.public_url or f"http://localhost:{args.port}"
     origin = urlsplit(args.public_url)
     if (
@@ -169,7 +202,7 @@ def validate_network(args: argparse.Namespace) -> None:
         or any(char.isspace() for char in args.public_url)
     ):
         raise update.UpdateError(
-            "--public-url must be an HTTP(S) origin without credentials or a path"
+            update.tr("messages.publicUrlMustBeAnHTTPSOriginWithoutCredentialsOrAPath")
         )
 
 
@@ -199,9 +232,11 @@ def companion_configuration(args: argparse.Namespace) -> tuple[str, Path]:
             else:
                 parsed = [re.split(r"\s+#", raw, maxsplit=1)[0].rstrip()] if raw else []
         except ValueError:
-            raise update.UpdateError(f"Invalid {key} in companion configuration") from None
+            raise update.UpdateError(
+                update.tr("progress.invalidCompanionSetting", key=key)
+            ) from None
         if len(parsed) != 1 or any(ord(char) < 32 for char in parsed[0]):
-            raise update.UpdateError(f"Invalid {key} in companion configuration")
+            raise update.UpdateError(update.tr("progress.invalidCompanionSetting", key=key))
         values[key] = parsed[0]
         existing[key] = line
         keys[index] = key
@@ -219,13 +254,13 @@ def companion_configuration(args: argparse.Namespace) -> tuple[str, Path]:
         args.port = int(effective["LABEL_COMPANION_PORT"])
     except ValueError:
         raise update.UpdateError(
-            "Invalid LABEL_COMPANION_PORT in companion configuration"
+            update.tr("messages.invalidLABELCOMPANIONPORTInCompanionConfiguration")
         ) from None
     args.public_url = effective["LABEL_COMPANION_PUBLIC_URL"]
     validate_network(args)
     data = (args.install_dir / effective["LABEL_COMPANION_DATA_DIR"]).resolve()
     if data == args.install_dir or data in args.install_dir.parents:
-        raise update.UpdateError("Companion data must use a dedicated state directory")
+        raise update.UpdateError(update.tr("messages.companionDataMustUseADedicatedStateDirectory"))
     result: list[str] = []
     emitted: set[str] = set()
     for index, line in enumerate(lines):
@@ -288,7 +323,9 @@ def system_dependencies(args: argparse.Namespace) -> None:
     if not args.skip_packages:
         if not shutil.which("apt-get"):
             raise update.UpdateError(
-                "Automatic packages require apt-get; provision dependencies and use --skip-packages"
+                update.tr(
+                    "messages.automaticPackagesRequireAptGetProvisionDependenciesAndUseSkipPackages"
+                )
             )
         env = {"PATH": SAFE_PATH, "DEBIAN_FRONTEND": "noninteractive"}
         run(["apt-get", "update"], env=env)
@@ -321,12 +358,14 @@ def system_dependencies(args: argparse.Namespace) -> None:
         "usermod",
     ):
         if not shutil.which(executable):
-            raise update.UpdateError(f"Missing required command: {executable}")
+            raise update.UpdateError(
+                update.tr("progress.missingInstallCommand", command=executable)
+            )
     version = run(["node", "--version"], capture=True).lstrip("v").split(".")
     numbers = tuple(int(part) for part in version[:3])
     if not ((20, 19, 0) <= numbers < (21, 0, 0) or numbers >= (22, 12, 0)):
         raise update.UpdateError(
-            "The UI requires Node 20.19+ (20.x) or Node 22.12+. Install a supported Node and retry."
+            update.tr("messages.theUIRequiresNode201920XOrNode2212InstallASupportedNodeAndRetry")
         )
 
 
@@ -353,7 +392,7 @@ def service_identity() -> pwd.struct_passwd:
         )
         user = pwd.getpwnam("labels")
     if user.pw_uid == 0:
-        raise update.UpdateError("The labels service account must not be root")
+        raise update.UpdateError(update.tr("messages.theLabelsServiceAccountMustNotBeRoot"))
     run(["usermod", "--append", "--groups", "labelprinter", "labels"])
     return user
 
@@ -382,13 +421,15 @@ def install(args: argparse.Namespace) -> None:
     target = args.install_dir
     if target.exists() or target.is_symlink():
         raise update.UpdateError(
-            "Installation directory already exists; use scripts/update.py for an existing service"
+            update.tr(
+                "messages.installationDirectoryAlreadyExistsUseScriptsUpdatePyForAnExistingService"
+            )
         )
     companion_config = None
     companion_data = None
     if args.role == "companion" and (args.companion_config or not args.check):
         if not args.companion_config or not args.companion_config.is_file():
-            raise update.UpdateError("A readable --companion-config file is required")
+            raise update.UpdateError(update.tr("messages.aReadableCompanionConfigFileIsRequired"))
         companion_config, companion_data = companion_configuration(args)
     database_url = None
     if args.database_url_file:
@@ -402,48 +443,69 @@ def install(args: argparse.Namespace) -> None:
             or any(char.isspace() for char in database_url)
         ):
             raise update.UpdateError(
-                "The database URL file must contain a mariadb+pymysql URL with an existing database name"
+                update.tr(
+                    "messages.theDatabaseURLFileMustContainAMariadbPymysqlURLWithAnExistingDatabaseName"
+                )
             )
     repository = args.repository
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
-        raise update.UpdateError("Repository must be GitHub OWNER/REPOSITORY")
+        raise update.UpdateError(update.tr("messages.repositoryMustBeGitHubOWNERREPOSITORY"))
     if args.github_token_file:
         args.github_token_file = args.github_token_file.resolve()
     token = update.installation_token(args)
     ref = args.ref or update.latest_release(repository, token)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", ref):
-        raise update.UpdateError("Unsupported release tag name")
+        raise update.UpdateError(update.tr("messages.unsupportedReleaseTagName"))
     print(
-        f"Install {repository} at {ref} into {target}; mode native; role {args.role}; service {SERVICE}; bind {args.host}:{args.port}"
+        update.tr(
+            "progress.installSelection",
+            repository=repository,
+            ref=ref,
+            target=target,
+            role=args.role,
+            service=SERVICE,
+            host=args.host,
+            port=args.port,
+        )
     )
-    print("Database: " + ("MariaDB" if database_url else "SQLite"))
+    print(update.tr("progress.database", database="MariaDB" if database_url else "SQLite"))
     print(
-        f"Plan: {'use existing system packages' if args.skip_packages else 'install system packages'}; clone GitHub; create service user and USB group; build {args.role}; initialize database; install udev/systemd; enable"
-        + ("; leave stopped." if args.no_start else "; start; check health.")
+        update.tr(
+            "progress.installPlan",
+            role=args.role,
+            packages=update.tr(
+                "progress.existingPackages" if args.skip_packages else "progress.installPackages"
+            ),
+            start=update.tr("progress.leaveStopped" if args.no_start else "progress.startHealth"),
+        )
     )
     if args.check:
         return
     if sys.platform != "linux" or os.geteuid() != 0 or not SYSTEMD_DIRECTORY.is_dir():
         raise update.UpdateError(
-            "Run with sudo on a Linux host running systemd (Debian 13+ recommended)"
+            update.tr("messages.runWithSudoOnALinuxHostRunningSystemdDebian13Recommended")
         )
     unit_path = UNIT_DIRECTORY / SERVICE
     if unit_path.exists() or unit_path.is_symlink():
         raise update.UpdateError(
-            "labels.service already exists; refusing to replace an existing service"
+            update.tr("messages.labelsServiceAlreadyExistsRefusingToReplaceAnExistingService")
         )
     if (
         run(["systemctl", "show", SERVICE, "--property=LoadState", "--value"], capture=True)
         != "not-found"
     ):
-        raise update.UpdateError("labels.service is already installed; use the updater")
+        raise update.UpdateError(update.tr("messages.labelsServiceIsAlreadyInstalledUseTheUpdater"))
     rule_path = RULE_DIRECTORY / "70-label-printer.rules"
     rule = (SOURCE / "deploy/70-label-printer.rules").read_text()
     if rule_path.is_symlink() or (rule_path.exists() and rule_path.read_text() != rule):
         raise update.UpdateError(
-            "An existing USB rule differs; preserve it and resolve the configuration before installation"
+            update.tr(
+                "messages.anExistingUSBRuleDiffersPreserveItAndResolveTheConfigurationBeforeInstallation"
+            )
         )
-    if not update.confirm_operation(f"Install {args.role} server at {ref}?", yes=args.yes):
+    if not update.confirm_operation(
+        update.tr("progress.confirmInstall", role=args.role, ref=ref), yes=args.yes
+    ):
         return
     os.umask(0o022)
     system_dependencies(args)
@@ -473,13 +535,17 @@ def install(args: argparse.Namespace) -> None:
             "frontend/package-lock.json",
         ):
             if not (target / filename).is_file():
-                raise update.UpdateError(f"Selected GitHub version is missing {filename}")
+                raise update.UpdateError(
+                    update.tr("progress.missingReleaseFile", filename=filename)
+                )
         if (
             companion_data is not None
             and companion_data.is_relative_to(target)
             and companion_data.exists()
         ):
-            raise update.UpdateError("Companion state directory overlaps the installed source")
+            raise update.UpdateError(
+                update.tr("messages.companionStateDirectoryOverlapsTheInstalledSource")
+            )
         # Fresh state only: never import the caller's .env or database.
         data = target / "data"
         data.mkdir(mode=0o700)
@@ -546,7 +612,7 @@ def install(args: argparse.Namespace) -> None:
             else "frontend/dist/index.html"
         )
         if not (target / entry).is_file():
-            raise update.UpdateError(f"Frontend build did not produce {entry}")
+            raise update.UpdateError(update.tr("progress.missingFrontend", entry=entry))
         if args.role == "companion":
             as_user(
                 [
@@ -570,7 +636,7 @@ def install(args: argparse.Namespace) -> None:
                     ]
                 )
         if data.is_symlink() or (target / config_file).is_symlink():
-            raise update.UpdateError("Runtime configuration must not be a symlink")
+            raise update.UpdateError(update.tr("messages.runtimeConfigurationMustNotBeASymlink"))
         # Service owns state; installed application code is read-only to it.
         own_tree(target, 0, user.pw_gid, skip_data=True, state_directory=companion_data)
         os.chmod(target / config_file, 0o640)
@@ -605,19 +671,20 @@ def install(args: argparse.Namespace) -> None:
             run(["systemctl", "stop", SERVICE])
             run(["systemctl", "disable", SERVICE])
         print(
-            f"Installation failed. Files and any new state are retained at {target}; no existing deployment was replaced.",
+            update.tr("progress.installRetained", target=target),
             file=sys.stderr,
         )
         raise
     if args.role == "companion":
-        print(
-            f"Installed companion as {SERVICE}. Open {args.public_url}; unlock and add printers.\nLogs: journalctl -u {SERVICE} -f"
-        )
+        print(update.tr("progress.companionInstalled", service=SERVICE, url=args.public_url))
         return
     print(
-        f"Installed {SERVICE}. Open {args.public_url}; configure printers in the web UI.\n"
-        f"First-run setup token: {data / 'auth-setup-token'} (created when the service starts).\n"
-        f"Logs: journalctl -u {SERVICE} -f"
+        update.tr(
+            "progress.mainInstalled",
+            service=SERVICE,
+            url=args.public_url,
+            tokenFile=data / "auth-setup-token",
+        )
     )
 
 
@@ -628,14 +695,16 @@ def main() -> None:
             install(args)
         else:
             if sys.platform != "linux" or os.geteuid() != 0:
-                raise update.UpdateError("Run with sudo on a Linux host running systemd")
+                raise update.UpdateError(
+                    update.tr("messages.runWithSudoOnALinuxHostRunningSystemd")
+                )
             # Serialize fresh installs of the fixed service identity.
             with update.update_lock(Path("/run/lock/label-server-install.lock")):
                 install(args)
     except (update.UpdateError, OSError, ValueError) as error:
-        raise SystemExit(f"Install failed: {error}") from error
+        raise SystemExit(update.tr("progress.installFailed", error=error)) from error
     except KeyboardInterrupt:
-        print("Installation interrupted", file=sys.stderr)
+        print(update.tr("messages.installationInterrupted"), file=sys.stderr)
         raise SystemExit(130) from None
 
 

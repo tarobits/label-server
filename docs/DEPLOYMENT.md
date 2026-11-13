@@ -49,6 +49,14 @@ setup asks for a private configuration file instead of displaying credentials.
 Supplying any command-line options skips the wizard; use `--yes` as well for
 unattended installation. Both root shell launchers forward all options unchanged.
 
+Installer and updater messages follow the terminal language (`LC_ALL`, then
+`LC_MESSAGES`, then `LANG`). English and German are supported; other locales use
+English. Use `--language en` or `--language de` to override the terminal language.
+
+For the companion interface, set `LABEL_COMPANION_DEFAULT_LANGUAGE=en` or `de`
+in `.env.companion`. A local language choice overrides this default while signed
+out; after authentication, the user's account language takes precedence.
+
 The default version is GitHub's latest published stable release. No release or
 missing repository access stops installation. To install a particular release
 or the current branch, pass `--ref RELEASE_TAG` or `--ref main`. The install fetches
@@ -458,8 +466,11 @@ automatic fallback to a local build. `--check` shows the plan without downloadin
 or verifying the asset. Public release downloads require no GitHub token; private
 repositories use the existing updater credential settings.
 
-If the selected release contains a different `scripts/update.py`, the updater
-backs up the old updater and atomically replaces the updater being run.
+If the selected release contains a different `scripts/update.py` or deployment-language bundle, the updater
+backs up the old updater and replaces the updater being run. Its separate
+`lang/deployment.json` language bundle is validated, backed up and replaced too;
+if replacement fails, the previous pair is restored. The application's English
+and German catalogs remain untouched until the normal update.
 It exits before shutdown, frontend downloads, dependency installation,
 or migrations. Rerun `update.sh` with the same options to continue. The printed
 `update.sh` command also pins the selected tag and resolved runtime mode.
